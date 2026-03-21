@@ -1,82 +1,110 @@
-﻿# Messenger App
+# Messenger App
 
-Production-style messenger MVP with a `Java` backend and a `TypeScript` web client.
+Production-style MVP мессенджера с `Java` backend, `TypeScript` web-клиентом, realtime-доставкой сообщений и Docker-first процессом разработки.
 
-## Stack
+## Что уже есть
 
-- `backend`: Java 17, Spring Boot, Spring Security, Spring WebSocket, JPA, Flyway
+- аутентификация на JWT
+- direct chat один на один
+- API для истории сообщений
+- realtime-доставка через WebSocket/STOMP
+- миграции PostgreSQL через Flyway
+- запуск всего стека через Docker Compose
+
+## Стек
+
+- `backend`: Java 17, Spring Boot, Spring Security, Spring WebSocket, Spring Data JPA, Flyway
 - `database`: PostgreSQL
-- `cache/realtime-ready`: Redis
-- `web`: React 19, TypeScript, Vite, TanStack Query, STOMP over SockJS
-- `ops`: Docker Compose, environment-based configuration
+- `cache / scale-out-ready`: Redis
+- `web`: React 19, TypeScript, Vite, TanStack Query, SockJS + STOMP
+- `ops`: Docker Compose, nginx reverse proxy
 
-## What is implemented
+## Архитектура
 
-- registration and login with JWT access tokens
-- direct chats between users
-- message history API
-- realtime message delivery over WebSocket/STOMP
-- Flyway database migrations
-- structured project layout and environment configuration
+- `backend` отдает REST API для auth, создания чатов и загрузки истории сообщений
+- `backend` рассылает новые сообщения подписчикам чата через WebSocket/STOMP
+- `web` в Docker работает через nginx и проксирует запросы в backend
+- `postgres` хранит пользователей, чаты, участников и сообщения
+- `redis` уже подключен как задел под presence, fan-out и дальнейшее масштабирование
 
-## Repository layout
+Подробности по архитектуре: [docs/architecture.md](docs/architecture.md)
 
-- `backend` - Spring Boot API and realtime backend
-- `web` - React web client
-- `docs` - architecture notes
+## Структура репозитория
 
-## Local run
+```text
+.
+|-- backend/
+|   |-- src/main/java/com/north/messenger/
+|   |-- src/main/resources/
+|   |-- src/test/java/
+|   |-- Dockerfile
+|   `-- pom.xml
+|-- web/
+|   |-- src/
+|   |-- nginx/
+|   |-- Dockerfile
+|   `-- package.json
+|-- docs/
+|   `-- architecture.md
+|-- docker-compose.yml
+`-- README.md
+```
 
-### Requirements
+## Быстрый старт
+
+### Требования
 
 - Docker Desktop
 
-### Full stack in Docker
+### Запуск всего стека
 
 ```bash
 docker compose up --build
 ```
 
-After startup:
+### Что откроется после старта
 
-- web app: `http://localhost:3000`
+- web-приложение: `http://localhost:3000`
 - backend API: `http://localhost:8080`
-- backend health: `http://localhost:8080/actuator/health`
+- healthcheck backend: `http://localhost:8080/actuator/health`
 
-Stop everything:
+### Остановка
 
 ```bash
 docker compose down
 ```
 
-Reset database and Redis volumes too:
+### Полный сброс БД и Redis volume
 
 ```bash
 docker compose down -v
 ```
 
-### Local development without Docker for app processes
+## Локальная разработка без Docker для backend и web
 
-Requirements for this mode:
+Этот режим нужен, если Docker используется только для инфраструктуры, а backend и web ты запускаешь локально.
+
+### Требования
 
 - Java 17+
 - Maven 3.9+
 - Node.js 22+
+- Docker Desktop
 
-Infrastructure only:
+### Поднять только инфраструктуру
 
 ```bash
 docker compose up -d postgres redis
 ```
 
-Backend:
+### Запуск backend
 
 ```bash
 cd backend
 mvn spring-boot:run
 ```
 
-Web:
+### Запуск web-клиента
 
 ```bash
 cd web
@@ -84,16 +112,107 @@ npm install
 npm run dev
 ```
 
-The Vite client expects the backend at `http://localhost:8080` and Vite at `http://localhost:5173`.
+В этом режиме адреса будут такими:
 
-## Environment
+- backend: `http://localhost:8080`
+- Vite dev server: `http://localhost:5173`
 
-Use values from `.env.example` in your local environment or preferred secret manager.
+## Проверка работы
 
-## Next production steps
+После запуска проверь полный сценарий:
 
-- move from the simple in-process STOMP broker to a clustered broker or dedicated realtime gateway
-- add refresh tokens and device/session management
-- add read receipts, typing indicators, attachments and moderation tooling
-- introduce Redis-backed presence and message fan-out for multi-node deployment
-- add integration tests with Testcontainers in CI
+1. Открой `http://localhost:3000`
+2. Зарегистрируй `user1`
+3. Открой второе окно браузера в режиме инкогнито
+4. Зарегистрируй `user2`
+5. В аккаунте `user1` создай direct chat по username `user2`
+6. Отправь сообщение от `user1`
+7. Ответь из `user2`
+8. Убедись, что сообщения появляются без перезагрузки страницы
+
+Проверка health endpoint:
+
+```bash
+curl http://localhost:8080/actuator/health
+```
+
+Ожидаемый ответ:
+
+```json
+{"status":"UP"}
+```
+
+## Переменные окружения
+
+Базовые значения описаны в [.env.example](.env.example).
+
+Основные переменные:
+
+| Переменная | Назначение | Значение по умолчанию |
+|---|---|---|
+| `SERVER_PORT` | HTTP-порт backend | `8080` |
+| `DB_URL` | JDBC-строка подключения к PostgreSQL | `jdbc:postgresql://localhost:5432/messenger` |
+| `DB_USERNAME` | пользователь PostgreSQL | `messenger` |
+| `DB_PASSWORD` | пароль PostgreSQL | `messenger` |
+| `APP_CORS_ALLOWED_ORIGINS` | разрешенные web-origin для backend | `http://localhost:5173` |
+| `APP_JWT_SECRET` | секрет для подписи JWT | локальный demo secret |
+| `VITE_API_URL` | базовый URL API для web-клиента | `http://localhost:8080` в локальной разработке |
+| `VITE_WS_URL` | базовый URL websocket-подключения | по умолчанию берется из `VITE_API_URL` |
+
+## Полезные команды
+
+Проверить контейнеры:
+
+```bash
+docker compose ps
+```
+
+Смотреть логи backend:
+
+```bash
+docker compose logs -f backend
+```
+
+Смотреть логи web:
+
+```bash
+docker compose logs -f web
+```
+
+Пересобрать только backend:
+
+```bash
+docker compose build --no-cache backend
+```
+
+## Текущий scope
+
+Сейчас в репозитории реализован сильный MVP, а не полностью масштабированная production-система.
+
+Уже включено:
+
+- auth
+- direct chats
+- история сообщений
+- realtime-доставка
+- Dockerized local startup
+
+Пока не реализовано:
+
+- group chats
+- read receipts
+- typing indicators
+- attachments
+- push notifications
+- refresh tokens и управление сессиями
+- распределенный fan-out сообщений
+
+## Дальнейшие шаги для production
+
+- вынести in-process STOMP broker в отдельный broker или websocket gateway
+- добавить refresh tokens с rotation и явным session revocation
+- добавить read receipts и unread counters
+- добавить typing indicators и presence через Redis
+- добавить вложения через object storage
+- добавить интеграционные тесты с Testcontainers и CI
+- добавить observability, метрики и трассировку запросов
