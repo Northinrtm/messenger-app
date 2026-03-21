@@ -1,0 +1,13 @@
+.idea/
+.vscode/
+.settings/
+.classpath
+.project
+.env
+.env.local
+backend/target/
+web/node_modules/
+web/dist/
+*.log
+*.iml
+
