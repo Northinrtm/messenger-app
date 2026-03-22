@@ -22,12 +22,13 @@ This repository is a production-style MVP for a direct-message messenger:
 ## Realtime flow
 
 1. Client authenticates through `POST /api/auth/register` or `POST /api/auth/login`.
-2. Client keeps the access token locally.
-3. HTTP API uses the JWT filter for protected endpoints.
-4. WebSocket/STOMP connects to `/ws` with `Authorization: Bearer <token>`.
-5. The channel interceptor validates the token on `CONNECT` and validates membership on `SUBSCRIBE`.
-6. Sending a message goes through `POST /api/chats/{chatId}/messages`.
-7. Backend persists the message and broadcasts it to `/topic/chats.{chatId}`.
+2. Backend issues an access token plus a rotatable refresh token bound to a stored user session.
+3. Client keeps the session locally and refreshes the access token before expiry.
+4. HTTP API uses the JWT filter for protected endpoints.
+5. WebSocket/STOMP connects to `/ws` with `Authorization: Bearer <token>`.
+6. The channel interceptor validates the token on `CONNECT` and validates membership on `SUBSCRIBE`.
+7. Sending a message goes through `POST /api/chats/{chatId}/messages`.
+8. Backend persists the message and broadcasts it to `/topic/chats.{chatId}`.
 
 ## Why the backend is a modular monolith
 
@@ -43,9 +44,8 @@ The scaling boundary is still clear: auth, chat metadata, realtime fan-out, noti
 ## Production hardening path
 
 - move the simple broker to a dedicated broker or websocket cluster
-- add refresh tokens with rotation and explicit session revocation
 - add Redis-backed presence, typing indicators and fan-out
 - add Kafka or NATS for async delivery pipelines
 - add object storage for attachments
 - add message read state, unread counters and moderation events
-- add integration tests with Testcontainers and CI pipelines
+- expand integration tests with Testcontainers and enforce CI pipelines

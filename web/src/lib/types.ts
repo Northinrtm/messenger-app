@@ -13,6 +13,10 @@ export type Participant = {
 
 export type AuthResponse = {
   token: string;
+  tokenExpiresAt: string;
+  refreshToken: string;
+  refreshTokenExpiresAt: string;
+  sessionId: string;
   user: UserProfile;
 };
 
@@ -34,6 +38,13 @@ export type ChatMessage = {
   createdAt: string;
 };
 
+export type UserSessionInfo = {
+  id: string;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt: string;
+};
+
 export type ApiErrorResponse = {
   timestamp: string;
   status: number;
@@ -41,4 +52,3 @@ export type ApiErrorResponse = {
   path: string;
   details: string[];
 };
-

@@ -21,11 +21,15 @@ public class JwtService {
         this.signingKey = Keys.hmacShaKeyFor(Decoders.BASE64.decode(jwtProperties.secret()));
     }
 
-    public String createAccessToken(UserAccount user) {
+    public IssuedAccessToken issueAccessToken(UserAccount user) {
         Instant issuedAt = Instant.now();
-        Instant expiresAt = issuedAt.plus(jwtProperties.accessTokenTtl());
+        return issueAccessToken(user, issuedAt);
+    }
 
-        return Jwts.builder()
+    public IssuedAccessToken issueAccessToken(UserAccount user, Instant issuedAt) {
+        Instant expiresAt = accessTokenExpiresAt(issuedAt);
+
+        String token = Jwts.builder()
                 .subject(user.getUsername())
                 .issuer(jwtProperties.issuer())
                 .issuedAt(Date.from(issuedAt))
@@ -34,6 +38,12 @@ public class JwtService {
                 .claim("userId", user.getId().toString())
                 .signWith(signingKey)
                 .compact();
+
+        return new IssuedAccessToken(token, expiresAt);
+    }
+
+    public String createAccessToken(UserAccount user) {
+        return issueAccessToken(user).token();
     }
 
     public String extractUsername(String token) {
@@ -52,5 +62,18 @@ public class JwtService {
                 .parseSignedClaims(token)
                 .getPayload();
     }
-}
 
+    public Instant accessTokenExpiresAt(Instant issuedAt) {
+        return issuedAt.plus(jwtProperties.accessTokenTtl());
+    }
+
+    public Instant refreshTokenExpiresAt(Instant issuedAt) {
+        return issuedAt.plus(jwtProperties.refreshTokenTtl());
+    }
+
+    public record IssuedAccessToken(
+            String token,
+            Instant expiresAt
+    ) {
+    }
+}

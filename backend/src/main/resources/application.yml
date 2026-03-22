@@ -36,9 +36,9 @@ app:
   jwt:
     issuer: north-messenger
     access-token-ttl: PT12H
+    refresh-token-ttl: ${APP_JWT_REFRESH_TOKEN_TTL:P30D}
     secret: ${APP_JWT_SECRET:bWVzc2VuZ2VyLWFwcC1kZW1vLXNlY3JldC1rZXktZm9yLWxvY2FsLWRldmVsb3BtZW50LXRoaXMtbXVzdC1iZS1yZXBsYWNlZA==}
 
 logging:
   level:
     org.springframework.web.socket: INFO
-

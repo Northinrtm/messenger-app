@@ -15,6 +15,7 @@ class JwtServiceTest {
         JwtProperties properties = new JwtProperties(
                 "bWVzc2VuZ2VyLWFwcC1kZW1vLXNlY3JldC1rZXktZm9yLWxvY2FsLWRldmVsb3BtZW50LXRoaXMtbXVzdC1iZS1yZXBsYWNlZA==",
                 Duration.ofHours(12),
+                Duration.ofDays(30),
                 "north-messenger"
         );
         JwtService jwtService = new JwtService(properties);

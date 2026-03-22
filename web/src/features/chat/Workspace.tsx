@@ -1,4 +1,6 @@
 import {
+  type InfiniteData,
+  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
@@ -17,6 +19,9 @@ import {
   createGroupChat,
   getChats,
   getMessages,
+  getSessions,
+  logout,
+  revokeSession,
   sendMessage,
 } from "../../lib/api";
 import { subscribeToChats } from "../../lib/realtime";
@@ -24,7 +29,17 @@ import type {
   AuthResponse,
   ChatMessage,
   ChatSummary,
+  UserSessionInfo,
 } from "../../lib/types";
+import {
+  flattenMessagePages,
+  initials,
+  mergeMessagePages,
+  MESSAGE_PAGE_SIZE,
+  parseUsernames,
+  upsertChat,
+  updateChatPreview,
+} from "./chatState";
 
 type Props = {
   session: AuthResponse;
@@ -40,6 +55,11 @@ export function Workspace({ session, onSessionChange }: Props) {
   const [groupParticipants, setGroupParticipants] = useState("");
   const [draft, setDraft] = useState("");
   const messageStreamRef = useRef<HTMLDivElement | null>(null);
+  const pendingOlderScrollOffsetRef = useRef<number | null>(null);
+  const viewportSnapshotRef = useRef<{ chatId: string | null; lastMessageId: string | null }>({
+    chatId: null,
+    lastMessageId: null,
+  });
   const deferredSearch = useDeferredValue(search);
 
   const chatsQuery = useQuery({
@@ -49,7 +69,15 @@ export function Workspace({ session, onSessionChange }: Props) {
     refetchIntervalInBackground: true,
   });
 
+  const sessionsQuery = useQuery({
+    queryKey: ["sessions", session.token],
+    queryFn: () => getSessions(session.token),
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: true,
+  });
+
   const chats = chatsQuery.data ?? [];
+  const sessions = sessionsQuery.data ?? [];
   const chatIds = chats.map((chat) => chat.id).sort();
   const chatIdsKey = chatIds.join(",");
   const normalizedSearch = deferredSearch.trim().toLowerCase();
@@ -69,20 +97,22 @@ export function Workspace({ session, onSessionChange }: Props) {
     chats[0] ??
     null;
 
-  const messagesQuery = useQuery({
+  const messagesQuery = useInfiniteQuery({
     queryKey: ["messages", session.token, activeChat?.id],
-    queryFn: () => getMessages(session.token, activeChat!.id),
+    queryFn: ({ pageParam }) =>
+      getMessages(session.token, activeChat!.id, {
+        before: pageParam,
+        limit: MESSAGE_PAGE_SIZE,
+      }),
     enabled: Boolean(activeChat?.id),
-    refetchInterval: activeChat?.id ? 2000 : false,
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) =>
+      lastPage.length === MESSAGE_PAGE_SIZE ? lastPage[0]?.createdAt ?? undefined : undefined,
+    refetchInterval: activeChat?.id ? 5000 : false,
     refetchIntervalInBackground: true,
   });
-  const messages = messagesQuery.data ?? [];
-
-  useEffect(() => {
-    if (chatsQuery.error instanceof ApiError && chatsQuery.error.status === 401) {
-      onSessionChange(null);
-    }
-  }, [chatsQuery.error, onSessionChange]);
+  const messages = flattenMessagePages(messagesQuery.data?.pages);
+  const lastMessageId = messages[messages.length - 1]?.id ?? null;
 
   useEffect(() => {
     if (!chats.length) {
@@ -100,9 +130,9 @@ export function Workspace({ session, onSessionChange }: Props) {
   }, [activeChatId, chats]);
 
   const handleRealtimeMessage = useEffectEvent((message: ChatMessage) => {
-    queryClient.setQueryData<ChatMessage[]>(
+    queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
       ["messages", session.token, message.chatId],
-      (current) => mergeMessages(current, message)
+      (current) => mergeMessagePages(current, message)
     );
     queryClient.setQueryData<ChatSummary[]>(
       ["chats", session.token],
@@ -125,7 +155,7 @@ export function Workspace({ session, onSessionChange }: Props) {
       onChat: handleRealtimeChat,
       onMessage: handleRealtimeMessage,
     });
-  }, [chatIdsKey, session.token]);
+  }, [chatIdsKey, handleRealtimeChat, handleRealtimeMessage, session.token]);
 
   useEffect(() => {
     const container = messageStreamRef.current;
@@ -133,8 +163,29 @@ export function Workspace({ session, onSessionChange }: Props) {
       return;
     }
 
-    container.scrollTop = container.scrollHeight;
-  }, [activeChat?.id, messages.length]);
+    const pendingOlderOffset = pendingOlderScrollOffsetRef.current;
+    if (pendingOlderOffset !== null) {
+      container.scrollTop = container.scrollHeight - pendingOlderOffset;
+      pendingOlderScrollOffsetRef.current = null;
+      viewportSnapshotRef.current = {
+        chatId: activeChat?.id ?? null,
+        lastMessageId,
+      };
+      return;
+    }
+
+    const previous = viewportSnapshotRef.current;
+    const chatChanged = previous.chatId !== (activeChat?.id ?? null);
+    const tailChanged = previous.lastMessageId !== lastMessageId;
+    if (chatChanged || tailChanged) {
+      container.scrollTop = container.scrollHeight;
+    }
+
+    viewportSnapshotRef.current = {
+      chatId: activeChat?.id ?? null,
+      lastMessageId,
+    };
+  }, [activeChat?.id, lastMessageId, messages.length]);
 
   const createChatMutation = useMutation({
     mutationFn: (participantUsername: string) =>
@@ -171,9 +222,9 @@ export function Workspace({ session, onSessionChange }: Props) {
     mutationFn: (content: string) => sendMessage(session.token, activeChat!.id, content),
     onSuccess: (message) => {
       setDraft("");
-      queryClient.setQueryData<ChatMessage[]>(
+      queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
         ["messages", session.token, message.chatId],
-        (current) => mergeMessages(current, message)
+        (current) => mergeMessagePages(current, message)
       );
       queryClient.setQueryData<ChatSummary[]>(
         ["chats", session.token],
@@ -182,18 +233,57 @@ export function Workspace({ session, onSessionChange }: Props) {
     },
   });
 
+  const signOutMutation = useMutation({
+    mutationFn: () => logout(session.refreshToken),
+    onSettled: () => {
+      onSessionChange(null);
+    },
+  });
+
+  const revokeSessionMutation = useMutation({
+    mutationFn: (sessionId: string) => revokeSession(session.token, sessionId),
+    onSuccess: (_, sessionId) => {
+      queryClient.setQueryData<UserSessionInfo[]>(
+        ["sessions", session.token],
+        (current) => current?.filter((item) => item.id !== sessionId) ?? []
+      );
+    },
+  });
+
   const requestError = [
     createChatMutation.error,
     createGroupMutation.error,
     sendMessageMutation.error,
+    signOutMutation.error,
+    revokeSessionMutation.error,
     chatsQuery.error,
+    sessionsQuery.error,
     messagesQuery.error,
   ]
     .find(Boolean);
+
+  useEffect(() => {
+    if (requestError instanceof ApiError && requestError.status === 401) {
+      onSessionChange(null);
+    }
+  }, [onSessionChange, requestError]);
+
   const errorText =
     requestError instanceof ApiError
       ? [requestError.message, ...requestError.details].filter(Boolean).join(". ")
       : null;
+
+  const loadOlderMessages = () => {
+    if (!messagesQuery.hasNextPage || messagesQuery.isFetchingNextPage) {
+      return;
+    }
+
+    const container = messageStreamRef.current;
+    pendingOlderScrollOffsetRef.current = container
+      ? container.scrollHeight - container.scrollTop
+      : 0;
+    void messagesQuery.fetchNextPage();
+  };
 
   return (
     <main className="workspace-shell">
@@ -207,10 +297,45 @@ export function Workspace({ session, onSessionChange }: Props) {
           <button
             type="button"
             className="ghost-button"
-            onClick={() => onSessionChange(null)}
+            onClick={() => signOutMutation.mutate()}
+            disabled={signOutMutation.isPending}
           >
-            Sign out
+            {signOutMutation.isPending ? "Signing out..." : "Sign out"}
           </button>
+        </div>
+
+        <div className="sidebar-card">
+          <div className="section-title">Sessions</div>
+          <div className="session-list">
+            {sessions.length === 0 ? (
+              <div className="empty-list">Only the current session is active.</div>
+            ) : (
+              sessions.map((item) => {
+                const current = item.id === session.sessionId;
+                return (
+                  <div key={item.id} className="session-row">
+                    <div className="session-copy">
+                      <strong>{current ? "Current session" : "Active session"}</strong>
+                      <span>Used {formatSessionTime(item.lastUsedAt)}</span>
+                      <span>Expires {formatSessionTime(item.expiresAt)}</span>
+                    </div>
+                    {current ? (
+                      <span className="member-pill">Current</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="ghost-button compact"
+                        disabled={revokeSessionMutation.isPending}
+                        onClick={() => revokeSessionMutation.mutate(item.id)}
+                      >
+                        Revoke
+                      </button>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
 
         <form
@@ -332,6 +457,17 @@ export function Workspace({ session, onSessionChange }: Props) {
             </header>
 
             <div className="message-stream" ref={messageStreamRef}>
+              {messagesQuery.hasNextPage ? (
+                <button
+                  type="button"
+                  className="ghost-button history-button"
+                  onClick={loadOlderMessages}
+                  disabled={messagesQuery.isFetchingNextPage}
+                >
+                  {messagesQuery.isFetchingNextPage ? "Loading..." : "Load earlier messages"}
+                </button>
+              ) : null}
+
               {messages.length === 0 ? (
                 <div className="empty-state">
                   Start the conversation. The first message is delivered in realtime.
@@ -393,53 +529,6 @@ export function Workspace({ session, onSessionChange }: Props) {
   );
 }
 
-function upsertChat(current: ChatSummary[] | undefined, nextChat: ChatSummary) {
-  const list = current ?? [];
-  const withoutCurrent = list.filter((chat) => chat.id !== nextChat.id);
-  return [nextChat, ...withoutCurrent].sort((left, right) =>
-    right.updatedAt.localeCompare(left.updatedAt)
-  );
-}
-
-function updateChatPreview(current: ChatSummary[] | undefined, message: ChatMessage) {
-  if (!current) {
-    return current;
-  }
-
-  return current
-    .map((chat) =>
-      chat.id === message.chatId
-        ? {
-            ...chat,
-            lastMessage: message.content,
-            lastMessageAt: message.createdAt,
-            updatedAt: message.createdAt,
-          }
-        : chat
-    )
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
-}
-
-function mergeMessages(current: ChatMessage[] | undefined, incoming: ChatMessage) {
-  const list = current ?? [];
-  const exists = list.some((message) => message.id === incoming.id);
-  if (exists) {
-    return list;
-  }
-
-  return [...list, incoming].sort((left, right) =>
-    left.createdAt.localeCompare(right.createdAt)
-  );
-}
-
-function initials(title: string) {
-  return title
-    .split(" ")
-    .slice(0, 2)
-    .map((chunk) => chunk[0]?.toUpperCase() ?? "")
-    .join("");
-}
-
 function formatClock(value: string) {
   return new Intl.DateTimeFormat("ru-RU", {
     hour: "2-digit",
@@ -447,13 +536,11 @@ function formatClock(value: string) {
   }).format(new Date(value));
 }
 
-function parseUsernames(raw: string) {
-  return Array.from(
-    new Set(
-      raw
-        .split(/[\s,]+/)
-        .map((value) => value.trim().toLowerCase())
-        .filter(Boolean)
-    )
-  );
+function formatSessionTime(value: string) {
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
 }

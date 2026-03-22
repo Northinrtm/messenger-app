@@ -5,9 +5,11 @@
 ## Что умеет
 
 - регистрация и вход по JWT
+- refresh tokens с ротацией и отзывом активных сессий
 - direct chats один на один
 - group chats с названием и несколькими участниками
 - история сообщений по каждому чату
+- постраничная догрузка ранней истории сообщений
 - live-обновление чатов и сообщений без ручной перезагрузки страницы
 - realtime через WebSocket/STOMP
 - polling fallback на клиенте, если websocket временно недоступен
@@ -22,7 +24,6 @@
 - read receipts
 - typing indicators
 - push-уведомлений
-- refresh tokens и управления сессиями
 - end-to-end encryption
 - выделенного брокера для realtime
 
@@ -59,7 +60,7 @@
 
 - `backend` отдает REST API для регистрации, логина, создания чатов, загрузки списка диалогов и истории сообщений
 - `backend` рассылает новые события через WebSocket/STOMP
-- `web` хранит JWT-сессию локально и работает с API + realtime-каналом
+- `web` хранит access/refresh-сессию локально, автоматически обновляет access token и работает с API + realtime-каналом
 - `postgres` — основное хранилище пользователей, чатов, участников и сообщений
 - `redis` уже поднят в инфраструктуре как задел под presence, fan-out и дальнейшее масштабирование
 - `nginx` в docker-сборке отдает web-клиент и проксирует API/WebSocket на backend
@@ -98,6 +99,16 @@
 ```bash
 docker compose up --build
 ```
+
+Если Docker BuildKit в WSL падает на этапе `exporting to image` с ошибкой вида `parent snapshot ... does not exist`, это проблема локального Docker image store, а не приложения. Обычно помогает:
+
+```bash
+docker compose down --remove-orphans
+docker builder prune -af
+docker buildx prune -af
+```
+
+После этого перезапусти Docker Desktop и повтори сборку. Если ошибка остается, отключи в Docker Desktop опцию `Use containerd for pulling and storing images`.
 
 ### Что будет доступно
 
@@ -195,6 +206,7 @@ curl http://localhost:8080/actuator/health
 | `DB_PASSWORD` | пароль PostgreSQL | `messenger` |
 | `APP_CORS_ALLOWED_ORIGINS` | разрешенные origin для backend | `http://localhost:5173` |
 | `APP_JWT_SECRET` | секрет подписи JWT | demo secret для локальной разработки |
+| `APP_JWT_REFRESH_TOKEN_TTL` | TTL refresh token | `P30D` |
 | `VITE_API_URL` | базовый URL backend API | `http://localhost:8080` |
 | `VITE_WS_URL` | базовый URL для websocket | по умолчанию берется из `VITE_API_URL` |
 
@@ -232,6 +244,13 @@ cd web
 npm run typecheck
 ```
 
+Запустить frontend-тесты:
+
+```bash
+cd web
+npm run test:run
+```
+
 Собрать frontend:
 
 ```bash
@@ -242,7 +261,7 @@ npm run build
 ## Текущие ограничения
 
 - сообщения не шифруются end-to-end
-- access token хранится на клиенте локально
+- access token и refresh token хранятся на клиенте локально
 - Redis пока не участвует в основном message flow
 - используется встроенный in-process STOMP broker, а не отдельный realtime cluster
 
@@ -251,7 +270,6 @@ npm run build
 - read receipts и unread counters
 - typing indicators и presence
 - вложения через object storage
-- refresh tokens и отзыв сессий
 - observability, метрики и tracing
 - вынос realtime в отдельный broker или gateway
 - интеграционные тесты с Testcontainers и CI
