@@ -45,6 +45,11 @@ export type UserSessionInfo = {
   expiresAt: string;
 };
 
+export type SessionEvent = {
+  type: "SESSION_REVOKED";
+  sessionId: string;
+};
+
 export type ApiErrorResponse = {
   timestamp: string;
   status: number;

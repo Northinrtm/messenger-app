@@ -24,6 +24,7 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,17 +41,20 @@ public class AuthService {
     private final UserSessionRepository userSessionRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final ApplicationEventPublisher eventPublisher;
 
     public AuthService(
             UserAccountRepository userAccountRepository,
             UserSessionRepository userSessionRepository,
             PasswordEncoder passwordEncoder,
-            JwtService jwtService
+            JwtService jwtService,
+            ApplicationEventPublisher eventPublisher
     ) {
         this.userAccountRepository = userAccountRepository;
         this.userSessionRepository = userSessionRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
@@ -73,7 +77,8 @@ public class AuthService {
 
     @Transactional
     public AuthResponse login(LoginRequest request) {
-        UserAccount user = requireUser(request.username());
+        UserAccount user = findUserByUsername(request.username())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
         }
@@ -92,17 +97,21 @@ public class AuthService {
         findSessionByRefreshToken(request.refreshToken())
                 .filter(session -> !session.isRevoked())
                 .ifPresent(session -> {
+                    UserAccount user = userAccountRepository.findById(session.getUserId()).orElse(null);
                     session.revoke(Instant.now());
                     userSessionRepository.save(session);
+                    if (user != null) {
+                        notifySessionRevoked(user.getUsername(), session.getId());
+                    }
                 });
     }
 
     public UserProfileResponse me(String username) {
-        return toProfile(requireUser(username));
+        return toProfile(requireAuthenticatedUser(username));
     }
 
     public List<UserSessionResponse> listSessions(String username) {
-        UserAccount currentUser = requireUser(username);
+        UserAccount currentUser = requireAuthenticatedUser(username);
         Instant now = Instant.now();
 
         return userSessionRepository.findAllByUserIdAndRevokedAtIsNullOrderByLastUsedAtDesc(currentUser.getId()).stream()
@@ -113,7 +122,7 @@ public class AuthService {
 
     @Transactional
     public void revokeSession(String username, UUID sessionId) {
-        UserAccount currentUser = requireUser(username);
+        UserAccount currentUser = requireAuthenticatedUser(username);
         UserSession session = userSessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Session not found"));
 
@@ -124,13 +133,46 @@ public class AuthService {
         if (!session.isRevoked()) {
             session.revoke(Instant.now());
             userSessionRepository.save(session);
+            notifySessionRevoked(currentUser.getUsername(), session.getId());
         }
     }
 
-    public UserAccount requireUser(String username) {
-        String normalizedUsername = normalizeUsername(username);
-        return userAccountRepository.findByUsernameIgnoreCase(normalizedUsername)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
+    @Transactional
+    public Optional<AuthenticatedSession> authenticateAccessToken(String token) {
+        JwtService.AccessTokenClaims claims;
+        try {
+            claims = jwtService.readAccessToken(token);
+        } catch (RuntimeException exception) {
+            return Optional.empty();
+        }
+
+        UserAccount user = userAccountRepository.findById(claims.userId()).orElse(null);
+        UserSession session = userSessionRepository.findById(claims.sessionId()).orElse(null);
+        Instant now = Instant.now();
+
+        if (user == null || session == null || !session.isActiveAt(now) || !claims.expiresAt().isAfter(now)) {
+            return Optional.empty();
+        }
+        if (!session.getUserId().equals(user.getId()) || !user.getUsername().equals(claims.username())) {
+            return Optional.empty();
+        }
+
+        if (session.shouldTouchAt(now)) {
+            session.touch(now);
+            userSessionRepository.save(session);
+        }
+
+        return Optional.of(new AuthenticatedSession(user, session.getId()));
+    }
+
+    public UserAccount requireAuthenticatedUser(String username) {
+        return findUserByUsername(username)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authenticated user not found"));
+    }
+
+    public UserAccount requireExistingUser(String username) {
+        return findUserByUsername(username)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
     }
 
     public ParticipantResponse toParticipant(UserAccount user) {
@@ -139,7 +181,7 @@ public class AuthService {
 
     private UserAccount requireUserById(UUID userId) {
         return userAccountRepository.findById(userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authenticated user not found"));
     }
 
     private UserProfileResponse toProfile(UserAccount user) {
@@ -157,6 +199,10 @@ public class AuthService {
 
     private String normalizeUsername(String username) {
         return username.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private Optional<UserAccount> findUserByUsername(String username) {
+        return userAccountRepository.findByUsernameIgnoreCase(normalizeUsername(username));
     }
 
     private AuthResponse createSessionResponse(UserAccount user) {
@@ -189,7 +235,7 @@ public class AuthService {
             String refreshSecret,
             Instant issuedAt
     ) {
-        JwtService.IssuedAccessToken accessToken = jwtService.issueAccessToken(user, issuedAt);
+        JwtService.IssuedAccessToken accessToken = jwtService.issueAccessToken(user, session.getId(), issuedAt);
         return new AuthResponse(
                 accessToken.token(),
                 accessToken.expiresAt(),
@@ -260,6 +306,10 @@ public class AuthService {
         return new RefreshTokenId(UUID.fromString(segments[0]), segments[1]);
     }
 
+    private void notifySessionRevoked(String username, UUID sessionId) {
+        eventPublisher.publishEvent(new SessionRevokedEvent(username, sessionId));
+    }
+
     private record RefreshTokenSecret(
             String rawValue,
             String hash
@@ -269,6 +319,12 @@ public class AuthService {
     private record RefreshTokenId(
             UUID sessionId,
             String secret
+    ) {
+    }
+
+    public record AuthenticatedSession(
+            UserAccount user,
+            UUID sessionId
     ) {
     }
 }

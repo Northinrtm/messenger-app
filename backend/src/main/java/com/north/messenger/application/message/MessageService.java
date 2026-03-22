@@ -47,7 +47,7 @@ public class MessageService {
     }
 
     public List<MessageResponse> listMessages(UUID chatId, String username, Instant before, int limit) {
-        UserAccount currentUser = authService.requireUser(username);
+        UserAccount currentUser = authService.requireAuthenticatedUser(username);
         chatService.requireChatMembership(chatId, currentUser);
 
         int safeLimit = Math.max(1, Math.min(limit, 100));
@@ -71,7 +71,7 @@ public class MessageService {
 
     @Transactional
     public MessageResponse sendMessage(UUID chatId, String username, CreateMessageRequest request) {
-        UserAccount currentUser = authService.requireUser(username);
+        UserAccount currentUser = authService.requireAuthenticatedUser(username);
         chatService.requireChatMembership(chatId, currentUser);
 
         String content = request.content().trim();

@@ -7,6 +7,7 @@ import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
 import java.time.Instant;
 import java.util.Date;
+import java.util.UUID;
 import javax.crypto.SecretKey;
 import org.springframework.stereotype.Service;
 
@@ -23,10 +24,14 @@ public class JwtService {
 
     public IssuedAccessToken issueAccessToken(UserAccount user) {
         Instant issuedAt = Instant.now();
-        return issueAccessToken(user, issuedAt);
+        return issueAccessToken(user, UUID.randomUUID(), issuedAt);
     }
 
     public IssuedAccessToken issueAccessToken(UserAccount user, Instant issuedAt) {
+        return issueAccessToken(user, UUID.randomUUID(), issuedAt);
+    }
+
+    public IssuedAccessToken issueAccessToken(UserAccount user, UUID sessionId, Instant issuedAt) {
         Instant expiresAt = accessTokenExpiresAt(issuedAt);
 
         String token = Jwts.builder()
@@ -36,6 +41,7 @@ public class JwtService {
                 .expiration(Date.from(expiresAt))
                 .claim("displayName", user.getDisplayName())
                 .claim("userId", user.getId().toString())
+                .claim("sessionId", sessionId.toString())
                 .signWith(signingKey)
                 .compact();
 
@@ -46,13 +52,35 @@ public class JwtService {
         return issueAccessToken(user).token();
     }
 
+    public String createAccessToken(UserAccount user, UUID sessionId) {
+        return issueAccessToken(user, sessionId, Instant.now()).token();
+    }
+
     public String extractUsername(String token) {
-        return parseClaims(token).getSubject();
+        return readAccessToken(token).username();
+    }
+
+    public UUID extractUserId(String token) {
+        return readAccessToken(token).userId();
+    }
+
+    public UUID extractSessionId(String token) {
+        return readAccessToken(token).sessionId();
+    }
+
+    public AccessTokenClaims readAccessToken(String token) {
+        Claims claims = parseClaims(token);
+        return new AccessTokenClaims(
+                claims.getSubject(),
+                UUID.fromString(claims.get("userId", String.class)),
+                UUID.fromString(claims.get("sessionId", String.class)),
+                claims.getExpiration().toInstant()
+        );
     }
 
     public boolean isTokenValid(String token, String expectedUsername) {
-        Claims claims = parseClaims(token);
-        return expectedUsername.equals(claims.getSubject()) && claims.getExpiration().after(new Date());
+        AccessTokenClaims claims = readAccessToken(token);
+        return expectedUsername.equals(claims.username()) && claims.expiresAt().isAfter(Instant.now());
     }
 
     private Claims parseClaims(String token) {
@@ -73,6 +101,14 @@ public class JwtService {
 
     public record IssuedAccessToken(
             String token,
+            Instant expiresAt
+    ) {
+    }
+
+    public record AccessTokenClaims(
+            String username,
+            UUID userId,
+            UUID sessionId,
             Instant expiresAt
     ) {
     }

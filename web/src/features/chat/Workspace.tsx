@@ -29,6 +29,7 @@ import type {
   AuthResponse,
   ChatMessage,
   ChatSummary,
+  SessionEvent,
   UserSessionInfo,
 } from "../../lib/types";
 import {
@@ -36,6 +37,7 @@ import {
   initials,
   mergeMessagePages,
   MESSAGE_PAGE_SIZE,
+  normalizeUsername,
   parseUsernames,
   upsertChat,
   updateChatPreview,
@@ -46,6 +48,14 @@ type Props = {
   onSessionChange: (session: AuthResponse | null) => void;
 };
 
+type IncomingToast = {
+  id: string;
+  chatId: string;
+  title: string;
+  senderName: string;
+  preview: string;
+};
+
 export function Workspace({ session, onSessionChange }: Props) {
   const queryClient = useQueryClient();
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
@@ -54,8 +64,12 @@ export function Workspace({ session, onSessionChange }: Props) {
   const [groupTitle, setGroupTitle] = useState("");
   const [groupParticipants, setGroupParticipants] = useState("");
   const [draft, setDraft] = useState("");
+  const [incomingToasts, setIncomingToasts] = useState<IncomingToast[]>([]);
+  const [mobilePane, setMobilePane] = useState<"sidebar" | "conversation">("sidebar");
   const messageStreamRef = useRef<HTMLDivElement | null>(null);
   const pendingOlderScrollOffsetRef = useRef<number | null>(null);
+  const handledRealtimeMessageIdsRef = useRef(new Map<string, true>());
+  const toastTimeoutsRef = useRef(new Map<string, number>());
   const viewportSnapshotRef = useRef<{ chatId: string | null; lastMessageId: string | null }>({
     chatId: null,
     lastMessageId: null,
@@ -78,6 +92,8 @@ export function Workspace({ session, onSessionChange }: Props) {
 
   const chats = chatsQuery.data ?? [];
   const sessions = sessionsQuery.data ?? [];
+  const chatsLoading = chatsQuery.data === undefined && chatsQuery.isFetching;
+  const sessionsLoading = sessionsQuery.data === undefined && sessionsQuery.isFetching;
   const chatIds = chats.map((chat) => chat.id).sort();
   const chatIdsKey = chatIds.join(",");
   const normalizedSearch = deferredSearch.trim().toLowerCase();
@@ -92,10 +108,7 @@ export function Workspace({ session, onSessionChange }: Props) {
         );
       });
 
-  const activeChat =
-    chats.find((chat) => chat.id === activeChatId) ??
-    chats[0] ??
-    null;
+  const activeChat = chats.find((chat) => chat.id === activeChatId) ?? null;
 
   const messagesQuery = useInfiniteQuery({
     queryKey: ["messages", session.token, activeChat?.id],
@@ -112,6 +125,8 @@ export function Workspace({ session, onSessionChange }: Props) {
     refetchIntervalInBackground: true,
   });
   const messages = flattenMessagePages(messagesQuery.data?.pages);
+  const messagesLoading =
+    Boolean(activeChat?.id) && messagesQuery.data === undefined && messagesQuery.isFetching;
   const lastMessageId = messages[messages.length - 1]?.id ?? null;
 
   useEffect(() => {
@@ -122,14 +137,26 @@ export function Workspace({ session, onSessionChange }: Props) {
       return;
     }
 
-    if (!activeChatId || !chats.some((chat) => chat.id === activeChatId)) {
+    if (activeChatId && !chats.some((chat) => chat.id === activeChatId)) {
       startTransition(() => {
-        setActiveChatId(chats[0].id);
+        setActiveChatId(null);
       });
     }
   }, [activeChatId, chats]);
 
   const handleRealtimeMessage = useEffectEvent((message: ChatMessage) => {
+    if (handledRealtimeMessageIdsRef.current.has(message.id)) {
+      return;
+    }
+
+    handledRealtimeMessageIdsRef.current.set(message.id, true);
+    if (handledRealtimeMessageIdsRef.current.size > 300) {
+      const oldestMessageId = handledRealtimeMessageIdsRef.current.keys().next().value;
+      if (oldestMessageId) {
+        handledRealtimeMessageIdsRef.current.delete(oldestMessageId);
+      }
+    }
+
     queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
       ["messages", session.token, message.chatId],
       (current) => mergeMessagePages(current, message)
@@ -138,6 +165,7 @@ export function Workspace({ session, onSessionChange }: Props) {
       ["chats", session.token],
       (current) => updateChatPreview(current, message)
     );
+    showIncomingToast(message);
   });
 
   const handleRealtimeChat = useEffectEvent((chat: ChatSummary) => {
@@ -147,6 +175,12 @@ export function Workspace({ session, onSessionChange }: Props) {
     );
   });
 
+  const handleRealtimeSession = useEffectEvent((event: SessionEvent) => {
+    if (event.type === "SESSION_REVOKED" && event.sessionId === session.sessionId) {
+      onSessionChange(null);
+    }
+  });
+
   useEffect(() => {
     const subscriptionIds = chatIdsKey ? chatIdsKey.split(",") : [];
     return subscribeToChats({
@@ -154,8 +188,80 @@ export function Workspace({ session, onSessionChange }: Props) {
       token: session.token,
       onChat: handleRealtimeChat,
       onMessage: handleRealtimeMessage,
+      onSessionEvent: handleRealtimeSession,
     });
-  }, [chatIdsKey, handleRealtimeChat, handleRealtimeMessage, session.token]);
+  }, [chatIdsKey, handleRealtimeChat, handleRealtimeMessage, handleRealtimeSession, session.token]);
+
+  useEffect(() => {
+    if (!activeChatId) {
+      return;
+    }
+
+    const toastIdsToDismiss = incomingToasts
+      .filter((toast) => toast.chatId === activeChatId)
+      .map((toast) => toast.id);
+    if (!toastIdsToDismiss.length) {
+      return;
+    }
+
+    toastIdsToDismiss.forEach((toastId) => {
+      const timeoutId = toastTimeoutsRef.current.get(toastId);
+      if (timeoutId !== undefined) {
+        window.clearTimeout(timeoutId);
+        toastTimeoutsRef.current.delete(toastId);
+      }
+    });
+
+    setIncomingToasts((current) => current.filter((toast) => toast.chatId !== activeChatId));
+  }, [activeChatId, incomingToasts]);
+
+  useEffect(() => {
+    return () => {
+      toastTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
+      toastTimeoutsRef.current.clear();
+    };
+  }, []);
+
+  const dismissIncomingToast = useEffectEvent((toastId: string) => {
+    const timeoutId = toastTimeoutsRef.current.get(toastId);
+    if (timeoutId !== undefined) {
+      window.clearTimeout(timeoutId);
+      toastTimeoutsRef.current.delete(toastId);
+    }
+
+    setIncomingToasts((current) => current.filter((toast) => toast.id !== toastId));
+  });
+
+  const showIncomingToast = useEffectEvent((message: ChatMessage) => {
+    if (message.sender.id === session.user.id || message.chatId === activeChatId) {
+      return;
+    }
+
+    const chatsSnapshot = queryClient.getQueryData<ChatSummary[]>(["chats", session.token]) ?? [];
+    const chat = chatsSnapshot.find((item) => item.id === message.chatId);
+    const toastId = message.id;
+    const nextToast: IncomingToast = {
+      id: toastId,
+      chatId: message.chatId,
+      title: chat?.title ?? "New message",
+      senderName: message.sender.displayName,
+      preview: formatToastPreview(message.content),
+    };
+
+    const existingTimeoutId = toastTimeoutsRef.current.get(toastId);
+    if (existingTimeoutId !== undefined) {
+      window.clearTimeout(existingTimeoutId);
+    }
+
+    setIncomingToasts((current) =>
+      [...current.filter((toast) => toast.id !== toastId), nextToast].slice(-3)
+    );
+
+    const timeoutId = window.setTimeout(() => {
+      dismissIncomingToast(toastId);
+    }, 3000);
+    toastTimeoutsRef.current.set(toastId, timeoutId);
+  });
 
   useEffect(() => {
     const container = messageStreamRef.current;
@@ -196,6 +302,7 @@ export function Workspace({ session, onSessionChange }: Props) {
         (current) => upsertChat(current, chat)
       );
       setNewChatUsername("");
+      setMobilePane("conversation");
       startTransition(() => {
         setActiveChatId(chat.id);
       });
@@ -212,6 +319,7 @@ export function Workspace({ session, onSessionChange }: Props) {
       );
       setGroupTitle("");
       setGroupParticipants("");
+      setMobilePane("conversation");
       startTransition(() => {
         setActiveChatId(chat.id);
       });
@@ -221,7 +329,7 @@ export function Workspace({ session, onSessionChange }: Props) {
   const sendMessageMutation = useMutation({
     mutationFn: (content: string) => sendMessage(session.token, activeChat!.id, content),
     onSuccess: (message) => {
-      setDraft("");
+      setDraft((current) => (current.trim() === message.content ? "" : current));
       queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
         ["messages", session.token, message.chatId],
         (current) => mergeMessagePages(current, message)
@@ -285,8 +393,54 @@ export function Workspace({ session, onSessionChange }: Props) {
     void messagesQuery.fetchNextPage();
   };
 
+  const dialogsPanel = (
+    <aside className="dialogs-panel">
+      <div className="section-title">Dialogs</div>
+      <input
+        value={search}
+        onChange={(event) => setSearch(event.target.value)}
+        placeholder="Search"
+      />
+
+      <div className="chat-list">
+        {chatsLoading ? (
+          <div className="empty-list">Loading chats...</div>
+        ) : filteredChats.length === 0 ? (
+          <div className="empty-list">
+            {chats.length === 0
+              ? "No chats yet. Create your first conversation."
+              : "Nothing matches your search."}
+          </div>
+        ) : (
+          filteredChats.map((chat) => (
+            <button
+              type="button"
+              key={chat.id}
+              className={chat.id === activeChat?.id ? "chat-tile is-active" : "chat-tile"}
+              onClick={() => {
+                setMobilePane("conversation");
+                startTransition(() => {
+                  setActiveChatId(chat.id);
+                });
+              }}
+            >
+              <div className="avatar">{initials(chat.title)}</div>
+              <div className="chat-copy">
+                <div className="chat-line">
+                  <strong>{chat.title}</strong>
+                  <span>{formatClock(chat.updatedAt)}</span>
+                </div>
+                <p>{chat.lastMessage ?? "No messages yet"}</p>
+              </div>
+            </button>
+          ))
+        )}
+      </div>
+    </aside>
+  );
+
   return (
-    <main className="workspace-shell">
+    <main className="workspace-shell" data-mobile-pane={mobilePane}>
       <aside className="sidebar">
         <div className="sidebar-header">
           <div>
@@ -307,7 +461,9 @@ export function Workspace({ session, onSessionChange }: Props) {
         <div className="sidebar-card">
           <div className="section-title">Sessions</div>
           <div className="session-list">
-            {sessions.length === 0 ? (
+            {sessionsLoading ? (
+              <div className="empty-list">Loading active sessions...</div>
+            ) : sessions.length === 0 ? (
               <div className="empty-list">Only the current session is active.</div>
             ) : (
               sessions.map((item) => {
@@ -342,17 +498,22 @@ export function Workspace({ session, onSessionChange }: Props) {
           className="sidebar-card"
           onSubmit={(event) => {
             event.preventDefault();
-            if (!newChatUsername.trim()) {
+            const participantUsername = normalizeUsername(newChatUsername);
+            if (!participantUsername) {
               return;
             }
-            createChatMutation.mutate(newChatUsername.trim());
+            createChatMutation.mutate(participantUsername);
           }}
         >
           <div className="section-title">New direct chat</div>
           <input
             value={newChatUsername}
             onChange={(event) => setNewChatUsername(event.target.value)}
-            placeholder="Teammate username"
+            placeholder="Username, not display name"
+            autoComplete="off"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
           />
           <button
             type="submit"
@@ -385,8 +546,12 @@ export function Workspace({ session, onSessionChange }: Props) {
           <textarea
             value={groupParticipants}
             onChange={(event) => setGroupParticipants(event.target.value)}
-            placeholder="alice, bob, charlie"
+            placeholder="Usernames: alice, bob, charlie"
             rows={3}
+            autoComplete="off"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
           />
           <button
             type="submit"
@@ -397,134 +562,132 @@ export function Workspace({ session, onSessionChange }: Props) {
           </button>
         </form>
 
-        <div className="sidebar-card grow">
-          <div className="section-title">Dialogs</div>
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search"
-          />
-
-          <div className="chat-list">
-            {filteredChats.length === 0 ? (
-              <div className="empty-list">
-                {chats.length === 0
-                  ? "No chats yet. Create your first conversation."
-                  : "Nothing matches your search."}
-              </div>
-            ) : (
-              filteredChats.map((chat) => (
-                <button
-                  type="button"
-                  key={chat.id}
-                  className={chat.id === activeChat?.id ? "chat-tile is-active" : "chat-tile"}
-                  onClick={() => {
-                    startTransition(() => {
-                      setActiveChatId(chat.id);
-                    });
-                  }}
-                >
-                  <div className="avatar">{initials(chat.title)}</div>
-                  <div className="chat-copy">
-                    <div className="chat-line">
-                      <strong>{chat.title}</strong>
-                      <span>{formatClock(chat.updatedAt)}</span>
-                    </div>
-                    <p>{chat.lastMessage ?? "No messages yet"}</p>
-                  </div>
-                </button>
-              ))
-            )}
-          </div>
-        </div>
+        <button
+          type="button"
+          className="ghost-button sidebar-mobile-toggle"
+          onClick={() => setMobilePane("conversation")}
+        >
+          Open dialogs
+        </button>
       </aside>
 
       <section className="conversation">
-        {activeChat ? (
-          <>
-            <header className="conversation-header">
-              <div>
-                <div className="eyebrow">Conversation</div>
-                <h3>{activeChat.title}</h3>
-              </div>
-              <div className="member-strip">
-                {activeChat.members.map((member) => (
-                  <span key={member.id} className="member-pill">
-                    {member.displayName}
-                  </span>
-                ))}
-              </div>
-            </header>
-
-            <div className="message-stream" ref={messageStreamRef}>
-              {messagesQuery.hasNextPage ? (
-                <button
-                  type="button"
-                  className="ghost-button history-button"
-                  onClick={loadOlderMessages}
-                  disabled={messagesQuery.isFetchingNextPage}
-                >
-                  {messagesQuery.isFetchingNextPage ? "Loading..." : "Load earlier messages"}
-                </button>
-              ) : null}
-
-              {messages.length === 0 ? (
-                <div className="empty-state">
-                  Start the conversation. The first message is delivered in realtime.
+        <div className="conversation-main">
+          {activeChat ? (
+            <>
+              <header className="conversation-header">
+                <div className="conversation-heading">
+                  <button
+                    type="button"
+                    className="ghost-button compact mobile-back"
+                    onClick={() => setMobilePane("sidebar")}
+                  >
+                    Back to tools
+                  </button>
+                  <div className="eyebrow">Conversation</div>
+                  <h3>{activeChat.title}</h3>
                 </div>
-              ) : (
-                messages.map((message: ChatMessage) => {
-                  const mine = message.sender.id === session.user.id;
-                  return (
-                    <article
-                      key={message.id}
-                      className={mine ? "message-bubble is-mine" : "message-bubble"}
-                    >
-                      <div className="message-meta">
-                        <strong>{mine ? "You" : message.sender.displayName}</strong>
-                        <span>{formatClock(message.createdAt)}</span>
-                      </div>
-                      <p>{message.content}</p>
-                    </article>
-                  );
-                })
-              )}
-            </div>
+                <div className="member-strip">
+                  {activeChat.members.map((member) => (
+                    <span key={member.id} className="member-pill">
+                      {member.displayName}
+                    </span>
+                  ))}
+                </div>
+              </header>
 
-            <form
-              className="composer"
-              onSubmit={(event) => {
-                event.preventDefault();
-                const trimmed = draft.trim();
-                if (!trimmed || !activeChat) {
-                  return;
-                }
-                sendMessageMutation.mutate(trimmed);
-              }}
-            >
-              <textarea
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                placeholder="Write a message..."
-                rows={3}
-              />
-              <button
-                type="submit"
-                className="primary-button"
-                disabled={sendMessageMutation.isPending}
+              <div className="message-stream" ref={messageStreamRef}>
+                {messagesQuery.hasNextPage ? (
+                  <button
+                    type="button"
+                    className="ghost-button history-button"
+                    onClick={loadOlderMessages}
+                    disabled={messagesQuery.isFetchingNextPage}
+                  >
+                    {messagesQuery.isFetchingNextPage ? "Loading..." : "Load earlier messages"}
+                  </button>
+                ) : null}
+
+                {messagesLoading ? (
+                  <div className="empty-state">Loading messages...</div>
+                ) : messages.length === 0 ? (
+                  <div className="empty-state">
+                    Start the conversation. The first message is delivered in realtime.
+                  </div>
+                ) : (
+                  messages.map((message: ChatMessage) => {
+                    const mine = message.sender.id === session.user.id;
+                    return (
+                      <article
+                        key={message.id}
+                        className={mine ? "message-bubble is-mine" : "message-bubble"}
+                      >
+                        <div className="message-meta">
+                          <strong>{mine ? "You" : message.sender.displayName}</strong>
+                          <span>{formatClock(message.createdAt)}</span>
+                        </div>
+                        <p>{message.content}</p>
+                      </article>
+                    );
+                  })
+                )}
+              </div>
+
+              <form
+                className="composer"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const trimmed = draft.trim();
+                  if (!trimmed || !activeChat) {
+                    return;
+                  }
+                  sendMessageMutation.mutate(trimmed);
+                }}
               >
-                {sendMessageMutation.isPending ? "Sending..." : "Send"}
-              </button>
-            </form>
-          </>
-        ) : (
-          <div className="empty-state large">
-            Open your first direct chat and start messaging.
-          </div>
-        )}
+                <textarea
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  placeholder="Write a message..."
+                  rows={3}
+                />
+                <button
+                  type="submit"
+                  className="primary-button"
+                  disabled={sendMessageMutation.isPending}
+                >
+                  {sendMessageMutation.isPending ? "Sending..." : "Send"}
+                </button>
+              </form>
+            </>
+          ) : chatsLoading ? (
+            <div className="empty-state large">Loading conversations...</div>
+          ) : chats.length > 0 ? (
+            <div className="empty-state large">Select a chat from the dialogs list on the right.</div>
+          ) : (
+            <div className="empty-state large">
+              Open your first direct chat and start messaging.
+            </div>
+          )}
 
-        {errorText ? <div className="floating-error">{errorText}</div> : null}
+          {errorText ? <div className="floating-error">{errorText}</div> : null}
+        </div>
+
+        {dialogsPanel}
       </section>
+
+      {incomingToasts.length > 0 ? (
+        <aside className="toast-stack" aria-live="polite">
+          {incomingToasts.map((toast) => (
+            <article key={toast.id} className="incoming-toast">
+              <div className="incoming-toast-title">
+                <strong>{toast.title}</strong>
+                <span>{toast.senderName}</span>
+              </div>
+              <p>{toast.preview}</p>
+            </article>
+          ))}
+        </aside>
+      ) : null}
     </main>
   );
 }
@@ -543,4 +706,13 @@ function formatSessionTime(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function formatToastPreview(content: string) {
+  const trimmed = content.trim();
+  if (trimmed.length <= 120) {
+    return trimmed;
+  }
+
+  return `${trimmed.slice(0, 117)}...`;
 }

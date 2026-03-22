@@ -18,9 +18,13 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.web.server.ResponseStatusException;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -32,6 +36,7 @@ class AuthServiceTest {
     private UserSessionRepository userSessionRepository;
     private PasswordEncoder passwordEncoder;
     private JwtService jwtService;
+    private ApplicationEventPublisher eventPublisher;
     private AuthService authService;
 
     @BeforeEach
@@ -40,7 +45,14 @@ class AuthServiceTest {
         userSessionRepository = mock(UserSessionRepository.class);
         passwordEncoder = mock(PasswordEncoder.class);
         jwtService = mock(JwtService.class);
-        authService = new AuthService(userAccountRepository, userSessionRepository, passwordEncoder, jwtService);
+        eventPublisher = mock(ApplicationEventPublisher.class);
+        authService = new AuthService(
+                userAccountRepository,
+                userSessionRepository,
+                passwordEncoder,
+                jwtService,
+                eventPublisher
+        );
 
         when(userSessionRepository.save(any(UserSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(jwtService.refreshTokenExpiresAt(any(Instant.class))).thenAnswer(invocation ->
@@ -53,8 +65,8 @@ class AuthServiceTest {
         UserAccount user = userAccount("north");
         when(userAccountRepository.findByUsernameIgnoreCase("north")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("password", user.getPasswordHash())).thenReturn(true);
-        when(jwtService.issueAccessToken(eq(user), any(Instant.class))).thenAnswer(invocation -> {
-            Instant issuedAt = invocation.getArgument(1);
+        when(jwtService.issueAccessToken(eq(user), any(UUID.class), any(Instant.class))).thenAnswer(invocation -> {
+            Instant issuedAt = invocation.getArgument(2);
             return new JwtService.IssuedAccessToken("access-token", issuedAt.plus(Duration.ofHours(12)));
         });
 
@@ -64,6 +76,19 @@ class AuthServiceTest {
         assertThat(response.refreshToken()).startsWith(response.sessionId() + ".");
         assertThat(response.user().username()).isEqualTo("north");
         assertThat(response.refreshTokenExpiresAt()).isAfter(response.tokenExpiresAt());
+    }
+
+    @Test
+    void loginShouldRejectUnknownUsernameAsInvalidCredentials() {
+        when(userAccountRepository.findByUsernameIgnoreCase("north")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> authService.login(new LoginRequest("North", "password")))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(exception -> {
+                    ResponseStatusException responseStatusException = (ResponseStatusException) exception;
+                    assertThat(responseStatusException.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+                    assertThat(responseStatusException.getReason()).isEqualTo("Invalid credentials");
+                });
     }
 
     @Test
@@ -84,8 +109,8 @@ class AuthServiceTest {
 
         when(userSessionRepository.findById(sessionId)).thenReturn(Optional.of(session));
         when(userAccountRepository.findById(user.getId())).thenReturn(Optional.of(user));
-        when(jwtService.issueAccessToken(eq(user), any(Instant.class))).thenAnswer(invocation -> {
-            Instant issuedAt = invocation.getArgument(1);
+        when(jwtService.issueAccessToken(eq(user), any(UUID.class), any(Instant.class))).thenAnswer(invocation -> {
+            Instant issuedAt = invocation.getArgument(2);
             return new JwtService.IssuedAccessToken("rotated-access-token", issuedAt.plus(Duration.ofHours(12)));
         });
 
@@ -117,6 +142,82 @@ class AuthServiceTest {
         authService.revokeSession("north", session.getId());
 
         assertThat(session.getRevokedAt()).isNotNull();
+    }
+
+    @Test
+    void requireExistingUserShouldReturnNotFoundForUnknownUsername() {
+        when(userAccountRepository.findByUsernameIgnoreCase("north")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> authService.requireExistingUser("North"))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(exception -> {
+                    ResponseStatusException responseStatusException = (ResponseStatusException) exception;
+                    assertThat(responseStatusException.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+                    assertThat(responseStatusException.getReason()).isEqualTo("User not found");
+                });
+    }
+
+    @Test
+    void requireAuthenticatedUserShouldReturnUnauthorizedForUnknownUsername() {
+        when(userAccountRepository.findByUsernameIgnoreCase("north")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> authService.requireAuthenticatedUser("North"))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(exception -> {
+                    ResponseStatusException responseStatusException = (ResponseStatusException) exception;
+                    assertThat(responseStatusException.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+                    assertThat(responseStatusException.getReason()).isEqualTo("Authenticated user not found");
+                });
+    }
+
+    @Test
+    void authenticateAccessTokenShouldRejectRevokedSession() {
+        UserAccount user = userAccount("north");
+        UUID sessionId = UUID.randomUUID();
+        UserSession session = new UserSession(
+                sessionId,
+                user.getId(),
+                sha256Hex("owned-secret"),
+                Instant.now().minus(Duration.ofHours(1)),
+                Instant.now().minus(Duration.ofMinutes(5)),
+                Instant.now().plus(Duration.ofDays(1)),
+                Instant.now().minus(Duration.ofMinutes(1))
+        );
+
+        when(jwtService.extractUserId("access-token")).thenReturn(user.getId());
+        when(jwtService.extractSessionId("access-token")).thenReturn(sessionId);
+        when(jwtService.extractUsername("access-token")).thenReturn("north");
+        when(userAccountRepository.findById(user.getId())).thenReturn(Optional.of(user));
+        when(userSessionRepository.findById(sessionId)).thenReturn(Optional.of(session));
+
+        assertThat(authService.authenticateAccessToken("access-token")).isEmpty();
+    }
+
+    @Test
+    void authenticateAccessTokenShouldTouchActiveSession() {
+        UserAccount user = userAccount("north");
+        UUID sessionId = UUID.randomUUID();
+        UserSession session = new UserSession(
+                sessionId,
+                user.getId(),
+                sha256Hex("owned-secret"),
+                Instant.now().minus(Duration.ofHours(1)),
+                Instant.now().minus(Duration.ofMinutes(5)),
+                Instant.now().plus(Duration.ofDays(1)),
+                null
+        );
+
+        when(jwtService.extractUserId("access-token")).thenReturn(user.getId());
+        when(jwtService.extractSessionId("access-token")).thenReturn(sessionId);
+        when(jwtService.extractUsername("access-token")).thenReturn("north");
+        when(userAccountRepository.findById(user.getId())).thenReturn(Optional.of(user));
+        when(userSessionRepository.findById(sessionId)).thenReturn(Optional.of(session));
+
+        AuthService.AuthenticatedSession authenticatedSession = authService.authenticateAccessToken("access-token")
+                .orElseThrow();
+
+        assertThat(authenticatedSession.user().getId()).isEqualTo(user.getId());
+        assertThat(authenticatedSession.sessionId()).isEqualTo(sessionId);
     }
 
     private UserAccount userAccount(String username) {

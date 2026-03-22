@@ -59,7 +59,7 @@ public class ChatService {
     }
 
     public List<ChatSummaryResponse> listChats(String username) {
-        UserAccount currentUser = authService.requireUser(username);
+        UserAccount currentUser = authService.requireAuthenticatedUser(username);
         List<ChatParticipant> memberships = chatParticipantRepository.findAllByUserIdOrderByJoinedAtAsc(currentUser.getId());
         if (memberships.isEmpty()) {
             return List.of();
@@ -86,8 +86,8 @@ public class ChatService {
 
     @Transactional
     public ChatSummaryResponse createDirectChat(String username, CreateDirectChatRequest request) {
-        UserAccount currentUser = authService.requireUser(username);
-        UserAccount participant = authService.requireUser(request.participantUsername());
+        UserAccount currentUser = authService.requireAuthenticatedUser(username);
+        UserAccount participant = authService.requireExistingUser(request.participantUsername());
 
         if (currentUser.getId().equals(participant.getId())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot create a direct chat with yourself");
@@ -100,7 +100,7 @@ public class ChatService {
 
     @Transactional
     public ChatSummaryResponse createGroupChat(String username, CreateGroupChatRequest request) {
-        UserAccount currentUser = authService.requireUser(username);
+        UserAccount currentUser = authService.requireAuthenticatedUser(username);
         LinkedHashSet<String> normalizedUsernames = request.participantUsernames().stream()
                 .map(this::normalizeUsername)
                 .filter(candidate -> !candidate.equals(currentUser.getUsername()))
@@ -114,7 +114,7 @@ public class ChatService {
         }
 
         List<UserAccount> participants = normalizedUsernames.stream()
-                .map(authService::requireUser)
+                .map(authService::requireExistingUser)
                 .toList();
 
         ChatRoom room = new ChatRoom(
@@ -130,7 +130,7 @@ public class ChatService {
     }
 
     public ChatRoom requireChatMembership(UUID chatId, String username) {
-        UserAccount currentUser = authService.requireUser(username);
+        UserAccount currentUser = authService.requireAuthenticatedUser(username);
         return requireChatMembership(chatId, currentUser);
     }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { flattenMessagePages, mergeMessagePages } from "./chatState";
+import { flattenMessagePages, mergeMessagePages, parseUsernames } from "./chatState";
 import type { ChatMessage } from "../../lib/types";
 
 function message(id: string, createdAt: string): ChatMessage {
@@ -44,5 +44,9 @@ describe("chatState", () => {
 
     expect(merged.pages[0].map((item: ChatMessage) => item.id)).toEqual(["1", "2"]);
     expect(duplicate.pages[0].map((item: ChatMessage) => item.id)).toEqual(["1", "2"]);
+  });
+
+  it("normalizes usernames for chat creation inputs", () => {
+    expect(parseUsernames(" Alice, @Bob  carol ")).toEqual(["alice", "bob", "carol"]);
   });
 });

@@ -1,13 +1,14 @@
 import { Client } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
 import { WS_URL } from "./config";
-import type { ChatMessage, ChatSummary } from "./types";
+import type { ChatMessage, ChatSummary, SessionEvent } from "./types";
 
 type SubscriptionOptions = {
   chatIds: string[];
   token: string;
   onChat: (chat: ChatSummary) => void;
   onMessage: (message: ChatMessage) => void;
+  onSessionEvent: (event: SessionEvent) => void;
 };
 
 export function subscribeToChats({
@@ -15,6 +16,7 @@ export function subscribeToChats({
   token,
   onChat,
   onMessage,
+  onSessionEvent,
 }: SubscriptionOptions) {
   const client = new Client({
     webSocketFactory: () => new SockJS(`${WS_URL}/ws`),
@@ -32,6 +34,10 @@ export function subscribeToChats({
 
     client.subscribe("/user/queue/messages", (frame) => {
       onMessage(JSON.parse(frame.body) as ChatMessage);
+    });
+
+    client.subscribe("/user/queue/sessions", (frame) => {
+      onSessionEvent(JSON.parse(frame.body) as SessionEvent);
     });
 
     chatIds.forEach((chatId) => {

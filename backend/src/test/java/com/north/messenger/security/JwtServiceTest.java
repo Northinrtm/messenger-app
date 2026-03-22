@@ -27,10 +27,13 @@ class JwtServiceTest {
                 "hashed-password",
                 Instant.now()
         );
+        UUID sessionId = UUID.randomUUID();
 
-        String token = jwtService.createAccessToken(user);
+        String token = jwtService.createAccessToken(user, sessionId);
 
         assertThat(jwtService.extractUsername(token)).isEqualTo("north");
+        assertThat(jwtService.extractUserId(token)).isEqualTo(user.getId());
+        assertThat(jwtService.extractSessionId(token)).isEqualTo(sessionId);
         assertThat(jwtService.isTokenValid(token, "north")).isTrue();
     }
 }

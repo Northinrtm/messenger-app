@@ -4,12 +4,15 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 
 @Entity
 @Table(name = "user_sessions")
 public class UserSession {
+
+    private static final Duration ACTIVITY_UPDATE_WINDOW = Duration.ofMinutes(1);
 
     @Id
     private UUID id;
@@ -93,6 +96,14 @@ public class UserSession {
         this.tokenHash = nextTokenHash;
         this.lastUsedAt = usedAt;
         this.expiresAt = expiresAt;
+    }
+
+    public boolean shouldTouchAt(Instant instant) {
+        return lastUsedAt.isBefore(instant.minus(ACTIVITY_UPDATE_WINDOW));
+    }
+
+    public void touch(Instant usedAt) {
+        this.lastUsedAt = usedAt;
     }
 
     public void revoke(Instant revokedAt) {

@@ -93,10 +93,14 @@ export function parseUsernames(raw: string) {
     new Set(
       raw
         .split(/[\s,]+/)
-        .map((value) => value.trim().toLowerCase())
+        .map(normalizeUsername)
         .filter(Boolean)
     )
   );
+}
+
+export function normalizeUsername(value: string) {
+  return value.trim().replace(/^@+/, "").toLowerCase();
 }
 
 function compareMessages(left: ChatMessage, right: ChatMessage) {
