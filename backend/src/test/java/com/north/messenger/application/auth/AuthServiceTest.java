@@ -184,9 +184,12 @@ class AuthServiceTest {
                 Instant.now().minus(Duration.ofMinutes(1))
         );
 
-        when(jwtService.extractUserId("access-token")).thenReturn(user.getId());
-        when(jwtService.extractSessionId("access-token")).thenReturn(sessionId);
-        when(jwtService.extractUsername("access-token")).thenReturn("north");
+        when(jwtService.readAccessToken("access-token")).thenReturn(new JwtService.AccessTokenClaims(
+                "north",
+                user.getId(),
+                sessionId,
+                Instant.now().plus(Duration.ofHours(1))
+        ));
         when(userAccountRepository.findById(user.getId())).thenReturn(Optional.of(user));
         when(userSessionRepository.findById(sessionId)).thenReturn(Optional.of(session));
 
@@ -207,9 +210,12 @@ class AuthServiceTest {
                 null
         );
 
-        when(jwtService.extractUserId("access-token")).thenReturn(user.getId());
-        when(jwtService.extractSessionId("access-token")).thenReturn(sessionId);
-        when(jwtService.extractUsername("access-token")).thenReturn("north");
+        when(jwtService.readAccessToken("access-token")).thenReturn(new JwtService.AccessTokenClaims(
+                "north",
+                user.getId(),
+                sessionId,
+                Instant.now().plus(Duration.ofHours(1))
+        ));
         when(userAccountRepository.findById(user.getId())).thenReturn(Optional.of(user));
         when(userSessionRepository.findById(sessionId)).thenReturn(Optional.of(session));
 
