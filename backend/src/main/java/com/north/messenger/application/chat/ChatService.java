@@ -2,6 +2,7 @@ package com.north.messenger.application.chat;
 
 import com.north.messenger.api.dto.ChatSummaryResponse;
 import com.north.messenger.api.dto.CreateDirectChatRequest;
+import com.north.messenger.api.dto.CreateGroupChatRequest;
 import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.domain.model.ChatMessage;
@@ -14,13 +15,18 @@ import com.north.messenger.domain.repository.ChatRoomRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -34,19 +40,22 @@ public class ChatService {
     private final ChatParticipantRepository chatParticipantRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final UserAccountRepository userAccountRepository;
+    private final SimpMessagingTemplate messagingTemplate;
 
     public ChatService(
             AuthService authService,
             ChatRoomRepository chatRoomRepository,
             ChatParticipantRepository chatParticipantRepository,
             ChatMessageRepository chatMessageRepository,
-            UserAccountRepository userAccountRepository
+            UserAccountRepository userAccountRepository,
+            SimpMessagingTemplate messagingTemplate
     ) {
         this.authService = authService;
         this.chatRoomRepository = chatRoomRepository;
         this.chatParticipantRepository = chatParticipantRepository;
         this.chatMessageRepository = chatMessageRepository;
         this.userAccountRepository = userAccountRepository;
+        this.messagingTemplate = messagingTemplate;
     }
 
     public List<ChatSummaryResponse> listChats(String username) {
@@ -89,6 +98,37 @@ public class ChatService {
                 .orElseGet(() -> createNewDirectChat(currentUser, participant));
     }
 
+    @Transactional
+    public ChatSummaryResponse createGroupChat(String username, CreateGroupChatRequest request) {
+        UserAccount currentUser = authService.requireUser(username);
+        LinkedHashSet<String> normalizedUsernames = request.participantUsernames().stream()
+                .map(this::normalizeUsername)
+                .filter(candidate -> !candidate.equals(currentUser.getUsername()))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        if (normalizedUsernames.isEmpty()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Group chat must include at least one other participant"
+            );
+        }
+
+        List<UserAccount> participants = normalizedUsernames.stream()
+                .map(authService::requireUser)
+                .toList();
+
+        ChatRoom room = new ChatRoom(
+                UUID.randomUUID(),
+                request.title().trim(),
+                false,
+                Instant.now()
+        );
+        chatRoomRepository.save(room);
+        addParticipants(room.getId(), currentUser, participants);
+        notifyChatUpdated(room.getId());
+        return getChatSummaryForUser(room.getId(), currentUser);
+    }
+
     public ChatRoom requireChatMembership(UUID chatId, String username) {
         UserAccount currentUser = authService.requireUser(username);
         return requireChatMembership(chatId, currentUser);
@@ -104,26 +144,72 @@ public class ChatService {
         return room;
     }
 
+    public ChatSummaryResponse getChatSummaryForUser(UUID chatId, UserAccount user) {
+        ChatRoom room = requireChatMembership(chatId, user);
+        return toSummary(room, user.getId());
+    }
+
+    public List<UserAccount> findParticipants(UUID chatId) {
+        List<ChatParticipant> memberships = chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId);
+        Map<UUID, UserAccount> usersById = findUsersById(
+                memberships.stream().map(ChatParticipant::getUserId).toList()
+        );
+
+        return memberships.stream()
+                .map(membership -> usersById.get(membership.getUserId()))
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    public void notifyChatUpdated(UUID chatId) {
+        ChatRoom room = chatRoomRepository.findById(chatId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Chat not found"));
+        List<ChatParticipant> memberships = chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId);
+        Map<UUID, UserAccount> usersById = findUsersById(
+                memberships.stream().map(ChatParticipant::getUserId).toList()
+        );
+        ChatMessage lastMessage = chatMessageRepository.findTopByChatIdOrderByCreatedAtDesc(chatId).orElse(null);
+
+        memberships.stream()
+                .map(membership -> usersById.get(membership.getUserId()))
+                .filter(Objects::nonNull)
+                .forEach(user -> messagingTemplate.convertAndSendToUser(
+                        user.getUsername(),
+                        "/queue/chats",
+                        toSummary(room, user.getId(), memberships, usersById, lastMessage)
+                ));
+    }
+
     private ChatSummaryResponse createNewDirectChat(UserAccount currentUser, UserAccount participant) {
         ChatRoom room = new ChatRoom(UUID.randomUUID(), null, true, Instant.now());
         chatRoomRepository.save(room);
-        chatParticipantRepository.save(new ChatParticipant(UUID.randomUUID(), room.getId(), currentUser.getId(), Instant.now()));
-        chatParticipantRepository.save(new ChatParticipant(UUID.randomUUID(), room.getId(), participant.getId(), Instant.now()));
-        return toSummary(room, currentUser.getId());
+        addParticipants(room.getId(), currentUser, List.of(participant));
+        notifyChatUpdated(room.getId());
+        return getChatSummaryForUser(room.getId(), currentUser);
     }
 
     private ChatSummaryResponse toSummary(ChatRoom room, UUID currentUserId) {
         List<ChatParticipant> memberships = chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(room.getId());
-        Map<UUID, UserAccount> usersById = userAccountRepository.findAllByIdIn(
-                        memberships.stream().map(ChatParticipant::getUserId).toList()
-                ).stream()
-                .collect(Collectors.toMap(UserAccount::getId, Function.identity()));
+        Map<UUID, UserAccount> usersById = findUsersById(
+                memberships.stream().map(ChatParticipant::getUserId).toList()
+        );
+        ChatMessage lastMessage = chatMessageRepository.findTopByChatIdOrderByCreatedAtDesc(room.getId()).orElse(null);
+        return toSummary(room, currentUserId, memberships, usersById, lastMessage);
+    }
 
+    private ChatSummaryResponse toSummary(
+            ChatRoom room,
+            UUID currentUserId,
+            List<ChatParticipant> memberships,
+            Map<UUID, UserAccount> usersById,
+            ChatMessage lastMessage
+    ) {
         List<ParticipantResponse> members = memberships.stream()
-                .map(membership -> authService.toParticipant(usersById.get(membership.getUserId())))
+                .map(membership -> usersById.get(membership.getUserId()))
+                .filter(Objects::nonNull)
+                .map(authService::toParticipant)
                 .toList();
 
-        ChatMessage lastMessage = chatMessageRepository.findTopByChatIdOrderByCreatedAtDesc(room.getId()).orElse(null);
         Instant updatedAt = lastMessage != null ? lastMessage.getCreatedAt() : room.getCreatedAt();
 
         String title;
@@ -146,5 +232,26 @@ public class ChatService {
                 lastMessage != null ? lastMessage.getCreatedAt() : null,
                 updatedAt
         );
+    }
+
+    private void addParticipants(UUID chatId, UserAccount currentUser, List<UserAccount> participants) {
+        Instant joinedAt = Instant.now();
+        chatParticipantRepository.save(new ChatParticipant(UUID.randomUUID(), chatId, currentUser.getId(), joinedAt));
+        participants.forEach(participant ->
+                chatParticipantRepository.save(new ChatParticipant(UUID.randomUUID(), chatId, participant.getId(), joinedAt))
+        );
+    }
+
+    private Map<UUID, UserAccount> findUsersById(Collection<UUID> ids) {
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+
+        return userAccountRepository.findAllByIdIn(ids).stream()
+                .collect(Collectors.toMap(UserAccount::getId, Function.identity()));
+    }
+
+    private String normalizeUsername(String username) {
+        return username.trim().toLowerCase(Locale.ROOT);
     }
 }

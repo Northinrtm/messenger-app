@@ -2,6 +2,7 @@ package com.north.messenger.api;
 
 import com.north.messenger.api.dto.ChatSummaryResponse;
 import com.north.messenger.api.dto.CreateDirectChatRequest;
+import com.north.messenger.api.dto.CreateGroupChatRequest;
 import com.north.messenger.application.chat.ChatService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -34,5 +35,12 @@ public class ChatController {
     ) {
         return chatService.createDirectChat(authentication.getName(), request);
     }
-}
 
+    @PostMapping("/group")
+    public ChatSummaryResponse createGroupChat(
+            Authentication authentication,
+            @Valid @RequestBody CreateGroupChatRequest request
+    ) {
+        return chatService.createGroupChat(authentication.getName(), request);
+    }
+}

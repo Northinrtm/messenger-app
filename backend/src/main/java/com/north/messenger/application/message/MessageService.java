@@ -89,6 +89,10 @@ public class MessageService {
         chatMessageRepository.save(message);
 
         MessageResponse response = toResponse(message, currentUser);
+        chatService.notifyChatUpdated(chatId);
+        chatService.findParticipants(chatId).forEach(participant ->
+                messagingTemplate.convertAndSendToUser(participant.getUsername(), "/queue/messages", response)
+        );
         messagingTemplate.convertAndSend("/topic/chats." + chatId, response);
         return response;
     }

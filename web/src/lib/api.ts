@@ -77,6 +77,17 @@ export function createDirectChat(token: string, participantUsername: string) {
   });
 }
 
+export function createGroupChat(
+  token: string,
+  input: { title: string; participantUsernames: string[] }
+) {
+  return request<ChatSummary>("/api/chats/group", {
+    method: "POST",
+    token,
+    body: input,
+  });
+}
+
 export function getMessages(token: string, chatId: string) {
   return request<ChatMessage[]>(`/api/chats/${chatId}/messages`, { token });
 }
@@ -88,4 +99,3 @@ export function sendMessage(token: string, chatId: string, content: string) {
     body: { content },
   });
 }
-

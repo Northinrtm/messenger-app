@@ -1,35 +1,72 @@
 # Messenger App
 
-Production-style MVP мессенджера с `Java` backend, `TypeScript` web-клиентом, realtime-доставкой сообщений и Docker-first процессом разработки.
+`Messenger App` — это MVP realtime-мессенджера с `Java` backend, `React` web-клиентом и запуском через Docker. Проект собран как модульный монолит: backend отвечает за auth, чаты, историю сообщений и realtime-доставку, а web-клиент дает интерфейс для регистрации, общения и управления диалогами.
 
-## Что уже есть
+## Что умеет
 
-- аутентификация на JWT
-- direct chat один на один
-- API для истории сообщений
-- realtime-доставка через WebSocket/STOMP
-- миграции PostgreSQL через Flyway
-- запуск всего стека через Docker Compose
+- регистрация и вход по JWT
+- direct chats один на один
+- group chats с названием и несколькими участниками
+- история сообщений по каждому чату
+- live-обновление чатов и сообщений без ручной перезагрузки страницы
+- realtime через WebSocket/STOMP
+- polling fallback на клиенте, если websocket временно недоступен
+- хранение пользователей, чатов, участников и сообщений в PostgreSQL
+- запуск всего стека одной командой через Docker Compose
 
-## Стек
+## Что это не умеет
 
-- `backend`: Java 17, Spring Boot, Spring Security, Spring WebSocket, Spring Data JPA, Flyway
-- `database`: PostgreSQL
-- `cache / scale-out-ready`: Redis
-- `web`: React 19, TypeScript, Vite, TanStack Query, SockJS + STOMP
-- `ops`: Docker Compose, nginx reverse proxy
+Сейчас это сильный MVP, а не полностью production-ready система. В проекте пока нет:
+
+- вложений
+- read receipts
+- typing indicators
+- push-уведомлений
+- refresh tokens и управления сессиями
+- end-to-end encryption
+- выделенного брокера для realtime
+
+## Технологии
+
+### Backend
+
+- `Java 17`
+- `Spring Boot 3`
+- `Spring Web`
+- `Spring Security`
+- `Spring Data JPA`
+- `Spring WebSocket`
+- `Flyway`
+- `PostgreSQL`
+- `JWT (jjwt)`
+
+### Frontend
+
+- `React 19`
+- `TypeScript`
+- `Vite`
+- `TanStack Query`
+- `SockJS`
+- `STOMP`
+
+### Infra
+
+- `Docker Compose`
+- `nginx`
+- `Redis`
 
 ## Архитектура
 
-- `backend` отдает REST API для auth, создания чатов и загрузки истории сообщений
-- `backend` рассылает новые сообщения подписчикам чата через WebSocket/STOMP
-- `web` в Docker работает через nginx и проксирует запросы в backend
-- `postgres` хранит пользователей, чаты, участников и сообщения
-- `redis` уже подключен как задел под presence, fan-out и дальнейшее масштабирование
+- `backend` отдает REST API для регистрации, логина, создания чатов, загрузки списка диалогов и истории сообщений
+- `backend` рассылает новые события через WebSocket/STOMP
+- `web` хранит JWT-сессию локально и работает с API + realtime-каналом
+- `postgres` — основное хранилище пользователей, чатов, участников и сообщений
+- `redis` уже поднят в инфраструктуре как задел под presence, fan-out и дальнейшее масштабирование
+- `nginx` в docker-сборке отдает web-клиент и проксирует API/WebSocket на backend
 
-Подробности по архитектуре: [docs/architecture.md](docs/architecture.md)
+Подробнее: [docs/architecture.md](docs/architecture.md)
 
-## Структура репозитория
+## Структура проекта
 
 ```text
 .
@@ -50,23 +87,23 @@ Production-style MVP мессенджера с `Java` backend, `TypeScript` web-
 `-- README.md
 ```
 
-## Быстрый старт
+## Быстрый старт через Docker
 
 ### Требования
 
 - Docker Desktop
 
-### Запуск всего стека
+### Запуск
 
 ```bash
 docker compose up --build
 ```
 
-### Что откроется после старта
+### Что будет доступно
 
-- web-приложение: `http://localhost:3000`
+- web: `http://localhost:3000`
 - backend API: `http://localhost:8080`
-- healthcheck backend: `http://localhost:8080/actuator/health`
+- healthcheck: `http://localhost:8080/actuator/health`
 
 ### Остановка
 
@@ -74,21 +111,21 @@ docker compose up --build
 docker compose down
 ```
 
-### Полный сброс БД и Redis volume
+### Полный сброс данных
 
 ```bash
 docker compose down -v
 ```
 
-## Локальная разработка без Docker для backend и web
+## Локальный запуск без Docker для backend и web
 
-Этот режим нужен, если Docker используется только для инфраструктуры, а backend и web ты запускаешь локально.
+Этот режим удобен, если `postgres` и `redis` ты поднимаешь в контейнерах, а backend и frontend запускаешь локально.
 
 ### Требования
 
-- Java 17+
-- Maven 3.9+
-- Node.js 22+
+- `Java 17+`
+- `Maven 3.9+`
+- `Node.js 22+`
 - Docker Desktop
 
 ### Поднять только инфраструктуру
@@ -97,14 +134,14 @@ docker compose down -v
 docker compose up -d postgres redis
 ```
 
-### Запуск backend
+### Запустить backend
 
 ```bash
 cd backend
 mvn spring-boot:run
 ```
 
-### Запуск web-клиента
+### Запустить web
 
 ```bash
 cd web
@@ -112,25 +149,27 @@ npm install
 npm run dev
 ```
 
-В этом режиме адреса будут такими:
+В локальном режиме адреса будут такими:
 
 - backend: `http://localhost:8080`
-- Vite dev server: `http://localhost:5173`
+- web dev server: `http://localhost:5173`
 
-## Проверка работы
+## Ручная проверка
 
-После запуска проверь полный сценарий:
+После запуска проверь базовый сценарий:
 
 1. Открой `http://localhost:3000`
 2. Зарегистрируй `user1`
-3. Открой второе окно браузера в режиме инкогнито
+3. Открой второе окно браузера в инкогнито
 4. Зарегистрируй `user2`
-5. В аккаунте `user1` создай direct chat по username `user2`
-6. Отправь сообщение от `user1`
-7. Ответь из `user2`
-8. Убедись, что сообщения появляются без перезагрузки страницы
+5. От имени `user1` создай direct chat с `user2`
+6. Отправь сообщение
+7. Убедись, что у `user2` оно появилось без обновления страницы
+8. Зарегистрируй `user3`
+9. Создай group chat, например `team`, с участниками `user2, user3`
+10. Отправь сообщение в группу и проверь, что оно появляется у всех участников без refresh
 
-Проверка health endpoint:
+Healthcheck:
 
 ```bash
 curl http://localhost:8080/actuator/health
@@ -144,20 +183,20 @@ curl http://localhost:8080/actuator/health
 
 ## Переменные окружения
 
-Базовые значения описаны в [.env.example](.env.example).
+Базовые значения лежат в [.env.example](.env.example).
 
 Основные переменные:
 
 | Переменная | Назначение | Значение по умолчанию |
 |---|---|---|
 | `SERVER_PORT` | HTTP-порт backend | `8080` |
-| `DB_URL` | JDBC-строка подключения к PostgreSQL | `jdbc:postgresql://localhost:5432/messenger` |
+| `DB_URL` | JDBC URL PostgreSQL | `jdbc:postgresql://localhost:5432/messenger` |
 | `DB_USERNAME` | пользователь PostgreSQL | `messenger` |
 | `DB_PASSWORD` | пароль PostgreSQL | `messenger` |
-| `APP_CORS_ALLOWED_ORIGINS` | разрешенные web-origin для backend | `http://localhost:5173` |
-| `APP_JWT_SECRET` | секрет для подписи JWT | локальный demo secret |
-| `VITE_API_URL` | базовый URL API для web-клиента | `http://localhost:8080` в локальной разработке |
-| `VITE_WS_URL` | базовый URL websocket-подключения | по умолчанию берется из `VITE_API_URL` |
+| `APP_CORS_ALLOWED_ORIGINS` | разрешенные origin для backend | `http://localhost:5173` |
+| `APP_JWT_SECRET` | секрет подписи JWT | demo secret для локальной разработки |
+| `VITE_API_URL` | базовый URL backend API | `http://localhost:8080` |
+| `VITE_WS_URL` | базовый URL для websocket | по умолчанию берется из `VITE_API_URL` |
 
 ## Полезные команды
 
@@ -167,52 +206,52 @@ curl http://localhost:8080/actuator/health
 docker compose ps
 ```
 
-Смотреть логи backend:
+Логи backend:
 
 ```bash
 docker compose logs -f backend
 ```
 
-Смотреть логи web:
+Логи web:
 
 ```bash
 docker compose logs -f web
 ```
 
-Пересобрать только backend:
+Запустить backend-тесты:
 
 ```bash
-docker compose build --no-cache backend
+cd backend
+mvn test
 ```
 
-## Текущий scope
+Проверить типы во frontend:
 
-Сейчас в репозитории реализован сильный MVP, а не полностью масштабированная production-система.
+```bash
+cd web
+npm run typecheck
+```
 
-Уже включено:
+Собрать frontend:
 
-- auth
-- direct chats
-- история сообщений
-- realtime-доставка
-- Dockerized local startup
+```bash
+cd web
+npm run build
+```
 
-Пока не реализовано:
+## Текущие ограничения
 
-- group chats
-- read receipts
-- typing indicators
-- attachments
-- push notifications
-- refresh tokens и управление сессиями
-- распределенный fan-out сообщений
+- сообщения не шифруются end-to-end
+- access token хранится на клиенте локально
+- Redis пока не участвует в основном message flow
+- используется встроенный in-process STOMP broker, а не отдельный realtime cluster
 
-## Дальнейшие шаги для production
+## Что можно развивать дальше
 
-- вынести in-process STOMP broker в отдельный broker или websocket gateway
-- добавить refresh tokens с rotation и явным session revocation
-- добавить read receipts и unread counters
-- добавить typing indicators и presence через Redis
-- добавить вложения через object storage
-- добавить интеграционные тесты с Testcontainers и CI
-- добавить observability, метрики и трассировку запросов
+- read receipts и unread counters
+- typing indicators и presence
+- вложения через object storage
+- refresh tokens и отзыв сессий
+- observability, метрики и tracing
+- вынос realtime в отдельный broker или gateway
+- интеграционные тесты с Testcontainers и CI

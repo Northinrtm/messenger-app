@@ -8,11 +8,13 @@ import {
   useDeferredValue,
   useEffect,
   useEffectEvent,
+  useRef,
   useState,
 } from "react";
 import {
   ApiError,
   createDirectChat,
+  createGroupChat,
   getChats,
   getMessages,
   sendMessage,
@@ -34,12 +36,17 @@ export function Workspace({ session, onSessionChange }: Props) {
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [newChatUsername, setNewChatUsername] = useState("");
+  const [groupTitle, setGroupTitle] = useState("");
+  const [groupParticipants, setGroupParticipants] = useState("");
   const [draft, setDraft] = useState("");
+  const messageStreamRef = useRef<HTMLDivElement | null>(null);
   const deferredSearch = useDeferredValue(search);
 
   const chatsQuery = useQuery({
     queryKey: ["chats", session.token],
     queryFn: () => getChats(session.token),
+    refetchInterval: 4000,
+    refetchIntervalInBackground: true,
   });
 
   const chats = chatsQuery.data ?? [];
@@ -66,7 +73,10 @@ export function Workspace({ session, onSessionChange }: Props) {
     queryKey: ["messages", session.token, activeChat?.id],
     queryFn: () => getMessages(session.token, activeChat!.id),
     enabled: Boolean(activeChat?.id),
+    refetchInterval: activeChat?.id ? 2000 : false,
+    refetchIntervalInBackground: true,
   });
+  const messages = messagesQuery.data ?? [];
 
   useEffect(() => {
     if (chatsQuery.error instanceof ApiError && chatsQuery.error.status === 401) {
@@ -100,18 +110,31 @@ export function Workspace({ session, onSessionChange }: Props) {
     );
   });
 
+  const handleRealtimeChat = useEffectEvent((chat: ChatSummary) => {
+    queryClient.setQueryData<ChatSummary[]>(
+      ["chats", session.token],
+      (current) => upsertChat(current, chat)
+    );
+  });
+
   useEffect(() => {
     const subscriptionIds = chatIdsKey ? chatIdsKey.split(",") : [];
-    if (!subscriptionIds.length) {
-      return;
-    }
-
     return subscribeToChats({
       chatIds: subscriptionIds,
       token: session.token,
+      onChat: handleRealtimeChat,
       onMessage: handleRealtimeMessage,
     });
   }, [chatIdsKey, session.token]);
+
+  useEffect(() => {
+    const container = messageStreamRef.current;
+    if (!container) {
+      return;
+    }
+
+    container.scrollTop = container.scrollHeight;
+  }, [activeChat?.id, messages.length]);
 
   const createChatMutation = useMutation({
     mutationFn: (participantUsername: string) =>
@@ -122,6 +145,22 @@ export function Workspace({ session, onSessionChange }: Props) {
         (current) => upsertChat(current, chat)
       );
       setNewChatUsername("");
+      startTransition(() => {
+        setActiveChatId(chat.id);
+      });
+    },
+  });
+
+  const createGroupMutation = useMutation({
+    mutationFn: (input: { title: string; participantUsernames: string[] }) =>
+      createGroupChat(session.token, input),
+    onSuccess: (chat) => {
+      queryClient.setQueryData<ChatSummary[]>(
+        ["chats", session.token],
+        (current) => upsertChat(current, chat)
+      );
+      setGroupTitle("");
+      setGroupParticipants("");
       startTransition(() => {
         setActiveChatId(chat.id);
       });
@@ -143,7 +182,13 @@ export function Workspace({ session, onSessionChange }: Props) {
     },
   });
 
-  const requestError = [createChatMutation.error, sendMessageMutation.error, chatsQuery.error, messagesQuery.error]
+  const requestError = [
+    createChatMutation.error,
+    createGroupMutation.error,
+    sendMessageMutation.error,
+    chatsQuery.error,
+    messagesQuery.error,
+  ]
     .find(Boolean);
   const errorText =
     requestError instanceof ApiError
@@ -190,6 +235,40 @@ export function Workspace({ session, onSessionChange }: Props) {
             disabled={createChatMutation.isPending}
           >
             {createChatMutation.isPending ? "Creating..." : "Open chat"}
+          </button>
+        </form>
+
+        <form
+          className="sidebar-card"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const title = groupTitle.trim();
+            const participantUsernames = parseUsernames(groupParticipants);
+            if (!title || !participantUsernames.length) {
+              return;
+            }
+
+            createGroupMutation.mutate({ title, participantUsernames });
+          }}
+        >
+          <div className="section-title">New group</div>
+          <input
+            value={groupTitle}
+            onChange={(event) => setGroupTitle(event.target.value)}
+            placeholder="Team launch"
+          />
+          <textarea
+            value={groupParticipants}
+            onChange={(event) => setGroupParticipants(event.target.value)}
+            placeholder="alice, bob, charlie"
+            rows={3}
+          />
+          <button
+            type="submit"
+            className="secondary-button"
+            disabled={createGroupMutation.isPending}
+          >
+            {createGroupMutation.isPending ? "Creating..." : "Create group"}
           </button>
         </form>
 
@@ -252,13 +331,13 @@ export function Workspace({ session, onSessionChange }: Props) {
               </div>
             </header>
 
-            <div className="message-stream">
-              {(messagesQuery.data ?? []).length === 0 ? (
+            <div className="message-stream" ref={messageStreamRef}>
+              {messages.length === 0 ? (
                 <div className="empty-state">
                   Start the conversation. The first message is delivered in realtime.
                 </div>
               ) : (
-                (messagesQuery.data ?? []).map((message) => {
+                messages.map((message) => {
                   const mine = message.sender.id === session.user.id;
                   return (
                     <article
@@ -366,4 +445,15 @@ function formatClock(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function parseUsernames(raw: string) {
+  return Array.from(
+    new Set(
+      raw
+        .split(/[\s,]+/)
+        .map((value) => value.trim().toLowerCase())
+        .filter(Boolean)
+    )
+  );
 }

@@ -69,8 +69,11 @@ export function AuthCard({ onAuthenticated }: Props) {
             <input
               value={username}
               onChange={(event) => setUsername(event.target.value)}
-              placeholder="north"
-              autoComplete="username"
+              placeholder=""
+              autoComplete="off"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               required
             />
           </label>
@@ -81,8 +84,10 @@ export function AuthCard({ onAuthenticated }: Props) {
               <input
                 value={displayName}
                 onChange={(event) => setDisplayName(event.target.value)}
-                placeholder="North"
-                autoComplete="name"
+                placeholder=""
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
                 required
               />
             </label>
