@@ -66,10 +66,10 @@ export function flattenMessagePages(pages: ChatMessage[][] | undefined) {
   }
 
   const seen = new Set<string>();
-  return pages
-    .toReversed()
-    .flatMap((page) => page)
-    .filter((message) => {
+  return [...pages]
+    .reverse()
+    .flatMap((page: ChatMessage[]) => page)
+    .filter((message: ChatMessage) => {
       if (seen.has(message.id)) {
         return false;
       }

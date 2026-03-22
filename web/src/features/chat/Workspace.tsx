@@ -473,7 +473,7 @@ export function Workspace({ session, onSessionChange }: Props) {
                   Start the conversation. The first message is delivered in realtime.
                 </div>
               ) : (
-                messages.map((message) => {
+                messages.map((message: ChatMessage) => {
                   const mine = message.sender.id === session.user.id;
                   return (
                     <article

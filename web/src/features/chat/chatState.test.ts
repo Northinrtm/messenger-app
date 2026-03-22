@@ -29,7 +29,7 @@ describe("chatState", () => {
       ],
     ];
 
-    expect(flattenMessagePages(pages).map((item) => item.id)).toEqual(["1", "2", "3"]);
+    expect(flattenMessagePages(pages).map((item: ChatMessage) => item.id)).toEqual(["1", "2", "3"]);
   });
 
   it("merges a realtime message into the newest page only once", () => {
@@ -42,7 +42,7 @@ describe("chatState", () => {
     const merged = mergeMessagePages(current, nextMessage);
     const duplicate = mergeMessagePages(merged, nextMessage);
 
-    expect(merged.pages[0].map((item) => item.id)).toEqual(["1", "2"]);
-    expect(duplicate.pages[0].map((item) => item.id)).toEqual(["1", "2"]);
+    expect(merged.pages[0].map((item: ChatMessage) => item.id)).toEqual(["1", "2"]);
+    expect(duplicate.pages[0].map((item: ChatMessage) => item.id)).toEqual(["1", "2"]);
   });
 });
