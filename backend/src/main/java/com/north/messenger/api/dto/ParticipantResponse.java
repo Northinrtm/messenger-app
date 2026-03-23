@@ -5,7 +5,8 @@ import java.util.UUID;
 public record ParticipantResponse(
         UUID id,
         String username,
-        String displayName
+        String displayName,
+        String avatarUrl,
+        boolean online
 ) {
 }
-

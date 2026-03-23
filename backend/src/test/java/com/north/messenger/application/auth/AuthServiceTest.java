@@ -104,6 +104,7 @@ class AuthServiceTest {
                 Instant.now().minus(Duration.ofHours(1)),
                 Instant.now().minus(Duration.ofMinutes(10)),
                 Instant.now().plus(Duration.ofDays(1)),
+                "Test device",
                 null
         );
 
@@ -133,6 +134,7 @@ class AuthServiceTest {
                 Instant.now().minus(Duration.ofHours(1)),
                 Instant.now().minus(Duration.ofMinutes(5)),
                 Instant.now().plus(Duration.ofDays(1)),
+                "Test device",
                 null
         );
 
@@ -181,6 +183,7 @@ class AuthServiceTest {
                 Instant.now().minus(Duration.ofHours(1)),
                 Instant.now().minus(Duration.ofMinutes(5)),
                 Instant.now().plus(Duration.ofDays(1)),
+                "Test device",
                 Instant.now().minus(Duration.ofMinutes(1))
         );
 
@@ -207,6 +210,7 @@ class AuthServiceTest {
                 Instant.now().minus(Duration.ofHours(1)),
                 Instant.now().minus(Duration.ofMinutes(5)),
                 Instant.now().plus(Duration.ofDays(1)),
+                "Test device",
                 null
         );
 

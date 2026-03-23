@@ -49,7 +49,7 @@ class SecurityConfigTest {
 
     @Test
     void shouldAllowAnonymousLogin() throws Exception {
-        when(authService.login(any(LoginRequest.class))).thenReturn(new AuthResponse(
+        when(authService.login(any(LoginRequest.class), any())).thenReturn(new AuthResponse(
                 "access-token",
                 Instant.parse("2026-03-22T12:00:00Z"),
                 "session.secret",
@@ -59,7 +59,9 @@ class SecurityConfigTest {
                         UUID.randomUUID(),
                         "north",
                         "North",
-                        Instant.parse("2026-03-20T12:00:00Z")
+                        Instant.parse("2026-03-20T12:00:00Z"),
+                        null,
+                        true
                 )
         ));
 

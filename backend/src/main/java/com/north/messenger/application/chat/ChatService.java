@@ -3,6 +3,7 @@ package com.north.messenger.application.chat;
 import com.north.messenger.api.dto.ChatSummaryResponse;
 import com.north.messenger.api.dto.CreateDirectChatRequest;
 import com.north.messenger.api.dto.CreateGroupChatRequest;
+import com.north.messenger.api.dto.AddGroupParticipantsRequest;
 import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.domain.model.ChatMessage;
@@ -101,10 +102,11 @@ public class ChatService {
     @Transactional
     public ChatSummaryResponse createGroupChat(String username, CreateGroupChatRequest request) {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
-        LinkedHashSet<String> normalizedUsernames = request.participantUsernames().stream()
-                .map(this::normalizeUsername)
-                .filter(candidate -> !candidate.equals(currentUser.getUsername()))
-                .collect(Collectors.toCollection(LinkedHashSet::new));
+        LinkedHashSet<String> normalizedUsernames = normalizeParticipantUsernames(
+                request.participantUsernames(),
+                currentUser.getUsername(),
+                List.of()
+        );
 
         if (normalizedUsernames.isEmpty()) {
             throw new ResponseStatusException(
@@ -127,6 +129,47 @@ public class ChatService {
         addParticipants(room.getId(), currentUser, participants);
         notifyChatUpdated(room.getId());
         return getChatSummaryForUser(room.getId(), currentUser);
+    }
+
+    @Transactional
+    public ChatSummaryResponse addGroupParticipants(
+            String username,
+            UUID chatId,
+            AddGroupParticipantsRequest request
+    ) {
+        UserAccount currentUser = authService.requireAuthenticatedUser(username);
+        ChatRoom room = requireChatMembership(chatId, currentUser);
+        if (room.isDirect()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot add participants to a direct chat");
+        }
+
+        List<ChatParticipant> memberships = chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId);
+        List<String> existingUsernames = findUsersById(
+                memberships.stream().map(ChatParticipant::getUserId).toList()
+        ).values().stream()
+                .map(UserAccount::getUsername)
+                .toList();
+
+        LinkedHashSet<String> normalizedUsernames = normalizeParticipantUsernames(
+                request.participantUsernames(),
+                currentUser.getUsername(),
+                existingUsernames
+        );
+
+        if (normalizedUsernames.isEmpty()) {
+            return getChatSummaryForUser(chatId, currentUser);
+        }
+
+        List<UserAccount> participants = normalizedUsernames.stream()
+                .map(authService::requireExistingUser)
+                .toList();
+
+        Instant joinedAt = Instant.now();
+        participants.forEach(participant ->
+                chatParticipantRepository.save(new ChatParticipant(UUID.randomUUID(), chatId, participant.getId(), joinedAt))
+        );
+        notifyChatUpdated(chatId);
+        return getChatSummaryForUser(chatId, currentUser);
     }
 
     public ChatRoom requireChatMembership(UUID chatId, String username) {
@@ -204,10 +247,13 @@ public class ChatService {
             Map<UUID, UserAccount> usersById,
             ChatMessage lastMessage
     ) {
+        Map<UUID, Boolean> onlineByUserId = authService.resolveOnlineByUserIds(
+                memberships.stream().map(ChatParticipant::getUserId).toList()
+        );
         List<ParticipantResponse> members = memberships.stream()
                 .map(membership -> usersById.get(membership.getUserId()))
                 .filter(Objects::nonNull)
-                .map(authService::toParticipant)
+                .map(user -> authService.toParticipant(user, onlineByUserId.getOrDefault(user.getId(), false)))
                 .toList();
 
         Instant updatedAt = lastMessage != null ? lastMessage.getCreatedAt() : room.getCreatedAt();
@@ -240,6 +286,22 @@ public class ChatService {
         participants.forEach(participant ->
                 chatParticipantRepository.save(new ChatParticipant(UUID.randomUUID(), chatId, participant.getId(), joinedAt))
         );
+    }
+
+    private LinkedHashSet<String> normalizeParticipantUsernames(
+            List<String> participantUsernames,
+            String currentUsername,
+            List<String> usernamesToSkip
+    ) {
+        LinkedHashSet<String> excludedUsernames = usernamesToSkip.stream()
+                .map(this::normalizeUsername)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        return participantUsernames.stream()
+                .map(this::normalizeUsername)
+                .filter(candidate -> !candidate.equals(currentUsername))
+                .filter(candidate -> !excludedUsernames.contains(candidate))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
     private Map<UUID, UserAccount> findUsersById(Collection<UUID> ids) {

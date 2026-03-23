@@ -4,6 +4,7 @@ import type {
   AuthResponse,
   ChatMessage,
   ChatSummary,
+  UserProfile,
   UserSessionInfo,
 } from "./types";
 
@@ -110,6 +111,26 @@ export function getSessions(token: string) {
   return request<UserSessionInfo[]>("/api/auth/sessions", { token });
 }
 
+export function getProfile(token: string) {
+  return request<UserProfile>("/api/auth/me", { token });
+}
+
+export function updateProfile(token: string, input: { displayName: string }) {
+  return request<UserProfile>("/api/auth/me", {
+    method: "PUT",
+    token,
+    body: input,
+  });
+}
+
+export function updateProfileAvatar(token: string, avatarUrl: string | null) {
+  return request<UserProfile>("/api/auth/me/avatar", {
+    method: "PUT",
+    token,
+    body: { avatarUrl },
+  });
+}
+
 export function revokeSession(token: string, sessionId: string) {
   return request<void>(`/api/auth/sessions/${sessionId}`, {
     method: "DELETE",
@@ -159,5 +180,24 @@ export function sendMessage(token: string, chatId: string, content: string) {
     method: "POST",
     token,
     body: { content },
+  });
+}
+
+export function addGroupParticipants(
+  token: string,
+  chatId: string,
+  input: { participantUsernames: string[] }
+) {
+  return request<ChatSummary>(`/api/chats/${chatId}/participants`, {
+    method: "POST",
+    token,
+    body: input,
+  });
+}
+
+export function searchUsers(token: string, query: string) {
+  return request<UserProfile[]>("/api/users/search", {
+    token,
+    query: { query },
   });
 }

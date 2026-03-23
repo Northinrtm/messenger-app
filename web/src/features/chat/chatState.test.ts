@@ -10,6 +10,8 @@ function message(id: string, createdAt: string): ChatMessage {
       id: "user-1",
       username: "north",
       displayName: "North",
+      avatarUrl: null,
+      online: true,
     },
     content: `message-${id}`,
     createdAt,

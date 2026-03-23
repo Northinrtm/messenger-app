@@ -20,6 +20,8 @@ const validSession: AuthResponse = {
     username: "north",
     displayName: "North",
     createdAt: "2026-03-20T20:00:00.000Z",
+    avatarUrl: null,
+    online: true,
   },
 };
 
@@ -61,6 +63,27 @@ describe("session storage", () => {
 
     expect(loadSession()).toBeNull();
     expect(window.localStorage.getItem("north-messenger-session")).toBeNull();
+  });
+
+  it("upgrades legacy sessions without online flag", () => {
+    window.localStorage.setItem(
+      "north-messenger-session",
+      JSON.stringify({
+        ...validSession,
+        user: {
+          ...validSession.user,
+          online: undefined,
+        },
+      })
+    );
+
+    expect(loadSession()).toEqual({
+      ...validSession,
+      user: {
+        ...validSession.user,
+        online: false,
+      },
+    });
   });
 
   it("detects when access and refresh tokens are expired", () => {

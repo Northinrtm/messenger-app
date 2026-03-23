@@ -7,7 +7,8 @@ public record UserProfileResponse(
         UUID id,
         String username,
         String displayName,
-        Instant createdAt
+        Instant createdAt,
+        String avatarUrl,
+        boolean online
 ) {
 }
-

@@ -3,12 +3,16 @@ export type UserProfile = {
   username: string;
   displayName: string;
   createdAt: string;
+  avatarUrl: string | null;
+  online: boolean;
 };
 
 export type Participant = {
   id: string;
   username: string;
   displayName: string;
+  avatarUrl: string | null;
+  online: boolean;
 };
 
 export type AuthResponse = {
@@ -43,6 +47,7 @@ export type UserSessionInfo = {
   createdAt: string;
   lastUsedAt: string;
   expiresAt: string;
+  deviceName: string;
 };
 
 export type SessionEvent = {

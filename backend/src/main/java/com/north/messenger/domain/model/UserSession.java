@@ -32,6 +32,9 @@ public class UserSession {
     @Column(name = "expires_at", nullable = false)
     private Instant expiresAt;
 
+    @Column(name = "device_name", nullable = false, length = 160)
+    private String deviceName;
+
     @Column(name = "revoked_at")
     private Instant revokedAt;
 
@@ -45,6 +48,7 @@ public class UserSession {
             Instant createdAt,
             Instant lastUsedAt,
             Instant expiresAt,
+            String deviceName,
             Instant revokedAt
     ) {
         this.id = id;
@@ -53,6 +57,7 @@ public class UserSession {
         this.createdAt = createdAt;
         this.lastUsedAt = lastUsedAt;
         this.expiresAt = expiresAt;
+        this.deviceName = deviceName;
         this.revokedAt = revokedAt;
     }
 
@@ -78,6 +83,10 @@ public class UserSession {
 
     public Instant getExpiresAt() {
         return expiresAt;
+    }
+
+    public String getDeviceName() {
+        return deviceName;
     }
 
     public Instant getRevokedAt() {

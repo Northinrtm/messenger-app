@@ -4,9 +4,12 @@ import com.north.messenger.api.dto.AuthResponse;
 import com.north.messenger.api.dto.LoginRequest;
 import com.north.messenger.api.dto.RefreshTokenRequest;
 import com.north.messenger.api.dto.RegisterRequest;
+import com.north.messenger.api.dto.UpdateAvatarRequest;
+import com.north.messenger.api.dto.UpdateProfileRequest;
 import com.north.messenger.api.dto.UserSessionResponse;
 import com.north.messenger.api.dto.UserProfileResponse;
 import com.north.messenger.application.auth.AuthService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.UUID;
@@ -16,6 +19,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -33,13 +37,13 @@ public class AuthController {
 
     @PostMapping("/register")
     @ResponseStatus(HttpStatus.CREATED)
-    public AuthResponse register(@Valid @RequestBody RegisterRequest request) {
-        return authService.register(request);
+    public AuthResponse register(@Valid @RequestBody RegisterRequest request, HttpServletRequest httpRequest) {
+        return authService.register(request, httpRequest.getHeader("User-Agent"));
     }
 
     @PostMapping("/login")
-    public AuthResponse login(@Valid @RequestBody LoginRequest request) {
-        return authService.login(request);
+    public AuthResponse login(@Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
+        return authService.login(request, httpRequest.getHeader("User-Agent"));
     }
 
     @PostMapping("/refresh")
@@ -56,6 +60,22 @@ public class AuthController {
     @GetMapping("/me")
     public UserProfileResponse me(Authentication authentication) {
         return authService.me(authentication.getName());
+    }
+
+    @PutMapping("/me")
+    public UserProfileResponse updateProfile(
+            Authentication authentication,
+            @Valid @RequestBody UpdateProfileRequest request
+    ) {
+        return authService.updateProfile(authentication.getName(), request.displayName());
+    }
+
+    @PutMapping("/me/avatar")
+    public UserProfileResponse updateAvatar(
+            Authentication authentication,
+            @Valid @RequestBody UpdateAvatarRequest request
+    ) {
+        return authService.updateAvatar(authentication.getName(), request.avatarUrl());
     }
 
     @GetMapping("/sessions")

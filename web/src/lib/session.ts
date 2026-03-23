@@ -24,7 +24,13 @@ export function loadSession(): AuthResponse | null {
       return null;
     }
 
-    return parsed as AuthResponse;
+    return {
+      ...parsed,
+      user: {
+        ...parsed.user,
+        online: parsed.user.online === true,
+      },
+    } as AuthResponse;
   } catch {
     window.localStorage.removeItem(SESSION_KEY);
     return null;
@@ -62,6 +68,8 @@ function isValidSessionUser(user: AuthResponse["user"] | null | undefined): user
       typeof user.id === "string" &&
       typeof user.username === "string" &&
       typeof user.displayName === "string" &&
-      typeof user.createdAt === "string"
+      typeof user.createdAt === "string" &&
+      (typeof user.avatarUrl === "string" || user.avatarUrl === null) &&
+      (typeof user.online === "boolean" || typeof user.online === "undefined")
   );
 }

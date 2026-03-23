@@ -20,6 +20,9 @@ public class UserAccount {
     @Column(name = "display_name", nullable = false, length = 40)
     private String displayName;
 
+    @Column(name = "avatar_url")
+    private String avatarUrl;
+
     @Column(name = "password_hash", nullable = false, length = 255)
     private String passwordHash;
 
@@ -30,9 +33,21 @@ public class UserAccount {
     }
 
     public UserAccount(UUID id, String username, String displayName, String passwordHash, Instant createdAt) {
+        this(id, username, displayName, null, passwordHash, createdAt);
+    }
+
+    public UserAccount(
+            UUID id,
+            String username,
+            String displayName,
+            String avatarUrl,
+            String passwordHash,
+            Instant createdAt
+    ) {
         this.id = id;
         this.username = username;
         this.displayName = displayName;
+        this.avatarUrl = avatarUrl;
         this.passwordHash = passwordHash;
         this.createdAt = createdAt;
     }
@@ -49,6 +64,10 @@ public class UserAccount {
         return displayName;
     }
 
+    public String getAvatarUrl() {
+        return avatarUrl;
+    }
+
     public String getPasswordHash() {
         return passwordHash;
     }
@@ -56,5 +75,12 @@ public class UserAccount {
     public Instant getCreatedAt() {
         return createdAt;
     }
-}
 
+    public void updateDisplayName(String displayName) {
+        this.displayName = displayName;
+    }
+
+    public void updateAvatarUrl(String avatarUrl) {
+        this.avatarUrl = avatarUrl;
+    }
+}

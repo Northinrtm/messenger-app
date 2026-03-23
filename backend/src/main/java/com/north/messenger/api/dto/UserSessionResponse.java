@@ -7,6 +7,7 @@ public record UserSessionResponse(
         UUID id,
         Instant createdAt,
         Instant lastUsedAt,
-        Instant expiresAt
+        Instant expiresAt,
+        String deviceName
 ) {
 }

@@ -16,15 +16,22 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.Collection;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,6 +43,7 @@ public class AuthService {
 
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static final int REFRESH_TOKEN_BYTES = 32;
+    private static final Duration ONLINE_WINDOW = Duration.ofMinutes(2);
 
     private final UserAccountRepository userAccountRepository;
     private final UserSessionRepository userSessionRepository;
@@ -59,30 +67,44 @@ public class AuthService {
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
+        return register(request, null);
+    }
+
+    @Transactional
+    public AuthResponse register(RegisterRequest request, String userAgent) {
         String username = normalizeUsername(request.username());
+        String displayName = normalizeDisplayName(request.displayName());
         if (userAccountRepository.existsByUsernameIgnoreCase(username)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Username is already taken");
+        }
+        if (userAccountRepository.existsByDisplayNameIgnoreCase(displayName)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Display name is already taken");
         }
 
         UserAccount user = new UserAccount(
                 UUID.randomUUID(),
                 username,
-                request.displayName().trim(),
+                displayName,
                 passwordEncoder.encode(request.password()),
                 Instant.now()
         );
         userAccountRepository.save(user);
-        return createSessionResponse(user);
+        return createSessionResponse(user, userAgent);
     }
 
     @Transactional
     public AuthResponse login(LoginRequest request) {
+        return login(request, null);
+    }
+
+    @Transactional
+    public AuthResponse login(LoginRequest request, String userAgent) {
         UserAccount user = findUserByUsername(request.username())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
         }
-        return createSessionResponse(user);
+        return createSessionResponse(user, userAgent);
     }
 
     @Transactional
@@ -108,6 +130,48 @@ public class AuthService {
 
     public UserProfileResponse me(String username) {
         return toProfile(requireAuthenticatedUser(username));
+    }
+
+    @Transactional
+    public UserProfileResponse updateProfile(String username, String displayName) {
+        UserAccount currentUser = requireAuthenticatedUser(username);
+        String normalizedDisplayName = normalizeDisplayName(displayName);
+        if (userAccountRepository.existsByDisplayNameIgnoreCaseAndIdNot(normalizedDisplayName, currentUser.getId())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Display name is already taken");
+        }
+
+        currentUser.updateDisplayName(normalizedDisplayName);
+        userAccountRepository.save(currentUser);
+        return toProfile(currentUser);
+    }
+
+    public List<UserProfileResponse> searchUsers(String username, String query) {
+        UserAccount currentUser = requireAuthenticatedUser(username);
+        String normalizedQuery = normalizeSearchQuery(query);
+        if (normalizedQuery.isBlank()) {
+            return List.of();
+        }
+
+        List<UserAccount> users = userAccountRepository.searchByUsernameOrDisplayName(
+                        currentUser.getId(),
+                        normalizedQuery,
+                        PageRequest.of(0, 8)
+                );
+        Map<UUID, Boolean> onlineByUserId = resolveOnlineByUserIds(
+                users.stream().map(UserAccount::getId).toList()
+        );
+
+        return users.stream()
+                .map(user -> toProfile(user, onlineByUserId.getOrDefault(user.getId(), false)))
+                .toList();
+    }
+
+    @Transactional
+    public UserProfileResponse updateAvatar(String username, String avatarUrl) {
+        UserAccount currentUser = requireAuthenticatedUser(username);
+        currentUser.updateAvatarUrl(normalizeAvatarUrl(avatarUrl));
+        userAccountRepository.save(currentUser);
+        return toProfile(currentUser);
     }
 
     public List<UserSessionResponse> listSessions(String username) {
@@ -176,7 +240,35 @@ public class AuthService {
     }
 
     public ParticipantResponse toParticipant(UserAccount user) {
-        return new ParticipantResponse(user.getId(), user.getUsername(), user.getDisplayName());
+        return toParticipant(user, isUserOnline(user.getId()));
+    }
+
+    public ParticipantResponse toParticipant(UserAccount user, boolean online) {
+        return new ParticipantResponse(
+                user.getId(),
+                user.getUsername(),
+                user.getDisplayName(),
+                user.getAvatarUrl(),
+                online
+        );
+    }
+
+    public Map<UUID, Boolean> resolveOnlineByUserIds(Collection<UUID> userIds) {
+        if (userIds.isEmpty()) {
+            return Map.of();
+        }
+
+        Set<UUID> activeUserIds = Set.copyOf(
+                userSessionRepository.findDistinctOnlineUserIdsByUserIdIn(
+                        userIds,
+                        Instant.now(),
+                        Instant.now().minus(ONLINE_WINDOW)
+                )
+        );
+
+        return userIds.stream()
+                .distinct()
+                .collect(Collectors.toMap(Function.identity(), activeUserIds::contains));
     }
 
     private UserAccount requireUserById(UUID userId) {
@@ -185,7 +277,18 @@ public class AuthService {
     }
 
     private UserProfileResponse toProfile(UserAccount user) {
-        return new UserProfileResponse(user.getId(), user.getUsername(), user.getDisplayName(), user.getCreatedAt());
+        return toProfile(user, isUserOnline(user.getId()));
+    }
+
+    private UserProfileResponse toProfile(UserAccount user, boolean online) {
+        return new UserProfileResponse(
+                user.getId(),
+                user.getUsername(),
+                user.getDisplayName(),
+                user.getCreatedAt(),
+                user.getAvatarUrl(),
+                online
+        );
     }
 
     private UserSessionResponse toSessionResponse(UserSession session) {
@@ -193,7 +296,8 @@ public class AuthService {
                 session.getId(),
                 session.getCreatedAt(),
                 session.getLastUsedAt(),
-                session.getExpiresAt()
+                session.getExpiresAt(),
+                session.getDeviceName()
         );
     }
 
@@ -201,11 +305,94 @@ public class AuthService {
         return username.trim().toLowerCase(Locale.ROOT);
     }
 
+    private String normalizeDisplayName(String displayName) {
+        return displayName.trim();
+    }
+
+    private String normalizeSearchQuery(String query) {
+        if (query == null) {
+            return "";
+        }
+
+        String normalized = query.trim();
+        if (normalized.startsWith("@")) {
+            normalized = normalized.substring(1).trim();
+        }
+
+        return normalized;
+    }
+
+    private String normalizeAvatarUrl(String avatarUrl) {
+        if (avatarUrl == null || avatarUrl.isBlank()) {
+            return null;
+        }
+        if (!avatarUrl.startsWith("data:image/")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Avatar must be an image");
+        }
+
+        return avatarUrl;
+    }
+
+    private boolean isUserOnline(UUID userId) {
+        Instant now = Instant.now();
+        return userSessionRepository.existsByUserIdAndRevokedAtIsNullAndExpiresAtAfterAndLastUsedAtAfter(
+                userId,
+                now,
+                now.minus(ONLINE_WINDOW)
+        );
+    }
+
+    private String resolveDeviceName(String userAgent) {
+        if (userAgent == null || userAgent.isBlank()) {
+            return "Unknown device";
+        }
+
+        String normalized = userAgent.toLowerCase(Locale.ROOT);
+        return detectClient(normalized) + " on " + detectPlatform(normalized);
+    }
+
+    private String detectPlatform(String userAgent) {
+        if (userAgent.contains("android")) {
+            return "Android";
+        }
+        if (userAgent.contains("iphone") || userAgent.contains("ipad") || userAgent.contains("ios")) {
+            return "iOS";
+        }
+        if (userAgent.contains("mac os x") || userAgent.contains("macintosh")) {
+            return "macOS";
+        }
+        if (userAgent.contains("windows")) {
+            return "Windows";
+        }
+        if (userAgent.contains("linux")) {
+            return "Linux";
+        }
+
+        return "Unknown OS";
+    }
+
+    private String detectClient(String userAgent) {
+        if (userAgent.contains("edg/")) {
+            return "Edge";
+        }
+        if (userAgent.contains("firefox/")) {
+            return "Firefox";
+        }
+        if (userAgent.contains("chrome/") && !userAgent.contains("edg/")) {
+            return "Chrome";
+        }
+        if (userAgent.contains("safari/") && !userAgent.contains("chrome/")) {
+            return "Safari";
+        }
+
+        return "Browser";
+    }
+
     private Optional<UserAccount> findUserByUsername(String username) {
         return userAccountRepository.findByUsernameIgnoreCase(normalizeUsername(username));
     }
 
-    private AuthResponse createSessionResponse(UserAccount user) {
+    private AuthResponse createSessionResponse(UserAccount user, String userAgent) {
         Instant now = Instant.now();
         RefreshTokenSecret refreshTokenSecret = generateRefreshTokenSecret();
         UserSession session = new UserSession(
@@ -215,6 +402,7 @@ public class AuthService {
                 now,
                 now,
                 jwtService.refreshTokenExpiresAt(now),
+                resolveDeviceName(userAgent),
                 null
         );
         userSessionRepository.save(session);
