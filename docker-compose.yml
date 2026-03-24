@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:17-alpine
+    image: postgres:17
     container_name: messenger-postgres
     environment:
       POSTGRES_DB: messenger
@@ -18,6 +18,8 @@ services:
 
   redis:
     image: redis:7-alpine
+    profiles:
+      - redis
     container_name: messenger-redis
     ports:
       - "6379:6379"
@@ -37,17 +39,15 @@ services:
       sbom: false
     container_name: messenger-backend
     environment:
+      SPRING_PROFILES_ACTIVE: dev
       SERVER_PORT: 8080
       DB_URL: jdbc:postgresql://postgres:5432/messenger
       DB_USERNAME: messenger
       DB_PASSWORD: messenger
       APP_CORS_ALLOWED_ORIGINS: http://localhost:3000
-      APP_JWT_SECRET: bWVzc2VuZ2VyLWFwcC1kZW1vLXNlY3JldC1rZXktZm9yLWxvY2FsLWRldmVsb3BtZW50LXRoaXMtbXVzdC1iZS1yZXBsYWNlZA==
       APP_JWT_REFRESH_TOKEN_TTL: P30D
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     ports:
       - "8080:8080"

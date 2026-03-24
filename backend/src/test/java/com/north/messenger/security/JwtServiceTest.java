@@ -16,7 +16,8 @@ class JwtServiceTest {
                 "bWVzc2VuZ2VyLWFwcC1kZW1vLXNlY3JldC1rZXktZm9yLWxvY2FsLWRldmVsb3BtZW50LXRoaXMtbXVzdC1iZS1yZXBsYWNlZA==",
                 Duration.ofHours(12),
                 Duration.ofDays(30),
-                "north-messenger"
+                "north-messenger",
+                false
         );
         JwtService jwtService = new JwtService(properties);
 
@@ -35,5 +36,32 @@ class JwtServiceTest {
         assertThat(jwtService.extractUserId(token)).isEqualTo(user.getId());
         assertThat(jwtService.extractSessionId(token)).isEqualTo(sessionId);
         assertThat(jwtService.isTokenValid(token, "north")).isTrue();
+    }
+
+    @Test
+    void shouldGenerateEphemeralSigningKeyWhenEnabled() {
+        JwtProperties properties = new JwtProperties(
+                "",
+                Duration.ofHours(12),
+                Duration.ofDays(30),
+                "north-messenger",
+                true
+        );
+        JwtService jwtService = new JwtService(properties);
+
+        UserAccount user = new UserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "hashed-password",
+                Instant.now()
+        );
+        UUID sessionId = UUID.randomUUID();
+
+        String token = jwtService.createAccessToken(user, sessionId);
+
+        assertThat(jwtService.extractUsername(token)).isEqualTo("north");
+        assertThat(jwtService.extractUserId(token)).isEqualTo(user.getId());
+        assertThat(jwtService.extractSessionId(token)).isEqualTo(sessionId);
     }
 }

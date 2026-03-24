@@ -4,30 +4,32 @@ import { TelegramWorkspace } from "../features/chat/TelegramWorkspace";
 import { refreshSession } from "../lib/api";
 import {
   getSessionRefreshDelay,
+  isRefreshCompatible,
   isAccessTokenExpired,
-  isRefreshTokenExpired,
-  loadSession,
-  saveSession,
   shouldRefreshSessionSoon,
 } from "../lib/session";
 import type { AuthResponse } from "../lib/types";
 
+const SESSION_RESTORE_CARD_DELAY_MS = 180;
+let initialSessionRestorePromise: Promise<AuthResponse | null> | null = null;
+
+function restoreInitialSession() {
+  if (!initialSessionRestorePromise) {
+    // Keep the first restore request single-flight so StrictMode does not rotate refresh tokens twice in dev.
+    initialSessionRestorePromise = refreshSession().catch(() => null);
+  }
+
+  return initialSessionRestorePromise;
+}
+
 export function App() {
-  const [session, setSession] = useState<AuthResponse | null>(() => {
-    const initialSession = loadSession();
-    return initialSession && !isRefreshTokenExpired(initialSession) ? initialSession : null;
-  });
-  const [refreshingExpiredSession, setRefreshingExpiredSession] = useState<boolean>(() => {
-    const initialSession = loadSession();
-    return Boolean(initialSession && !isRefreshTokenExpired(initialSession) && isAccessTokenExpired(initialSession));
-  });
+  const [session, setSession] = useState<AuthResponse | null>(null);
+  const [restoringSession, setRestoringSession] = useState(true);
+  const [showRestoringSessionCard, setShowRestoringSessionCard] = useState(false);
+  const [refreshingExpiredSession, setRefreshingExpiredSession] = useState(false);
   const refreshInFlightRef = useRef(false);
 
-  useEffect(() => {
-    saveSession(session);
-  }, [session]);
-
-  const requestSessionRefresh = useEffectEvent(async (currentSession: AuthResponse, blocking = false) => {
+  const requestSessionRefresh = useEffectEvent(async (blocking = false) => {
     if (refreshInFlightRef.current) {
       return;
     }
@@ -38,8 +40,10 @@ export function App() {
     }
 
     try {
-      const nextSession = await refreshSession(currentSession.refreshToken);
-      setSession(nextSession);
+      const nextSession = await refreshSession();
+      setSession((currentSession) =>
+        isRefreshCompatible(currentSession, nextSession) ? nextSession : null
+      );
     } catch {
       setSession(null);
     } finally {
@@ -51,24 +55,51 @@ export function App() {
   });
 
   useEffect(() => {
-    if (!session) {
+    let cancelled = false;
+
+    void restoreInitialSession().then((nextSession) => {
+      if (cancelled) {
+        return;
+      }
+
+      setSession(nextSession);
+      setRestoringSession(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!restoringSession) {
+      setShowRestoringSessionCard(false);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setShowRestoringSessionCard(true);
+    }, SESSION_RESTORE_CARD_DELAY_MS);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [restoringSession]);
+
+  useEffect(() => {
+    if (restoringSession || !session) {
       setRefreshingExpiredSession(false);
       return;
     }
 
-    if (isRefreshTokenExpired(session)) {
-      setSession(null);
-      return;
-    }
-
     if (isAccessTokenExpired(session)) {
-      void requestSessionRefresh(session, true);
+      void requestSessionRefresh(true);
       return;
     }
 
     const delay = getSessionRefreshDelay(session);
     const timer = window.setTimeout(() => {
-      void requestSessionRefresh(session);
+      void requestSessionRefresh(false);
     }, delay);
 
     return () => {
@@ -77,7 +108,7 @@ export function App() {
   }, [session, requestSessionRefresh]);
 
   useEffect(() => {
-    if (!session) {
+    if (restoringSession || !session) {
       return;
     }
 
@@ -86,18 +117,13 @@ export function App() {
         return;
       }
 
-      if (isRefreshTokenExpired(session)) {
-        setSession(null);
-        return;
-      }
-
       if (isAccessTokenExpired(session)) {
-        void requestSessionRefresh(session, true);
+        void requestSessionRefresh(true);
         return;
       }
 
       if (shouldRefreshSessionSoon(session)) {
-        void requestSessionRefresh(session);
+        void requestSessionRefresh(false);
       }
     };
 
@@ -109,19 +135,25 @@ export function App() {
     };
   }, [session, requestSessionRefresh]);
 
-  const showSessionRestore = Boolean(session && refreshingExpiredSession && isAccessTokenExpired(session));
+  const showBlockingRestore =
+    restoringSession || Boolean(session && refreshingExpiredSession && isAccessTokenExpired(session));
+  const showSessionRestoreCard =
+    (restoringSession && showRestoringSessionCard) ||
+    Boolean(session && refreshingExpiredSession && isAccessTokenExpired(session));
 
   return (
     <div className="app-shell">
       <div className="ambient ambient-left" />
       <div className="ambient ambient-right" />
-      {showSessionRestore ? (
+      {showBlockingRestore ? (
         <main className="auth-shell">
-          <section className="auth-card">
-            <div className="eyebrow">Restoring session</div>
-            <h1>Reconnecting securely.</h1>
-            <p className="auth-copy">Refreshing access to your chats before the workspace opens.</p>
-          </section>
+          {showSessionRestoreCard ? (
+            <section className="auth-card">
+              <div className="eyebrow">Restoring session</div>
+              <h1>Reconnecting securely.</h1>
+              <p className="auth-copy">Refreshing access to your chats before the workspace opens.</p>
+            </section>
+          ) : null}
         </main>
       ) : session ? (
         <TelegramWorkspace session={session} onSessionChange={setSession} />

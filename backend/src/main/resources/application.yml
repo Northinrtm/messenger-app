@@ -33,11 +33,18 @@ management:
 app:
   cors:
     allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:5173}
+  auth:
+    refresh-cookie:
+      name: ${APP_AUTH_REFRESH_COOKIE_NAME:north_refresh_token}
+      path: ${APP_AUTH_REFRESH_COOKIE_PATH:/api/auth}
+      same-site: ${APP_AUTH_REFRESH_COOKIE_SAME_SITE:Lax}
+      secure: ${APP_AUTH_REFRESH_COOKIE_SECURE:false}
   jwt:
     issuer: north-messenger
     access-token-ttl: PT12H
     refresh-token-ttl: ${APP_JWT_REFRESH_TOKEN_TTL:P30D}
-    secret: ${APP_JWT_SECRET:bWVzc2VuZ2VyLWFwcC1kZW1vLXNlY3JldC1rZXktZm9yLWxvY2FsLWRldmVsb3BtZW50LXRoaXMtbXVzdC1iZS1yZXBsYWNlZA==}
+    secret: ${APP_JWT_SECRET:}
+    generate-secret-if-missing: ${APP_JWT_GENERATE_SECRET_IF_MISSING:false}
 
 logging:
   level:

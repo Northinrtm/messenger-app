@@ -12,8 +12,7 @@ public record RegisterRequest(
         @Size(min = 2, max = 40)
         String displayName,
         @NotBlank
-        @Size(min = 8, max = 120)
+        @Size(min = 10, max = 120, message = "Password must be at least 10 characters long")
         String password
 ) {
 }
-

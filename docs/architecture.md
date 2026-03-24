@@ -28,7 +28,7 @@ This repository is a production-style MVP for a direct-message messenger:
 5. WebSocket/STOMP connects to `/ws` with `Authorization: Bearer <token>`.
 6. The channel interceptor validates the token on `CONNECT` and validates membership on `SUBSCRIBE`.
 7. Sending a message goes through `POST /api/chats/{chatId}/messages`.
-8. Backend persists the message and broadcasts it to `/topic/chats.{chatId}`.
+8. Backend persists the message and pushes it to each participant via `/user/queue/messages`.
 
 ## Why the backend is a modular monolith
 

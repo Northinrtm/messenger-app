@@ -1,19 +1,25 @@
 package com.north.messenger.api;
 
 import com.north.messenger.api.dto.AddGroupParticipantsRequest;
+import com.north.messenger.api.dto.ChatDraftResponse;
 import com.north.messenger.api.dto.ChatSummaryResponse;
 import com.north.messenger.api.dto.CreateDirectChatRequest;
 import com.north.messenger.api.dto.CreateGroupChatRequest;
+import com.north.messenger.api.dto.UpdateChatDraftRequest;
+import com.north.messenger.api.dto.UpdateArchivedChatRequest;
 import com.north.messenger.application.chat.ChatService;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -29,6 +35,16 @@ public class ChatController {
     @GetMapping
     public List<ChatSummaryResponse> listChats(Authentication authentication) {
         return chatService.listChats(authentication.getName());
+    }
+
+    @GetMapping("/archive")
+    public List<UUID> listArchivedChatIds(Authentication authentication) {
+        return chatService.listArchivedChatIds(authentication.getName());
+    }
+
+    @GetMapping("/drafts")
+    public List<ChatDraftResponse> listDrafts(Authentication authentication) {
+        return chatService.listDrafts(authentication.getName());
     }
 
     @PostMapping("/direct")
@@ -54,5 +70,25 @@ public class ChatController {
             @Valid @RequestBody AddGroupParticipantsRequest request
     ) {
         return chatService.addGroupParticipants(authentication.getName(), chatId, request);
+    }
+
+    @PutMapping("/{chatId}/archive")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void updateArchivedChatState(
+            Authentication authentication,
+            @PathVariable UUID chatId,
+            @Valid @RequestBody UpdateArchivedChatRequest request
+    ) {
+        chatService.updateArchivedChatState(authentication.getName(), chatId, request.archived());
+    }
+
+    @PutMapping("/{chatId}/draft")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void updateDraft(
+            Authentication authentication,
+            @PathVariable UUID chatId,
+            @Valid @RequestBody UpdateChatDraftRequest request
+    ) {
+        chatService.updateDraft(authentication.getName(), chatId, request);
     }
 }

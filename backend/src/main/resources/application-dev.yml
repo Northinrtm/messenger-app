@@ -1,0 +1,3 @@
+app:
+  jwt:
+    generate-secret-if-missing: true

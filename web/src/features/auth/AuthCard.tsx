@@ -24,6 +24,9 @@ export function AuthCard({ onAuthenticated }: Props) {
     onSuccess: (response) => {
       onAuthenticated(response);
     },
+    onSettled: () => {
+      setPassword("");
+    },
   });
 
   const error =
@@ -98,7 +101,7 @@ export function AuthCard({ onAuthenticated }: Props) {
             <input
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="Minimum 8 characters"
+              placeholder="Minimum 10 characters"
               type="password"
               autoComplete={mode === "register" ? "new-password" : "current-password"}
               required

@@ -3,13 +3,14 @@ package com.north.messenger.application.auth;
 import com.north.messenger.api.dto.AuthResponse;
 import com.north.messenger.api.dto.LoginRequest;
 import com.north.messenger.api.dto.ParticipantResponse;
-import com.north.messenger.api.dto.RefreshTokenRequest;
 import com.north.messenger.api.dto.RegisterRequest;
 import com.north.messenger.api.dto.UserSessionResponse;
 import com.north.messenger.api.dto.UserProfileResponse;
 import com.north.messenger.domain.model.UserAccount;
+import com.north.messenger.domain.model.UserContact;
 import com.north.messenger.domain.model.UserSession;
 import com.north.messenger.domain.repository.UserAccountRepository;
+import com.north.messenger.domain.repository.UserContactRepository;
 import com.north.messenger.domain.repository.UserSessionRepository;
 import com.north.messenger.security.JwtService;
 import java.nio.charset.StandardCharsets;
@@ -24,6 +25,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -46,32 +48,38 @@ public class AuthService {
     private static final Duration ONLINE_WINDOW = Duration.ofMinutes(2);
 
     private final UserAccountRepository userAccountRepository;
+    private final UserContactRepository userContactRepository;
     private final UserSessionRepository userSessionRepository;
     private final PasswordEncoder passwordEncoder;
+    private final PasswordPolicyService passwordPolicyService;
     private final JwtService jwtService;
     private final ApplicationEventPublisher eventPublisher;
 
     public AuthService(
             UserAccountRepository userAccountRepository,
+            UserContactRepository userContactRepository,
             UserSessionRepository userSessionRepository,
             PasswordEncoder passwordEncoder,
+            PasswordPolicyService passwordPolicyService,
             JwtService jwtService,
             ApplicationEventPublisher eventPublisher
     ) {
         this.userAccountRepository = userAccountRepository;
+        this.userContactRepository = userContactRepository;
         this.userSessionRepository = userSessionRepository;
         this.passwordEncoder = passwordEncoder;
+        this.passwordPolicyService = passwordPolicyService;
         this.jwtService = jwtService;
         this.eventPublisher = eventPublisher;
     }
 
     @Transactional
-    public AuthResponse register(RegisterRequest request) {
+    public IssuedAuthSession register(RegisterRequest request) {
         return register(request, null);
     }
 
     @Transactional
-    public AuthResponse register(RegisterRequest request, String userAgent) {
+    public IssuedAuthSession register(RegisterRequest request, String userAgent) {
         String username = normalizeUsername(request.username());
         String displayName = normalizeDisplayName(request.displayName());
         if (userAccountRepository.existsByUsernameIgnoreCase(username)) {
@@ -80,6 +88,7 @@ public class AuthService {
         if (userAccountRepository.existsByDisplayNameIgnoreCase(displayName)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Display name is already taken");
         }
+        passwordPolicyService.validateRegistrationPassword(username, displayName, request.password());
 
         UserAccount user = new UserAccount(
                 UUID.randomUUID(),
@@ -93,12 +102,12 @@ public class AuthService {
     }
 
     @Transactional
-    public AuthResponse login(LoginRequest request) {
+    public IssuedAuthSession login(LoginRequest request) {
         return login(request, null);
     }
 
     @Transactional
-    public AuthResponse login(LoginRequest request, String userAgent) {
+    public IssuedAuthSession login(LoginRequest request, String userAgent) {
         UserAccount user = findUserByUsername(request.username())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
@@ -108,15 +117,15 @@ public class AuthService {
     }
 
     @Transactional
-    public AuthResponse refresh(RefreshTokenRequest request) {
-        UserSession session = requireActiveSession(request.refreshToken());
+    public IssuedAuthSession refresh(String refreshToken) {
+        UserSession session = requireActiveSession(refreshToken);
         UserAccount user = requireUserById(session.getUserId());
         return rotateSession(user, session);
     }
 
     @Transactional
-    public void logout(RefreshTokenRequest request) {
-        findSessionByRefreshToken(request.refreshToken())
+    public void logout(String refreshToken) {
+        findSessionByRefreshToken(refreshToken)
                 .filter(session -> !session.isRevoked())
                 .ifPresent(session -> {
                     UserAccount user = userAccountRepository.findById(session.getUserId()).orElse(null);
@@ -164,6 +173,46 @@ public class AuthService {
         return users.stream()
                 .map(user -> toProfile(user, onlineByUserId.getOrDefault(user.getId(), false)))
                 .toList();
+    }
+
+    public List<UserProfileResponse> listContacts(String username) {
+        UserAccount currentUser = requireAuthenticatedUser(username);
+        List<UserContact> contacts = userContactRepository.findAllByUserIdOrderByCreatedAtDesc(currentUser.getId());
+        Map<UUID, UserAccount> contactsById = findUsersById(
+                contacts.stream().map(UserContact::getContactUserId).toList()
+        );
+        Map<UUID, Boolean> onlineByUserId = resolveOnlineByUserIds(contactsById.keySet());
+
+        return contacts.stream()
+                .map(contact -> contactsById.get(contact.getContactUserId()))
+                .filter(Objects::nonNull)
+                .map(user -> toProfile(user, onlineByUserId.getOrDefault(user.getId(), false)))
+                .toList();
+    }
+
+    @Transactional
+    public UserProfileResponse addContact(String username, String contactUsername) {
+        UserAccount currentUser = requireAuthenticatedUser(username);
+        UserAccount contactUser = requireExistingUser(contactUsername);
+        if (currentUser.getId().equals(contactUser.getId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot add yourself to contacts");
+        }
+
+        userContactRepository.findByUserIdAndContactUserId(currentUser.getId(), contactUser.getId())
+                .orElseGet(() -> userContactRepository.save(
+                        new UserContact(UUID.randomUUID(), currentUser.getId(), contactUser.getId(), Instant.now())
+                ));
+
+        return toProfile(contactUser);
+    }
+
+    @Transactional
+    public void removeContact(String username, String contactUsername) {
+        UserAccount currentUser = requireAuthenticatedUser(username);
+        findUserByUsername(contactUsername)
+                .ifPresent(contactUser ->
+                        userContactRepository.deleteByUserIdAndContactUserId(currentUser.getId(), contactUser.getId())
+                );
     }
 
     @Transactional
@@ -342,6 +391,15 @@ public class AuthService {
         );
     }
 
+    private Map<UUID, UserAccount> findUsersById(Collection<UUID> userIds) {
+        if (userIds.isEmpty()) {
+            return Map.of();
+        }
+
+        return userAccountRepository.findAllByIdIn(userIds).stream()
+                .collect(Collectors.toMap(UserAccount::getId, Function.identity()));
+    }
+
     private String resolveDeviceName(String userAgent) {
         if (userAgent == null || userAgent.isBlank()) {
             return "Unknown device";
@@ -392,7 +450,7 @@ public class AuthService {
         return userAccountRepository.findByUsernameIgnoreCase(normalizeUsername(username));
     }
 
-    private AuthResponse createSessionResponse(UserAccount user, String userAgent) {
+    private IssuedAuthSession createSessionResponse(UserAccount user, String userAgent) {
         Instant now = Instant.now();
         RefreshTokenSecret refreshTokenSecret = generateRefreshTokenSecret();
         UserSession session = new UserSession(
@@ -406,31 +464,32 @@ public class AuthService {
                 null
         );
         userSessionRepository.save(session);
-        return buildAuthResponse(user, session, refreshTokenSecret.rawValue(), now);
+        return buildIssuedAuthSession(user, session, refreshTokenSecret.rawValue(), now);
     }
 
-    private AuthResponse rotateSession(UserAccount user, UserSession session) {
+    private IssuedAuthSession rotateSession(UserAccount user, UserSession session) {
         Instant now = Instant.now();
         RefreshTokenSecret refreshTokenSecret = generateRefreshTokenSecret();
         session.rotate(refreshTokenSecret.hash(), now, jwtService.refreshTokenExpiresAt(now));
         userSessionRepository.save(session);
-        return buildAuthResponse(user, session, refreshTokenSecret.rawValue(), now);
+        return buildIssuedAuthSession(user, session, refreshTokenSecret.rawValue(), now);
     }
 
-    private AuthResponse buildAuthResponse(
+    private IssuedAuthSession buildIssuedAuthSession(
             UserAccount user,
             UserSession session,
             String refreshSecret,
             Instant issuedAt
     ) {
         JwtService.IssuedAccessToken accessToken = jwtService.issueAccessToken(user, session.getId(), issuedAt);
-        return new AuthResponse(
-                accessToken.token(),
-                accessToken.expiresAt(),
-                formatRefreshToken(session.getId(), refreshSecret),
-                session.getExpiresAt(),
-                session.getId(),
-                toProfile(user)
+        return new IssuedAuthSession(
+                new AuthResponse(
+                        accessToken.token(),
+                        accessToken.expiresAt(),
+                        session.getId(),
+                        toProfile(user)
+                ),
+                formatRefreshToken(session.getId(), refreshSecret)
         );
     }
 
@@ -513,6 +572,12 @@ public class AuthService {
     public record AuthenticatedSession(
             UserAccount user,
             UUID sessionId
+    ) {
+    }
+
+    public record IssuedAuthSession(
+            AuthResponse response,
+            String refreshToken
     ) {
     }
 }

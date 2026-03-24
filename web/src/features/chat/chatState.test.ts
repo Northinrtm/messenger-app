@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { flattenMessagePages, mergeMessagePages, parseUsernames } from "./chatState";
-import type { ChatMessage } from "../../lib/types";
+import {
+  flattenMessagePages,
+  mergeMessagePages,
+  parseUsernames,
+  updateMessageStatusPages,
+} from "./chatState";
+import type { ChatMessage, MessageStatusEvent } from "../../lib/types";
 
 function message(id: string, createdAt: string): ChatMessage {
   return {
@@ -15,6 +20,7 @@ function message(id: string, createdAt: string): ChatMessage {
     },
     content: `message-${id}`,
     createdAt,
+    status: null,
   };
 }
 
@@ -50,5 +56,26 @@ describe("chatState", () => {
 
   it("normalizes usernames for chat creation inputs", () => {
     expect(parseUsernames(" Alice, @Bob  carol ")).toEqual(["alice", "bob", "carol"]);
+  });
+
+  it("updates message status in cached pages", () => {
+    const current = {
+      pages: [[message("1", "2026-03-22T10:00:00.000Z")]],
+      pageParams: [null],
+    };
+    const event: MessageStatusEvent = {
+      messageId: "1",
+      chatId: "chat-1",
+      status: {
+        state: "READ",
+        recipientCount: 1,
+        deliveredCount: 1,
+        readCount: 1,
+      },
+    };
+
+    const next = updateMessageStatusPages(current, event);
+
+    expect(next?.pages[0][0].status?.state).toBe("READ");
   });
 });

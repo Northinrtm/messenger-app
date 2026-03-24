@@ -1,6 +1,7 @@
 package com.north.messenger.api;
 
 import com.north.messenger.api.dto.CreateMessageRequest;
+import com.north.messenger.api.dto.MessageReceiptRequest;
 import com.north.messenger.api.dto.MessageResponse;
 import com.north.messenger.application.message.MessageService;
 import jakarta.validation.Valid;
@@ -47,6 +48,26 @@ public class MessageController {
             @Valid @RequestBody CreateMessageRequest request
     ) {
         return messageService.sendMessage(chatId, authentication.getName(), request);
+    }
+
+    @PostMapping("/delivered")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void acknowledgeDelivered(
+            Authentication authentication,
+            @PathVariable UUID chatId,
+            @Valid @RequestBody MessageReceiptRequest request
+    ) {
+        messageService.acknowledgeDelivered(chatId, authentication.getName(), request);
+    }
+
+    @PostMapping("/read")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void acknowledgeRead(
+            Authentication authentication,
+            @PathVariable UUID chatId,
+            @Valid @RequestBody MessageReceiptRequest request
+    ) {
+        messageService.acknowledgeRead(chatId, authentication.getName(), request);
     }
 }
 

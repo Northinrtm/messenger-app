@@ -1,6 +1,7 @@
 package com.north.messenger.config;
 
 import com.north.messenger.api.dto.ApiError;
+import com.north.messenger.application.auth.PasswordPolicyViolationException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import java.time.Instant;
@@ -69,6 +70,21 @@ public class ApiExceptionHandler {
                 exception.getMessage(),
                 request.getRequestURI(),
                 List.of()
+        );
+        return ResponseEntity.badRequest().body(error);
+    }
+
+    @ExceptionHandler(PasswordPolicyViolationException.class)
+    public ResponseEntity<ApiError> handlePasswordPolicyViolation(
+            PasswordPolicyViolationException exception,
+            HttpServletRequest request
+    ) {
+        ApiError error = new ApiError(
+                Instant.now(),
+                HttpStatus.BAD_REQUEST.value(),
+                exception.getMessage(),
+                request.getRequestURI(),
+                exception.getDetails()
         );
         return ResponseEntity.badRequest().body(error);
     }

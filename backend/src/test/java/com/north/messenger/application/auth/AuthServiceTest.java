@@ -2,10 +2,11 @@ package com.north.messenger.application.auth;
 
 import com.north.messenger.api.dto.AuthResponse;
 import com.north.messenger.api.dto.LoginRequest;
-import com.north.messenger.api.dto.RefreshTokenRequest;
 import com.north.messenger.domain.model.UserAccount;
+import com.north.messenger.domain.model.UserContact;
 import com.north.messenger.domain.model.UserSession;
 import com.north.messenger.domain.repository.UserAccountRepository;
+import com.north.messenger.domain.repository.UserContactRepository;
 import com.north.messenger.domain.repository.UserSessionRepository;
 import com.north.messenger.security.JwtService;
 import java.nio.charset.StandardCharsets;
@@ -33,8 +34,10 @@ import static org.mockito.Mockito.when;
 class AuthServiceTest {
 
     private UserAccountRepository userAccountRepository;
+    private UserContactRepository userContactRepository;
     private UserSessionRepository userSessionRepository;
     private PasswordEncoder passwordEncoder;
+    private PasswordPolicyService passwordPolicyService;
     private JwtService jwtService;
     private ApplicationEventPublisher eventPublisher;
     private AuthService authService;
@@ -42,19 +45,24 @@ class AuthServiceTest {
     @BeforeEach
     void setUp() {
         userAccountRepository = mock(UserAccountRepository.class);
+        userContactRepository = mock(UserContactRepository.class);
         userSessionRepository = mock(UserSessionRepository.class);
         passwordEncoder = mock(PasswordEncoder.class);
+        passwordPolicyService = mock(PasswordPolicyService.class);
         jwtService = mock(JwtService.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
         authService = new AuthService(
                 userAccountRepository,
+                userContactRepository,
                 userSessionRepository,
                 passwordEncoder,
+                passwordPolicyService,
                 jwtService,
                 eventPublisher
         );
 
         when(userSessionRepository.save(any(UserSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(userContactRepository.save(any(UserContact.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(jwtService.refreshTokenExpiresAt(any(Instant.class))).thenAnswer(invocation ->
                 ((Instant) invocation.getArgument(0)).plus(Duration.ofDays(30))
         );
@@ -70,12 +78,13 @@ class AuthServiceTest {
             return new JwtService.IssuedAccessToken("access-token", issuedAt.plus(Duration.ofHours(12)));
         });
 
-        AuthResponse response = authService.login(new LoginRequest("North", "password"));
+        AuthService.IssuedAuthSession issuedAuthSession = authService.login(new LoginRequest("North", "password"));
+        AuthResponse response = issuedAuthSession.response();
 
         assertThat(response.token()).isEqualTo("access-token");
-        assertThat(response.refreshToken()).startsWith(response.sessionId() + ".");
+        assertThat(issuedAuthSession.refreshToken()).startsWith(response.sessionId() + ".");
         assertThat(response.user().username()).isEqualTo("north");
-        assertThat(response.refreshTokenExpiresAt()).isAfter(response.tokenExpiresAt());
+        assertThat(response.tokenExpiresAt()).isAfter(Instant.now());
     }
 
     @Test
@@ -115,12 +124,13 @@ class AuthServiceTest {
             return new JwtService.IssuedAccessToken("rotated-access-token", issuedAt.plus(Duration.ofHours(12)));
         });
 
-        AuthResponse response = authService.refresh(new RefreshTokenRequest(sessionId + "." + previousSecret));
+        AuthService.IssuedAuthSession issuedAuthSession = authService.refresh(sessionId + "." + previousSecret);
+        AuthResponse response = issuedAuthSession.response();
 
         assertThat(response.sessionId()).isEqualTo(sessionId);
         assertThat(response.token()).isEqualTo("rotated-access-token");
-        assertThat(response.refreshToken()).startsWith(sessionId + ".");
-        assertThat(response.refreshToken()).isNotEqualTo(sessionId + "." + previousSecret);
+        assertThat(issuedAuthSession.refreshToken()).startsWith(sessionId + ".");
+        assertThat(issuedAuthSession.refreshToken()).isNotEqualTo(sessionId + "." + previousSecret);
         assertThat(session.getTokenHash()).isNotEqualTo(previousHash);
     }
 
@@ -228,6 +238,18 @@ class AuthServiceTest {
 
         assertThat(authenticatedSession.user().getId()).isEqualTo(user.getId());
         assertThat(authenticatedSession.sessionId()).isEqualTo(sessionId);
+    }
+
+    @Test
+    void addContactShouldPersistAnotherUser() {
+        UserAccount currentUser = userAccount("north");
+        UserAccount contactUser = userAccount("alice");
+        when(userAccountRepository.findByUsernameIgnoreCase("north")).thenReturn(Optional.of(currentUser));
+        when(userAccountRepository.findByUsernameIgnoreCase("alice")).thenReturn(Optional.of(contactUser));
+
+        var response = authService.addContact("north", "alice");
+
+        assertThat(response.username()).isEqualTo("alice");
     }
 
     private UserAccount userAccount(String username) {

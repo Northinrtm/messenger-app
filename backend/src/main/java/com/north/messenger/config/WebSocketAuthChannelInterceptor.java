@@ -83,11 +83,24 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
             return;
         }
 
-        String rawChatId = destination.substring(CHAT_TOPIC_PREFIX.length());
-        UUID chatId = UUID.fromString(rawChatId);
+        UUID chatId = extractChatId(destination);
         UserAccount user = authService.requireAuthenticatedUser(principal.getName());
         if (!chatParticipantRepository.existsByChatIdAndUserId(chatId, user.getId())) {
             throw new MessagingException("Access denied for this subscription");
+        }
+    }
+
+    private UUID extractChatId(String destination) {
+        String rawChatId = destination.substring(CHAT_TOPIC_PREFIX.length());
+        int suffixIndex = rawChatId.indexOf('.');
+        if (suffixIndex >= 0) {
+            rawChatId = rawChatId.substring(0, suffixIndex);
+        }
+
+        try {
+            return UUID.fromString(rawChatId);
+        } catch (IllegalArgumentException exception) {
+            throw new MessagingException("Invalid chat topic destination", exception);
         }
     }
 }

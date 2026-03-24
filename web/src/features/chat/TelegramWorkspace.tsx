@@ -10,31 +10,49 @@ import {
   useDeferredValue,
   useEffect,
   useEffectEvent,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
   useRef,
   useState,
 } from "react";
 import {
   ApiError,
+  acknowledgeDelivered as acknowledgeDeliveredRequest,
+  acknowledgeRead as acknowledgeReadRequest,
+  addContact as addContactRequest,
   addGroupParticipants,
   createDirectChat,
   createGroupChat,
+  getArchivedChats,
   getChats,
+  getContacts,
+  getDrafts,
   getMessages,
   getProfile,
   getSessions,
+  getTypingParticipants,
   logout,
+  removeContact as removeContactRequest,
   revokeSession,
   searchUsers,
   sendMessage,
+  sendTypingState as sendTypingStateRequest,
+  updateArchivedChat,
+  updateDraft as updateDraftRequest,
   updateProfile,
   updateProfileAvatar,
 } from "../../lib/api";
 import { subscribeToChats } from "../../lib/realtime";
 import type {
   AuthResponse,
+  ChatDraft,
   ChatMessage,
   ChatSummary,
+  MessageStatus,
+  MessageStatusEvent,
+  Participant,
   SessionEvent,
+  TypingEvent,
   UserProfile,
   UserSessionInfo,
 } from "../../lib/types";
@@ -44,8 +62,14 @@ import {
   mergeMessagePages,
   MESSAGE_PAGE_SIZE,
   upsertChat,
+  updateMessageStatusPages,
   updateChatPreview,
 } from "./chatState";
+import {
+  applyTypingEvent,
+  formatTypingParticipants,
+  removeTypingParticipant,
+} from "./typingState";
 
 type Props = {
   session: AuthResponse;
@@ -76,8 +100,6 @@ type MenuAction = {
   badge?: string;
 };
 
-type Contact = UserProfile;
-
 type IncomingToast = {
   id: string;
   chatId: string;
@@ -107,14 +129,21 @@ const MENU_ACTIONS: MenuAction[] = [
   { id: "logout", label: "Выйти", symbol: "EX" },
 ];
 
-const ARCHIVE_STORAGE_KEY = "north-messenger-archived-chats";
-const CONTACTS_STORAGE_KEY = "north-messenger-contacts";
+const TYPING_EVENT_TTL_MS = 8_000;
+const TYPING_HEARTBEAT_MS = 3_000;
+const TYPING_IDLE_MS = 8_000;
+const DRAFT_SAVE_DEBOUNCE_MS = 450;
+const SIDEBAR_WIDTH_STORAGE_KEY = "north-messenger-sidebar-width";
+const DEFAULT_SIDEBAR_WIDTH = 380;
+const MIN_SIDEBAR_WIDTH = 280;
+const MAX_SIDEBAR_WIDTH = 560;
 
 export function TelegramWorkspace({ session, onSessionChange }: Props) {
   const queryClient = useQueryClient();
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [sidebarSheet, setSidebarSheet] = useState<SidebarSheet>(null);
+  const [sidebarWidth, setSidebarWidth] = useState(() => readStoredSidebarWidth());
   const [search, setSearch] = useState("");
   const [groupTitle, setGroupTitle] = useState("");
   const [profileDisplayName, setProfileDisplayName] = useState(session.user.displayName);
@@ -123,20 +152,34 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
   const [contactSearch, setContactSearch] = useState("");
   const [draftsByChatId, setDraftsByChatId] = useState<Record<string, string>>({});
   const [incomingToasts, setIncomingToasts] = useState<IncomingToast[]>([]);
-  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
-  const [archivedChatIds, setArchivedChatIds] = useState<string[]>(() =>
-    loadArchivedChatIds(session.user.id)
-  );
-  const [contacts, setContacts] = useState<Contact[]>(() => loadContacts(session.user.id));
+  const [typingByChatId, setTypingByChatId] = useState<Record<string, Participant[]>>({});
   const [mobilePane, setMobilePane] = useState<"sidebar" | "conversation">("sidebar");
   const messageStreamRef = useRef<HTMLDivElement | null>(null);
   const pendingOlderScrollOffsetRef = useRef<number | null>(null);
   const handledRealtimeMessageIdsRef = useRef(new Map<string, true>());
   const toastTimeoutsRef = useRef(new Map<string, number>());
+  const typingTimeoutsRef = useRef(new Map<string, number>());
+  const draftSaveTimeoutsRef = useRef(new Map<string, number>());
+  const draftSyncLocksRef = useRef(new Set<string>());
+  const typingSignalRef = useRef<{ chatId: string | null; active: boolean; lastSentAt: number }>({
+    chatId: null,
+    active: false,
+    lastSentAt: 0,
+  });
+  const typingActivityRef = useRef<{ chatId: string | null; lastInputAt: number }>({
+    chatId: null,
+    lastInputAt: 0,
+  });
+  const previousActiveChatIdRef = useRef<string | null>(null);
+  const deliveredMessageIdsRef = useRef(new Set<string>());
+  const deliveredMessageIdsInFlightRef = useRef(new Set<string>());
+  const readMessageIdsRef = useRef(new Set<string>());
+  const readMessageIdsInFlightRef = useRef(new Set<string>());
   const viewportSnapshotRef = useRef<{ chatId: string | null; lastMessageId: string | null }>({
     chatId: null,
     lastMessageId: null,
   });
+  const sidebarResizeStateRef = useRef({ active: false, startX: 0, startWidth: DEFAULT_SIDEBAR_WIDTH });
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const menuPanelRef = useRef<HTMLDivElement | null>(null);
   const deferredSearch = useDeferredValue(search);
@@ -162,6 +205,24 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
     staleTime: 60_000,
   });
 
+  const archivedChatsQuery = useQuery({
+    queryKey: ["archived-chats", session.token],
+    queryFn: () => getArchivedChats(session.token),
+    staleTime: 60_000,
+  });
+
+  const contactsQuery = useQuery({
+    queryKey: ["contacts", session.token],
+    queryFn: () => getContacts(session.token),
+    staleTime: 60_000,
+  });
+
+  const draftsQuery = useQuery({
+    queryKey: ["drafts", session.token],
+    queryFn: () => getDrafts(session.token),
+    staleTime: 15_000,
+  });
+
   const userSearchQuery = useQuery({
     queryKey: ["user-search", session.token, deferredSearch],
     queryFn: () => searchUsers(session.token, deferredSearch.trim()),
@@ -179,10 +240,14 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
   const chats = chatsQuery.data ?? [];
   const sessions = sessionsQuery.data ?? [];
   const profile = profileQuery.data ?? session.user;
+  const archivedChatIds = archivedChatsQuery.data ?? [];
+  const contacts = contactsQuery.data ?? [];
   const userSearchResults = userSearchQuery.data ?? [];
   const contactSearchResults = contactsSearchQuery.data ?? [];
   const chatsLoading = chatsQuery.data === undefined && chatsQuery.isFetching;
   const sessionsLoading = sessionsQuery.data === undefined && sessionsQuery.isFetching;
+  const archivedChatsLoading = archivedChatsQuery.data === undefined && archivedChatsQuery.isFetching;
+  const contactsLoading = contactsQuery.data === undefined && contactsQuery.isFetching;
   const archivedChatIdSet = new Set(archivedChatIds);
   const chatIds = chats.map((chat) => chat.id).sort();
   const chatIdsKey = chatIds.join(",");
@@ -203,7 +268,7 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
   const groupContacts = contacts.filter((contact) => contact.username !== session.user.username);
 
   const activeChat = chats.find((chat) => chat.id === activeChatId) ?? null;
-  const activeDirectParticipant = activeChat ? getDirectParticipant(activeChat, session.user.id) : null;
+  const activeDirectParticipant = activeChat ? getDirectParticipant(activeChat, session.user) : null;
   const activeDirectInContacts = activeDirectParticipant
     ? contacts.some((contact) => contact.username === activeDirectParticipant.username)
     : false;
@@ -214,6 +279,25 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
           (contact) => !activeChat.members.some((member) => member.username === contact.username)
         )
       : [];
+  const activeTypingQuery = useQuery({
+    queryKey: ["typing", session.token, activeChat?.id],
+    queryFn: () => getTypingParticipants(session.token, activeChat!.id),
+    enabled: Boolean(activeChat?.id),
+    refetchInterval: activeChat?.id ? 1_000 : false,
+    refetchIntervalInBackground: true,
+    staleTime: 0,
+  });
+  const activeTypingParticipants = activeChatId
+    ? activeTypingQuery.data ?? typingByChatId[activeChatId] ?? []
+    : [];
+  const conversationSubtitle = activeChat
+    ? activeTypingParticipants.length > 0
+      ? formatTypingParticipants(activeTypingParticipants)
+      : activeChat.direct
+        ? describeChat(activeChat, session.user)
+        : formatMemberCount(activeChat.members.length)
+    : "";
+  const showTypingIndicator = activeTypingParticipants.length > 0;
 
   const messagesQuery = useInfiniteQuery({
     queryKey: ["messages", session.token, activeChat?.id],
@@ -245,17 +329,131 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
     }
   };
 
-  const clearUnreadForChat = (chatId: string) => {
-    setUnreadCounts((current) => {
-      if (!(chatId in current)) {
-        return current;
-      }
+  const clearTypingParticipant = useEffectEvent((chatId: string, participantId: string) => {
+    const key = `${chatId}:${participantId}`;
+    const timeoutId = typingTimeoutsRef.current.get(key);
+    if (timeoutId !== undefined) {
+      window.clearTimeout(timeoutId);
+      typingTimeoutsRef.current.delete(key);
+    }
 
-      const next = { ...current };
-      delete next[chatId];
-      return next;
-    });
-  };
+    setTypingByChatId((current) => removeTypingParticipant(current, chatId, participantId));
+  });
+
+  const acknowledgeDelivered = useEffectEvent(async (chatId: string, messageIds: string[]) => {
+    const pendingIds = messageIds.filter(
+      (messageId) =>
+        !deliveredMessageIdsRef.current.has(messageId) &&
+        !readMessageIdsRef.current.has(messageId) &&
+        !deliveredMessageIdsInFlightRef.current.has(messageId)
+    );
+    if (!pendingIds.length) {
+      return;
+    }
+
+    pendingIds.forEach((messageId) => deliveredMessageIdsInFlightRef.current.add(messageId));
+    try {
+      await acknowledgeDeliveredRequest(session.token, chatId, pendingIds);
+      pendingIds.forEach((messageId) => deliveredMessageIdsRef.current.add(messageId));
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onSessionChange(null);
+      }
+    } finally {
+      pendingIds.forEach((messageId) => deliveredMessageIdsInFlightRef.current.delete(messageId));
+    }
+  });
+
+  const acknowledgeRead = useEffectEvent(async (chatId: string, messageIds: string[]) => {
+    const pendingIds = messageIds.filter(
+      (messageId) =>
+        !readMessageIdsRef.current.has(messageId) && !readMessageIdsInFlightRef.current.has(messageId)
+    );
+    if (!pendingIds.length) {
+      return;
+    }
+
+    pendingIds.forEach((messageId) => readMessageIdsInFlightRef.current.add(messageId));
+    try {
+      await acknowledgeReadRequest(session.token, chatId, pendingIds);
+      pendingIds.forEach((messageId) => {
+        readMessageIdsRef.current.add(messageId);
+        deliveredMessageIdsRef.current.add(messageId);
+      });
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onSessionChange(null);
+      }
+    } finally {
+      pendingIds.forEach((messageId) => readMessageIdsInFlightRef.current.delete(messageId));
+    }
+  });
+
+  const acknowledgeVisibleMessagesAsRead = useEffectEvent(() => {
+    if (!activeChatId || document.visibilityState === "hidden") {
+      return;
+    }
+
+    const incomingMessageIds = messages
+      .filter((message) => !isOwnMessage(message, session.user))
+      .map((message) => message.id);
+    if (!incomingMessageIds.length) {
+      return;
+    }
+
+    void acknowledgeRead(activeChatId, incomingMessageIds);
+  });
+
+  const syncTypingState = useEffectEvent(async (chatId: string, typing: boolean) => {
+    try {
+      await sendTypingStateRequest(session.token, chatId, typing);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onSessionChange(null);
+      }
+    }
+  });
+
+  const sendTypingHeartbeat = useEffectEvent((chatId: string) => {
+    const now = Date.now();
+    const currentSignal = typingSignalRef.current;
+
+    if (currentSignal.active && currentSignal.chatId && currentSignal.chatId !== chatId) {
+      void syncTypingState(currentSignal.chatId, false);
+      typingSignalRef.current = {
+        chatId: currentSignal.chatId,
+        active: false,
+        lastSentAt: now,
+      };
+    }
+
+    const nextSignal = typingSignalRef.current;
+    if (nextSignal.active && nextSignal.chatId === chatId && now - nextSignal.lastSentAt < TYPING_HEARTBEAT_MS) {
+      return;
+    }
+
+    void syncTypingState(chatId, true);
+    typingSignalRef.current = {
+      chatId,
+      active: true,
+      lastSentAt: now,
+    };
+  });
+
+  const stopTyping = useEffectEvent((chatId?: string | null) => {
+    const currentSignal = typingSignalRef.current;
+    const targetChatId = chatId ?? currentSignal.chatId;
+    if (!targetChatId || !currentSignal.active || currentSignal.chatId !== targetChatId) {
+      return;
+    }
+
+    void syncTypingState(targetChatId, false);
+    typingSignalRef.current = {
+      chatId: targetChatId,
+      active: false,
+      lastSentAt: Date.now(),
+    };
+  });
 
   const dismissIncomingToast = useEffectEvent((toastId: string) => {
     const timeoutId = toastTimeoutsRef.current.get(toastId);
@@ -267,9 +465,38 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
     setIncomingToasts((current) => current.filter((toast) => toast.id !== toastId));
   });
 
-  const clearChatAttention = useEffectEvent((chatId: string) => {
-    clearUnreadForChat(chatId);
+  const persistDraft = useEffectEvent(async (chatId: string, content: string) => {
+    try {
+      await updateDraftRequest(session.token, chatId, content);
+      queryClient.setQueryData<ChatDraft[]>(["drafts", session.token], (current) =>
+        upsertDrafts(current, chatId, content)
+      );
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onSessionChange(null);
+      }
+    } finally {
+      if (!draftSaveTimeoutsRef.current.has(chatId)) {
+        draftSyncLocksRef.current.delete(chatId);
+      }
+    }
+  });
 
+  const scheduleDraftSave = useEffectEvent((chatId: string, content: string) => {
+    draftSyncLocksRef.current.add(chatId);
+    const existingTimeoutId = draftSaveTimeoutsRef.current.get(chatId);
+    if (existingTimeoutId !== undefined) {
+      window.clearTimeout(existingTimeoutId);
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      draftSaveTimeoutsRef.current.delete(chatId);
+      void persistDraft(chatId, content);
+    }, DRAFT_SAVE_DEBOUNCE_MS);
+    draftSaveTimeoutsRef.current.set(chatId, timeoutId);
+  });
+
+  const clearChatAttention = useEffectEvent((chatId: string) => {
     const toastIds = incomingToasts
       .filter((toast) => toast.chatId === chatId)
       .map((toast) => toast.id);
@@ -304,12 +531,23 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
     });
   });
 
-  const toggleArchiveChat = useEffectEvent((chatId: string) => {
-    setArchivedChatIds((current) =>
-      current.includes(chatId) ? current.filter((item) => item !== chatId) : [...current, chatId]
-    );
+  const closeActiveChat = useEffectEvent(() => {
+    if (activeChatId) {
+      stopTyping(activeChatId);
+    }
 
-    if (activeChatId === chatId && !archivedChatIdSet.has(chatId)) {
+    setSidebarSheet(null);
+    setMobilePane("sidebar");
+    startTransition(() => {
+      setActiveChatId(null);
+    });
+  });
+
+  const toggleArchiveChat = useEffectEvent((chatId: string) => {
+    const archived = !archivedChatIdSet.has(chatId);
+    updateArchivedChatMutation.mutate({ chatId, archived });
+
+    if (activeChatId === chatId && archived) {
       setSidebarSheet("archive");
       setMobilePane("sidebar");
     }
@@ -320,15 +558,12 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
       return;
     }
 
-    setContacts((current) => {
-      const withoutDuplicate = current.filter((contact) => contact.username !== user.username);
-      return [user, ...withoutDuplicate];
-    });
+    addContactMutation.mutate(user);
     setContactSearch("");
   };
 
   const removeContact = (username: string) => {
-    setContacts((current) => current.filter((contact) => contact.username !== username));
+    removeContactMutation.mutate(username);
   };
 
   const addActiveChatToContacts = () => {
@@ -344,6 +579,47 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
       avatarUrl: activeDirectParticipant.avatarUrl ?? null,
       online: activeDirectParticipant.online === true,
     });
+  };
+
+  const handleComposerChange = useEffectEvent((nextValue: string) => {
+    if (!activeChat) {
+      return;
+    }
+
+    setDraftsByChatId((current) => ({
+      ...current,
+      [activeChat.id]: nextValue,
+    }));
+    scheduleDraftSave(activeChat.id, nextValue);
+
+    if (nextValue.trim()) {
+      typingActivityRef.current = {
+        chatId: activeChat.id,
+        lastInputAt: Date.now(),
+      };
+      sendTypingHeartbeat(activeChat.id);
+      return;
+    }
+
+    typingActivityRef.current = {
+      chatId: activeChat.id,
+      lastInputAt: 0,
+    };
+    stopTyping(activeChat.id);
+  });
+
+  const startSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (window.innerWidth <= 960) {
+      return;
+    }
+
+    sidebarResizeStateRef.current = {
+      active: true,
+      startX: event.clientX,
+      startWidth: sidebarWidth,
+    };
+    document.body.classList.add("is-resizing-chat-layout");
+    event.preventDefault();
   };
 
   const toggleGroupParticipant = (username: string) => {
@@ -372,7 +648,7 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
   });
 
   const showIncomingToast = useEffectEvent((message: ChatMessage) => {
-    if (message.sender.id === session.user.id || message.chatId === activeChatId) {
+    if (isOwnMessage(message, session.user) || message.chatId === activeChatId) {
       return;
     }
 
@@ -426,17 +702,65 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
   }, [activeChatId, clearChatAttention]);
 
   useEffect(() => {
-    setArchivedChatIds(loadArchivedChatIds(session.user.id));
-    setContacts(loadContacts(session.user.id));
-  }, [session.user.id]);
+    if (!activeChatId || activeTypingQuery.data === undefined) {
+      return;
+    }
+
+    setTypingByChatId((current) => {
+      const nextParticipants = activeTypingQuery.data;
+      if (!nextParticipants.length) {
+        if (!(activeChatId in current)) {
+          return current;
+        }
+
+        const { [activeChatId]: _removed, ...rest } = current;
+        return rest;
+      }
+
+      return {
+        ...current,
+        [activeChatId]: nextParticipants,
+      };
+    });
+  }, [activeChatId, activeTypingQuery.data]);
 
   useEffect(() => {
-    saveArchivedChatIds(session.user.id, archivedChatIds);
-  }, [archivedChatIds, session.user.id]);
+    if (draftsQuery.data === undefined) {
+      return;
+    }
 
-  useEffect(() => {
-    saveContacts(session.user.id, contacts);
-  }, [contacts, session.user.id]);
+    const serverDraftsByChatId = Object.fromEntries(
+      draftsQuery.data.map((draft) => [draft.chatId, draft.content])
+    );
+    setDraftsByChatId((current) => {
+      const next = { ...current };
+      let changed = false;
+
+      draftsQuery.data.forEach((draft) => {
+        if (draftSyncLocksRef.current.has(draft.chatId)) {
+          return;
+        }
+
+        if (next[draft.chatId] !== draft.content) {
+          next[draft.chatId] = draft.content;
+          changed = true;
+        }
+      });
+
+      Object.keys(next).forEach((chatId) => {
+        if (draftSyncLocksRef.current.has(chatId)) {
+          return;
+        }
+
+        if (!(chatId in serverDraftsByChatId)) {
+          delete next[chatId];
+          changed = true;
+        }
+      });
+
+      return changed ? next : current;
+    });
+  }, [draftsQuery.data]);
 
   useEffect(() => {
     setProfileDisplayName(profile.displayName);
@@ -471,6 +795,10 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
 
   useEffect(() => {
     return () => {
+      draftSaveTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
+      draftSaveTimeoutsRef.current.clear();
+      typingTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
+      typingTimeoutsRef.current.clear();
       toastTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
       toastTimeoutsRef.current.clear();
     };
@@ -508,30 +836,78 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
     };
   }, [isMenuOpen]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
+  }, [sidebarWidth]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setSidebarWidth((current) => clampSidebarWidth(current, window.innerWidth));
+    };
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const resizeState = sidebarResizeStateRef.current;
+      if (!resizeState.active) {
+        return;
+      }
+
+      const nextWidth = resizeState.startWidth + event.clientX - resizeState.startX;
+      setSidebarWidth(clampSidebarWidth(nextWidth, window.innerWidth));
+    };
+
+    const finishResize = () => {
+      if (!sidebarResizeStateRef.current.active) {
+        return;
+      }
+
+      sidebarResizeStateRef.current.active = false;
+      document.body.classList.remove("is-resizing-chat-layout");
+    };
+
+    window.addEventListener("resize", handleResize);
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", finishResize);
+    window.addEventListener("pointercancel", finishResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", finishResize);
+      window.removeEventListener("pointercancel", finishResize);
+      document.body.classList.remove("is-resizing-chat-layout");
+    };
+  }, []);
+
   const handleRealtimeMessage = useEffectEvent((message: ChatMessage) => {
     if (handledRealtimeMessageIdsRef.current.has(message.id)) {
       return;
     }
 
+    const nextMessage = ensureOwnMessageStatus(message, session.user);
+    clearTypingParticipant(message.chatId, message.sender.id);
     rememberRealtimeMessage(message.id);
 
     queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
-      ["messages", session.token, message.chatId],
-      (current) => mergeMessagePages(current, message)
+      ["messages", session.token, nextMessage.chatId],
+      (current) => mergeMessagePages(current, nextMessage)
     );
     queryClient.setQueryData<ChatSummary[]>(
       ["chats", session.token],
-      (current) => updateChatPreview(current, message)
+      (current) => updateChatPreview(current, nextMessage)
     );
 
-    if (message.sender.id !== session.user.id && message.chatId !== activeChatId) {
-      setUnreadCounts((current) => ({
-        ...current,
-        [message.chatId]: Math.min(99, (current[message.chatId] ?? 0) + 1),
-      }));
+    if (!isOwnMessage(nextMessage, session.user)) {
+      if (nextMessage.chatId === activeChatId && document.visibilityState !== "hidden") {
+        void acknowledgeRead(nextMessage.chatId, [nextMessage.id]);
+      } else {
+        void acknowledgeDelivered(nextMessage.chatId, [nextMessage.id]);
+      }
     }
 
-    showIncomingToast(message);
+    showIncomingToast(nextMessage);
   });
 
   const handleRealtimeChat = useEffectEvent((chat: ChatSummary) => {
@@ -547,6 +923,39 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
     }
   });
 
+  const handleRealtimeMessageStatus = useEffectEvent((event: MessageStatusEvent) => {
+    queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
+      ["messages", session.token, event.chatId],
+      (current) => updateMessageStatusPages(current, event)
+    );
+    void queryClient.invalidateQueries({
+      queryKey: ["messages", session.token, event.chatId],
+    });
+  });
+
+  const handleRealtimeTyping = useEffectEvent((event: TypingEvent) => {
+    if (event.participant.id === session.user.id) {
+      return;
+    }
+
+    if (!event.typing) {
+      clearTypingParticipant(event.chatId, event.participant.id);
+      return;
+    }
+
+    setTypingByChatId((current) => applyTypingEvent(current, event, session.user.id));
+    const key = `${event.chatId}:${event.participant.id}`;
+    const existingTimeoutId = typingTimeoutsRef.current.get(key);
+    if (existingTimeoutId !== undefined) {
+      window.clearTimeout(existingTimeoutId);
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      clearTypingParticipant(event.chatId, event.participant.id);
+    }, TYPING_EVENT_TTL_MS);
+    typingTimeoutsRef.current.set(key, timeoutId);
+  });
+
   useEffect(() => {
     const subscriptionIds = chatIdsKey ? chatIdsKey.split(",") : [];
     return subscribeToChats({
@@ -554,9 +963,84 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
       token: session.token,
       onChat: handleRealtimeChat,
       onMessage: handleRealtimeMessage,
+      onMessageStatus: handleRealtimeMessageStatus,
       onSessionEvent: handleRealtimeSession,
+      onTyping: handleRealtimeTyping,
     });
-  }, [chatIdsKey, handleRealtimeChat, handleRealtimeMessage, handleRealtimeSession, session.token]);
+  }, [
+    chatIdsKey,
+    handleRealtimeChat,
+    handleRealtimeMessage,
+    handleRealtimeMessageStatus,
+    handleRealtimeSession,
+    handleRealtimeTyping,
+    session.token,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      stopTyping();
+    };
+  }, [stopTyping]);
+
+  useEffect(() => {
+    acknowledgeVisibleMessagesAsRead();
+  }, [acknowledgeVisibleMessagesAsRead, activeChatId, lastMessageId, messages.length]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        acknowledgeVisibleMessagesAsRead();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [acknowledgeVisibleMessagesAsRead]);
+
+  useEffect(() => {
+    const previousChatId = previousActiveChatIdRef.current;
+    if (previousChatId && previousChatId !== activeChatId) {
+      stopTyping(previousChatId);
+    }
+
+    previousActiveChatIdRef.current = activeChatId;
+  }, [activeChatId, stopTyping]);
+
+  useEffect(() => {
+    if (!activeChatId || !activeDraft.trim()) {
+      if (activeChatId) {
+        stopTyping(activeChatId);
+      } else {
+        stopTyping();
+      }
+      return;
+    }
+
+    const tick = () => {
+      const activity = typingActivityRef.current;
+      if (activity.chatId !== activeChatId || activity.lastInputAt === 0) {
+        stopTyping(activeChatId);
+        return;
+      }
+
+      if (Date.now() - activity.lastInputAt > TYPING_IDLE_MS) {
+        stopTyping(activeChatId);
+        return;
+      }
+
+      sendTypingHeartbeat(activeChatId);
+    };
+
+    tick();
+    const intervalId = window.setInterval(tick, 1_000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [activeChatId, activeDraft, sendTypingHeartbeat, stopTyping]);
 
   useEffect(() => {
     const container = messageStreamRef.current;
@@ -629,29 +1113,31 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
   const sendMessageMutation = useMutation({
     mutationFn: (content: string) => sendMessage(session.token, activeChat!.id, content),
     onSuccess: (message) => {
-      rememberRealtimeMessage(message.id);
+      const nextMessage = ensureOwnMessageStatus(message, session.user);
+      rememberRealtimeMessage(nextMessage.id);
       setDraftsByChatId((current) => {
-        const existingDraft = current[message.chatId] ?? "";
-        if (existingDraft.trim() !== message.content) {
+        const existingDraft = current[nextMessage.chatId] ?? "";
+        if (existingDraft.trim() !== nextMessage.content) {
           return current;
         }
 
         const next = { ...current };
-        delete next[message.chatId];
+        delete next[nextMessage.chatId];
         return next;
       });
+      scheduleDraftSave(nextMessage.chatId, "");
       queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
-        ["messages", session.token, message.chatId],
-        (current) => mergeMessagePages(current, message)
+        ["messages", session.token, nextMessage.chatId],
+        (current) => mergeMessagePages(current, nextMessage)
       );
       queryClient.setQueryData<ChatSummary[]>(["chats", session.token], (current) =>
-        updateChatPreview(current, message)
+        updateChatPreview(current, nextMessage)
       );
     },
   });
 
   const signOutMutation = useMutation({
-    mutationFn: () => logout(session.refreshToken),
+    mutationFn: () => logout(),
     onSettled: () => {
       onSessionChange(null);
     },
@@ -680,6 +1166,47 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
     },
   });
 
+  const updateArchivedChatMutation = useMutation({
+    mutationFn: ({ chatId, archived }: { chatId: string; archived: boolean }) =>
+      updateArchivedChat(session.token, chatId, archived),
+    onMutate: async ({ chatId, archived }) => {
+      const queryKey = ["archived-chats", session.token] as const;
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<string[]>(queryKey) ?? [];
+      const next = archived
+        ? previous.includes(chatId)
+          ? previous
+          : [...previous, chatId]
+        : previous.filter((item) => item !== chatId);
+      queryClient.setQueryData(queryKey, next);
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["archived-chats", session.token], context.previous);
+      }
+    },
+  });
+
+  const addContactMutation = useMutation({
+    mutationFn: (user: UserProfile) => addContactRequest(session.token, user.username),
+    onSuccess: (contact) => {
+      queryClient.setQueryData<UserProfile[]>(["contacts", session.token], (current) => {
+        const withoutDuplicate = current?.filter((item) => item.username !== contact.username) ?? [];
+        return [contact, ...withoutDuplicate];
+      });
+    },
+  });
+
+  const removeContactMutation = useMutation({
+    mutationFn: (username: string) => removeContactRequest(session.token, username),
+    onSuccess: (_result, username) => {
+      queryClient.setQueryData<UserProfile[]>(["contacts", session.token], (current) =>
+        current?.filter((item) => item.username !== username) ?? []
+      );
+    },
+  });
+
   const requestError = [
     createChatMutation.error,
     createGroupMutation.error,
@@ -689,11 +1216,18 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
     revokeSessionMutation.error,
     updateProfileMutation.error,
     avatarMutation.error,
+    updateArchivedChatMutation.error,
+    addContactMutation.error,
+    removeContactMutation.error,
     chatsQuery.error,
     sessionsQuery.error,
     profileQuery.error,
+    archivedChatsQuery.error,
+    contactsQuery.error,
+    draftsQuery.error,
     userSearchQuery.error,
     contactsSearchQuery.error,
+    activeTypingQuery.error,
     messagesQuery.error,
   ].find(Boolean);
 
@@ -726,6 +1260,7 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
       return;
     }
 
+    stopTyping(activeChat.id);
     sendMessageMutation.mutate(trimmed);
   };
 
@@ -794,9 +1329,16 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
 
   const showTopSearchResults = deferredSearch.trim().length > 0;
   const showContactSearchResults = deferredContactSearch.trim().length > 0;
+  const workspaceStyle: CSSProperties = {
+    ["--telegram-sidebar-width" as string]: `${sidebarWidth}px`,
+  };
 
   return (
-    <main className="workspace-shell telegram-workspace" data-mobile-pane={mobilePane}>
+    <main
+      className="workspace-shell telegram-workspace"
+      data-mobile-pane={mobilePane}
+      style={workspaceStyle}
+    >
       <aside className="sidebar telegram-sidebar">
         <div className="telegram-sidebar-top">
           <button
@@ -874,7 +1416,9 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
                 </div>
 
                 <div className="sheet-list">
-                  {archivedChats.length === 0 ? (
+                  {archivedChatsLoading ? (
+                    <div className="empty-list">Загружаем архив...</div>
+                  ) : archivedChats.length === 0 ? (
                     <div className="empty-list">Архив пока пуст.</div>
                   ) : (
                     archivedChats.map((chat) => (
@@ -883,7 +1427,7 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
                           <strong>{chat.title}</strong>
                           <span>
                             {chat.direct
-                              ? describeChat(chat, session.user.id)
+                              ? describeChat(chat, session.user)
                               : formatMemberCount(chat.members.length)}
                           </span>
                         </div>
@@ -1025,7 +1569,9 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
                     placeholder="Название группы"
                   />
                   <div className="group-picker-list">
-                    {groupContacts.length === 0 ? (
+                    {contactsLoading ? (
+                      <div className="empty-list">Загружаем контакты...</div>
+                    ) : groupContacts.length === 0 ? (
                       <div className="empty-list">Добавь сначала контакты, чтобы собрать группу.</div>
                     ) : (
                       groupContacts.map((contact) => {
@@ -1204,7 +1750,9 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
                 </div>
 
                 <div className="sheet-list">
-                  {contacts.length === 0 ? (
+                  {contactsLoading ? (
+                    <div className="empty-list">Загружаем контакты...</div>
+                  ) : contacts.length === 0 ? (
                     <div className="empty-list">Контактов пока нет.</div>
                   ) : (
                     contacts.map((contact) => (
@@ -1311,10 +1859,14 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
             </div>
           ) : (
             visibleChats.map((chat) => {
-              const directParticipant = getDirectParticipant(chat, session.user.id);
-              const unread = unreadCounts[chat.id] ?? 0;
+              const directParticipant = getDirectParticipant(chat, session.user);
+              const unread = chat.unreadCount;
+              const chatTypingParticipants = typingByChatId[chat.id] ?? [];
+              const isChatTyping = chatTypingParticipants.length > 0;
               const draftPreview = draftsByChatId[chat.id]?.trim() ?? "";
-              const preview = draftPreview || chat.lastMessage || "Нет сообщений";
+              const preview = isChatTyping
+                ? formatTypingParticipants(chatTypingParticipants)
+                : draftPreview || chat.lastMessage || "Нет сообщений";
               const previewTimestamp = chat.lastMessageAt ?? chat.updatedAt;
 
               return (
@@ -1350,14 +1902,16 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
                     </div>
 
                     <div className="chat-detail-line">
-                      <span>{describeChat(chat, session.user.id)}</span>
+                      <span>{describeChat(chat, session.user)}</span>
                       {!chat.direct ? <span className="chat-detail-dot">|</span> : null}
                       {!chat.direct ? <span>{formatMemberCount(chat.members.length)}</span> : null}
                     </div>
 
-                    <div className="chat-preview-line">
-                      <p>
-                        {draftPreview ? <span className="chat-draft">Черновик: </span> : null}
+                    <div className={isChatTyping ? "chat-preview-line is-typing" : "chat-preview-line"}>
+                      <p className={isChatTyping ? "chat-preview-copy is-typing" : "chat-preview-copy"}>
+                        {draftPreview && !isChatTyping ? (
+                          <span className="chat-draft">Черновик: </span>
+                        ) : null}
                         {trimPreview(preview, 88)}
                       </p>
                       {unread > 0 ? <span className="chat-badge">{unread}</span> : null}
@@ -1430,6 +1984,14 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
         ) : null}
       </aside>
 
+      <div
+        className="telegram-layout-divider"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Изменить ширину списка диалогов"
+        onPointerDown={startSidebarResize}
+      />
+
       <section className="conversation telegram-conversation">
         {activeChat ? (
           <>
@@ -1453,10 +2015,8 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
                   />
                   <div>
                     <h3>{activeChat.title}</h3>
-                    <p className="conversation-subtitle">
-                      {activeChat.direct
-                        ? describeChat(activeChat, session.user.id)
-                        : formatMemberCount(activeChat.members.length)}
+                    <p className={showTypingIndicator ? "conversation-subtitle is-typing" : "conversation-subtitle"}>
+                      {conversationSubtitle}
                     </p>
                   </div>
                 </div>
@@ -1488,6 +2048,13 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
                 >
                   {archivedChatIdSet.has(activeChat.id) ? "Вернуть" : "В архив"}
                 </button>
+                <button
+                  type="button"
+                  className="ghost-button compact archive-toggle-button close-chat-button"
+                  onClick={closeActiveChat}
+                >
+                  Закрыть
+                </button>
               </div>
             </header>
 
@@ -1517,24 +2084,46 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
                     <article
                       key={item.key}
                       className={
-                        item.message.sender.id === session.user.id
+                        isOwnMessage(item.message, session.user)
                           ? "message-bubble is-mine"
                           : "message-bubble"
                       }
                     >
                       <div className="message-meta">
                         <strong>
-                          {item.message.sender.id === session.user.id
+                          {isOwnMessage(item.message, session.user)
                             ? "Вы"
                             : item.message.sender.displayName}
                         </strong>
-                        <span>{formatClock(item.message.createdAt)}</span>
+                        <div className="message-meta-trailing">
+                          <span>{formatClock(item.message.createdAt)}</span>
+                          {isOwnMessage(item.message, session.user) ? (
+                            <span
+                              className={getMessageStatusClassName(item.message.status)}
+                              title={getMessageStatusLabel(item.message.status)}
+                              aria-label={getMessageStatusLabel(item.message.status)}
+                            >
+                              {getMessageStatusGlyph(item.message.status)}
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
                       <p>{item.message.content}</p>
                     </article>
                   )
                 )
               )}
+
+              {showTypingIndicator ? (
+                <div className="typing-indicator" aria-live="polite">
+                  <div className="typing-indicator-bubble" aria-hidden="true">
+                    <span className="typing-indicator-dot" />
+                    <span className="typing-indicator-dot" />
+                    <span className="typing-indicator-dot" />
+                  </div>
+                  <span className="typing-indicator-copy">{conversationSubtitle}</span>
+                </div>
+              ) : null}
             </div>
 
             <form
@@ -1546,17 +2135,7 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
             >
               <textarea
                 value={activeDraft}
-                onChange={(event) => {
-                  if (!activeChat) {
-                    return;
-                  }
-
-                  const nextValue = event.target.value;
-                  setDraftsByChatId((current) => ({
-                    ...current,
-                    [activeChat.id]: nextValue,
-                  }));
-                }}
+                onChange={(event) => handleComposerChange(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();
@@ -1566,7 +2145,7 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
                   }
                 }}
                 placeholder="Напишите сообщение"
-                rows={3}
+                rows={1}
               />
               <button
                 type="submit"
@@ -1628,12 +2207,12 @@ function AvatarCircle({ className, name, avatarUrl = null, badge, online = false
   );
 }
 
-function getDirectParticipant(chat: ChatSummary, currentUserId: string) {
+function getDirectParticipant(chat: ChatSummary, currentUser: UserProfile) {
   if (!chat.direct) {
     return null;
   }
 
-  return chat.members.find((member) => member.id !== currentUserId) ?? null;
+  return chat.members.find((member) => !isCurrentUserParticipant(member, currentUser)) ?? null;
 }
 
 function buildTimeline(messages: ChatMessage[]): TimelineItem[] {
@@ -1664,9 +2243,11 @@ function buildTimeline(messages: ChatMessage[]): TimelineItem[] {
   return items;
 }
 
-function describeChat(chat: ChatSummary, currentUserId: string) {
+function describeChat(chat: ChatSummary, currentUser: UserProfile) {
   if (chat.direct) {
-    const otherParticipant = chat.members.find((member) => member.id !== currentUserId);
+    const otherParticipant = chat.members.find(
+      (member) => !isCurrentUserParticipant(member, currentUser),
+    );
     return otherParticipant ? `@${otherParticipant.username}` : "Личный чат";
   }
 
@@ -1780,6 +2361,93 @@ function formatToastPreview(content: string) {
   return `${trimmed.slice(0, 117)}...`;
 }
 
+function upsertDrafts(current: ChatDraft[] | undefined, chatId: string, content: string) {
+  const withoutCurrent = (current ?? []).filter((draft) => draft.chatId !== chatId);
+  if (!content.trim()) {
+    return withoutCurrent;
+  }
+
+  return [
+    {
+      chatId,
+      content,
+      updatedAt: new Date().toISOString(),
+    },
+    ...withoutCurrent,
+  ].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+}
+
+function readStoredSidebarWidth() {
+  if (typeof window === "undefined") {
+    return DEFAULT_SIDEBAR_WIDTH;
+  }
+
+  const rawValue = window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
+  const parsedWidth = rawValue ? Number(rawValue) : NaN;
+  if (!Number.isFinite(parsedWidth)) {
+    return clampSidebarWidth(DEFAULT_SIDEBAR_WIDTH, window.innerWidth);
+  }
+
+  return clampSidebarWidth(parsedWidth, window.innerWidth);
+}
+
+function clampSidebarWidth(width: number, viewportWidth: number) {
+  const maxWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, viewportWidth - 420));
+  return Math.min(maxWidth, Math.max(MIN_SIDEBAR_WIDTH, Math.round(width)));
+}
+
+function ensureOwnMessageStatus(message: ChatMessage, currentUser: UserProfile): ChatMessage {
+  if (!isOwnMessage(message, currentUser) || message.status !== null) {
+    return message;
+  }
+
+  return {
+    ...message,
+    status: {
+      state: "SENT",
+      recipientCount: 0,
+      deliveredCount: 0,
+      readCount: 0,
+    },
+  };
+}
+
+function isOwnMessage(message: ChatMessage, currentUser: UserProfile) {
+  return message.sender.username === currentUser.username;
+}
+
+function isCurrentUserParticipant(participant: Participant, currentUser: UserProfile) {
+  return participant.username === currentUser.username;
+}
+
+function getMessageStatusClassName(status: MessageStatus | null) {
+  switch (status?.state) {
+    case "READ":
+      return "message-status is-read";
+    case "DELIVERED":
+      return "message-status is-delivered";
+    case "SENT":
+    default:
+      return "message-status is-sent";
+  }
+}
+
+function getMessageStatusGlyph(status: MessageStatus | null) {
+  return status?.state === "SENT" ? "\u2713" : "\u2713\u2713";
+}
+
+function getMessageStatusLabel(status: MessageStatus | null) {
+  switch (status?.state) {
+    case "READ":
+      return "Прочитано";
+    case "DELIVERED":
+      return "Доставлено";
+    case "SENT":
+    default:
+      return "Отправлено";
+  }
+}
+
 function avatarTone(seed: string) {
   const tones = ["tone-blue", "tone-violet", "tone-green", "tone-orange", "tone-rose"];
   let hash = 0;
@@ -1788,92 +2456,6 @@ function avatarTone(seed: string) {
   }
 
   return tones[Math.abs(hash) % tones.length];
-}
-
-function loadArchivedChatIds(userId: string) {
-  if (typeof window === "undefined") {
-    return [];
-  }
-
-  try {
-    const raw = window.localStorage.getItem(`${ARCHIVE_STORAGE_KEY}:${userId}`);
-    if (!raw) {
-      return [];
-    }
-
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveArchivedChatIds(userId: string, chatIds: string[]) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.localStorage.setItem(`${ARCHIVE_STORAGE_KEY}:${userId}`, JSON.stringify(chatIds));
-}
-
-function loadContacts(userId: string): Contact[] {
-  if (typeof window === "undefined") {
-    return [];
-  }
-
-  try {
-    const raw = window.localStorage.getItem(`${CONTACTS_STORAGE_KEY}:${userId}`);
-    if (!raw) {
-      return [];
-    }
-
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed
-      .map(normalizeStoredContact)
-      .filter((contact): contact is Contact => contact !== null);
-  } catch {
-    return [];
-  }
-}
-
-function saveContacts(userId: string, contacts: Contact[]) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.localStorage.setItem(`${CONTACTS_STORAGE_KEY}:${userId}`, JSON.stringify(contacts));
-}
-
-function isContact(value: unknown): value is Contact {
-  return normalizeStoredContact(value) !== null;
-}
-
-function normalizeStoredContact(value: unknown): Contact | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-
-  const candidate = value as Partial<Contact>;
-  if (
-    typeof candidate.username !== "string" ||
-    typeof candidate.displayName !== "string" ||
-    typeof candidate.createdAt !== "string"
-  ) {
-    return null;
-  }
-
-  return {
-    id: typeof candidate.id === "string" ? candidate.id : `contact:${candidate.username}`,
-    username: candidate.username,
-    displayName: candidate.displayName,
-    createdAt: candidate.createdAt,
-    avatarUrl: typeof candidate.avatarUrl === "string" ? candidate.avatarUrl : null,
-    online: candidate.online === true,
-  };
 }
 
 function readFileAsDataUrl(file: File) {

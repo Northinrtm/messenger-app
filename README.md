@@ -1,120 +1,190 @@
 # Messenger App
 
-`Messenger App` — это MVP realtime-мессенджера с `Java` backend, `React` web-клиентом и запуском через Docker. Проект собран как модульный монолит: backend отвечает за auth, чаты, историю сообщений и realtime-доставку, а web-клиент дает интерфейс для регистрации, общения и управления диалогами.
+`Messenger App` — это MVP realtime-мессенджера с `Spring Boot` backend, `React + TypeScript` web-клиентом и запуском через `Docker Compose`.
 
-## Что умеет
+Проект собран как модульный монолит:
 
-- регистрация и вход по JWT
-- refresh tokens с ротацией и отзывом активных сессий
-- direct chats один на один
-- group chats с названием и несколькими участниками
-- история сообщений по каждому чату
-- постраничная догрузка ранней истории сообщений
-- live-обновление чатов и сообщений без ручной перезагрузки страницы
-- realtime через WebSocket/STOMP
-- polling fallback на клиенте, если websocket временно недоступен
-- хранение пользователей, чатов, участников и сообщений в PostgreSQL
-- запуск всего стека одной командой через Docker Compose
+- `backend` отвечает за аутентификацию, сессии, профили, контакты, чаты, группы, сообщения и realtime
+- `web` даёт Telegram-подобный интерфейс для общения и управления чатами
+- `postgres` — основной источник истины для пользователей, сессий, чатов и сообщений
+- `redis` вынесен в отдельный профиль и пока остается заделом под дальнейшее развитие presence и fan-out
 
-## Что это не умеет
+## Что уже работает
 
-Сейчас это сильный MVP, а не полностью production-ready система. В проекте пока нет:
+### Backend
 
-- вложений
-- read receipts
+- регистрация и вход по username/password
+- серверная политика сложности пароля и запрет слабых/часто используемых паролей
+- JWT access token
+- rotatable refresh token в `HttpOnly` cookie
+- хранение пользовательских сессий с привязкой к устройству
+- получение списка активных устройств и отзыв отдельных сессий
+- профиль текущего пользователя
+- изменение `displayName`
+- изменение аватара
+- поиск пользователей по `username` или `displayName`
+- контакты на сервере
+- создание личных чатов
+- создание групповых чатов
+- добавление участников в существующую группу
+- архив чатов на сервере
+- черновики на сервере
+- unread counters на сервере
+- загрузка истории сообщений с пагинацией
+- отправка сообщений
+- delivered/read receipts
+- typing state по чатам
+- realtime-обновления через `WebSocket/STOMP` для чатов, сообщений, статусов сообщений и событий сессий
+- online-флаг пользователя на основе недавней активности сессии
+
+### Frontend
+
+- Telegram-подобный layout: список чатов слева, активный диалог справа
+- изменение ширины списка диалогов
+- поиск пользователей из верхней строки поиска
+- список личных чатов и групп в одной колонке
+- группы отображаются в левой панели сразу после создания
+- личные чаты появляются в левой панели после первого сообщения
+- профиль с редактированием имени
+- вставка аватара из буфера обмена в профиле
+- экран архива
+- экран контактов и добавление контактов из поиска
+- создание групп из контактов
+- добавление людей в группу из списка контактов
+- экран активных устройств
+- индикатор online/offline в личных диалогах
+- unread counters, черновики и live-обновление списка чатов
+- delivered/read-галочки у сообщений
 - typing indicators
-- push-уведомлений
+- восстановление сессии через refresh cookie без хранения секретов в `localStorage`
+
+### Важные замечания по текущей реализации
+
+- refresh token не хранится в `localStorage`: он живет в `HttpOnly` cookie
+- access token хранится только в памяти клиента
+- Redis не стартует по умолчанию в dev-compose и пока не участвует в основном message flow
+- realtime работает на встроенном Spring STOMP broker
+- typing state сейчас краткоживущий и хранится в памяти backend-процесса
+
+## Что пока не реализовано
+
+- вложения и медиа
+- push-уведомления
+- реакции на сообщения
+- reply / forward
+- edit / delete сообщений
 - end-to-end encryption
-- выделенного брокера для realtime
+- полноценный distributed presence / last seen
+- отдельный broker или gateway для realtime scale-out
 
 ## Технологии
 
 ### Backend
 
 - `Java 17`
-- `Spring Boot 3`
+- `Spring Boot 3.5.7`
 - `Spring Web`
 - `Spring Security`
+- `Spring Validation`
 - `Spring Data JPA`
 - `Spring WebSocket`
+- `Spring Actuator`
 - `Flyway`
 - `PostgreSQL`
-- `JWT (jjwt)`
+- `JJWT`
+- `Maven`
+- тесты: `JUnit 5`, `Spring Boot Test`, `Spring Security Test`
 
 ### Frontend
 
 - `React 19`
-- `TypeScript`
-- `Vite`
+- `TypeScript 5`
+- `Vite 7`
+- `@vitejs/plugin-react-swc`
 - `TanStack Query`
 - `SockJS`
-- `STOMP`
+- `STOMP.js`
+- тесты: `Vitest`, `JSDOM`
 
 ### Infra
 
 - `Docker Compose`
+- `PostgreSQL 17`
+- `Redis 7` в optional profile
 - `nginx`
-- `Redis`
 
 ## Архитектура
 
-- `backend` отдает REST API для регистрации, логина, создания чатов, загрузки списка диалогов и истории сообщений
-- `backend` рассылает новые события через WebSocket/STOMP
-- `web` хранит access/refresh-сессию локально, автоматически обновляет access token и работает с API + realtime-каналом
-- `postgres` — основное хранилище пользователей, чатов, участников и сообщений
-- `redis` уже поднят в инфраструктуре как задел под presence, fan-out и дальнейшее масштабирование
-- `nginx` в docker-сборке отдает web-клиент и проксирует API/WebSocket на backend
+### Backend-модули
 
-Подробнее: [docs/architecture.md](docs/architecture.md)
+- `api` — REST-контроллеры и DTO
+- `application.auth` — регистрация, логин, refresh flow, сессии, профиль, контакты, password policy
+- `application.chat` — список чатов, архив, черновики, direct/group chats, участники, unread counters
+- `application.message` — история сообщений, отправка, delivered/read receipts, typing state
+- `domain` — сущности и репозитории
+- `security` — JWT auth для HTTP и WebSocket, refresh-cookie configuration
+- `config` — CORS, WebSocket/STOMP, обработка ошибок
 
-## Структура проекта
+### Основные точки входа
 
-```text
-.
-|-- backend/
-|   |-- src/main/java/com/north/messenger/
-|   |-- src/main/resources/
-|   |-- src/test/java/
-|   |-- Dockerfile
-|   `-- pom.xml
-|-- web/
-|   |-- src/
-|   |-- nginx/
-|   |-- Dockerfile
-|   `-- package.json
-|-- docs/
-|   `-- architecture.md
-|-- docker-compose.yml
-`-- README.md
-```
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `POST /api/auth/refresh`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`
+- `PUT /api/auth/me`
+- `PUT /api/auth/me/avatar`
+- `GET /api/auth/sessions`
+- `DELETE /api/auth/sessions/{sessionId}`
+- `GET /api/users/search`
+- `GET /api/users/contacts`
+- `POST /api/users/contacts`
+- `DELETE /api/users/contacts/{username}`
+- `GET /api/chats`
+- `GET /api/chats/archive`
+- `GET /api/chats/drafts`
+- `POST /api/chats/direct`
+- `POST /api/chats/group`
+- `POST /api/chats/{chatId}/participants`
+- `PUT /api/chats/{chatId}/archive`
+- `PUT /api/chats/{chatId}/draft`
+- `GET /api/chats/{chatId}/messages`
+- `POST /api/chats/{chatId}/messages`
+- `POST /api/chats/{chatId}/messages/delivered`
+- `POST /api/chats/{chatId}/messages/read`
+- `GET /api/chats/{chatId}/typing`
+- `POST /api/chats/{chatId}/typing`
+- `WebSocket endpoint: /ws`
 
 ## Быстрый старт через Docker
 
 ### Требования
 
-- Docker Desktop
+- `Docker Desktop`
 
-### Запуск
+### Запуск dev-контура
 
 ```bash
 docker compose up --build
 ```
 
-Если Docker BuildKit в WSL падает на этапе `exporting to image` с ошибкой вида `parent snapshot ... does not exist`, это проблема локального Docker image store, а не приложения. Обычно помогает:
+Что делает этот режим:
+
+- backend стартует в `dev`-профиле
+- если `APP_JWT_SECRET` не задан, backend сам генерирует временный signing secret
+- после рестарта backend все текущие сессии станут недействительными
+
+Если нужен и Redis:
 
 ```bash
-docker compose down --remove-orphans
-docker builder prune -af
-docker buildx prune -af
+docker compose --profile redis up --build
 ```
-
-После этого перезапусти Docker Desktop и повтори сборку. Если ошибка остается, отключи в Docker Desktop опцию `Use containerd for pulling and storing images`.
 
 ### Что будет доступно
 
 - web: `http://localhost:3000`
 - backend API: `http://localhost:8080`
-- healthcheck: `http://localhost:8080/actuator/health`
+- healthcheck backend: `http://localhost:8080/actuator/health`
 
 ### Остановка
 
@@ -122,7 +192,7 @@ docker buildx prune -af
 docker compose down
 ```
 
-### Полный сброс данных
+### Сброс данных контейнеров
 
 ```bash
 docker compose down -v
@@ -130,29 +200,39 @@ docker compose down -v
 
 ## Локальный запуск без Docker для backend и web
 
-Этот режим удобен, если `postgres` и `redis` ты поднимаешь в контейнерах, а backend и frontend запускаешь локально.
+Этот режим удобен, если инфраструктуру хочется держать в контейнерах, а backend и frontend запускать локально.
 
 ### Требования
 
 - `Java 17+`
 - `Maven 3.9+`
-- `Node.js 22+`
-- Docker Desktop
+- актуальная LTS-версия `Node.js`
+- `Docker Desktop`
 
 ### Поднять только инфраструктуру
 
 ```bash
-docker compose up -d postgres redis
+docker compose up -d postgres
+```
+
+Если нужен Redis:
+
+```bash
+docker compose --profile redis up -d redis
 ```
 
 ### Запустить backend
 
+Если `APP_JWT_SECRET` не задан, запускай backend в `dev`-профиле:
+
 ```bash
 cd backend
-mvn spring-boot:run
+SPRING_PROFILES_ACTIVE=dev mvn spring-boot:run
 ```
 
-### Запустить web
+Если хочешь, чтобы локальные сессии переживали рестарт backend, задай постоянный `APP_JWT_SECRET`.
+
+### Запустить frontend
 
 ```bash
 cd web
@@ -160,43 +240,32 @@ npm install
 npm run dev
 ```
 
-В локальном режиме адреса будут такими:
+### Адреса в локальном режиме
 
 - backend: `http://localhost:8080`
-- web dev server: `http://localhost:5173`
+- frontend dev server: `http://localhost:5173`
 
-## Ручная проверка
+## Запуск для клиентов
 
-После запуска проверь базовый сценарий:
+Для клиентского контура используй постоянный JWT secret и `prod`-профиль backend.
 
-1. Открой `http://localhost:3000`
-2. Зарегистрируй `user1`
-3. Открой второе окно браузера в инкогнито
-4. Зарегистрируй `user2`
-5. От имени `user1` создай direct chat с `user2`
-6. Отправь сообщение
-7. Убедись, что у `user2` оно появилось без обновления страницы
-8. Зарегистрируй `user3`
-9. Создай group chat, например `team`, с участниками `user2, user3`
-10. Отправь сообщение в группу и проверь, что оно появляется у всех участников без refresh
-
-Healthcheck:
+1. Скопируй `.env.prod.example` в `.env.prod`
+2. Заполни `POSTGRES_PASSWORD`, `DB_PASSWORD`, `APP_CORS_ALLOWED_ORIGINS` и `APP_JWT_SECRET`
+3. Запусти:
 
 ```bash
-curl http://localhost:8080/actuator/health
+docker compose --env-file .env.prod -f docker-compose.prod.yml up --build -d
 ```
 
-Ожидаемый ответ:
+Важно:
 
-```json
-{"status":"UP"}
-```
+- в `prod` нет автогенерации JWT secret
+- `APP_JWT_SECRET` должен быть корректным Base64-ключом длиной не меньше 32 байт после декодирования
+- `APP_AUTH_REFRESH_COOKIE_SECURE=true` включен в prod-профиле
 
 ## Переменные окружения
 
-Базовые значения лежат в [.env.example](.env.example).
-
-Основные переменные:
+Базовые значения лежат в [.env.example](.env.example), а пример для client/prod-контура — в [.env.prod.example](.env.prod.example).
 
 | Переменная | Назначение | Значение по умолчанию |
 |---|---|---|
@@ -204,72 +273,47 @@ curl http://localhost:8080/actuator/health
 | `DB_URL` | JDBC URL PostgreSQL | `jdbc:postgresql://localhost:5432/messenger` |
 | `DB_USERNAME` | пользователь PostgreSQL | `messenger` |
 | `DB_PASSWORD` | пароль PostgreSQL | `messenger` |
-| `APP_CORS_ALLOWED_ORIGINS` | разрешенные origin для backend | `http://localhost:5173` |
-| `APP_JWT_SECRET` | секрет подписи JWT | demo secret для локальной разработки |
+| `APP_CORS_ALLOWED_ORIGINS` | разрешенные origins для backend | `http://localhost:5173` |
+| `APP_JWT_SECRET` | секрет подписи JWT | пусто в dev по умолчанию; обязателен для стабильного локального запуска и для prod |
 | `APP_JWT_REFRESH_TOKEN_TTL` | TTL refresh token | `P30D` |
+| `APP_AUTH_REFRESH_COOKIE_NAME` | имя refresh cookie | `north_refresh_token` |
+| `APP_AUTH_REFRESH_COOKIE_PATH` | path refresh cookie | `/api/auth` |
+| `APP_AUTH_REFRESH_COOKIE_SAME_SITE` | SameSite для refresh cookie | `Lax` |
+| `APP_AUTH_REFRESH_COOKIE_SECURE` | флаг Secure для refresh cookie | `false` |
 | `VITE_API_URL` | базовый URL backend API | `http://localhost:8080` |
-| `VITE_WS_URL` | базовый URL для websocket | по умолчанию берется из `VITE_API_URL` |
+| `VITE_WS_URL` | базовый URL для websocket | `http://localhost:8080` |
 
-## Полезные команды
+## Ручная проверка
 
-Проверить контейнеры:
+Базовый сценарий:
 
-```bash
-docker compose ps
-```
-
-Логи backend:
-
-```bash
-docker compose logs -f backend
-```
-
-Логи web:
-
-```bash
-docker compose logs -f web
-```
-
-Запустить backend-тесты:
-
-```bash
-cd backend
-mvn test
-```
-
-Проверить типы во frontend:
-
-```bash
-cd web
-npm run typecheck
-```
-
-Запустить frontend-тесты:
-
-```bash
-cd web
-npm run test:run
-```
-
-Собрать frontend:
-
-```bash
-cd web
-npm run build
-```
+1. Открой `http://localhost:3000`
+2. Зарегистрируй `user1`
+3. Открой второе окно браузера или режим инкогнито
+4. Зарегистрируй `user2`
+5. Найди `user2` через поиск сверху и открой личный чат
+6. Отправь первое сообщение и проверь, что диалог появился в списке слева
+7. Проверь delivered/read-галочки
+8. Начни печатать в одном клиенте и проверь typing indicator во втором
+9. Добавь `user2` в контакты
+10. Создай группу из контактов
+11. Создай черновик, обнови страницу и проверь, что он сохранился
+12. Архивируй чат, обнови страницу и проверь, что архив сохранился
+13. Открой экран активных устройств и проверь, что отображается текущее устройство
 
 ## Текущие ограничения
 
-- сообщения не шифруются end-to-end
-- access token и refresh token хранятся на клиенте локально
-- Redis пока не участвует в основном message flow
-- используется встроенный in-process STOMP broker, а не отдельный realtime cluster
+- online-статус основан на недавней активности сессии, а не на полноценной presence-системе
+- typing state хранится в памяти backend-процесса и не рассчитан на несколько инстансов
+- используется встроенный in-process STOMP broker
+- Redis пока не включен в основной backend flow
+- в проекте нет вложений, реакций, reply/forward, edit/delete и push-уведомлений
 
-## Что можно развивать дальше
+## Куда развивать дальше
 
-- read receipts и unread counters
-- typing indicators и presence
 - вложения через object storage
-- observability, метрики и tracing
-- вынос realtime в отдельный broker или gateway
-- интеграционные тесты с Testcontainers и CI
+- reply / forward / edit / delete
+- реакции на сообщения
+- last seen и полноценный presence-service
+- Redis-backed fan-out или отдельный broker/gateway для realtime
+- e2e и integration tests на сценарии с двумя клиентами

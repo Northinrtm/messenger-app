@@ -2,8 +2,10 @@ import { API_URL } from "./config";
 import type {
   ApiErrorResponse,
   AuthResponse,
+  ChatDraft,
   ChatMessage,
   ChatSummary,
+  Participant,
   UserProfile,
   UserSessionInfo,
 } from "./types";
@@ -46,6 +48,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   const response = await fetch(url, {
     method: options.method ?? "GET",
+    credentials: "include",
     headers: {
       ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
       ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
@@ -93,17 +96,15 @@ export function login(input: { username: string; password: string }) {
   });
 }
 
-export function refreshSession(refreshToken: string) {
+export function refreshSession() {
   return request<AuthResponse>("/api/auth/refresh", {
     method: "POST",
-    body: { refreshToken },
   });
 }
 
-export function logout(refreshToken: string) {
+export function logout() {
   return request<void>("/api/auth/logout", {
     method: "POST",
-    body: { refreshToken },
   });
 }
 
@@ -140,6 +141,14 @@ export function revokeSession(token: string, sessionId: string) {
 
 export function getChats(token: string) {
   return request<ChatSummary[]>("/api/chats", { token });
+}
+
+export function getArchivedChats(token: string) {
+  return request<string[]>("/api/chats/archive", { token });
+}
+
+export function getDrafts(token: string) {
+  return request<ChatDraft[]>("/api/chats/drafts", { token });
 }
 
 export function createDirectChat(token: string, participantUsername: string) {
@@ -183,6 +192,36 @@ export function sendMessage(token: string, chatId: string, content: string) {
   });
 }
 
+export function acknowledgeDelivered(token: string, chatId: string, messageIds: string[]) {
+  return request<void>(`/api/chats/${chatId}/messages/delivered`, {
+    method: "POST",
+    token,
+    body: { messageIds },
+  });
+}
+
+export function acknowledgeRead(token: string, chatId: string, messageIds: string[]) {
+  return request<void>(`/api/chats/${chatId}/messages/read`, {
+    method: "POST",
+    token,
+    body: { messageIds },
+  });
+}
+
+export function sendTypingState(token: string, chatId: string, typing: boolean) {
+  return request<void>(`/api/chats/${chatId}/typing`, {
+    method: "POST",
+    token,
+    body: { typing },
+  });
+}
+
+export function getTypingParticipants(token: string, chatId: string) {
+  return request<Participant[]>(`/api/chats/${chatId}/typing`, {
+    token,
+  });
+}
+
 export function addGroupParticipants(
   token: string,
   chatId: string,
@@ -195,9 +234,44 @@ export function addGroupParticipants(
   });
 }
 
+export function updateArchivedChat(token: string, chatId: string, archived: boolean) {
+  return request<void>(`/api/chats/${chatId}/archive`, {
+    method: "PUT",
+    token,
+    body: { archived },
+  });
+}
+
+export function updateDraft(token: string, chatId: string, content: string) {
+  return request<void>(`/api/chats/${chatId}/draft`, {
+    method: "PUT",
+    token,
+    body: { content },
+  });
+}
+
 export function searchUsers(token: string, query: string) {
   return request<UserProfile[]>("/api/users/search", {
     token,
     query: { query },
+  });
+}
+
+export function getContacts(token: string) {
+  return request<UserProfile[]>("/api/users/contacts", { token });
+}
+
+export function addContact(token: string, username: string) {
+  return request<UserProfile>("/api/users/contacts", {
+    method: "POST",
+    token,
+    body: { username },
+  });
+}
+
+export function removeContact(token: string, username: string) {
+  return request<void>(`/api/users/contacts/${encodeURIComponent(username)}`, {
+    method: "DELETE",
+    token,
   });
 }

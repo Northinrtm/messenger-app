@@ -1,0 +1,59 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: messenger-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: messenger
+      POSTGRES_USER: messenger
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U messenger -d messenger"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      provenance: false
+      sbom: false
+    container_name: messenger-backend
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SERVER_PORT: 8080
+      DB_URL: ${DB_URL:-jdbc:postgresql://postgres:5432/messenger}
+      DB_USERNAME: ${DB_USERNAME:-messenger}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
+      APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:?APP_CORS_ALLOWED_ORIGINS must be set}
+      APP_JWT_SECRET: ${APP_JWT_SECRET:?APP_JWT_SECRET must be set}
+      APP_JWT_REFRESH_TOKEN_TTL: ${APP_JWT_REFRESH_TOKEN_TTL:-P30D}
+      APP_AUTH_REFRESH_COOKIE_SECURE: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+
+  web:
+    build:
+      context: ./web
+      provenance: false
+      sbom: false
+      args:
+        VITE_API_URL: ""
+        VITE_WS_URL: ""
+    container_name: messenger-web
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+
+volumes:
+  postgres_data:

@@ -1,5 +1,5 @@
 import type { InfiniteData } from "@tanstack/react-query";
-import type { ChatMessage, ChatSummary } from "../../lib/types";
+import type { ChatMessage, ChatSummary, MessageStatusEvent } from "../../lib/types";
 
 export const MESSAGE_PAGE_SIZE = 50;
 
@@ -58,6 +58,37 @@ export function mergeMessagePages(
     ...current,
     pages,
   };
+}
+
+export function updateMessageStatusPages(
+  current: InfiniteData<ChatMessage[]> | undefined,
+  event: MessageStatusEvent
+): InfiniteData<ChatMessage[]> | undefined {
+  if (!current) {
+    return current;
+  }
+
+  let changed = false;
+  const pages = current.pages.map((page) =>
+    page.map((message) => {
+      if (message.id !== event.messageId) {
+        return message;
+      }
+
+      changed = true;
+      return {
+        ...message,
+        status: event.status,
+      };
+    })
+  );
+
+  return changed
+    ? {
+        ...current,
+        pages,
+      }
+    : current;
 }
 
 export function flattenMessagePages(pages: ChatMessage[][] | undefined) {

@@ -11,7 +11,8 @@ public record ChatSummaryResponse(
         List<ParticipantResponse> members,
         String lastMessage,
         Instant lastMessageAt,
-        Instant updatedAt
+        Instant updatedAt,
+        int unreadCount
 ) {
 }
 

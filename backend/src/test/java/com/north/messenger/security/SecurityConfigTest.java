@@ -6,6 +6,7 @@ import com.north.messenger.api.dto.AuthResponse;
 import com.north.messenger.api.dto.LoginRequest;
 import com.north.messenger.api.dto.UserProfileResponse;
 import com.north.messenger.application.auth.AuthService;
+import com.north.messenger.security.RefreshTokenCookieService;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -18,6 +19,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -41,6 +43,9 @@ class SecurityConfigTest {
     @MockBean
     private CustomUserDetailsService customUserDetailsService;
 
+    @MockBean
+    private RefreshTokenCookieService refreshTokenCookieService;
+
     @Test
     void shouldRejectAnonymousAccessToAuthenticatedAuthEndpoints() throws Exception {
         mockMvc.perform(get("/api/auth/me"))
@@ -49,25 +54,28 @@ class SecurityConfigTest {
 
     @Test
     void shouldAllowAnonymousLogin() throws Exception {
-        when(authService.login(any(LoginRequest.class), any())).thenReturn(new AuthResponse(
-                "access-token",
-                Instant.parse("2026-03-22T12:00:00Z"),
-                "session.secret",
-                Instant.parse("2026-04-21T12:00:00Z"),
-                UUID.randomUUID(),
-                new UserProfileResponse(
+        when(authService.login(any(LoginRequest.class), any())).thenReturn(new AuthService.IssuedAuthSession(
+                new AuthResponse(
+                        "access-token",
+                        Instant.parse("2026-03-22T12:00:00Z"),
                         UUID.randomUUID(),
-                        "north",
-                        "North",
-                        Instant.parse("2026-03-20T12:00:00Z"),
-                        null,
-                        true
-                )
+                        new UserProfileResponse(
+                                UUID.randomUUID(),
+                                "north",
+                                "North",
+                                Instant.parse("2026-03-20T12:00:00Z"),
+                                null,
+                                true
+                        )
+                ),
+                "session.secret"
         ));
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new LoginRequest("north", "password"))))
                 .andExpect(status().isOk());
+
+        verify(refreshTokenCookieService).write(any(), any());
     }
 }

@@ -1,0 +1,4 @@
+app:
+  auth:
+    refresh-cookie:
+      secure: true

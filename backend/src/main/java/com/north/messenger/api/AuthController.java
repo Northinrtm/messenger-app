@@ -2,7 +2,6 @@ package com.north.messenger.api;
 
 import com.north.messenger.api.dto.AuthResponse;
 import com.north.messenger.api.dto.LoginRequest;
-import com.north.messenger.api.dto.RefreshTokenRequest;
 import com.north.messenger.api.dto.RegisterRequest;
 import com.north.messenger.api.dto.UpdateAvatarRequest;
 import com.north.messenger.api.dto.UpdateProfileRequest;
@@ -10,6 +9,7 @@ import com.north.messenger.api.dto.UserSessionResponse;
 import com.north.messenger.api.dto.UserProfileResponse;
 import com.north.messenger.application.auth.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.UUID;
@@ -24,37 +24,56 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
+import com.north.messenger.security.RefreshTokenCookieService;
 
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
 
     private final AuthService authService;
+    private final RefreshTokenCookieService refreshTokenCookieService;
 
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService, RefreshTokenCookieService refreshTokenCookieService) {
         this.authService = authService;
+        this.refreshTokenCookieService = refreshTokenCookieService;
     }
 
     @PostMapping("/register")
     @ResponseStatus(HttpStatus.CREATED)
-    public AuthResponse register(@Valid @RequestBody RegisterRequest request, HttpServletRequest httpRequest) {
-        return authService.register(request, httpRequest.getHeader("User-Agent"));
+    public AuthResponse register(
+            @Valid @RequestBody RegisterRequest request,
+            HttpServletRequest httpRequest,
+            HttpServletResponse httpResponse
+    ) {
+        AuthService.IssuedAuthSession issuedAuthSession = authService.register(request, httpRequest.getHeader("User-Agent"));
+        refreshTokenCookieService.write(httpResponse, issuedAuthSession.refreshToken());
+        return issuedAuthSession.response();
     }
 
     @PostMapping("/login")
-    public AuthResponse login(@Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
-        return authService.login(request, httpRequest.getHeader("User-Agent"));
+    public AuthResponse login(
+            @Valid @RequestBody LoginRequest request,
+            HttpServletRequest httpRequest,
+            HttpServletResponse httpResponse
+    ) {
+        AuthService.IssuedAuthSession issuedAuthSession = authService.login(request, httpRequest.getHeader("User-Agent"));
+        refreshTokenCookieService.write(httpResponse, issuedAuthSession.refreshToken());
+        return issuedAuthSession.response();
     }
 
     @PostMapping("/refresh")
-    public AuthResponse refresh(@Valid @RequestBody RefreshTokenRequest request) {
-        return authService.refresh(request);
+    public AuthResponse refresh(HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
+        AuthService.IssuedAuthSession issuedAuthSession = authService.refresh(requireRefreshToken(httpRequest));
+        refreshTokenCookieService.write(httpResponse, issuedAuthSession.refreshToken());
+        return issuedAuthSession.response();
     }
 
     @PostMapping("/logout")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void logout(@Valid @RequestBody RefreshTokenRequest request) {
-        authService.logout(request);
+    public void logout(HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
+        refreshTokenCookieService.extract(httpRequest).ifPresent(authService::logout);
+        refreshTokenCookieService.clear(httpResponse);
     }
 
     @GetMapping("/me")
@@ -87,5 +106,13 @@ public class AuthController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void revokeSession(Authentication authentication, @PathVariable UUID sessionId) {
         authService.revokeSession(authentication.getName(), sessionId);
+    }
+
+    private String requireRefreshToken(HttpServletRequest request) {
+        return refreshTokenCookieService.extract(request)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.UNAUTHORIZED,
+                        "Refresh token cookie '" + refreshTokenCookieService.cookieName() + "' is missing"
+                ));
     }
 }

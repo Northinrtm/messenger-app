@@ -8,7 +8,8 @@ public record MessageResponse(
         UUID chatId,
         ParticipantResponse sender,
         String content,
-        Instant createdAt
+        Instant createdAt,
+        MessageStatusResponse status
 ) {
 }
 
