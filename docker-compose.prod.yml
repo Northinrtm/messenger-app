@@ -210,10 +210,28 @@ services:
     depends_on:
       - backend
       - jitsi-web
+
+  edge:
+    image: caddy:2.9-alpine
+    container_name: messenger-edge
+    restart: unless-stopped
+    depends_on:
+      - web
+      - jitsi-web
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?APP_DOMAIN must be set}
     ports:
       - "80:80"
+      - "443:443"
+      - "8443:8443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
 
 volumes:
+  caddy_config:
+  caddy_data:
   postgres_data:
   jitsi_prosody_config:
   jitsi_jicofo_config:

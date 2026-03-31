@@ -1,0 +1,9 @@
+{$APP_DOMAIN} {
+    encode gzip zstd
+    reverse_proxy web:80
+}
+
+https://{$APP_DOMAIN}:8443 {
+    encode gzip zstd
+    reverse_proxy jitsi-web:80
+}
