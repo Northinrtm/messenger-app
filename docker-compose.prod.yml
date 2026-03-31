@@ -7,8 +7,6 @@ services:
       POSTGRES_DB: messenger
       POSTGRES_USER: messenger
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -130,8 +128,6 @@ services:
       XMPP_GUEST_DOMAIN: guest.meet.jitsi
       XMPP_INTERNAL_MUC_DOMAIN: internal-muc.meet.jitsi
       XMPP_MUC_DOMAIN: muc.meet.jitsi
-    ports:
-      - "8090:80"
     volumes:
       - jitsi_web_config:/config
       - ./jitsi/custom-config.js:/config/custom-config.js
@@ -192,8 +188,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    ports:
-      - "8080:8080"
     volumes:
       - conference_recordings_archive:/app/storage/conference-recordings
       - conference_recordings_raw:/jibri-recordings:ro
