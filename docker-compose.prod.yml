@@ -3,6 +3,8 @@ services:
     image: postgres:17
     container_name: messenger-postgres
     restart: unless-stopped
+    cpus: 1.0
+    mem_limit: 768m
     environment:
       POSTGRES_DB: messenger
       POSTGRES_USER: messenger
@@ -138,6 +140,8 @@ services:
       - autonomous-recording
     container_name: messenger-jitsi-jibri
     restart: unless-stopped
+    cpus: 2.0
+    mem_limit: 2048m
     depends_on:
       - jitsi-prosody
       - jitsi-jicofo
@@ -172,6 +176,8 @@ services:
       context: ./backend
     container_name: messenger-backend
     restart: unless-stopped
+    cpus: 1.0
+    mem_limit: 1024m
     environment:
       SPRING_PROFILES_ACTIVE: prod
       SERVER_PORT: 8080
@@ -187,6 +193,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
     volumes:
       - conference_recordings_archive:/app/storage/conference-recordings
       - conference_recordings_raw:/jibri-recordings:ro
@@ -200,17 +212,31 @@ services:
         VITE_JITSI_BASE_URL: ${JITSI_PUBLIC_URL:?JITSI_PUBLIC_URL must be set}
     container_name: messenger-web
     restart: unless-stopped
+    cpus: 0.5
+    mem_limit: 256m
     depends_on:
-      - backend
-      - jitsi-web
+      backend:
+        condition: service_healthy
+      jitsi-web:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   edge:
     image: caddy:2.9-alpine
     container_name: messenger-edge
     restart: unless-stopped
+    cpus: 0.5
+    mem_limit: 128m
     depends_on:
-      - web
-      - jitsi-web
+      web:
+        condition: service_healthy
+      jitsi-web:
+        condition: service_started
     environment:
       APP_DOMAIN: ${APP_DOMAIN:?APP_DOMAIN must be set}
     ports:

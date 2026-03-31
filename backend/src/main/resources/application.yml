@@ -8,6 +8,19 @@ spring:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/messenger}
     username: ${DB_USERNAME:messenger}
     password: ${DB_PASSWORD:messenger}
+    hikari:
+      minimum-idle: ${APP_DB_MIN_IDLE:2}
+      maximum-pool-size: ${APP_DB_MAX_POOL_SIZE:10}
+      connection-timeout: ${APP_DB_CONNECTION_TIMEOUT_MS:5000}
+      validation-timeout: ${APP_DB_VALIDATION_TIMEOUT_MS:3000}
+      initialization-fail-timeout: ${APP_DB_INITIALIZATION_FAIL_TIMEOUT_MS:10000}
+      idle-timeout: ${APP_DB_IDLE_TIMEOUT_MS:120000}
+      max-lifetime: ${APP_DB_MAX_LIFETIME_MS:600000}
+      keepalive-time: ${APP_DB_KEEPALIVE_TIME_MS:30000}
+      data-source-properties:
+        connectTimeout: ${APP_DB_CONNECT_TIMEOUT_SECONDS:5}
+        socketTimeout: ${APP_DB_SOCKET_TIMEOUT_SECONDS:30}
+        tcpKeepAlive: true
   jpa:
     open-in-view: false
     hibernate:
