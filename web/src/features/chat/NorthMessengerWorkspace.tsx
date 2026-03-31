@@ -20,28 +20,38 @@ import {
   acknowledgeDelivered as acknowledgeDeliveredRequest,
   acknowledgeRead as acknowledgeReadRequest,
   addContact as addContactRequest,
+  addConferenceParticipants as addConferenceParticipantsRequest,
   addGroupParticipants,
+  createVideoConference as createVideoConferenceRequest,
+  downloadConferenceRecording as downloadConferenceRecordingRequest,
+  endVideoConference as endVideoConferenceRequest,
   createDirectChat,
   createGroupChat,
   getArchivedChats,
+  getArchivedVideoConferences,
   getChats,
   getContacts,
-  getDrafts,
-  getMessages,
   getProfile,
   getSessions,
   getTypingParticipants,
+  getVideoConferences,
   logout,
   removeContact as removeContactRequest,
   revokeSession,
   searchUsers,
-  sendMessage,
   sendTypingState as sendTypingStateRequest,
   updateArchivedChat,
-  updateDraft as updateDraftRequest,
   updateProfile,
   updateProfileAvatar,
 } from "../../lib/api";
+import { JITSI_BASE_URL } from "../../lib/config";
+import {
+  getEncryptedMessages,
+  isUnavailableEncryptedMessage,
+  sendEncryptedMessage,
+} from "../../lib/e2ee";
+import { readLocalChatPreviews, writeLocalChatPreviews } from "../../lib/chatPreviewCache";
+import { readLocalDrafts, writeLocalDraft } from "../../lib/localDrafts";
 import { subscribeToChats } from "../../lib/realtime";
 import type {
   AuthResponse,
@@ -55,13 +65,16 @@ import type {
   TypingEvent,
   UserProfile,
   UserSessionInfo,
+  VideoConference,
 } from "../../lib/types";
 import {
+  applyChatPreviewOverrides,
   flattenMessagePages,
   initials,
   mergeMessagePages,
   MESSAGE_PAGE_SIZE,
   upsertChat,
+  upsertChatPreviewOverride,
   updateMessageStatusPages,
   updateChatPreview,
 } from "./chatState";
@@ -70,6 +83,10 @@ import {
   formatTypingParticipants,
   removeTypingParticipant,
 } from "./typingState";
+import {
+  type ConferenceRecordingState,
+  ManagedConferenceStage,
+} from "./ManagedConferenceStage";
 
 type Props = {
   session: AuthResponse;
@@ -78,6 +95,8 @@ type Props = {
 
 type SidebarSheet =
   | "archive"
+  | "conference"
+  | "conferenceMembers"
   | "profile"
   | "group"
   | "groupMembers"
@@ -85,7 +104,10 @@ type SidebarSheet =
   | "sessions"
   | null;
 
+type ConversationListTab = "dialogs" | "groups" | "conferences";
+
 type MenuActionId =
+  | "conference"
   | "archive"
   | "profile"
   | "group"
@@ -121,9 +143,10 @@ type TimelineItem =
     };
 
 const MENU_ACTIONS: MenuAction[] = [
-  { id: "archive", label: "Архив", symbol: "AR" },
   { id: "profile", label: "Мой профиль", symbol: "ME" },
-  { id: "group", label: "Создать группу", symbol: "GR" },
+  { id: "archive", label: "Архив", symbol: "AR" },
+  { id: "group", label: "Группы", symbol: "GR" },
+  { id: "conference", label: "Видеоконференции", symbol: "VC" },
   { id: "contacts", label: "Контакты", symbol: "CT" },
   { id: "sessions", label: "Активные устройства", symbol: "DV" },
   { id: "logout", label: "Выйти", symbol: "EX" },
@@ -133,28 +156,49 @@ const TYPING_EVENT_TTL_MS = 8_000;
 const TYPING_HEARTBEAT_MS = 3_000;
 const TYPING_IDLE_MS = 8_000;
 const DRAFT_SAVE_DEBOUNCE_MS = 450;
+const CONFERENCE_ACTIVATION_LEAD_MS = 5 * 60 * 1000;
 const SIDEBAR_WIDTH_STORAGE_KEY = "north-messenger-sidebar-width";
 const DEFAULT_SIDEBAR_WIDTH = 380;
 const MIN_SIDEBAR_WIDTH = 280;
 const MAX_SIDEBAR_WIDTH = 560;
 
-export function TelegramWorkspace({ session, onSessionChange }: Props) {
+export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const queryClient = useQueryClient();
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [activeConferenceId, setActiveConferenceId] = useState<string | null>(null);
+  const [activeListTab, setActiveListTab] = useState<ConversationListTab>("dialogs");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [sidebarSheet, setSidebarSheet] = useState<SidebarSheet>(null);
   const [sidebarWidth, setSidebarWidth] = useState(() => readStoredSidebarWidth());
   const [search, setSearch] = useState("");
   const [groupTitle, setGroupTitle] = useState("");
+  const [conferenceTitle, setConferenceTitle] = useState("");
+  const [conferenceScheduledAt, setConferenceScheduledAt] = useState(() =>
+    createInitialConferenceDateTime()
+  );
+  const [conferenceComposerMode, setConferenceComposerMode] = useState<"instant" | "scheduled" | null>(null);
+  const [conferenceParticipantUsernames, setConferenceParticipantUsernames] = useState<string[]>([]);
+  const [conferenceInviteUsernames, setConferenceInviteUsernames] = useState<string[]>([]);
   const [profileDisplayName, setProfileDisplayName] = useState(session.user.displayName);
   const [groupParticipantUsernames, setGroupParticipantUsernames] = useState<string[]>([]);
   const [groupInviteUsernames, setGroupInviteUsernames] = useState<string[]>([]);
   const [contactSearch, setContactSearch] = useState("");
   const [draftsByChatId, setDraftsByChatId] = useState<Record<string, string>>({});
+  const [chatPreviewOverrides, setChatPreviewOverrides] = useState<
+    Record<string, { lastMessage: string; lastMessageAt: string }>
+  >(() => readLocalChatPreviews(session.user.id));
   const [incomingToasts, setIncomingToasts] = useState<IncomingToast[]>([]);
   const [typingByChatId, setTypingByChatId] = useState<Record<string, Participant[]>>({});
   const [mobilePane, setMobilePane] = useState<"sidebar" | "conversation">("sidebar");
+  const [isConferenceInfoOpen, setIsConferenceInfoOpen] = useState(false);
+  const [conferenceRecordingState, setConferenceRecordingState] =
+    useState<ConferenceRecordingState>("idle");
+  const [conferenceRecordingImportStates, setConferenceRecordingImportStates] = useState<
+    Record<string, "pending" | "failed">
+  >({});
   const messageStreamRef = useRef<HTMLDivElement | null>(null);
+  const conferenceInfoButtonRef = useRef<HTMLButtonElement | null>(null);
+  const conferenceInfoPanelRef = useRef<HTMLDivElement | null>(null);
   const pendingOlderScrollOffsetRef = useRef<number | null>(null);
   const handledRealtimeMessageIdsRef = useRef(new Map<string, true>());
   const toastTimeoutsRef = useRef(new Map<string, number>());
@@ -179,6 +223,10 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
     chatId: null,
     lastMessageId: null,
   });
+  const chatPreviewOverridesRef = useRef<Record<string, { lastMessage: string; lastMessageAt: string }>>(
+    {}
+  );
+  const chatPreviewHydrationRef = useRef(new Map<string, string>());
   const sidebarResizeStateRef = useRef({ active: false, startX: 0, startWidth: DEFAULT_SIDEBAR_WIDTH });
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const menuPanelRef = useRef<HTMLDivElement | null>(null);
@@ -217,9 +265,25 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
     staleTime: 60_000,
   });
 
+  const conferencesQuery = useQuery({
+    queryKey: ["video-conferences", session.token],
+    queryFn: () => getVideoConferences(session.token),
+    refetchInterval: 5_000,
+    refetchIntervalInBackground: true,
+    staleTime: 5_000,
+  });
+
+  const archivedConferencesQuery = useQuery({
+    queryKey: ["video-conferences-archive", session.token],
+    queryFn: () => getArchivedVideoConferences(session.token),
+    refetchInterval: 15_000,
+    refetchIntervalInBackground: true,
+    staleTime: 15_000,
+  });
+
   const draftsQuery = useQuery({
     queryKey: ["drafts", session.token],
-    queryFn: () => getDrafts(session.token),
+    queryFn: async () => readLocalDrafts(session.user.id),
     staleTime: 15_000,
   });
 
@@ -237,17 +301,23 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
     staleTime: 15_000,
   });
 
-  const chats = chatsQuery.data ?? [];
+  const serverChats = chatsQuery.data ?? [];
+  const chats = applyChatPreviewOverrides(serverChats, chatPreviewOverrides);
   const sessions = sessionsQuery.data ?? [];
   const profile = profileQuery.data ?? session.user;
   const archivedChatIds = archivedChatsQuery.data ?? [];
   const contacts = contactsQuery.data ?? [];
+  const conferences = conferencesQuery.data ?? [];
+  const archivedConferences = archivedConferencesQuery.data ?? [];
   const userSearchResults = userSearchQuery.data ?? [];
   const contactSearchResults = contactsSearchQuery.data ?? [];
   const chatsLoading = chatsQuery.data === undefined && chatsQuery.isFetching;
   const sessionsLoading = sessionsQuery.data === undefined && sessionsQuery.isFetching;
   const archivedChatsLoading = archivedChatsQuery.data === undefined && archivedChatsQuery.isFetching;
   const contactsLoading = contactsQuery.data === undefined && contactsQuery.isFetching;
+  const conferencesLoading = conferencesQuery.data === undefined && conferencesQuery.isFetching;
+  const archivedConferencesLoading =
+    archivedConferencesQuery.data === undefined && archivedConferencesQuery.isFetching;
   const archivedChatIdSet = new Set(archivedChatIds);
   const chatIds = chats.map((chat) => chat.id).sort();
   const chatIdsKey = chatIds.join(",");
@@ -264,21 +334,94 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
         );
       });
   const visibleChats = filteredChats.filter((chat) => !archivedChatIdSet.has(chat.id));
+  const visibleDirectChats = visibleChats.filter((chat) => chat.direct);
+  const visibleGroupChats = visibleChats.filter((chat) => !chat.direct);
   const archivedChats = listedChats.filter((chat) => archivedChatIdSet.has(chat.id));
   const groupContacts = contacts.filter((contact) => contact.username !== session.user.username);
+  const visibleConferences = !normalizedSearch
+    ? conferences
+    : conferences.filter((conference) => {
+        const participantText = conference.participants
+          .map((participant) => `${participant.username} ${participant.displayName}`)
+          .join(" ")
+          .toLowerCase();
+        return (
+          conference.title.toLowerCase().includes(normalizedSearch) ||
+          participantText.includes(normalizedSearch)
+        );
+      });
 
   const activeChat = chats.find((chat) => chat.id === activeChatId) ?? null;
+  const activeConference =
+    conferences.find((conference) => conference.id === activeConferenceId) ??
+    archivedConferences.find((conference) => conference.id === activeConferenceId) ??
+    null;
   const activeDirectParticipant = activeChat ? getDirectParticipant(activeChat, session.user) : null;
   const activeDirectInContacts = activeDirectParticipant
     ? contacts.some((contact) => contact.username === activeDirectParticipant.username)
     : false;
   const activeDraft = activeChatId ? draftsByChatId[activeChatId] ?? "" : "";
+  const activeConferenceIsArchived = Boolean(activeConference?.endedAt);
+  const activeConferenceCanJoin = Boolean(
+    activeConference?.roomName && activeConference.startedAt && !activeConference.endedAt
+  );
+  const activeConferenceJoinUrl =
+    activeConferenceCanJoin && activeConference?.roomName
+      ? buildJitsiConferenceUrl(activeConference.roomName, activeConference.title, profile.displayName)
+      : null;
+  const activeConferenceShareUrl =
+    activeConferenceCanJoin && activeConference?.roomName
+      ? buildJitsiShareUrl(activeConference.roomName)
+      : null;
+  const activeConferenceIsOwnedByCurrentUser = activeConference
+    ? activeConference.createdBy.id === profile.id
+    : false;
+  const activeConferenceCanManageParticipants = Boolean(
+    activeConference && activeConferenceIsOwnedByCurrentUser && !activeConferenceIsArchived
+  );
+  const activeConferenceRoleLabel = activeConference
+    ? describeConferenceRole(activeConferenceIsOwnedByCurrentUser)
+    : null;
+  const activeConferenceOrganizerLabel = activeConference
+    ? formatConferenceOrganizerLabel(activeConference.createdBy, profile)
+    : null;
+  const activeConferenceStatusLabel = activeConference
+    ? formatConferenceStatusLabelV2(activeConference)
+    : null;
+  const activeConferenceHasRecording = Boolean(activeConference?.recordingCreatedAt);
+  const activeConferenceRecordingImportState = activeConference
+    ? conferenceRecordingImportStates[activeConference.id] ?? null
+    : null;
+  const activeConferenceRecordingPending = Boolean(
+    activeConference?.endedAt &&
+      !activeConference.recordingCreatedAt &&
+      activeConferenceRecordingImportState === "pending"
+  );
+  const activeConferenceRecordingFailed = Boolean(
+    activeConference?.endedAt &&
+      !activeConference.recordingCreatedAt &&
+      activeConferenceRecordingImportState === "failed"
+  );
+  const activeConferenceServerRecordingActive = Boolean(
+    activeConferenceCanJoin &&
+      activeConferenceIsOwnedByCurrentUser &&
+      (conferenceRecordingState === "starting" || conferenceRecordingState === "recording")
+  );
+  const activeConferenceStageHint = activeConference
+    ? formatConferenceStageHint(activeConference, activeConferenceIsOwnedByCurrentUser)
+    : null;
   const availableGroupInviteContacts =
     activeChat && !activeChat.direct
       ? groupContacts.filter(
           (contact) => !activeChat.members.some((member) => member.username === contact.username)
         )
       : [];
+  const availableConferenceInviteContacts = activeConference
+    ? groupContacts.filter(
+        (contact) =>
+          !activeConference.participants.some((participant) => participant.username === contact.username)
+      )
+    : [];
   const activeTypingQuery = useQuery({
     queryKey: ["typing", session.token, activeChat?.id],
     queryFn: () => getTypingParticipants(session.token, activeChat!.id),
@@ -302,7 +445,7 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
   const messagesQuery = useInfiniteQuery({
     queryKey: ["messages", session.token, activeChat?.id],
     queryFn: ({ pageParam }) =>
-      getMessages(session.token, activeChat!.id, {
+      getEncryptedMessages(session.token, session.user.id, activeChat!.id, {
         before: pageParam,
         limit: MESSAGE_PAGE_SIZE,
       }),
@@ -318,6 +461,52 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
   const messagesLoading =
     Boolean(activeChat?.id) && messagesQuery.data === undefined && messagesQuery.isFetching;
   const lastMessageId = messages[messages.length - 1]?.id ?? null;
+  const lastMessage = messages[messages.length - 1] ?? null;
+
+  useEffect(() => {
+    if (!activeConference) {
+      setConferenceRecordingState("idle");
+      return;
+    }
+
+    if (activeConference.recordingCreatedAt) {
+      setConferenceRecordingState("idle");
+      setConferenceRecordingImportStates((current) => {
+        if (!(activeConference.id in current)) {
+          return current;
+        }
+
+        const next = { ...current };
+        delete next[activeConference.id];
+        return next;
+      });
+    }
+  }, [activeConference?.id, activeConference?.recordingCreatedAt]);
+
+  useEffect(() => {
+    if (!activeConference) {
+      return;
+    }
+
+    if (conferenceRecordingState === "failed") {
+      setConferenceRecordingImportStates((current) => ({
+        ...current,
+        [activeConference.id]: "failed",
+      }));
+      return;
+    }
+
+    if (
+      conferenceRecordingState === "starting" ||
+      conferenceRecordingState === "recording" ||
+      conferenceRecordingState === "stopping"
+    ) {
+      setConferenceRecordingImportStates((current) => ({
+        ...current,
+        [activeConference.id]: "pending",
+      }));
+    }
+  }, [activeConference?.id, conferenceRecordingState]);
 
   const rememberRealtimeMessage = (messageId: string) => {
     handledRealtimeMessageIdsRef.current.set(messageId, true);
@@ -328,6 +517,26 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
       }
     }
   };
+
+  const applyChatPreviewMessage = useEffectEvent(
+    (message: Pick<ChatMessage, "chatId" | "content" | "createdAt">) => {
+      if (!message.content.trim() || isUnavailableEncryptedMessage(message.content)) {
+        return;
+      }
+
+      setChatPreviewOverrides((current) => upsertChatPreviewOverride(current, message));
+    }
+  );
+
+  const applyServerChatPreviewMessage = useEffectEvent((message: ChatMessage) => {
+    if (!message.content.trim() || isUnavailableEncryptedMessage(message.content)) {
+      return;
+    }
+
+    queryClient.setQueryData<ChatSummary[]>(["chats", session.token], (current) =>
+      updateChatPreview(current, message)
+    );
+  });
 
   const clearTypingParticipant = useEffectEvent((chatId: string, participantId: string) => {
     const key = `${chatId}:${participantId}`;
@@ -467,14 +676,8 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
 
   const persistDraft = useEffectEvent(async (chatId: string, content: string) => {
     try {
-      await updateDraftRequest(session.token, chatId, content);
-      queryClient.setQueryData<ChatDraft[]>(["drafts", session.token], (current) =>
-        upsertDrafts(current, chatId, content)
-      );
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 401) {
-        onSessionChange(null);
-      }
+      const nextDrafts = writeLocalDraft(session.user.id, chatId, content);
+      queryClient.setQueryData<ChatDraft[]>(["drafts", session.token], nextDrafts);
     } finally {
       if (!draftSaveTimeoutsRef.current.has(chatId)) {
         draftSyncLocksRef.current.delete(chatId);
@@ -521,11 +724,48 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
     setMobilePane("sidebar");
   });
 
+  const resetConferenceComposer = useEffectEvent(() => {
+    setConferenceTitle("");
+    setConferenceScheduledAt(createInitialConferenceDateTime());
+    setConferenceParticipantUsernames([]);
+    setConferenceComposerMode(null);
+  });
+
+  const openConferenceSheet = useEffectEvent(() => {
+    setActiveListTab("conferences");
+    setActiveConferenceId(null);
+    openSidebarSheet("conference");
+  });
+
+  const openConferenceComposer = useEffectEvent((mode: "instant" | "scheduled") => {
+    openConferenceSheet();
+    setConferenceComposerMode(mode);
+    if (mode === "scheduled") {
+      setConferenceScheduledAt(createInitialConferenceDateTime());
+    }
+  });
+
+  const activateListTab = useEffectEvent((tab: ConversationListTab) => {
+    setActiveListTab(tab);
+    setSidebarSheet(null);
+    setIsMenuOpen(false);
+    if (tab !== "conferences") {
+      setConferenceComposerMode(null);
+      setActiveConferenceId(null);
+    }
+  });
+
   const openChat = useEffectEvent((chatId: string) => {
     clearChatAttention(chatId);
+    const targetChat = chats.find((chat) => chat.id === chatId) ?? null;
+    if (targetChat) {
+      setActiveListTab(targetChat.direct ? "dialogs" : "groups");
+    }
     setIsMenuOpen(false);
     setSidebarSheet(null);
+    setConferenceComposerMode(null);
     setMobilePane("conversation");
+    setActiveConferenceId(null);
     startTransition(() => {
       setActiveChatId(chatId);
     });
@@ -541,6 +781,53 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
     startTransition(() => {
       setActiveChatId(null);
     });
+  });
+
+  const closeActiveConference = useEffectEvent(() => {
+    setIsConferenceInfoOpen(false);
+    setSidebarSheet(null);
+    setMobilePane("sidebar");
+    startTransition(() => {
+      setActiveConferenceId(null);
+    });
+  });
+
+  const openConference = useEffectEvent((conferenceId: string) => {
+    if (activeChatId) {
+      stopTyping(activeChatId);
+    }
+
+    setActiveListTab("conferences");
+    setIsMenuOpen(false);
+    setIsConferenceInfoOpen(false);
+    setSidebarSheet(null);
+    setConferenceComposerMode(null);
+    setMobilePane("conversation");
+    setActiveChatId(null);
+    startTransition(() => {
+      setActiveConferenceId(conferenceId);
+    });
+  });
+
+  const handleConferenceStageExit = useEffectEvent(() => {
+    if (!activeConference) {
+      closeActiveConference();
+      return;
+    }
+
+    const conference = activeConference;
+    if (activeConferenceIsOwnedByCurrentUser) {
+      queryClient.setQueryData<VideoConference[]>(["video-conferences", session.token], (current) =>
+        removeVideoConference(current, conference.id)
+      );
+      endConferenceMutation.mutate(conference.id, {
+        onError: () => {
+          void queryClient.invalidateQueries({ queryKey: ["video-conferences", session.token] });
+        },
+      });
+    }
+
+    closeActiveConference();
   });
 
   const toggleArchiveChat = useEffectEvent((chatId: string) => {
@@ -626,9 +913,40 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
     setGroupParticipantUsernames((current) => toggleUsernameSelection(current, username));
   };
 
+  const toggleConferenceParticipant = (username: string) => {
+    setConferenceParticipantUsernames((current) => toggleUsernameSelection(current, username));
+  };
+
   const toggleGroupInviteParticipant = (username: string) => {
     setGroupInviteUsernames((current) => toggleUsernameSelection(current, username));
   };
+
+  const toggleConferenceInviteParticipant = (username: string) => {
+    setConferenceInviteUsernames((current) => toggleUsernameSelection(current, username));
+  };
+
+  const openConferenceRecording = useEffectEvent(async (conferenceId: string) => {
+    const recording = await downloadConferenceRecordingRequest(session.token, conferenceId);
+    const url = window.URL.createObjectURL(recording.blob);
+    window.open(url, "_blank", "noopener,noreferrer");
+    window.setTimeout(() => {
+      window.URL.revokeObjectURL(url);
+    }, 60_000);
+  });
+
+  const downloadConferenceRecording = useEffectEvent(async (conferenceId: string) => {
+    const recording = await downloadConferenceRecordingRequest(session.token, conferenceId);
+    const url = window.URL.createObjectURL(recording.blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = recording.fileName ?? `conference-recording-${conferenceId}.webm`;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => {
+      window.URL.revokeObjectURL(url);
+    }, 10_000);
+  });
 
   const syncProfile = useEffectEvent((nextProfile: UserProfile) => {
     queryClient.setQueryData(["profile", session.token], nextProfile);
@@ -767,8 +1085,46 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
   }, [profile.displayName]);
 
   useEffect(() => {
+    setIsConferenceInfoOpen(false);
+  }, [activeConferenceId]);
+
+  useEffect(() => {
+    if (
+      !activeConferenceId ||
+      conferencesQuery.data === undefined ||
+      archivedConferencesQuery.data === undefined
+    ) {
+      return;
+    }
+
+    if (
+      conferences.some((conference) => conference.id === activeConferenceId) ||
+      archivedConferences.some((conference) => conference.id === activeConferenceId)
+    ) {
+      return;
+    }
+
+    setIsConferenceInfoOpen(false);
+    setSidebarSheet(null);
+    setMobilePane("sidebar");
+    startTransition(() => {
+      setActiveConferenceId(null);
+    });
+  }, [
+    activeConferenceId,
+    archivedConferences,
+    archivedConferencesQuery.data,
+    conferences,
+    conferencesQuery.data,
+  ]);
+
+  useEffect(() => {
     if (sidebarSheet !== "groupMembers") {
       setGroupInviteUsernames([]);
+    }
+
+    if (sidebarSheet !== "conferenceMembers") {
+      setConferenceInviteUsernames([]);
     }
   }, [sidebarSheet]);
 
@@ -803,6 +1159,41 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
       toastTimeoutsRef.current.clear();
     };
   }, []);
+
+  useEffect(() => {
+    if (!isConferenceInfoOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) {
+        return;
+      }
+
+      if (
+        conferenceInfoPanelRef.current?.contains(target) ||
+        conferenceInfoButtonRef.current?.contains(target)
+      ) {
+        return;
+      }
+
+      setIsConferenceInfoOpen(false);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsConferenceInfoOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isConferenceInfoOpen]);
 
   useEffect(() => {
     if (!isMenuOpen) {
@@ -889,15 +1280,13 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
     const nextMessage = ensureOwnMessageStatus(message, session.user);
     clearTypingParticipant(message.chatId, message.sender.id);
     rememberRealtimeMessage(message.id);
+    applyChatPreviewMessage(nextMessage);
 
     queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
       ["messages", session.token, nextMessage.chatId],
       (current) => mergeMessagePages(current, nextMessage)
     );
-    queryClient.setQueryData<ChatSummary[]>(
-      ["chats", session.token],
-      (current) => updateChatPreview(current, nextMessage)
-    );
+    applyServerChatPreviewMessage(nextMessage);
 
     if (!isOwnMessage(nextMessage, session.user)) {
       if (nextMessage.chatId === activeChatId && document.visibilityState !== "hidden") {
@@ -961,6 +1350,7 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
     return subscribeToChats({
       chatIds: subscriptionIds,
       token: session.token,
+      currentUserId: session.user.id,
       onChat: handleRealtimeChat,
       onMessage: handleRealtimeMessage,
       onMessageStatus: handleRealtimeMessageStatus,
@@ -975,7 +1365,79 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
     handleRealtimeSession,
     handleRealtimeTyping,
     session.token,
+    session.user.id,
   ]);
+
+  useEffect(() => {
+    chatPreviewOverridesRef.current = chatPreviewOverrides;
+    writeLocalChatPreviews(
+      session.user.id,
+      Object.fromEntries(
+        Object.entries(chatPreviewOverrides).filter(
+          ([, preview]) =>
+            preview.lastMessage.trim().length > 0 &&
+            !isUnavailableEncryptedMessage(preview.lastMessage)
+        )
+      )
+    );
+  }, [chatPreviewOverrides, session.user.id]);
+
+  const hydrateChatListPreview = useEffectEvent(async (chat: ChatSummary) => {
+    const targetVersion = chat.lastMessageAt;
+    if (!targetVersion) {
+      return;
+    }
+
+    if (chatPreviewOverridesRef.current[chat.id]?.lastMessageAt === targetVersion) {
+      return;
+    }
+
+    if (chatPreviewHydrationRef.current.get(chat.id) === targetVersion) {
+      return;
+    }
+
+    chatPreviewHydrationRef.current.set(chat.id, targetVersion);
+    try {
+      const messages = await getEncryptedMessages(session.token, session.user.id, chat.id, {
+        limit: 1,
+      });
+      const latestMessage = messages[messages.length - 1];
+      if (latestMessage) {
+        applyChatPreviewMessage(latestMessage);
+      }
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onSessionChange(null);
+      }
+    } finally {
+      if (chatPreviewHydrationRef.current.get(chat.id) === targetVersion) {
+        chatPreviewHydrationRef.current.delete(chat.id);
+      }
+    }
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    const archivedChatIdsLookup = new Set(archivedChatIds);
+
+    const hydrateVisibleChatPreviews = async () => {
+      for (const chat of serverChats) {
+        if (cancelled || archivedChatIdsLookup.has(chat.id) || !chat.lastMessageAt) {
+          continue;
+        }
+
+        await hydrateChatListPreview(chat);
+      }
+    };
+
+    if (serverChats.length > 0) {
+      void hydrateVisibleChatPreviews();
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [archivedChatIds, hydrateChatListPreview, serverChats]);
 
   useEffect(() => {
     return () => {
@@ -986,6 +1448,22 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
   useEffect(() => {
     acknowledgeVisibleMessagesAsRead();
   }, [acknowledgeVisibleMessagesAsRead, activeChatId, lastMessageId, messages.length]);
+
+  useEffect(() => {
+    if (!activeChatId || !lastMessage) {
+      return;
+    }
+
+    applyChatPreviewMessage(lastMessage);
+    applyServerChatPreviewMessage(lastMessage);
+  }, [
+    activeChatId,
+    applyChatPreviewMessage,
+    applyServerChatPreviewMessage,
+    lastMessage,
+    queryClient,
+    session.token,
+  ]);
 
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -1098,6 +1576,50 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
     },
   });
 
+  const createConferenceMutation = useMutation({
+    mutationFn: (input: {
+      title: string;
+      scheduledAt: string;
+      participantUsernames: string[];
+    }) => createVideoConferenceRequest(session.token, input),
+    onSuccess: (conference) => {
+      queryClient.setQueryData<VideoConference[]>(["video-conferences", session.token], (current) =>
+        upsertVideoConferences(current, conference)
+      );
+      resetConferenceComposer();
+      setActiveListTab("conferences");
+      openConference(conference.id);
+    },
+  });
+
+  const endConferenceMutation = useMutation({
+    mutationFn: (conferenceId: string) => endVideoConferenceRequest(session.token, conferenceId),
+    onSuccess: (conference) => {
+      queryClient.setQueryData<VideoConference[]>(["video-conferences", session.token], (current) =>
+        removeVideoConference(current, conference.id)
+      );
+      queryClient.setQueryData<VideoConference[]>(
+        ["video-conferences-archive", session.token],
+        (current) => upsertVideoConferences(current, conference)
+      );
+      if (activeConferenceId === conference.id) {
+        closeActiveConference();
+      }
+    },
+  });
+
+  const addConferenceParticipantsMutation = useMutation({
+    mutationFn: (participantUsernames: string[]) =>
+      addConferenceParticipantsRequest(session.token, activeConference!.id, { participantUsernames }),
+    onSuccess: (conference) => {
+      queryClient.setQueryData<VideoConference[]>(["video-conferences", session.token], (current) =>
+        upsertVideoConferences(current, conference)
+      );
+      setConferenceInviteUsernames([]);
+      setSidebarSheet(null);
+    },
+  });
+
   const addGroupParticipantsMutation = useMutation({
     mutationFn: (participantUsernames: string[]) =>
       addGroupParticipants(session.token, activeChat!.id, { participantUsernames }),
@@ -1111,10 +1633,12 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
   });
 
   const sendMessageMutation = useMutation({
-    mutationFn: (content: string) => sendMessage(session.token, activeChat!.id, content),
+    mutationFn: (content: string) =>
+      sendEncryptedMessage(session.token, activeChat!.id, content, activeChat!.members),
     onSuccess: (message) => {
       const nextMessage = ensureOwnMessageStatus(message, session.user);
       rememberRealtimeMessage(nextMessage.id);
+      applyChatPreviewMessage(nextMessage);
       setDraftsByChatId((current) => {
         const existingDraft = current[nextMessage.chatId] ?? "";
         if (existingDraft.trim() !== nextMessage.content) {
@@ -1130,9 +1654,7 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
         ["messages", session.token, nextMessage.chatId],
         (current) => mergeMessagePages(current, nextMessage)
       );
-      queryClient.setQueryData<ChatSummary[]>(["chats", session.token], (current) =>
-        updateChatPreview(current, nextMessage)
-      );
+      applyServerChatPreviewMessage(nextMessage);
     },
   });
 
@@ -1210,6 +1732,9 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
   const requestError = [
     createChatMutation.error,
     createGroupMutation.error,
+    createConferenceMutation.error,
+    endConferenceMutation.error,
+    addConferenceParticipantsMutation.error,
     addGroupParticipantsMutation.error,
     sendMessageMutation.error,
     signOutMutation.error,
@@ -1224,6 +1749,8 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
     profileQuery.error,
     archivedChatsQuery.error,
     contactsQuery.error,
+    conferencesQuery.error,
+    archivedConferencesQuery.error,
     draftsQuery.error,
     userSearchQuery.error,
     contactsSearchQuery.error,
@@ -1240,6 +1767,8 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
   const errorText =
     requestError instanceof ApiError
       ? [requestError.message, ...requestError.details].filter(Boolean).join(". ")
+      : conferenceRecordingState === "failed"
+        ? "Не удалось запустить серверную запись Jitsi. Проверьте Jibri и настройки recording stack."
       : null;
 
   const loadOlderMessages = () => {
@@ -1285,6 +1814,35 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
     });
   };
 
+  const submitCreateConference = () => {
+    const parsedDate = new Date(conferenceScheduledAt);
+    const scheduledAt = Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
+    const title = conferenceTitle.trim() || `Встреча ${formatClock(scheduledAt.toISOString())}`;
+    createConferenceMutation.mutate({
+      title,
+      scheduledAt: scheduledAt.toISOString(),
+      participantUsernames: conferenceParticipantUsernames,
+    });
+  };
+
+  const submitCreateConferenceNow = () => {
+    const now = new Date();
+    const title = conferenceTitle.trim() || `Встреча ${formatClock(now.toISOString())}`;
+    createConferenceMutation.mutate({
+      title,
+      scheduledAt: now.toISOString(),
+      participantUsernames: conferenceParticipantUsernames,
+    });
+  };
+
+  const submitAddConferenceParticipants = () => {
+    if (!conferenceInviteUsernames.length || !activeConference || activeConferenceIsArchived) {
+      return;
+    }
+
+    addConferenceParticipantsMutation.mutate(conferenceInviteUsernames);
+  };
+
   const submitAddGroupParticipants = () => {
     if (!groupInviteUsernames.length || !activeChat || activeChat.direct) {
       return;
@@ -1301,8 +1859,19 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
     openSidebarSheet("groupMembers");
   };
 
+  const openConferenceMembersSheet = () => {
+    if (!activeConference || !activeConferenceIsOwnedByCurrentUser || activeConferenceIsArchived) {
+      return;
+    }
+
+    openSidebarSheet("conferenceMembers");
+  };
+
   const handleMenuAction = (actionId: MenuActionId) => {
     switch (actionId) {
+      case "conference":
+        openConferenceSheet();
+        return;
       case "archive":
         openSidebarSheet("archive");
         return;
@@ -1329,18 +1898,522 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
 
   const showTopSearchResults = deferredSearch.trim().length > 0;
   const showContactSearchResults = deferredContactSearch.trim().length > 0;
+  const tabChats = activeListTab === "dialogs" ? visibleDirectChats : visibleGroupChats;
+  const tabChatsEmptyText =
+    activeListTab === "dialogs"
+      ? normalizedSearch
+        ? "Ничего не найдено."
+        : "Пока нет активных диалогов."
+      : normalizedSearch
+        ? "Ничего не найдено."
+        : "Пока нет активных групп.";
+  const chatListContent =
+    activeListTab === "conferences" ? (
+      conferencesLoading ? (
+        <div className="empty-list">Загружаем видеоконференции...</div>
+      ) : visibleConferences.length === 0 ? (
+        <div className="empty-list">
+          {normalizedSearch ? "Ничего не найдено." : "Пока нет запланированных видеоконференций."}
+        </div>
+      ) : (
+        visibleConferences.map((conference) => {
+          const participantPreview = formatConferenceListPreviewV2(
+            conference,
+            session.user.username
+          );
+          return (
+            <button
+              type="button"
+              key={conference.id}
+              className={
+                conference.id === activeConference?.id
+                  ? "chat-tile north-chat-tile is-active"
+                  : "chat-tile north-chat-tile"
+              }
+              onClick={() => openConference(conference.id)}
+            >
+              <AvatarCircle className="avatar north-avatar" name={conference.title} badge="VC" />
+
+              <div className="chat-copy">
+                <div className="chat-line">
+                  <div className="chat-title-wrap">
+                    <span className="chat-type-mark is-conference">VC</span>
+                    <strong>{conference.title}</strong>
+                  </div>
+                  <span>{formatConferenceTileTime(conference.scheduledAt)}</span>
+                </div>
+
+                <div className="chat-detail-line">
+                  <span>{formatConferenceSchedule(conference.scheduledAt)}</span>
+                  <span className="chat-detail-dot">|</span>
+                  <span>{formatMemberCount(conference.participants.length)}</span>
+                </div>
+
+                <div className="chat-preview-line">
+                  <p className="chat-preview-copy">
+                    {trimPreview(
+                      participantPreview || "Участники будут видны после приглашения.",
+                      88
+                    )}
+                  </p>
+                </div>
+              </div>
+            </button>
+          );
+        })
+      )
+    ) : chatsLoading ? (
+      <div className="empty-list">
+        {activeListTab === "dialogs" ? "Загружаем диалоги..." : "Загружаем группы..."}
+      </div>
+    ) : tabChats.length === 0 ? (
+      <div className="empty-list">{tabChatsEmptyText}</div>
+    ) : (
+      tabChats.map((chat) => {
+        const directParticipant = getDirectParticipant(chat, session.user);
+        const unread = chat.unreadCount;
+        const chatTypingParticipants = typingByChatId[chat.id] ?? [];
+        const isChatTyping = chatTypingParticipants.length > 0;
+        const draftPreview = draftsByChatId[chat.id]?.trim() ?? "";
+        const preview = isChatTyping
+          ? formatTypingParticipants(chatTypingParticipants)
+          : draftPreview || chat.lastMessage || "Нет сообщений";
+        const previewTimestamp = chat.lastMessageAt ?? chat.updatedAt;
+
+        return (
+          <button
+            type="button"
+            key={chat.id}
+            className={
+              chat.id === activeChat?.id
+                ? "chat-tile north-chat-tile is-active"
+                : unread > 0
+                  ? "chat-tile north-chat-tile is-unread"
+                  : "chat-tile north-chat-tile"
+            }
+            onClick={() => openChat(chat.id)}
+          >
+            <AvatarCircle
+              className="avatar north-avatar"
+              name={directParticipant?.displayName ?? chat.title}
+              avatarUrl={directParticipant?.avatarUrl ?? null}
+              badge={chat.direct ? undefined : "GR"}
+              online={chat.direct ? directParticipant?.online : false}
+            />
+
+            <div className="chat-copy">
+              <div className="chat-line">
+                <div className="chat-title-wrap">
+                  <span className={chat.direct ? "chat-type-mark is-direct" : "chat-type-mark is-group"}>
+                    {chat.direct ? "@" : "GR"}
+                  </span>
+                  <strong>{chat.title}</strong>
+                </div>
+                <span>{formatChatTimestamp(previewTimestamp)}</span>
+              </div>
+
+              <div className="chat-detail-line">
+                <span>{describeChat(chat, session.user)}</span>
+                {!chat.direct ? <span className="chat-detail-dot">|</span> : null}
+                {!chat.direct ? <span>{formatMemberCount(chat.members.length)}</span> : null}
+              </div>
+
+              <div className={isChatTyping ? "chat-preview-line is-typing" : "chat-preview-line"}>
+                <p className={isChatTyping ? "chat-preview-copy is-typing" : "chat-preview-copy"}>
+                  {draftPreview && !isChatTyping ? <span className="chat-draft">Черновик: </span> : null}
+                  {trimPreview(preview, 88)}
+                </p>
+                {unread > 0 ? <span className="chat-badge">{unread}</span> : null}
+              </div>
+            </div>
+          </button>
+        );
+      })
+    );
+  const conferenceConversation = activeConference ? (
+    <>
+      <header className="conversation-header north-conversation-header conference-header">
+        <div className="conversation-heading">
+          <button
+            type="button"
+            className="ghost-button compact mobile-back"
+            onClick={() => setMobilePane("sidebar")}
+          >
+            Назад
+          </button>
+
+          <div className="conversation-identity">
+            <AvatarCircle
+              className="avatar conversation-avatar north-avatar"
+              name={activeConference.title}
+              badge="VC"
+            />
+            <div className="conference-title-stack">
+              <div className="conference-title-row">
+                <h3>{activeConference.title}</h3>
+                <button
+                  ref={conferenceInfoButtonRef}
+                  type="button"
+                  className={
+                    isConferenceInfoOpen
+                      ? "ghost-button compact conference-info-button is-active"
+                      : "ghost-button compact conference-info-button"
+                  }
+                  onClick={() => setIsConferenceInfoOpen((current) => !current)}
+                  aria-expanded={isConferenceInfoOpen}
+                  aria-haspopup="dialog"
+                >
+                  Инфо
+                </button>
+              </div>
+              <p className="conversation-subtitle">{formatConferenceSchedule(activeConference.scheduledAt)}</p>
+              {isConferenceInfoOpen ? (
+                <div
+                  ref={conferenceInfoPanelRef}
+                  className="conference-summary"
+                  role="dialog"
+                  aria-label="Информация о конференции"
+                >
+                  <div className="conference-summary-grid">
+                    <div className="conference-summary-item">
+                      <span>Организатор</span>
+                      <strong>{activeConferenceOrganizerLabel}</strong>
+                    </div>
+                    <div className="conference-summary-item">
+                      <span>Ваша роль</span>
+                      <strong>{activeConferenceRoleLabel}</strong>
+                    </div>
+                    <div className="conference-summary-item">
+                      <span>Время</span>
+                      <strong>{formatConferenceSchedule(activeConference.scheduledAt)}</strong>
+                    </div>
+                    <div className="conference-summary-item">
+                      <span>Участники</span>
+                      <strong>{formatMemberCount(activeConference.participants.length)}</strong>
+                    </div>
+                  </div>
+
+                  <div className="conference-summary-rows">
+                    <div className="conference-summary-row">
+                      <span className="conference-summary-label">Код комнаты</span>
+                      <code className="conference-summary-code">
+                        {activeConferenceIsArchived
+                          ? activeConferenceStatusLabel
+                          : activeConference.roomName ?? activeConferenceStatusLabel}
+                      </code>
+                      <button
+                        type="button"
+                        className="ghost-button compact conference-copy-button"
+                        onClick={() =>
+                          activeConference.roomName
+                            ? void navigator.clipboard.writeText(activeConference.roomName)
+                            : undefined
+                        }
+                        disabled={!activeConference.roomName || activeConferenceIsArchived}
+                      >
+                        Копировать код
+                      </button>
+                    </div>
+
+                    {activeConferenceShareUrl ? (
+                      <div className="conference-summary-row">
+                        <span className="conference-summary-label">Ссылка</span>
+                        <a
+                          className="conference-summary-link"
+                          href={activeConferenceShareUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {activeConferenceShareUrl}
+                        </a>
+                        <button
+                          type="button"
+                          className="ghost-button compact conference-copy-button"
+                          onClick={() => void navigator.clipboard.writeText(activeConferenceShareUrl)}
+                        >
+                          Копировать ссылку
+                        </button>
+                      </div>
+                    ) : null}
+
+                    <div className="conference-summary-row participants">
+                      <span className="conference-summary-label">Участники</span>
+                      <div className="conference-participants">
+                        {activeConference.participants.map((participant) => (
+                          <span key={participant.id} className="member-pill">
+                            {participant.displayName}
+                            {participant.id === activeConference.createdBy.id ? " · орг." : ""}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    {activeConferenceCanManageParticipants ? (
+                      <div className="conference-summary-row">
+                        <span className="conference-summary-label">Управление</span>
+                        <button
+                          type="button"
+                          className="ghost-button compact"
+                          onClick={openConferenceMembersSheet}
+                        >
+                          Добавить участников
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+        {activeConferenceCanJoin ||
+        activeConferenceCanManageParticipants ||
+        activeConferenceHasRecording ||
+        activeConferenceRecordingPending ||
+        activeConferenceRecordingFailed ? (
+          <div className="conversation-actions conference-actions">
+            {activeConferenceCanManageParticipants ? (
+              <button
+                type="button"
+                className="ghost-button compact"
+                onClick={openConferenceMembersSheet}
+              >
+                Добавить участников
+              </button>
+            ) : null}
+            {activeConferenceServerRecordingActive ? (
+              <span className="conference-recording-badge">Идет серверная запись</span>
+            ) : null}
+            {activeConferenceRecordingPending ? (
+              <span className="conference-recording-badge is-pending">
+                Запись обрабатывается на сервере
+              </span>
+            ) : null}
+            {activeConferenceRecordingFailed ? (
+              <span className="conference-recording-badge is-failed">
+                Запись недоступна
+              </span>
+            ) : null}
+            {activeConferenceHasRecording ? (
+              <>
+                <button
+                  type="button"
+                  className="ghost-button compact"
+                  onClick={() => void openConferenceRecording(activeConference.id)}
+                >
+                  Запись
+                </button>
+                <button
+                  type="button"
+                  className="ghost-button compact"
+                  onClick={() => void downloadConferenceRecording(activeConference.id)}
+                >
+                  Скачать
+                </button>
+              </>
+            ) : null}
+            {activeConferenceJoinUrl ? (
+              <button
+                type="button"
+                className="ghost-button compact archive-toggle-button"
+              onClick={() => window.open(activeConferenceJoinUrl, "_blank", "noopener,noreferrer")}
+            >
+              Открыть отдельно
+            </button>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="conference-summary">
+        <div className="conference-summary-grid">
+          <div className="conference-summary-item">
+            <span>Организатор</span>
+            <strong>{activeConferenceOrganizerLabel}</strong>
+          </div>
+          <div className="conference-summary-item">
+            <span>Ваша роль</span>
+            <strong>{activeConferenceRoleLabel}</strong>
+          </div>
+          <div className="conference-summary-item">
+            <span>Время</span>
+            <strong>{formatConferenceSchedule(activeConference.scheduledAt)}</strong>
+          </div>
+          <div className="conference-summary-item">
+            <span>Участники</span>
+            <strong>{formatMemberCount(activeConference.participants.length)}</strong>
+          </div>
+        </div>
+
+        <div className="conference-summary-rows">
+          <div className="conference-summary-row">
+            <span className="conference-summary-label">Код комнаты</span>
+            <code className="conference-summary-code">
+              {activeConferenceIsArchived
+                ? activeConferenceStatusLabel
+                : activeConference.roomName ?? activeConferenceStatusLabel}
+            </code>
+            <button
+              type="button"
+              className="ghost-button compact conference-copy-button"
+              onClick={() =>
+                activeConference.roomName
+                  ? void navigator.clipboard.writeText(activeConference.roomName)
+                  : undefined
+              }
+              disabled={!activeConference.roomName || activeConferenceIsArchived}
+            >
+              Копировать код
+            </button>
+          </div>
+
+          {activeConferenceShareUrl ? (
+            <div className="conference-summary-row">
+              <span className="conference-summary-label">Ссылка</span>
+              <a
+                className="conference-summary-link"
+                href={activeConferenceShareUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {activeConferenceShareUrl}
+              </a>
+              <button
+                type="button"
+                className="ghost-button compact conference-copy-button"
+                onClick={() => void navigator.clipboard.writeText(activeConferenceShareUrl)}
+              >
+                Копировать ссылку
+              </button>
+            </div>
+          ) : null}
+
+          <div className="conference-summary-row participants">
+            <span className="conference-summary-label">Участники</span>
+            <div className="conference-participants">
+              {activeConference.participants.map((participant) => (
+                <span key={participant.id} className="member-pill">
+                  {participant.displayName}
+                  {participant.id === activeConference.createdBy.id ? " · орг." : ""}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+        </div>
+      </header>
+
+      <div className="conference-shell">
+        <div className="conference-meta-card">
+          <div className="conference-meta-grid">
+            <div className="conference-meta-line">
+              <strong>Организатор</strong>
+              <span>{activeConferenceOrganizerLabel}</span>
+            </div>
+            <div className="conference-meta-line">
+              <strong>Р’Р°С€Р° СЂРѕР»СЊ</strong>
+              <span>{activeConferenceRoleLabel}</span>
+            </div>
+            <div className="conference-meta-line">
+              <strong>Время</strong>
+              <span>{formatConferenceSchedule(activeConference.scheduledAt)}</span>
+            </div>
+            <div className="conference-meta-line">
+              <strong>Статус</strong>
+              <span>{activeConferenceStatusLabel}</span>
+            </div>
+            <div className="conference-meta-line">
+              <strong>Участники</strong>
+              <div className="conference-participants">
+                {activeConference.participants.map((participant) => (
+                  <span key={participant.id} className="member-pill">
+                    {participant.displayName}
+                    {participant.id === activeConference.createdBy.id ? " · орг." : ""}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div className="conference-meta-line">
+              <strong>РљРѕРґ РєРѕРјРЅР°С‚С‹</strong>
+              <div className="conference-link-row">
+                <input
+                  className="conference-link-input"
+                  readOnly
+                  value={
+                    activeConferenceIsArchived
+                      ? activeConferenceStatusLabel ?? ""
+                      : activeConference.roomName ?? activeConferenceStatusLabel ?? ""
+                  }
+                  onFocus={(event) => event.currentTarget.select()}
+                />
+                <button
+                  type="button"
+                  className="ghost-button compact"
+                  onClick={() =>
+                    activeConference.roomName
+                      ? void navigator.clipboard.writeText(activeConference.roomName)
+                      : undefined
+                  }
+                  disabled={!activeConference.roomName || activeConferenceIsArchived}
+                >
+                  РљРѕРїРёСЂРѕРІР°С‚СЊ
+                </button>
+              </div>
+            </div>
+            {activeConferenceShareUrl ? (
+              <div className="conference-meta-line">
+                <strong>Ссылка</strong>
+                <div className="conference-link-row">
+                  <input
+                    className="conference-link-input"
+                    readOnly
+                    value={activeConferenceShareUrl}
+                    onFocus={(event) => event.currentTarget.select()}
+                  />
+                  <button
+                    type="button"
+                    className="ghost-button compact"
+                    onClick={() => void navigator.clipboard.writeText(activeConferenceShareUrl)}
+                  >
+                    Копировать
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        {activeConferenceCanJoin && activeConference.roomName ? (
+          <div className="conference-stage">
+            <ManagedConferenceStage
+              baseUrl={JITSI_BASE_URL}
+              conferenceId={activeConference.id}
+              roomName={activeConference.roomName!}
+              displayName={profile.displayName}
+              title={activeConference.title}
+              autoStartServerRecording={activeConferenceIsOwnedByCurrentUser}
+              onRecordingStateChange={setConferenceRecordingState}
+              onConferenceExit={handleConferenceStageExit}
+            />
+          </div>
+        ) : (
+          <div className="conference-placeholder">
+            <span>{activeConferenceStageHint}</span>
+          </div>
+        )}
+      </div>
+    </>
+  ) : null;
   const workspaceStyle: CSSProperties = {
-    ["--telegram-sidebar-width" as string]: `${sidebarWidth}px`,
+    ["--north-sidebar-width" as string]: `${sidebarWidth}px`,
   };
 
   return (
     <main
-      className="workspace-shell telegram-workspace"
+      className="workspace-shell north-workspace"
       data-mobile-pane={mobilePane}
       style={workspaceStyle}
     >
-      <aside className="sidebar telegram-sidebar">
-        <div className="telegram-sidebar-top">
+      <aside className="sidebar north-sidebar">
+        <div className="north-sidebar-top">
           <button
             type="button"
             ref={menuButtonRef}
@@ -1354,9 +2427,9 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
             <span />
           </button>
 
-          <div className="telegram-search-shell">
+          <div className="north-search-shell">
           <input
-            className="telegram-search"
+            className="north-search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Поиск"
@@ -1397,8 +2470,188 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
           </div>
         </div>
 
+        {!sidebarSheet ? (
+          <div className="conversation-list-tabs">
+            <button
+              type="button"
+              className={
+                activeListTab === "dialogs"
+                  ? "conversation-list-tab is-active"
+                  : "conversation-list-tab"
+              }
+              onClick={() => activateListTab("dialogs")}
+            >
+              Диалоги
+            </button>
+            <button
+              type="button"
+              className={
+                activeListTab === "groups"
+                  ? "conversation-list-tab is-active"
+                  : "conversation-list-tab"
+              }
+              onClick={() => activateListTab("groups")}
+            >
+              Группы
+            </button>
+            <button
+              type="button"
+              className={
+                activeListTab === "conferences"
+                  ? "conversation-list-tab is-active"
+                  : "conversation-list-tab"
+              }
+              onClick={() => activateListTab("conferences")}
+            >
+              Видеоконференции
+            </button>
+          </div>
+        ) : null}
+
         {sidebarSheet ? (
-          <section className="telegram-sidebar-sheet">
+          <section className="north-sidebar-sheet">
+            {sidebarSheet === "conference" ? (
+              <div className="sheet-card">
+                <div className="sheet-head">
+                  <div>
+                    <div className="section-title">Видеоконференции</div>
+                    <p className="sheet-copy">
+                      Запусти встречу сразу или запланируй ее на удобное время.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="ghost-button compact"
+                    onClick={() => {
+                      resetConferenceComposer();
+                      setSidebarSheet(null);
+                    }}
+                  >
+                    Закрыть
+                  </button>
+                </div>
+
+                <div className="conference-browser-actions">
+                  <button
+                    type="button"
+                    className={
+                      conferenceComposerMode === "instant"
+                        ? "ghost-button compact is-active"
+                        : "ghost-button compact"
+                    }
+                    onClick={() => openConferenceComposer("instant")}
+                  >
+                    Начать сейчас
+                  </button>
+                  <button
+                    type="button"
+                    className={
+                      conferenceComposerMode === "scheduled"
+                        ? "ghost-button compact is-active"
+                        : "ghost-button compact"
+                    }
+                    onClick={() => openConferenceComposer("scheduled")}
+                  >
+                    Запланировать
+                  </button>
+                </div>
+
+                {conferenceComposerMode ? (
+                  <form
+                    className="conference-browser-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      if (conferenceComposerMode === "instant") {
+                        submitCreateConferenceNow();
+                        return;
+                      }
+                      submitCreateConference();
+                    }}
+                  >
+                    <input
+                      value={conferenceTitle}
+                      onChange={(event) => setConferenceTitle(event.target.value)}
+                      placeholder="Название встречи или оставь пустым"
+                      maxLength={120}
+                    />
+
+                    {conferenceComposerMode === "scheduled" ? (
+                      <input
+                        type="datetime-local"
+                        value={conferenceScheduledAt}
+                        min={createMinimumConferenceDateTime()}
+                        onChange={(event) => setConferenceScheduledAt(event.target.value)}
+                      />
+                    ) : null}
+
+                    <div className="group-picker-list conference-picker-list">
+                      {contactsLoading ? (
+                        <div className="empty-list">Загружаем контакты...</div>
+                      ) : groupContacts.length === 0 ? (
+                        <div className="empty-list">
+                          Контактов пока нет. Встречу все равно можно создать и поделиться ссылкой.
+                        </div>
+                      ) : (
+                        groupContacts.map((contact) => {
+                          const selected = conferenceParticipantUsernames.includes(contact.username);
+                          return (
+                            <button
+                              type="button"
+                              key={contact.username}
+                              className={
+                                selected
+                                  ? "sheet-row sheet-row-with-avatar group-picker-row is-selected"
+                                  : "sheet-row sheet-row-with-avatar group-picker-row"
+                              }
+                              onClick={() => toggleConferenceParticipant(contact.username)}
+                            >
+                              <AvatarCircle
+                                className="menu-row-avatar sheet-contact-avatar"
+                                name={contact.displayName}
+                                avatarUrl={contact.avatarUrl}
+                                online={contact.online}
+                              />
+                              <div className="sheet-row-copy">
+                                <strong>{contact.displayName}</strong>
+                                <span>@{contact.username}</span>
+                              </div>
+                              <span className="member-pill">
+                                {selected ? "Выбран" : "Выбрать"}
+                              </span>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+
+                    <div className="conference-browser-actions">
+                      <button
+                        type="button"
+                        className="ghost-button compact"
+                        onClick={() => {
+                          resetConferenceComposer();
+                          setSidebarSheet(null);
+                        }}
+                      >
+                        Закрыть
+                      </button>
+                      <button
+                        type="submit"
+                        className="secondary-button"
+                        disabled={createConferenceMutation.isPending}
+                      >
+                        {createConferenceMutation.isPending
+                          ? "Создаем..."
+                          : conferenceComposerMode === "instant"
+                            ? "Создать сейчас"
+                            : "Запланировать"}
+                      </button>
+                    </div>
+                  </form>
+                ) : null}
+              </div>
+            ) : null}
+
             {sidebarSheet === "archive" ? (
               <div className="sheet-card">
                 <div className="sheet-head">
@@ -1416,12 +2669,66 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
                 </div>
 
                 <div className="sheet-list">
-                  {archivedChatsLoading ? (
+                  {archivedChatsLoading || archivedConferencesLoading ? (
                     <div className="empty-list">Загружаем архив...</div>
-                  ) : archivedChats.length === 0 ? (
+                  ) : archivedChats.length === 0 && archivedConferences.length === 0 ? (
                     <div className="empty-list">Архив пока пуст.</div>
                   ) : (
-                    archivedChats.map((chat) => (
+                    <>
+                      {archivedConferences.length > 0 ? (
+                        <>
+                          <div className="section-title">Видеоконференции</div>
+                          {archivedConferences.map((conference) => (
+                            <div key={conference.id} className="sheet-row">
+                              <div className="sheet-row-copy">
+                                <strong>{conference.title}</strong>
+                                <span>{formatConferenceStatusLabelV2(conference)}</span>
+                              </div>
+                              <div className="sheet-row-actions">
+                                {conference.recordingCreatedAt ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      className="ghost-button compact"
+                                      onClick={() => void openConferenceRecording(conference.id)}
+                                    >
+                                      Запись
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="ghost-button compact"
+                                      onClick={() => void downloadConferenceRecording(conference.id)}
+                                    >
+                                      Скачать
+                                    </button>
+                                  </>
+                                ) : conferenceRecordingImportStates[conference.id] === "pending" ? (
+                                  <span className="conference-recording-badge is-pending">
+                                    Запись обрабатывается
+                                  </span>
+                                ) : conferenceRecordingImportStates[conference.id] === "failed" ? (
+                                  <span className="conference-recording-badge is-failed">
+                                    Запись недоступна
+                                  </span>
+                                ) : (
+                                  <span className="conference-recording-badge is-unavailable">
+                                    Записи нет
+                                  </span>
+                                )}
+                                <button
+                                  type="button"
+                                  className="ghost-button compact"
+                                  onClick={() => openConference(conference.id)}
+                                >
+                                  Открыть
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </>
+                      ) : null}
+                      {archivedChats.length > 0 ? <div className="section-title">Чаты</div> : null}
+                      {archivedChats.map((chat) => (
                       <div key={chat.id} className="sheet-row">
                         <div className="sheet-row-copy">
                           <strong>{chat.title}</strong>
@@ -1448,7 +2755,8 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
                           </button>
                         </div>
                       </div>
-                    ))
+                    ))}
+                    </>
                   )}
                 </div>
               </div>
@@ -1544,8 +2852,8 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
               <div className="sheet-card">
                 <div className="sheet-head">
                   <div>
-                    <div className="section-title">Создать группу</div>
-                    <p className="sheet-copy">Название и участники. Остальное добавим потом.</p>
+                    <div className="section-title">Группы</div>
+                    <p className="sheet-copy">Создайте новую группу и сразу выберите участников.</p>
                   </div>
                   <button
                     type="button"
@@ -1682,6 +2990,83 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
                     disabled={addGroupParticipantsMutation.isPending || !groupInviteUsernames.length}
                   >
                     {addGroupParticipantsMutation.isPending ? "Добавляем..." : "Добавить в группу"}
+                  </button>
+                </form>
+              </div>
+            ) : null}
+
+            {sidebarSheet === "conferenceMembers" ? (
+              <div className="sheet-card">
+                <div className="sheet-head">
+                  <div>
+                    <div className="section-title">Добавить в конференцию</div>
+                    <p className="sheet-copy">
+                      Выбери людей из контактов для {activeConference?.title ?? "встречи"}.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="ghost-button compact"
+                    onClick={() => setSidebarSheet(null)}
+                  >
+                    Закрыть
+                  </button>
+                </div>
+
+                <form
+                  className="sheet-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    submitAddConferenceParticipants();
+                  }}
+                >
+                  <div className="group-picker-list">
+                    {availableConferenceInviteContacts.length === 0 ? (
+                      <div className="empty-list">
+                        Все контакты уже приглашены в конференцию или список пуст.
+                      </div>
+                    ) : (
+                      availableConferenceInviteContacts.map((contact) => {
+                        const selected = conferenceInviteUsernames.includes(contact.username);
+                        return (
+                          <button
+                            type="button"
+                            key={contact.username}
+                            className={
+                              selected
+                                ? "sheet-row sheet-row-with-avatar group-picker-row is-selected"
+                                : "sheet-row sheet-row-with-avatar group-picker-row"
+                            }
+                            onClick={() => toggleConferenceInviteParticipant(contact.username)}
+                          >
+                            <AvatarCircle
+                              className="menu-row-avatar sheet-contact-avatar"
+                              name={contact.displayName}
+                              avatarUrl={contact.avatarUrl}
+                              online={contact.online}
+                            />
+                            <div className="sheet-row-copy">
+                              <strong>{contact.displayName}</strong>
+                              <span>@{contact.username}</span>
+                            </div>
+                            <span className="member-pill">
+                              {selected ? "Выбран" : "Выбрать"}
+                            </span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                  <button
+                    type="submit"
+                    className="secondary-button"
+                    disabled={
+                      addConferenceParticipantsMutation.isPending || !conferenceInviteUsernames.length
+                    }
+                  >
+                    {addConferenceParticipantsMutation.isPending
+                      ? "Добавляем..."
+                      : "Добавить в конференцию"}
                   </button>
                 </form>
               </div>
@@ -1844,84 +3229,7 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
           </section>
         ) : null}
 
-        {!sidebarSheet ? <div className="chat-list telegram-chat-list">
-          {chatsLoading ? (
-            <div className="empty-list">Загружаем чаты...</div>
-          ) : visibleChats.length === 0 ? (
-            <div className="empty-list">
-              {chats.length === 0
-                ? "Пока нет диалогов."
-                : listedChats.length === 0
-                  ? "Диалоги появятся после первого сообщения."
-                : archivedChats.length > 0
-                  ? "Все чаты в архиве или не найдены."
-                  : "Ничего не найдено."}
-            </div>
-          ) : (
-            visibleChats.map((chat) => {
-              const directParticipant = getDirectParticipant(chat, session.user);
-              const unread = chat.unreadCount;
-              const chatTypingParticipants = typingByChatId[chat.id] ?? [];
-              const isChatTyping = chatTypingParticipants.length > 0;
-              const draftPreview = draftsByChatId[chat.id]?.trim() ?? "";
-              const preview = isChatTyping
-                ? formatTypingParticipants(chatTypingParticipants)
-                : draftPreview || chat.lastMessage || "Нет сообщений";
-              const previewTimestamp = chat.lastMessageAt ?? chat.updatedAt;
-
-              return (
-                <button
-                  type="button"
-                  key={chat.id}
-                  className={
-                    chat.id === activeChat?.id
-                      ? "chat-tile telegram-chat-tile is-active"
-                      : unread > 0
-                        ? "chat-tile telegram-chat-tile is-unread"
-                        : "chat-tile telegram-chat-tile"
-                  }
-                  onClick={() => openChat(chat.id)}
-                >
-                  <AvatarCircle
-                    className="avatar telegram-avatar"
-                    name={directParticipant?.displayName ?? chat.title}
-                    avatarUrl={directParticipant?.avatarUrl ?? null}
-                    badge={chat.direct ? undefined : "GR"}
-                    online={chat.direct ? directParticipant?.online : false}
-                  />
-
-                  <div className="chat-copy">
-                    <div className="chat-line">
-                      <div className="chat-title-wrap">
-                        <span className={chat.direct ? "chat-type-mark is-direct" : "chat-type-mark is-group"}>
-                          {chat.direct ? "@" : "GR"}
-                        </span>
-                        <strong>{chat.title}</strong>
-                      </div>
-                      <span>{formatChatTimestamp(previewTimestamp)}</span>
-                    </div>
-
-                    <div className="chat-detail-line">
-                      <span>{describeChat(chat, session.user)}</span>
-                      {!chat.direct ? <span className="chat-detail-dot">|</span> : null}
-                      {!chat.direct ? <span>{formatMemberCount(chat.members.length)}</span> : null}
-                    </div>
-
-                    <div className={isChatTyping ? "chat-preview-line is-typing" : "chat-preview-line"}>
-                      <p className={isChatTyping ? "chat-preview-copy is-typing" : "chat-preview-copy"}>
-                        {draftPreview && !isChatTyping ? (
-                          <span className="chat-draft">Черновик: </span>
-                        ) : null}
-                        {trimPreview(preview, 88)}
-                      </p>
-                      {unread > 0 ? <span className="chat-badge">{unread}</span> : null}
-                    </div>
-                  </div>
-                </button>
-              );
-            })
-          )}
-        </div> : null}
+        {!sidebarSheet ? <div className="chat-list north-chat-list">{chatListContent}</div> : null}
 
         {isMenuOpen ? (
           <div className="sidebar-menu-overlay" ref={menuPanelRef}>
@@ -1985,17 +3293,19 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
       </aside>
 
       <div
-        className="telegram-layout-divider"
+        className="north-layout-divider"
         role="separator"
         aria-orientation="vertical"
         aria-label="Изменить ширину списка диалогов"
         onPointerDown={startSidebarResize}
       />
 
-      <section className="conversation telegram-conversation">
-        {activeChat ? (
+      <section className="conversation north-conversation">
+        {activeConference ? (
+          conferenceConversation
+        ) : activeChat ? (
           <>
-            <header className="conversation-header telegram-conversation-header">
+            <header className="conversation-header north-conversation-header">
               <div className="conversation-heading">
                 <button
                   type="button"
@@ -2007,7 +3317,7 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
 
                 <div className="conversation-identity">
                   <AvatarCircle
-                    className="avatar conversation-avatar telegram-avatar"
+                    className="avatar conversation-avatar north-avatar"
                     name={activeDirectParticipant?.displayName ?? activeChat.title}
                     avatarUrl={activeDirectParticipant?.avatarUrl ?? null}
                     badge={activeChat.direct ? undefined : "GR"}
@@ -2058,7 +3368,7 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
               </div>
             </header>
 
-            <div className="message-stream telegram-message-stream" ref={messageStreamRef}>
+            <div className="message-stream north-message-stream" ref={messageStreamRef}>
               {messagesQuery.hasNextPage ? (
                 <button
                   type="button"
@@ -2127,7 +3437,7 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
             </div>
 
             <form
-              className="composer telegram-composer"
+              className="composer north-composer"
               onSubmit={(event) => {
                 event.preventDefault();
                 submitActiveDraft();
@@ -2149,18 +3459,22 @@ export function TelegramWorkspace({ session, onSessionChange }: Props) {
               />
               <button
                 type="submit"
-                className="primary-button telegram-send-button"
+                className="primary-button north-send-button"
                 disabled={sendMessageMutation.isPending || !activeDraft.trim()}
               >
                 &gt;
               </button>
             </form>
           </>
-        ) : chatsLoading ? (
-          <div className="empty-state large telegram-empty-state">Загружаем диалоги...</div>
+        ) : chatsLoading || conferencesLoading ? (
+          <div className="empty-state large north-empty-state">Загружаем данные...</div>
         ) : (
           <div className="conversation-empty">
-            <div className="conversation-empty-badge">Выберите, кому хотели бы написать</div>
+            <div className="conversation-empty-badge">
+              {activeListTab === "conferences"
+                ? "Выберите видеоконференцию слева"
+                : "Выберите, кому хотели бы написать"}
+            </div>
           </div>
         )}
 
@@ -2377,6 +3691,292 @@ function upsertDrafts(current: ChatDraft[] | undefined, chatId: string, content:
   ].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
+function upsertVideoConferences(
+  current: VideoConference[] | undefined,
+  conference: VideoConference
+) {
+  const withoutCurrent = (current ?? []).filter((item) => item.id !== conference.id);
+  return [...withoutCurrent, conference].sort((left, right) =>
+    left.scheduledAt.localeCompare(right.scheduledAt)
+  );
+}
+
+function removeVideoConference(current: VideoConference[] | undefined, conferenceId: string) {
+  return (current ?? []).filter((item) => item.id !== conferenceId);
+}
+
+function getConferenceActivationTime(value: string) {
+  return new Date(new Date(value).getTime() - CONFERENCE_ACTIVATION_LEAD_MS);
+}
+
+function formatConferenceStatusLabel(conference: VideoConference) {
+  if (conference.endedAt) {
+    return `Завершена ${formatConferenceSchedule(conference.endedAt)}`;
+  }
+
+  if (conference.roomName) {
+    return "Комната открыта";
+  }
+
+  return `Откроется ${formatConferenceSchedule(getConferenceActivationTime(conference.scheduledAt).toISOString())}`;
+}
+
+function formatConferenceListPreview(conference: VideoConference, currentUsername: string) {
+  if (conference.endedAt) {
+    return "Встреча завершена и находится в архиве.";
+  }
+
+  if (!conference.roomName) {
+    return `Комната откроется ${formatConferenceSchedule(
+      getConferenceActivationTime(conference.scheduledAt).toISOString()
+    )}.`;
+  }
+
+  const participantPreview = conference.participants
+    .filter((participant) => participant.username !== currentUsername)
+    .map((participant) => participant.displayName)
+    .join(", ");
+
+  return participantPreview || "Участники будут видны после приглашения.";
+}
+
+function formatConferenceStatusLabelV2(conference: VideoConference) {
+  const now = Date.now();
+  const scheduledTime = new Date(conference.scheduledAt).getTime();
+
+  if (conference.endedAt) {
+    return `Завершена ${formatConferenceSchedule(conference.endedAt)}`;
+  }
+
+  if (conference.startedAt) {
+    return "Встреча идет";
+  }
+
+  if (conference.roomName || conference.activatedAt) {
+    return scheduledTime <= now ? "Запускается автоматически" : "Ожидает автоматического старта";
+  }
+
+  return `Откроется ${formatConferenceSchedule(getConferenceActivationTime(conference.scheduledAt).toISOString())}`;
+}
+
+function formatConferenceListPreviewV2(conference: VideoConference, currentUsername: string) {
+  const now = Date.now();
+  const scheduledTime = new Date(conference.scheduledAt).getTime();
+
+  if (conference.endedAt) {
+    return "Встреча завершена и находится в архиве.";
+  }
+
+  if (!conference.roomName && !conference.activatedAt) {
+    return `Комната откроется ${formatConferenceSchedule(
+      getConferenceActivationTime(conference.scheduledAt).toISOString()
+    )}.`;
+  }
+
+  if (!conference.startedAt) {
+    return scheduledTime <= now
+      ? "Встреча запускается автоматически."
+      : `Подключение откроется автоматически ${formatConferenceSchedule(conference.scheduledAt)}.`;
+  }
+
+  const participantPreview = conference.participants
+    .filter((participant) => participant.username !== currentUsername)
+    .map((participant) => participant.displayName)
+    .join(", ");
+
+  return participantPreview || "Встреча уже идет.";
+}
+
+function formatConferenceStageHint(conference: VideoConference, isOrganizer: boolean) {
+  const now = Date.now();
+  const scheduledTime = new Date(conference.scheduledAt).getTime();
+
+  if (conference.endedAt) {
+    return `Встреча завершена ${formatConferenceSchedule(conference.endedAt)}.`;
+  }
+
+  if (conference.startedAt) {
+    return "Встреча уже запущена.";
+  }
+
+  if (conference.roomName || conference.activatedAt) {
+    if (scheduledTime <= now) {
+      return "Встреча запускается автоматически. Подключение появится через несколько секунд.";
+    }
+
+    return isOrganizer
+      ? `Комната подготовлена. Встреча откроется автоматически ${formatConferenceSchedule(
+          conference.scheduledAt
+        )}.`
+      : `Подключение откроется автоматически ${formatConferenceSchedule(conference.scheduledAt)}.`;
+  }
+
+  const activationAt = formatConferenceSchedule(
+    getConferenceActivationTime(conference.scheduledAt).toISOString()
+  );
+  return `Комната станет доступна за 5 минут до старта: ${activationAt}.`;
+}
+
+function legacyFormatConferenceStatusLabelV2(conference: VideoConference) {
+  if (conference.endedAt) {
+    return `Завершена ${formatConferenceSchedule(conference.endedAt)}`;
+  }
+
+  if (conference.startedAt) {
+    return "Встреча идет";
+  }
+
+  if (conference.roomName || conference.activatedAt) {
+    return "Ожидает старта организатором";
+  }
+
+  return `Откроется ${formatConferenceSchedule(getConferenceActivationTime(conference.scheduledAt).toISOString())}`;
+}
+
+function legacyFormatConferenceListPreviewV2(conference: VideoConference, currentUsername: string) {
+  if (conference.endedAt) {
+    return "Встреча завершена и находится в архиве.";
+  }
+
+  if (!conference.roomName && !conference.activatedAt) {
+    return `Комната откроется ${formatConferenceSchedule(
+      getConferenceActivationTime(conference.scheduledAt).toISOString()
+    )}.`;
+  }
+
+  if (!conference.startedAt) {
+    return "Организатор еще не начал встречу.";
+  }
+
+  const participantPreview = conference.participants
+    .filter((participant) => participant.username !== currentUsername)
+    .map((participant) => participant.displayName)
+    .join(", ");
+
+  return participantPreview || "Встреча уже идет.";
+}
+
+function legacyFormatConferenceStageHint(conference: VideoConference, isOrganizer: boolean) {
+  if (conference.endedAt) {
+    return `Встреча завершена ${formatConferenceSchedule(conference.endedAt)}.`;
+  }
+
+  if (conference.startedAt) {
+    return "Встреча уже запущена.";
+  }
+
+  if (conference.roomName || conference.activatedAt) {
+    return isOrganizer
+      ? "Комната уже подготовлена. После запуска участники смогут войти без прав модератора."
+      : "Организатор еще не начал встречу. Войти можно после его запуска.";
+  }
+
+  const activationAt = formatConferenceSchedule(
+    getConferenceActivationTime(conference.scheduledAt).toISOString()
+  );
+  return `Комната станет доступна за 5 минут до старта: ${activationAt}.`;
+}
+
+function formatConferenceSchedule(value: string) {
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "numeric",
+    month: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function formatConferenceTileTime(value: string) {
+  const date = new Date(value);
+  const now = new Date();
+  const sameDay =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+
+  if (sameDay) {
+    return formatClock(value);
+  }
+
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+  }).format(date);
+}
+
+function createInitialConferenceDateTime() {
+  return formatDateTimeInputValue(new Date(Date.now() + 30 * 60 * 1000));
+}
+
+function createMinimumConferenceDateTime() {
+  return formatDateTimeInputValue(new Date());
+}
+
+function formatDateTimeInputValue(date: Date) {
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return localDate.toISOString().slice(0, 16);
+}
+
+function buildJitsiConferenceUrl(roomName: string, title?: string, displayName?: string) {
+  const normalizedBaseUrl = normalizeJitsiBaseUrl(JITSI_BASE_URL);
+  const hashParams = [
+    "config.prejoinPageEnabled=false",
+    "config.prejoinConfig.enabled=false",
+    "config.requireDisplayName=false",
+  ];
+  const normalizedTitle = title?.trim();
+  if (normalizedTitle) {
+    hashParams.push(`config.subject=${encodeURIComponent(JSON.stringify(normalizedTitle))}`);
+  }
+  const normalizedDisplayName = displayName?.trim();
+  if (normalizedDisplayName) {
+    hashParams.push(
+      `userInfo.displayName=${encodeURIComponent(JSON.stringify(normalizedDisplayName))}`
+    );
+  }
+
+  return `${normalizedBaseUrl}/${encodeURIComponent(roomName)}#${hashParams.join("&")}`;
+}
+
+function buildJitsiShareUrl(roomName: string) {
+  const normalizedBaseUrl = normalizeJitsiBaseUrl(JITSI_BASE_URL);
+  return `${normalizedBaseUrl}/${encodeURIComponent(roomName)}`;
+}
+
+function normalizeJitsiBaseUrl(baseUrl: string) {
+  const fallbackOrigin =
+    typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
+  const normalizedUrl = new URL(baseUrl, fallbackOrigin);
+
+  const isLocalAddress =
+    normalizedUrl.hostname === "localhost" ||
+    normalizedUrl.hostname === "127.0.0.1" ||
+    normalizedUrl.hostname === "::1";
+
+  if (
+    typeof window !== "undefined" &&
+    window.location.protocol === "http:" &&
+    isLocalAddress &&
+    normalizedUrl.protocol === "https:"
+  ) {
+    normalizedUrl.protocol = "http:";
+  }
+
+  return normalizedUrl.toString().replace(/\/+$/, "");
+}
+
+function formatConferenceOrganizerLabel(organizer: Participant, currentUser: UserProfile) {
+  return organizer.id === currentUser.id ? `${organizer.displayName} (вы)` : organizer.displayName;
+}
+
+function describeConferenceRole(isOrganizer: boolean) {
+  if (isOrganizer) {
+    return "Организатор";
+  }
+
+  return "Участник";
+}
+
 function readStoredSidebarWidth() {
   if (typeof window === "undefined") {
     return DEFAULT_SIDEBAR_WIDTH;
@@ -2493,3 +4093,4 @@ function toggleUsernameSelection(usernames: string[], username: string) {
     ? usernames.filter((item) => item !== username)
     : [...usernames, username];
 }
+

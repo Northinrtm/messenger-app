@@ -7,9 +7,9 @@ public record MessageResponse(
         UUID id,
         UUID chatId,
         ParticipantResponse sender,
-        String content,
         Instant createdAt,
-        MessageStatusResponse status
+        MessageStatusResponse status,
+        EncryptedMessagePayloadResponse encryptedPayload
 ) {
 }
 

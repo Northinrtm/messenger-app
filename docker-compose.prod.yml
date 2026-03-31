@@ -17,6 +17,161 @@ services:
       timeout: 5s
       retries: 10
 
+  jitsi-prosody:
+    image: jitsi/prosody:stable
+    container_name: messenger-jitsi-prosody
+    restart: unless-stopped
+    hostname: xmpp.meet.jitsi
+    environment:
+      ENABLE_AUTH: "0"
+      ENABLE_GUESTS: "1"
+      ENABLE_RECORDING: "1"
+      ENABLE_XMPP_WEBSOCKET: "1"
+      XMPP_DOMAIN: meet.jitsi
+      XMPP_AUTH_DOMAIN: auth.meet.jitsi
+      XMPP_GUEST_DOMAIN: guest.meet.jitsi
+      XMPP_INTERNAL_MUC_DOMAIN: internal-muc.meet.jitsi
+      XMPP_MUC_DOMAIN: muc.meet.jitsi
+      XMPP_RECORDER_DOMAIN: recorder.meet.jitsi
+      JICOFO_COMPONENT_SECRET: ${JITSI_JICOFO_COMPONENT_SECRET:?JITSI_JICOFO_COMPONENT_SECRET must be set}
+      JICOFO_AUTH_USER: focus
+      JICOFO_AUTH_PASSWORD: ${JITSI_JICOFO_AUTH_PASSWORD:?JITSI_JICOFO_AUTH_PASSWORD must be set}
+      JIBRI_XMPP_USER: jibri
+      JIBRI_XMPP_PASSWORD: ${JITSI_JIBRI_XMPP_PASSWORD:?JITSI_JIBRI_XMPP_PASSWORD must be set}
+      JIBRI_RECORDER_USER: recorder
+      JIBRI_RECORDER_PASSWORD: ${JITSI_JIBRI_RECORDER_PASSWORD:?JITSI_JIBRI_RECORDER_PASSWORD must be set}
+      JIBRI_BREWERY_MUC: jibribrewery
+      JVB_AUTH_USER: jvb
+      JVB_AUTH_PASSWORD: ${JITSI_JVB_AUTH_PASSWORD:?JITSI_JVB_AUTH_PASSWORD must be set}
+      JVB_BREWERY_MUC: jvbbrewery
+    networks:
+      default:
+        aliases:
+          - xmpp.meet.jitsi
+    volumes:
+      - jitsi_prosody_config:/config
+
+  jitsi-jicofo:
+    image: jitsi/jicofo:stable
+    container_name: messenger-jitsi-jicofo
+    restart: unless-stopped
+    depends_on:
+      - jitsi-prosody
+    environment:
+      ENABLE_AUTH: "0"
+      ENABLE_RECORDING: "1"
+      XMPP_SERVER: xmpp.meet.jitsi
+      XMPP_DOMAIN: meet.jitsi
+      XMPP_AUTH_DOMAIN: auth.meet.jitsi
+      XMPP_INTERNAL_MUC_DOMAIN: internal-muc.meet.jitsi
+      XMPP_MUC_DOMAIN: muc.meet.jitsi
+      XMPP_RECORDER_DOMAIN: recorder.meet.jitsi
+      JICOFO_COMPONENT_SECRET: ${JITSI_JICOFO_COMPONENT_SECRET:?JITSI_JICOFO_COMPONENT_SECRET must be set}
+      JICOFO_AUTH_USER: focus
+      JICOFO_AUTH_PASSWORD: ${JITSI_JICOFO_AUTH_PASSWORD:?JITSI_JICOFO_AUTH_PASSWORD must be set}
+      JIBRI_XMPP_USER: jibri
+      JIBRI_XMPP_PASSWORD: ${JITSI_JIBRI_XMPP_PASSWORD:?JITSI_JIBRI_XMPP_PASSWORD must be set}
+      JIBRI_RECORDER_USER: recorder
+      JIBRI_RECORDER_PASSWORD: ${JITSI_JIBRI_RECORDER_PASSWORD:?JITSI_JIBRI_RECORDER_PASSWORD must be set}
+      JIBRI_BREWERY_MUC: jibribrewery
+      JIBRI_PENDING_TIMEOUT: 90
+      JVB_BREWERY_MUC: jvbbrewery
+    volumes:
+      - jitsi_jicofo_config:/config
+
+  jitsi-jvb:
+    image: jitsi/jvb:stable
+    container_name: messenger-jitsi-jvb
+    restart: unless-stopped
+    depends_on:
+      - jitsi-prosody
+    environment:
+      ENABLE_AUTH: "0"
+      ENABLE_COLIBRI_WEBSOCKET: "1"
+      XMPP_SERVER: xmpp.meet.jitsi
+      XMPP_DOMAIN: meet.jitsi
+      XMPP_AUTH_DOMAIN: auth.meet.jitsi
+      XMPP_INTERNAL_MUC_DOMAIN: internal-muc.meet.jitsi
+      XMPP_MUC_DOMAIN: muc.meet.jitsi
+      JVB_AUTH_USER: jvb
+      JVB_AUTH_PASSWORD: ${JITSI_JVB_AUTH_PASSWORD:?JITSI_JVB_AUTH_PASSWORD must be set}
+      JVB_BREWERY_MUC: jvbbrewery
+      JVB_PORT: 10000
+      JVB_TCP_HARVESTER_DISABLED: "false"
+      JVB_TCP_HARVESTER_PORT: 4443
+      JVB_ADVERTISE_IPS: ${JITSI_ADVERTISE_IPS:?JITSI_ADVERTISE_IPS must be set}
+    ports:
+      - "10000:10000/udp"
+      - "4443:4443"
+    volumes:
+      - jitsi_jvb_config:/config
+
+  jitsi-web:
+    image: jitsi/web:stable
+    container_name: messenger-jitsi-web
+    restart: unless-stopped
+    depends_on:
+      - jitsi-prosody
+      - jitsi-jicofo
+      - jitsi-jvb
+    environment:
+      DISABLE_HTTPS: "1"
+      ENABLE_AUTH: "0"
+      ENABLE_GUESTS: "1"
+      ENABLE_HTTP_REDIRECT: "0"
+      ENABLE_LETSENCRYPT: "0"
+      ENABLE_RECORDING: "1"
+      ENABLE_XMPP_WEBSOCKET: "1"
+      PUBLIC_URL: ${JITSI_PUBLIC_URL:?JITSI_PUBLIC_URL must be set}
+      XMPP_BOSH_URL_BASE: http://xmpp.meet.jitsi:5280
+      XMPP_SERVER: xmpp.meet.jitsi
+      XMPP_DOMAIN: meet.jitsi
+      XMPP_AUTH_DOMAIN: auth.meet.jitsi
+      XMPP_GUEST_DOMAIN: guest.meet.jitsi
+      XMPP_INTERNAL_MUC_DOMAIN: internal-muc.meet.jitsi
+      XMPP_MUC_DOMAIN: muc.meet.jitsi
+    ports:
+      - "8090:80"
+    volumes:
+      - jitsi_web_config:/config
+      - ./jitsi/custom-config.js:/config/custom-config.js
+
+  jitsi-jibri:
+    image: jitsi/jibri:stable
+    profiles:
+      - autonomous-recording
+    container_name: messenger-jitsi-jibri
+    restart: unless-stopped
+    depends_on:
+      - jitsi-prosody
+      - jitsi-jicofo
+      - jitsi-web
+    environment:
+      DISPLAY: ":0"
+      JIBRI_BREWERY_MUC: jibribrewery
+      JIBRI_RECORDING_DIR: /config/recordings
+      JIBRI_RECORDER_PASSWORD: ${JITSI_JIBRI_RECORDER_PASSWORD:?JITSI_JIBRI_RECORDER_PASSWORD must be set}
+      JIBRI_RECORDER_USER: recorder
+      JIBRI_XMPP_PASSWORD: ${JITSI_JIBRI_XMPP_PASSWORD:?JITSI_JIBRI_XMPP_PASSWORD must be set}
+      JIBRI_XMPP_USER: jibri
+      PUBLIC_URL: ${JITSI_PUBLIC_URL:?JITSI_PUBLIC_URL must be set}
+      TZ: ${TZ:-Europe/Moscow}
+      XMPP_AUTH_DOMAIN: auth.meet.jitsi
+      XMPP_DOMAIN: meet.jitsi
+      XMPP_INTERNAL_MUC_DOMAIN: internal-muc.meet.jitsi
+      XMPP_RECORDER_DOMAIN: recorder.meet.jitsi
+      XMPP_SERVER: xmpp.meet.jitsi
+    cap_add:
+      - SYS_ADMIN
+    shm_size: 2gb
+    volumes:
+      - jitsi_jibri_config:/config
+      - conference_recordings_raw:/config/recordings
+      - /dev/shm:/dev/shm
+      - /var/run/dbus:/var/run/dbus
+      - /sys/devices/system/cpu:/sys/devices/system/cpu:ro
+      - /dev/snd:/dev/snd
+
   backend:
     build:
       context: ./backend
@@ -34,11 +189,16 @@ services:
       APP_JWT_SECRET: ${APP_JWT_SECRET:?APP_JWT_SECRET must be set}
       APP_JWT_REFRESH_TOKEN_TTL: ${APP_JWT_REFRESH_TOKEN_TTL:-P30D}
       APP_AUTH_REFRESH_COOKIE_SECURE: "true"
+      APP_MEDIA_CONFERENCE_RECORDINGS_DIRECTORY: /app/storage/conference-recordings
+      APP_MEDIA_CONFERENCE_RECORDINGS_IMPORT_DIRECTORY: /jibri-recordings
     depends_on:
       postgres:
         condition: service_healthy
     ports:
       - "8080:8080"
+    volumes:
+      - conference_recordings_archive:/app/storage/conference-recordings
+      - conference_recordings_raw:/jibri-recordings:ro
 
   web:
     build:
@@ -48,12 +208,21 @@ services:
       args:
         VITE_API_URL: ""
         VITE_WS_URL: ""
+        VITE_JITSI_BASE_URL: ${JITSI_PUBLIC_URL:?JITSI_PUBLIC_URL must be set}
     container_name: messenger-web
     restart: unless-stopped
     depends_on:
       - backend
+      - jitsi-web
     ports:
       - "80:80"
 
 volumes:
   postgres_data:
+  jitsi_prosody_config:
+  jitsi_jicofo_config:
+  jitsi_jvb_config:
+  jitsi_jibri_config:
+  jitsi_web_config:
+  conference_recordings_raw:
+  conference_recordings_archive:

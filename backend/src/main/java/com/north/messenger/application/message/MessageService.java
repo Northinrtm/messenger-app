@@ -1,6 +1,11 @@
 package com.north.messenger.application.message;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.north.messenger.api.dto.CreateMessageRequest;
+import com.north.messenger.api.dto.EncryptedMessagePayloadRequest;
+import com.north.messenger.api.dto.EncryptedMessagePayloadResponse;
 import com.north.messenger.api.dto.MessageDeliveryState;
 import com.north.messenger.api.dto.MessageReceiptRequest;
 import com.north.messenger.api.dto.MessageResponse;
@@ -42,6 +47,7 @@ public class MessageService {
     private final MessageReceiptRepository messageReceiptRepository;
     private final UserAccountRepository userAccountRepository;
     private final SimpMessagingTemplate messagingTemplate;
+    private final ObjectMapper objectMapper;
 
     public MessageService(
             AuthService authService,
@@ -49,7 +55,8 @@ public class MessageService {
             ChatMessageRepository chatMessageRepository,
             MessageReceiptRepository messageReceiptRepository,
             UserAccountRepository userAccountRepository,
-            SimpMessagingTemplate messagingTemplate
+            SimpMessagingTemplate messagingTemplate,
+            ObjectMapper objectMapper
     ) {
         this.authService = authService;
         this.chatService = chatService;
@@ -57,6 +64,7 @@ public class MessageService {
         this.messageReceiptRepository = messageReceiptRepository;
         this.userAccountRepository = userAccountRepository;
         this.messagingTemplate = messagingTemplate;
+        this.objectMapper = objectMapper;
     }
 
     @Transactional
@@ -68,8 +76,8 @@ public class MessageService {
         PageRequest pageRequest = PageRequest.of(0, safeLimit);
         List<ChatMessage> recentMessages = new ArrayList<>(
                 before == null
-                        ? chatMessageRepository.findByChatIdOrderByCreatedAtDesc(chatId, pageRequest)
-                        : chatMessageRepository.findByChatIdAndCreatedAtBeforeOrderByCreatedAtDesc(chatId, before, pageRequest)
+                        ? chatMessageRepository.findEncryptedByChatIdOrderByCreatedAtDesc(chatId, pageRequest)
+                        : chatMessageRepository.findEncryptedByChatIdAndCreatedAtBeforeOrderByCreatedAtDesc(chatId, before, pageRequest)
         );
         recentMessages.sort((left, right) -> left.getCreatedAt().compareTo(right.getCreatedAt()));
 
@@ -97,22 +105,33 @@ public class MessageService {
     public MessageResponse sendMessage(UUID chatId, String username, CreateMessageRequest request) {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
         chatService.requireChatMembership(chatId, currentUser);
+        List<UserAccount> participants = chatService.findParticipants(chatId);
 
-        String content = request.content().trim();
-        if (content.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Message content cannot be blank");
+        EncryptedMessagePayloadRequest encryptedPayload = request.encryptedPayload();
+        if (encryptedPayload == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "End-to-end encrypted payload is required"
+            );
         }
+
+        String content = encryptedPayload.ciphertext();
+        String encryptionScheme = encryptedPayload.scheme();
+        String encryptionIv = encryptedPayload.iv();
+        String encryptedKeysJson = serializeEncryptedKeys(validateEncryptedPayload(encryptedPayload, participants));
 
         ChatMessage message = new ChatMessage(
                 UUID.randomUUID(),
                 chatId,
                 currentUser.getId(),
                 content,
+                encryptionScheme,
+                encryptionIv,
+                encryptedKeysJson,
                 Instant.now()
         );
         chatMessageRepository.save(message);
 
-        List<UserAccount> participants = chatService.findParticipants(chatId);
         List<MessageReceipt> receipts = participants.stream()
                 .filter(participant -> !participant.getId().equals(currentUser.getId()))
                 .map(participant -> new MessageReceipt(
@@ -204,9 +223,9 @@ public class MessageService {
                 message.getId(),
                 message.getChatId(),
                 authService.toParticipant(sender),
-                message.getContent(),
                 message.getCreatedAt(),
-                status
+                status,
+                toEncryptedPayload(message, currentUserId)
         );
     }
 
@@ -281,6 +300,79 @@ public class MessageService {
         int deliveredCount = (int) receipts.stream().filter(receipt -> receipt.getDeliveredAt() != null).count();
         int readCount = (int) receipts.stream().filter(receipt -> receipt.getReadAt() != null).count();
         return new MessageReceiptSummary(recipientCount, deliveredCount, readCount);
+    }
+
+    private Map<String, String> validateEncryptedPayload(
+            EncryptedMessagePayloadRequest payload,
+            List<UserAccount> participants
+    ) {
+        if (payload == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Encrypted payload is incomplete");
+        }
+        if (payload.ciphertext().isBlank() || payload.iv().isBlank() || payload.scheme().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Encrypted payload is incomplete");
+        }
+
+        Map<String, String> encryptedKeysByUserId = payload.encryptedKeysByUserId();
+        if (encryptedKeysByUserId == null || encryptedKeysByUserId.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Encrypted payload keys are required");
+        }
+
+        Set<String> expectedUserIds = participants.stream()
+                .map(UserAccount::getId)
+                .map(UUID::toString)
+                .collect(Collectors.toSet());
+
+        if (!encryptedKeysByUserId.keySet().containsAll(expectedUserIds)) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Encrypted payload must include wrapped keys for all chat participants"
+            );
+        }
+
+        return encryptedKeysByUserId.entrySet().stream()
+                .filter(entry -> entry.getKey() != null && !entry.getKey().isBlank())
+                .filter(entry -> entry.getValue() != null && !entry.getValue().isBlank())
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+    }
+
+    private String serializeEncryptedKeys(Map<String, String> encryptedKeysByUserId) {
+        try {
+            return objectMapper.writeValueAsString(encryptedKeysByUserId);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Failed to serialize encrypted message keys", exception);
+        }
+    }
+
+    private Map<String, String> deserializeEncryptedKeys(ChatMessage message) {
+        if (message.getEncryptedKeysJson() == null || message.getEncryptedKeysJson().isBlank()) {
+            return Map.of();
+        }
+
+        try {
+            return objectMapper.readValue(message.getEncryptedKeysJson(), new TypeReference<Map<String, String>>() {
+            });
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Failed to deserialize encrypted message keys", exception);
+        }
+    }
+
+    private EncryptedMessagePayloadResponse toEncryptedPayload(ChatMessage message, UUID currentUserId) {
+        if (!message.isEncrypted()) {
+            throw new IllegalStateException("Plaintext messages are not supported by the encrypted message API");
+        }
+
+        String encryptedKey = deserializeEncryptedKeys(message).get(currentUserId.toString());
+        if (encryptedKey == null || encryptedKey.isBlank()) {
+            throw new IllegalStateException("Encrypted message key is missing for recipient " + currentUserId);
+        }
+
+        return new EncryptedMessagePayloadResponse(
+                message.getEncryptionScheme(),
+                message.getContent(),
+                message.getEncryptionIv(),
+                encryptedKey
+        );
     }
 
     private enum ReceiptUpdateMode {

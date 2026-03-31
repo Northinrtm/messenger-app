@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyChatPreviewOverrides,
   flattenMessagePages,
   mergeMessagePages,
   parseUsernames,
+  upsertChatPreviewOverride,
   updateMessageStatusPages,
 } from "./chatState";
-import type { ChatMessage, MessageStatusEvent } from "../../lib/types";
+import type { ChatMessage, ChatSummary, MessageStatusEvent } from "../../lib/types";
 
 function message(id: string, createdAt: string): ChatMessage {
   return {
@@ -77,5 +79,66 @@ describe("chatState", () => {
     const next = updateMessageStatusPages(current, event);
 
     expect(next?.pages[0][0].status?.state).toBe("READ");
+  });
+
+  it("applies a decrypted preview over the server placeholder for the same message timestamp", () => {
+    const chats: ChatSummary[] = [
+      {
+        id: "chat-1",
+        direct: true,
+        title: "Alice",
+        members: [],
+        lastMessage: "Encrypted message",
+        lastMessageAt: "2026-03-22T10:00:00.000Z",
+        updatedAt: "2026-03-22T10:00:00.000Z",
+        unreadCount: 0,
+      },
+    ];
+
+    const next = applyChatPreviewOverrides(chats, {
+      "chat-1": {
+        lastMessage: "hello",
+        lastMessageAt: "2026-03-22T10:00:00.000Z",
+      },
+    });
+
+    expect(next[0]?.lastMessage).toBe("hello");
+  });
+
+  it("keeps the newer server timestamp when the local preview is stale", () => {
+    const chats: ChatSummary[] = [
+      {
+        id: "chat-1",
+        direct: true,
+        title: "Alice",
+        members: [],
+        lastMessage: "Encrypted message",
+        lastMessageAt: "2026-03-22T10:01:00.000Z",
+        updatedAt: "2026-03-22T10:01:00.000Z",
+        unreadCount: 0,
+      },
+    ];
+
+    const next = applyChatPreviewOverrides(chats, {
+      "chat-1": {
+        lastMessage: "older",
+        lastMessageAt: "2026-03-22T10:00:00.000Z",
+      },
+    });
+
+    expect(next[0]?.lastMessage).toBe("Encrypted message");
+  });
+
+  it("updates the preview override only when the incoming message is newer", () => {
+    const current = {
+      "chat-1": {
+        lastMessage: "newest",
+        lastMessageAt: "2026-03-22T10:01:00.000Z",
+      },
+    };
+
+    const next = upsertChatPreviewOverride(current, message("2", "2026-03-22T10:00:00.000Z"));
+
+    expect(next).toBe(current);
   });
 });

@@ -29,6 +29,13 @@ export type MessageStatus = {
   readCount: number;
 };
 
+export type EncryptedMessagePayload = {
+  scheme: string;
+  ciphertext: string;
+  iv: string;
+  encryptedKey: string;
+};
+
 export type ChatSummary = {
   id: string;
   direct: boolean;
@@ -44,6 +51,31 @@ export type ChatDraft = {
   chatId: string;
   content: string;
   updatedAt: string;
+};
+
+export type VideoConference = {
+  id: string;
+  title: string;
+  roomName: string | null;
+  scheduledAt: string;
+  createdAt: string;
+  activatedAt: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  recordingCreatedAt: string | null;
+  recordingSizeBytes: number | null;
+  recordingMimeType: string | null;
+  createdBy: Participant;
+  participants: Participant[];
+};
+
+export type ApiChatMessage = {
+  id: string;
+  chatId: string;
+  sender: Participant;
+  createdAt: string;
+  status: MessageStatus | null;
+  encryptedPayload: EncryptedMessagePayload;
 };
 
 export type ChatMessage = {
@@ -87,4 +119,20 @@ export type ApiErrorResponse = {
   error: string;
   path: string;
   details: string[];
+};
+
+export type UserEncryptionKeyBundle = {
+  userId: string;
+  publicKey: string;
+  encryptedPrivateKey: string;
+  kdfSalt: string;
+  kdfIv: string;
+  kdfIterations: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type UserEncryptionPublicKey = {
+  userId: string;
+  publicKey: string;
 };

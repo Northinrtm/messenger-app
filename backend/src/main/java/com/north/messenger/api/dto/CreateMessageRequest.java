@@ -1,12 +1,11 @@
 package com.north.messenger.api.dto;
 
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Size;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 
 public record CreateMessageRequest(
-        @NotBlank
-        @Size(max = 2000)
-        String content
+        @NotNull
+        @Valid
+        EncryptedMessagePayloadRequest encryptedPayload
 ) {
 }
-

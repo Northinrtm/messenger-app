@@ -1,6 +1,7 @@
 package com.north.messenger.application.chat;
 
 import com.north.messenger.application.auth.AuthService;
+import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.model.ChatParticipant;
 import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.UserAccount;
@@ -117,7 +118,8 @@ class ChatServiceTest {
         when(userAccountRepository.findAllByIdIn(List.of(user.getId(), peer.getId()))).thenReturn(List.of(user, peer));
         when(authService.resolveOnlineByUserIds(List.of(user.getId(), peer.getId())))
                 .thenReturn(java.util.Map.of(user.getId(), true, peer.getId(), true));
-        when(chatMessageRepository.findTopByChatIdOrderByCreatedAtDesc(chatId)).thenReturn(Optional.empty());
+        when(chatMessageRepository.findTopByChatIdAndEncryptionSchemeIsNotNullOrderByCreatedAtDesc(chatId))
+                .thenReturn(Optional.empty());
         when(authService.toParticipant(user, true)).thenReturn(new com.north.messenger.api.dto.ParticipantResponse(
                 user.getId(), user.getUsername(), user.getDisplayName(), user.getAvatarUrl(), true
         ));
@@ -148,6 +150,61 @@ class ChatServiceTest {
         chatService.updateDraft("north", chatId, new UpdateChatDraftRequest("draft text"));
 
         verify(userChatDraftRepository).save(any(UserChatDraft.class));
+    }
+
+    @Test
+    void listChatsShouldMaskEncryptedLastMessagePreview() {
+        UserAccount user = new UserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UserAccount peer = new UserAccount(
+                UUID.randomUUID(),
+                "alice",
+                "Alice",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UUID chatId = UUID.randomUUID();
+        ChatRoom room = new ChatRoom(chatId, null, true, Instant.parse("2026-03-21T12:00:00Z"));
+        ChatParticipant ownMembership = new ChatParticipant(UUID.randomUUID(), chatId, user.getId(), Instant.parse("2026-03-21T12:00:00Z"));
+        ChatParticipant peerMembership = new ChatParticipant(UUID.randomUUID(), chatId, peer.getId(), Instant.parse("2026-03-21T12:00:00Z"));
+        ChatMessage encryptedMessage = new ChatMessage(
+                UUID.randomUUID(),
+                chatId,
+                peer.getId(),
+                "ciphertext-value",
+                "RSA-OAEP-256/AES-GCM",
+                "iv-value",
+                "{\"dummy\":\"wrapped\"}",
+                Instant.parse("2026-03-22T12:00:00Z")
+        );
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(user);
+        when(chatParticipantRepository.findAllByUserIdOrderByJoinedAtAsc(user.getId())).thenReturn(List.of(ownMembership));
+        when(chatRoomRepository.findAllById(List.of(chatId))).thenReturn(List.of(room));
+        when(messageReceiptRepository.countUnreadByUserIdAndChatIdIn(user.getId(), List.of(chatId)))
+                .thenReturn(List.of());
+        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId)).thenReturn(List.of(ownMembership, peerMembership));
+        when(userAccountRepository.findAllByIdIn(List.of(user.getId(), peer.getId()))).thenReturn(List.of(user, peer));
+        when(authService.resolveOnlineByUserIds(List.of(user.getId(), peer.getId())))
+                .thenReturn(java.util.Map.of(user.getId(), true, peer.getId(), true));
+        when(chatMessageRepository.findTopByChatIdAndEncryptionSchemeIsNotNullOrderByCreatedAtDesc(chatId))
+                .thenReturn(Optional.of(encryptedMessage));
+        when(authService.toParticipant(user, true)).thenReturn(new com.north.messenger.api.dto.ParticipantResponse(
+                user.getId(), user.getUsername(), user.getDisplayName(), user.getAvatarUrl(), true
+        ));
+        when(authService.toParticipant(peer, true)).thenReturn(new com.north.messenger.api.dto.ParticipantResponse(
+                peer.getId(), peer.getUsername(), peer.getDisplayName(), peer.getAvatarUrl(), true
+        ));
+
+        var chats = chatService.listChats("north");
+
+        assertThat(chats).hasSize(1);
+        assertThat(chats.get(0).lastMessage()).isEqualTo("Encrypted message");
     }
 
     private MessageReceiptRepository.ChatUnreadCountView unreadCountView(UUID chatId, long unreadCount) {

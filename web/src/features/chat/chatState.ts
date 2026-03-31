@@ -2,6 +2,10 @@ import type { InfiniteData } from "@tanstack/react-query";
 import type { ChatMessage, ChatSummary, MessageStatusEvent } from "../../lib/types";
 
 export const MESSAGE_PAGE_SIZE = 50;
+export type ChatPreviewOverride = {
+  lastMessage: string;
+  lastMessageAt: string;
+};
 
 export function upsertChat(current: ChatSummary[] | undefined, nextChat: ChatSummary) {
   const list = current ?? [];
@@ -9,6 +13,64 @@ export function upsertChat(current: ChatSummary[] | undefined, nextChat: ChatSum
   return [nextChat, ...withoutCurrent].sort((left, right) =>
     right.updatedAt.localeCompare(left.updatedAt)
   );
+}
+
+export function applyChatPreviewOverrides(
+  chats: ChatSummary[] | undefined,
+  overrides: Record<string, ChatPreviewOverride>
+) {
+  if (!chats?.length) {
+    return [];
+  }
+
+  return chats.map((chat) => {
+    const override = overrides[chat.id];
+    if (!override) {
+      return chat;
+    }
+
+    if (chat.lastMessageAt && override.lastMessageAt.localeCompare(chat.lastMessageAt) < 0) {
+      return chat;
+    }
+
+    const updatedAt =
+      override.lastMessageAt.localeCompare(chat.updatedAt) > 0
+        ? override.lastMessageAt
+        : chat.updatedAt;
+
+    return {
+      ...chat,
+      lastMessage: override.lastMessage,
+      lastMessageAt: override.lastMessageAt,
+      updatedAt,
+    };
+  });
+}
+
+export function upsertChatPreviewOverride(
+  current: Record<string, ChatPreviewOverride>,
+  message: Pick<ChatMessage, "chatId" | "content" | "createdAt">
+) {
+  const existing = current[message.chatId];
+  if (existing && existing.lastMessageAt.localeCompare(message.createdAt) > 0) {
+    return current;
+  }
+
+  if (
+    existing &&
+    existing.lastMessageAt === message.createdAt &&
+    existing.lastMessage === message.content
+  ) {
+    return current;
+  }
+
+  return {
+    ...current,
+    [message.chatId]: {
+      lastMessage: message.content,
+      lastMessageAt: message.createdAt,
+    },
+  };
 }
 
 export function updateChatPreview(

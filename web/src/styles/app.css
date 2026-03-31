@@ -341,7 +341,7 @@ textarea {
   gap: 0.85rem;
 }
 
-.telegram-profile {
+.north-profile {
   align-items: center;
 }
 
@@ -980,8 +980,8 @@ textarea {
   }
 }
 
-.telegram-workspace {
-  grid-template-columns: minmax(0, var(--telegram-sidebar-width, 23.75rem)) 0.5rem minmax(0, 1fr);
+.north-workspace {
+  grid-template-columns: minmax(0, var(--north-sidebar-width, 23.75rem)) 0.5rem minmax(0, 1fr);
   gap: 0;
   width: 100%;
   min-height: 100svh;
@@ -991,34 +991,34 @@ textarea {
   background: #0e1621;
 }
 
-.telegram-workspace .telegram-sidebar,
-.telegram-workspace .telegram-conversation {
+.north-workspace .north-sidebar,
+.north-workspace .north-conversation {
   border: 0;
   border-radius: 0;
   box-shadow: none;
   backdrop-filter: none;
 }
 
-.telegram-workspace .telegram-sidebar {
+.north-workspace .north-sidebar {
   position: relative;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   padding: 0;
   overflow: hidden;
   background: #17212b;
 }
 
-.telegram-workspace .telegram-sidebar::before {
+.north-workspace .north-sidebar::before {
   display: none;
 }
 
-.telegram-layout-divider {
+.north-layout-divider {
   position: relative;
   background: rgba(255, 255, 255, 0.04);
   cursor: col-resize;
 }
 
-.telegram-layout-divider::before {
+.north-layout-divider::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -1029,37 +1029,37 @@ textarea {
   transition: background 180ms ease;
 }
 
-.telegram-layout-divider:hover::before,
-.telegram-layout-divider:active::before {
+.north-layout-divider:hover::before,
+.north-layout-divider:active::before {
   background: rgba(115, 182, 255, 0.42);
 }
 
-.telegram-workspace .ghost-button,
-.telegram-workspace .secondary-button,
-.telegram-workspace .primary-button {
+.north-workspace .ghost-button,
+.north-workspace .secondary-button,
+.north-workspace .primary-button {
   box-shadow: none;
 }
 
-.telegram-workspace .ghost-button {
+.north-workspace .ghost-button {
   background: #243344;
   border: 0;
   color: #deebf6;
 }
 
-.telegram-workspace .secondary-button,
-.telegram-workspace .primary-button {
+.north-workspace .secondary-button,
+.north-workspace .primary-button {
   background: #5288c1;
   color: #ffffff;
 }
 
-.telegram-workspace .ghost-button:hover,
-.telegram-workspace .secondary-button:hover,
-.telegram-workspace .primary-button:hover {
+.north-workspace .ghost-button:hover,
+.north-workspace .secondary-button:hover,
+.north-workspace .primary-button:hover {
   transform: none;
   filter: brightness(1.05);
 }
 
-.telegram-sidebar-top {
+.north-sidebar-top {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 0.9rem;
@@ -1068,7 +1068,7 @@ textarea {
   background: #17212b;
 }
 
-.telegram-search-shell {
+.north-search-shell {
   position: relative;
   min-width: 0;
 }
@@ -1114,7 +1114,7 @@ textarea {
   transform: translateY(-0.25rem) rotate(-45deg);
 }
 
-.telegram-search {
+.north-search {
   width: 100%;
   border: 0;
   border-radius: 999px;
@@ -1124,9 +1124,67 @@ textarea {
   box-shadow: none;
 }
 
-.telegram-search:focus {
+.north-search:focus {
   background: #2a3747;
   box-shadow: inset 0 0 0 1px rgba(107, 170, 235, 0.24);
+}
+
+.conversation-list-tabs {
+  display: flex;
+  gap: 0.45rem;
+  padding: 0 1rem 0.65rem;
+  background: #17212b;
+  overflow-x: auto;
+}
+
+.conversation-list-tab {
+  flex: 0 0 auto;
+  padding: 0.55rem 0.8rem;
+  border: 0;
+  border-radius: 999px;
+  background: #1f2c39;
+  color: #8aa0b6;
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.conversation-list-tab.is-active {
+  background: #2b5278;
+  color: #f4fbff;
+}
+
+.conference-browser-panel {
+  display: grid;
+  gap: 0.85rem;
+  padding: 0 1rem 0.9rem;
+  background: #17212b;
+}
+
+.conference-browser-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.85rem;
+}
+
+.conference-browser-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.conference-browser-form {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border-radius: 1.15rem;
+  background: #1d2b38;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.conference-picker-list {
+  max-height: 14rem;
 }
 
 .search-dropdown {
@@ -1191,7 +1249,7 @@ textarea {
   color: #8aa0b6;
 }
 
-.telegram-sidebar-sheet {
+.north-sidebar-sheet {
   padding: 0 1rem 1rem;
   background: #17212b;
   overflow: auto;
@@ -1373,12 +1431,12 @@ textarea {
   flex: 0 0 auto;
 }
 
-.telegram-workspace .session-row {
+.north-workspace .session-row {
   background: rgba(255, 255, 255, 0.035);
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.telegram-workspace .telegram-chat-list {
+.north-workspace .north-chat-list {
   gap: 0;
   padding: 0.3rem 0;
   overflow: auto;
@@ -1387,7 +1445,7 @@ textarea {
   grid-auto-rows: max-content;
 }
 
-.telegram-workspace .telegram-chat-tile {
+.north-workspace .north-chat-tile {
   grid-template-columns: 3.4rem minmax(0, 1fr);
   gap: 0.9rem;
   padding: 0.78rem 1rem;
@@ -1397,20 +1455,20 @@ textarea {
   box-shadow: none;
 }
 
-.telegram-workspace .telegram-chat-tile:hover {
+.north-workspace .north-chat-tile:hover {
   transform: none;
   background: rgba(255, 255, 255, 0.04);
 }
 
-.telegram-workspace .telegram-chat-tile.is-active {
+.north-workspace .north-chat-tile.is-active {
   background: #2b5278;
 }
 
-.telegram-workspace .telegram-chat-tile.is-unread:not(.is-active) {
+.north-workspace .north-chat-tile.is-unread:not(.is-active) {
   background: rgba(255, 255, 255, 0.03);
 }
 
-.telegram-avatar,
+.north-avatar,
 .menu-profile-avatar,
 .menu-row-avatar {
   display: grid;
@@ -1421,7 +1479,7 @@ textarea {
   position: relative;
 }
 
-.telegram-avatar {
+.north-avatar {
   width: 3.4rem;
   height: 3.4rem;
   font-size: 1rem;
@@ -1527,16 +1585,21 @@ textarea {
   color: #a8b6ff;
 }
 
-.telegram-workspace .chat-line {
+.chat-type-mark.is-conference {
+  background: rgba(84, 197, 165, 0.16);
+  color: #7de0c4;
+}
+
+.north-workspace .chat-line {
   align-items: flex-start;
 }
 
-.telegram-workspace .chat-line strong {
+.north-workspace .chat-line strong {
   font-size: 1.02rem;
   color: #f4fbff;
 }
 
-.telegram-workspace .chat-line span {
+.north-workspace .chat-line span {
   font-size: 0.84rem;
   color: #7f91a4;
 }
@@ -1554,25 +1617,25 @@ textarea {
   opacity: 0.6;
 }
 
-.telegram-workspace .chat-preview-line {
+.north-workspace .chat-preview-line {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.7rem;
 }
 
-.telegram-workspace .chat-preview-line p {
+.north-workspace .chat-preview-line p {
   color: #8aa0b6;
   font-size: 0.95rem;
 }
 
-.telegram-workspace .chat-preview-copy.is-typing {
+.north-workspace .chat-preview-copy.is-typing {
   color: #73b6ff;
 }
 
-.telegram-workspace .chat-draft {
+.north-workspace .chat-draft {
   color: #7dc2ff;
 }
 
-.telegram-workspace .chat-badge {
+.north-workspace .chat-badge {
   min-width: 1.35rem;
   height: 1.35rem;
   font-size: 0.72rem;
@@ -1588,7 +1651,7 @@ textarea {
   overflow: auto;
   background: #17212b;
   box-shadow: 18px 0 42px rgba(0, 0, 0, 0.35);
-  animation: telegram-menu-in 180ms ease;
+  animation: north-menu-in 180ms ease;
 }
 
 .sidebar-menu-profile {
@@ -1705,7 +1768,7 @@ textarea {
   font-weight: 700;
 }
 
-.telegram-workspace .telegram-conversation {
+.north-workspace .north-conversation {
   position: relative;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
@@ -1714,22 +1777,22 @@ textarea {
   background: #0e1621;
 }
 
-.telegram-conversation-header {
+.north-conversation-header {
   padding: 0.95rem 1.35rem;
   background: #17212b;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.telegram-workspace .conversation-avatar {
+.north-workspace .conversation-avatar {
   width: 3rem;
   height: 3rem;
 }
 
-.telegram-workspace .conversation-subtitle {
+.north-workspace .conversation-subtitle {
   color: #7f91a4;
 }
 
-.telegram-workspace .conversation-subtitle.is-typing {
+.north-workspace .conversation-subtitle.is-typing {
   color: #73b6ff;
 }
 
@@ -1748,7 +1811,7 @@ textarea {
   align-self: center;
 }
 
-.telegram-message-stream {
+.north-message-stream {
   padding: 1rem 1.25rem 1.15rem;
   background: #0e1621;
   border: 0;
@@ -1756,59 +1819,288 @@ textarea {
   gap: 0.75rem;
 }
 
-.telegram-message-stream .empty-state {
+.north-message-stream .empty-state {
   background: #182533;
   border: 0;
   color: #8aa0b6;
 }
 
-.telegram-workspace .timeline-day span {
+.north-workspace .timeline-day span {
   background: #1c2d3e;
   border: 0;
   color: #8aa0b6;
 }
 
-.telegram-workspace .message-bubble {
+.north-workspace .message-bubble {
   max-width: min(42rem, 78%);
   background: #182533;
   border: 0;
   box-shadow: none;
 }
 
-.telegram-workspace .message-bubble.is-mine {
+.north-workspace .message-bubble.is-mine {
   background: #2b5278;
 }
 
-.telegram-workspace .message-meta {
+.north-workspace .message-meta {
   color: #9bb0c5;
 }
 
-.telegram-workspace .message-meta strong {
+.north-workspace .message-meta strong {
   color: #f4fbff;
 }
 
-.telegram-workspace .message-status.is-sent,
-.telegram-workspace .message-status.is-delivered {
+.north-workspace .message-status.is-sent,
+.north-workspace .message-status.is-delivered {
   color: rgba(226, 239, 251, 0.78);
 }
 
-.telegram-workspace .message-status.is-read {
+.north-workspace .message-status.is-read {
   color: #8bd0ff;
 }
 
-.telegram-message-stream .typing-indicator {
+.north-message-stream .typing-indicator {
   margin-top: 0.2rem;
   background: #182533;
   color: #9bb0c5;
 }
 
-.telegram-composer {
+.conference-shell {
+  min-height: 0;
+  padding: 0 1.25rem 1.2rem;
+}
+
+.conference-meta-card {
+  display: none;
+}
+
+.conference-header {
+  align-items: flex-start;
+  position: relative;
+  z-index: 2;
+}
+
+.conference-title-stack {
+  position: relative;
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.conference-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.conference-title-row h3 {
+  margin: 0;
+}
+
+.conference-info-button {
+  min-height: 2rem;
+}
+
+.conference-info-button.is-active {
+  background: rgba(91, 151, 221, 0.22);
+  color: #f4fbff;
+}
+
+.conference-header > .conference-summary {
+  display: none;
+}
+
+.conference-title-stack > .conference-summary {
+  position: absolute;
+  top: calc(100% + 0.75rem);
+  left: 0;
+  z-index: 12;
+  display: grid;
+  gap: 0.85rem;
+  width: min(42rem, calc(100vw - 3rem));
+  padding: 1rem;
+  border-radius: 1.2rem;
+  background: #1a2633;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 22px 50px rgba(7, 14, 22, 0.48);
+  animation: north-menu-in 180ms ease;
+}
+
+.conference-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.conference-summary-item,
+.conference-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.conference-summary-item {
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 0.85rem 1rem;
+  border-radius: 1rem;
+  background: #182533;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.conference-summary-item span,
+.conference-summary-label {
+  color: #7f91a4;
+  font-size: 0.83rem;
+  font-weight: 600;
+}
+
+.conference-summary-item strong,
+.conference-summary-code,
+.conference-summary-link {
+  color: #f4fbff;
+}
+
+.conference-summary-rows {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.conference-summary-row {
+  flex-wrap: wrap;
+  padding: 0.8rem 1rem;
+  border-radius: 1rem;
+  background: #182533;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.conference-summary-code {
+  padding: 0.18rem 0.45rem;
+  border-radius: 0.55rem;
+  background: #101922;
+  overflow-wrap: anywhere;
+}
+
+.conference-summary-link {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+
+.conference-participants {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.conference-summary-row.participants {
+  align-items: flex-start;
+}
+
+.conference-copy-button {
+  margin-left: auto;
+}
+
+.conference-actions {
+  align-self: flex-start;
+}
+
+.conference-recording-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.7rem;
+  padding: 0.55rem 0.95rem;
+  border-radius: 999px;
+  background: rgba(79, 160, 112, 0.16);
+  border: 1px solid rgba(98, 194, 136, 0.24);
+  color: #dff8e6;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.conference-recording-badge.is-pending {
+  background: rgba(255, 196, 92, 0.12);
+  border-color: rgba(255, 196, 92, 0.22);
+  color: #ffe4a6;
+}
+
+.conference-recording-badge.is-failed {
+  background: rgba(217, 94, 94, 0.12);
+  border-color: rgba(217, 94, 94, 0.24);
+  color: #ffc7c7;
+}
+
+.conference-recording-badge.is-unavailable {
+  background: rgba(148, 163, 184, 0.1);
+  border-color: rgba(148, 163, 184, 0.18);
+  color: #d5dbe5;
+}
+
+.conference-end-button {
+  background: rgba(176, 52, 61, 0.18);
+  border-color: rgba(231, 100, 109, 0.28);
+  color: #ffd8db;
+}
+
+.conference-end-button:hover {
+  background: rgba(176, 52, 61, 0.28);
+  border-color: rgba(231, 100, 109, 0.38);
+}
+
+.conference-stage,
+.conference-placeholder {
+  min-height: 0;
+  border-radius: 1.4rem;
+  overflow: hidden;
+  background: #182533;
+}
+
+.conference-embed-host {
+  width: 100%;
+  min-height: calc(100vh - 19rem);
+}
+
+.conference-frame {
+  width: 100%;
+  height: 100%;
+  min-height: calc(100vh - 19rem);
+  border: 0;
+  display: block;
+}
+
+.conference-stage.is-fullscreen {
+  border-radius: 0;
+  background: #000000;
+}
+
+.conference-placeholder {
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+  color: #8aa0b6;
+}
+
+.conference-placeholder-with-action {
+  justify-items: start;
+  align-content: center;
+  gap: 0.85rem;
+}
+
+.conference-placeholder-with-action strong {
+  color: #f4fbff;
+}
+
+.north-composer {
   padding: 1rem 1.25rem 1.2rem;
   background: #17212b;
   border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.telegram-composer textarea {
+.north-composer textarea {
   height: 3.8rem;
   min-height: 3.8rem;
   max-height: 3.8rem;
@@ -1820,12 +2112,12 @@ textarea {
   overflow-y: auto;
 }
 
-.telegram-composer textarea:focus {
+.north-composer textarea:focus {
   background: #1c2b39;
   box-shadow: inset 0 0 0 1px rgba(115, 182, 255, 0.28);
 }
 
-.telegram-send-button {
+.north-send-button {
   min-width: 3.8rem;
   min-height: 3.8rem;
   padding: 0;
@@ -1840,8 +2132,8 @@ textarea {
   padding: 2rem;
 }
 
-.telegram-conversation > .conversation-empty,
-.telegram-conversation > .telegram-empty-state {
+.north-conversation > .conversation-empty,
+.north-conversation > .north-empty-state {
   grid-row: 1 / -1;
 }
 
@@ -1854,18 +2146,18 @@ textarea {
   letter-spacing: 0.01em;
 }
 
-.telegram-empty-state {
+.north-empty-state {
   background: transparent;
   border: 0;
   color: #8aa0b6;
 }
 
-.telegram-workspace .floating-error {
+.north-workspace .floating-error {
   right: 1.25rem;
   bottom: 1.25rem;
 }
 
-@keyframes telegram-menu-in {
+@keyframes north-menu-in {
   from {
     transform: translateX(-10px);
     opacity: 0;
@@ -1892,32 +2184,42 @@ textarea {
 }
 
 @media (max-width: 960px) {
-  .telegram-workspace {
+  .north-workspace {
     grid-template-columns: 1fr;
     height: auto;
     min-height: 100svh;
   }
 
-  .telegram-layout-divider {
+  .north-layout-divider {
     display: none;
   }
 
-  .telegram-workspace[data-mobile-pane="sidebar"] .telegram-conversation {
+  .north-workspace[data-mobile-pane="sidebar"] .north-conversation {
     display: none;
   }
 
-  .telegram-workspace[data-mobile-pane="conversation"] .telegram-sidebar {
+  .north-workspace[data-mobile-pane="conversation"] .north-sidebar {
     display: none;
   }
 
-  .telegram-workspace .telegram-sidebar,
-  .telegram-workspace .telegram-conversation {
+  .north-workspace .north-sidebar,
+  .north-workspace .north-conversation {
     min-height: 100svh;
   }
 
-  .telegram-conversation-header,
-  .telegram-composer,
-  .telegram-message-stream {
+  .conversation-list-tabs {
+    padding-left: 0.85rem;
+    padding-right: 0.85rem;
+  }
+
+  .conference-browser-panel {
+    padding-left: 0.85rem;
+    padding-right: 0.85rem;
+  }
+
+  .north-conversation-header,
+  .north-composer,
+  .north-message-stream {
     padding-left: 1rem;
     padding-right: 1rem;
   }
@@ -1929,12 +2231,12 @@ body.is-resizing-chat-layout {
 }
 
 @media (max-width: 640px) {
-  .telegram-sidebar-top {
+  .north-sidebar-top {
     padding: 0.85rem;
     gap: 0.7rem;
   }
 
-  .telegram-workspace .telegram-chat-tile,
+  .north-workspace .north-chat-tile,
   .menu-row,
   .sidebar-menu-profile {
     padding-left: 0.85rem;
@@ -1946,15 +2248,49 @@ body.is-resizing-chat-layout {
     grid-template-columns: 1fr;
   }
 
-  .telegram-composer {
+  .conference-browser-head,
+  .conference-browser-actions {
+    display: grid;
     grid-template-columns: 1fr;
   }
 
-  .telegram-send-button {
+  .north-composer {
+    grid-template-columns: 1fr;
+  }
+
+  .north-send-button {
     width: 100%;
   }
 
-  .telegram-workspace .message-bubble {
+  .north-workspace .message-bubble {
     max-width: 100%;
   }
+
+  .conference-shell {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .conference-summary {
+    width: min(32rem, calc(100vw - 2rem));
+  }
+
+  .conference-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .conference-summary-row {
+    align-items: flex-start;
+  }
+
+  .conference-copy-button {
+    margin-left: 0;
+  }
 }
+
+@media (max-width: 680px) {
+  .conference-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}
+

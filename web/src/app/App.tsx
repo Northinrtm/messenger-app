@@ -1,7 +1,9 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { AuthCard } from "../features/auth/AuthCard";
-import { TelegramWorkspace } from "../features/chat/TelegramWorkspace";
+import { UnlockCard } from "../features/auth/UnlockCard";
+import { NorthMessengerWorkspace } from "../features/chat/NorthMessengerWorkspace";
 import { refreshSession } from "../lib/api";
+import { hasUnlockedPrivateEncryptionKey } from "../lib/e2ee";
 import {
   getSessionRefreshDelay,
   isRefreshCompatible,
@@ -140,6 +142,7 @@ export function App() {
   const showSessionRestoreCard =
     (restoringSession && showRestoringSessionCard) ||
     Boolean(session && refreshingExpiredSession && isAccessTokenExpired(session));
+  const sessionNeedsUnlock = Boolean(session && !hasUnlockedPrivateEncryptionKey(session.user.id));
 
   return (
     <div className="app-shell">
@@ -155,11 +158,22 @@ export function App() {
             </section>
           ) : null}
         </main>
+      ) : sessionNeedsUnlock && session ? (
+        <UnlockCard
+          session={session}
+          onUnlocked={(nextSession) => {
+            setSession({ ...nextSession });
+          }}
+          onSignedOut={() => {
+            setSession(null);
+          }}
+        />
       ) : session ? (
-        <TelegramWorkspace session={session} onSessionChange={setSession} />
+        <NorthMessengerWorkspace session={session} onSessionChange={setSession} />
       ) : (
         <AuthCard onAuthenticated={setSession} />
       )}
     </div>
   );
 }
+

@@ -1,7 +1,9 @@
 import { Client } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
 import { WS_URL } from "./config";
+import { hydrateChatMessage } from "./e2ee";
 import type {
+  ApiChatMessage,
   ChatMessage,
   ChatSummary,
   MessageStatusEvent,
@@ -14,6 +16,7 @@ let activeClient: Client | null = null;
 type SubscriptionOptions = {
   chatIds: string[];
   token: string;
+  currentUserId: string;
   onChat: (chat: ChatSummary) => void;
   onMessage: (message: ChatMessage) => void;
   onMessageStatus?: (event: MessageStatusEvent) => void;
@@ -24,6 +27,7 @@ type SubscriptionOptions = {
 export function subscribeToChats({
   chatIds,
   token,
+  currentUserId,
   onChat,
   onMessage,
   onMessageStatus,
@@ -45,7 +49,7 @@ export function subscribeToChats({
     });
 
     client.subscribe("/user/queue/messages", (frame) => {
-      onMessage(JSON.parse(frame.body) as ChatMessage);
+      void hydrateChatMessage(JSON.parse(frame.body) as ApiChatMessage, currentUserId).then(onMessage);
     });
 
     if (onMessageStatus) {

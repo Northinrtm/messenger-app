@@ -20,8 +20,17 @@ public class ChatMessage {
     @Column(name = "sender_id", nullable = false, updatable = false)
     private UUID senderId;
 
-    @Column(name = "content", nullable = false, length = 2000)
+    @Column(name = "content", nullable = false, columnDefinition = "text")
     private String content;
+
+    @Column(name = "encryption_scheme", length = 120)
+    private String encryptionScheme;
+
+    @Column(name = "encryption_iv", length = 255)
+    private String encryptionIv;
+
+    @Column(name = "encrypted_keys_json", columnDefinition = "text")
+    private String encryptedKeysJson;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -30,10 +39,26 @@ public class ChatMessage {
     }
 
     public ChatMessage(UUID id, UUID chatId, UUID senderId, String content, Instant createdAt) {
+        this(id, chatId, senderId, content, null, null, null, createdAt);
+    }
+
+    public ChatMessage(
+            UUID id,
+            UUID chatId,
+            UUID senderId,
+            String content,
+            String encryptionScheme,
+            String encryptionIv,
+            String encryptedKeysJson,
+            Instant createdAt
+    ) {
         this.id = id;
         this.chatId = chatId;
         this.senderId = senderId;
         this.content = content;
+        this.encryptionScheme = encryptionScheme;
+        this.encryptionIv = encryptionIv;
+        this.encryptedKeysJson = encryptedKeysJson;
         this.createdAt = createdAt;
     }
 
@@ -53,8 +78,39 @@ public class ChatMessage {
         return content;
     }
 
+    public String getEncryptionScheme() {
+        return encryptionScheme;
+    }
+
+    public String getEncryptionIv() {
+        return encryptionIv;
+    }
+
+    public String getEncryptedKeysJson() {
+        return encryptedKeysJson;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public boolean isEncrypted() {
+        return encryptionScheme != null && !encryptionScheme.isBlank()
+                && encryptionIv != null && !encryptionIv.isBlank()
+                && encryptedKeysJson != null && !encryptedKeysJson.isBlank()
+                && content != null && !content.isBlank();
+    }
+
+    public void encrypt(
+            String ciphertext,
+            String encryptionScheme,
+            String encryptionIv,
+            String encryptedKeysJson
+    ) {
+        this.content = ciphertext;
+        this.encryptionScheme = encryptionScheme;
+        this.encryptionIv = encryptionIv;
+        this.encryptedKeysJson = encryptedKeysJson;
     }
 }
 

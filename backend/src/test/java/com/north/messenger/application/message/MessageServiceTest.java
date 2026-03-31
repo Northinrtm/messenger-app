@@ -1,6 +1,8 @@
 package com.north.messenger.application.message;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.north.messenger.api.dto.CreateMessageRequest;
+import com.north.messenger.api.dto.EncryptedMessagePayloadRequest;
 import com.north.messenger.api.dto.MessageDeliveryState;
 import com.north.messenger.api.dto.MessageReceiptRequest;
 import com.north.messenger.api.dto.MessageResponse;
@@ -16,6 +18,7 @@ import com.north.messenger.domain.repository.MessageReceiptRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,6 +26,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -53,7 +57,8 @@ class MessageServiceTest {
                 chatMessageRepository,
                 messageReceiptRepository,
                 userAccountRepository,
-                messagingTemplate
+                messagingTemplate,
+                new ObjectMapper()
         );
 
         when(chatMessageRepository.save(any(ChatMessage.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -69,7 +74,21 @@ class MessageServiceTest {
         when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
         when(authService.toParticipant(currentUser)).thenReturn(participant(currentUser));
 
-        MessageResponse response = messageService.sendMessage(chatId, "north", new CreateMessageRequest("hello"));
+        MessageResponse response = messageService.sendMessage(
+                chatId,
+                "north",
+                new CreateMessageRequest(
+                        new EncryptedMessagePayloadRequest(
+                                "RSA-OAEP-256/AES-GCM",
+                                "ciphertext-value",
+                                "iv-value",
+                                Map.of(
+                                        currentUser.getId().toString(), "sender-wrapped-key",
+                                        recipient.getId().toString(), "recipient-wrapped-key"
+                                )
+                        )
+                )
+        );
 
         assertThat(response.sender().id()).isEqualTo(currentUser.getId());
         assertThat(response.status()).isNotNull();
@@ -113,6 +132,48 @@ class MessageServiceTest {
         verify(messagingTemplate).convertAndSendToUser(eq("north"), eq("/queue/message-statuses"), eventCaptor.capture());
         verify(chatService).notifyChatUpdated(chatId);
         assertThat(eventCaptor.getValue().status().state()).isEqualTo(MessageDeliveryState.READ);
+    }
+
+    @Test
+    void sendMessageShouldStoreEncryptedPayloadWithoutPlaintext() {
+        UUID chatId = UUID.randomUUID();
+        UserAccount currentUser = user("north");
+        UserAccount recipient = user("alice");
+        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
+        when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
+        when(authService.toParticipant(currentUser)).thenReturn(participant(currentUser));
+
+        MessageResponse response = messageService.sendMessage(
+                chatId,
+                "north",
+                new CreateMessageRequest(
+                        new EncryptedMessagePayloadRequest(
+                                "RSA-OAEP-256/AES-GCM",
+                                "ciphertext-value",
+                                "iv-value",
+                                Map.of(
+                                        currentUser.getId().toString(), "sender-wrapped-key",
+                                        recipient.getId().toString(), "recipient-wrapped-key"
+                                )
+                        )
+                )
+        );
+
+        assertThat(response.encryptedPayload()).isNotNull();
+        assertThat(response.encryptedPayload().ciphertext()).isEqualTo("ciphertext-value");
+        assertThat(response.encryptedPayload().encryptedKey()).isEqualTo("sender-wrapped-key");
+    }
+
+    @Test
+    void sendMessageShouldRejectMissingEncryptedPayload() {
+        UUID chatId = UUID.randomUUID();
+        UserAccount currentUser = user("north");
+        UserAccount recipient = user("alice");
+        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
+        when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
+
+        assertThatThrownBy(() -> messageService.sendMessage(chatId, "north", new CreateMessageRequest(null)))
+                .hasMessageContaining("End-to-end encrypted payload is required");
     }
 
     private UserAccount user(String username) {

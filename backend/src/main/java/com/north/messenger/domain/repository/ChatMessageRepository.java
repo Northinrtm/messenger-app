@@ -12,20 +12,33 @@ import org.springframework.data.repository.query.Param;
 
 public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> {
 
-    List<ChatMessage> findByChatIdOrderByCreatedAtDesc(UUID chatId, Pageable pageable);
+    @Query("""
+            select message
+            from ChatMessage message
+            where message.chatId = :chatId
+              and message.encryptionScheme is not null
+              and message.encryptionScheme <> ''
+            order by message.createdAt desc
+            """)
+    List<ChatMessage> findEncryptedByChatIdOrderByCreatedAtDesc(
+            @Param("chatId") UUID chatId,
+            Pageable pageable
+    );
 
     @Query("""
             select message
             from ChatMessage message
             where message.chatId = :chatId
+              and message.encryptionScheme is not null
+              and message.encryptionScheme <> ''
               and message.createdAt < :before
             order by message.createdAt desc
             """)
-    List<ChatMessage> findByChatIdAndCreatedAtBeforeOrderByCreatedAtDesc(
+    List<ChatMessage> findEncryptedByChatIdAndCreatedAtBeforeOrderByCreatedAtDesc(
             @Param("chatId") UUID chatId,
             @Param("before") Instant before,
             Pageable pageable
     );
 
-    Optional<ChatMessage> findTopByChatIdOrderByCreatedAtDesc(UUID chatId);
+    Optional<ChatMessage> findTopByChatIdAndEncryptionSchemeIsNotNullOrderByCreatedAtDesc(UUID chatId);
 }

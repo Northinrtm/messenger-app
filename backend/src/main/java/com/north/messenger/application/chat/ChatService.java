@@ -43,6 +43,8 @@ import org.springframework.web.server.ResponseStatusException;
 @Transactional(readOnly = true)
 public class ChatService {
 
+    private static final String ENCRYPTED_MESSAGE_PLACEHOLDER = "Encrypted message";
+
     private final AuthService authService;
     private final ChatRoomRepository chatRoomRepository;
     private final ChatParticipantRepository chatParticipantRepository;
@@ -290,7 +292,8 @@ public class ChatService {
         Map<UUID, UserAccount> usersById = findUsersById(
                 memberships.stream().map(ChatParticipant::getUserId).toList()
         );
-        ChatMessage lastMessage = chatMessageRepository.findTopByChatIdOrderByCreatedAtDesc(chatId).orElse(null);
+        ChatMessage lastMessage = chatMessageRepository.findTopByChatIdAndEncryptionSchemeIsNotNullOrderByCreatedAtDesc(chatId)
+                .orElse(null);
         Map<UUID, Integer> unreadCountsByUserId = loadUnreadCountsForUsers(chatId);
 
         memberships.stream()
@@ -327,7 +330,8 @@ public class ChatService {
         Map<UUID, UserAccount> usersById = findUsersById(
                 memberships.stream().map(ChatParticipant::getUserId).toList()
         );
-        ChatMessage lastMessage = chatMessageRepository.findTopByChatIdOrderByCreatedAtDesc(room.getId()).orElse(null);
+        ChatMessage lastMessage = chatMessageRepository.findTopByChatIdAndEncryptionSchemeIsNotNullOrderByCreatedAtDesc(room.getId())
+                .orElse(null);
         return toSummary(room, currentUserId, memberships, usersById, lastMessage, unreadCount);
     }
 
@@ -366,7 +370,7 @@ public class ChatService {
                 room.isDirect(),
                 title,
                 members,
-                lastMessage != null ? lastMessage.getContent() : null,
+                lastMessage != null ? summarizeLastMessage(lastMessage) : null,
                 lastMessage != null ? lastMessage.getCreatedAt() : null,
                 updatedAt,
                 unreadCount
@@ -375,6 +379,10 @@ public class ChatService {
 
     private int loadUnreadCount(UUID chatId, UUID userId) {
         return loadUnreadCounts(List.of(chatId), userId).getOrDefault(chatId, 0);
+    }
+
+    private String summarizeLastMessage(ChatMessage lastMessage) {
+        return ENCRYPTED_MESSAGE_PLACEHOLDER;
     }
 
     private Map<UUID, Integer> loadUnreadCounts(Collection<UUID> chatIds, UUID userId) {

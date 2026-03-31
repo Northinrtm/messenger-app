@@ -4,7 +4,7 @@
 
 Проект собран как модульный монолит:
 
-- `backend` отвечает за аутентификацию, сессии, профили, контакты, чаты, группы, сообщения и realtime
+- `backend` отвечает за аутентификацию, сессии, профили, контакты, чаты, группы, видеоконференции, сообщения и realtime
 - `web` даёт Telegram-подобный интерфейс для общения и управления чатами
 - `postgres` — основной источник истины для пользователей, сессий, чатов и сообщений
 - `redis` вынесен в отдельный профиль и пока остается заделом под дальнейшее развитие presence и fan-out
@@ -27,6 +27,8 @@
 - создание личных чатов
 - создание групповых чатов
 - добавление участников в существующую группу
+- планирование видеоконференций
+- хранение списка участников видеоконференции
 - архив чатов на сервере
 - черновики на сервере
 - unread counters на сервере
@@ -42,9 +44,10 @@
 - Telegram-подобный layout: список чатов слева, активный диалог справа
 - изменение ширины списка диалогов
 - поиск пользователей из верхней строки поиска
-- список личных чатов и групп в одной колонке
+- вкладки `Диалоги`, `Группы` и `Видеоконференции`
 - группы отображаются в левой панели сразу после создания
 - личные чаты появляются в левой панели после первого сообщения
+- список видеоконференций и экран планирования из бокового меню
 - профиль с редактированием имени
 - вставка аватара из буфера обмена в профиле
 - экран архива
@@ -56,6 +59,7 @@
 - unread counters, черновики и live-обновление списка чатов
 - delivered/read-галочки у сообщений
 - typing indicators
+- встроенный Jitsi iframe для видеоконференций
 - восстановление сессии через refresh cookie без хранения секретов в `localStorage`
 
 ### Важные замечания по текущей реализации
@@ -119,7 +123,7 @@
 
 - `api` — REST-контроллеры и DTO
 - `application.auth` — регистрация, логин, refresh flow, сессии, профиль, контакты, password policy
-- `application.chat` — список чатов, архив, черновики, direct/group chats, участники, unread counters
+- `application.chat` — список чатов, архив, черновики, direct/group chats, участники, unread counters и видеоконференции
 - `application.message` — история сообщений, отправка, delivered/read receipts, typing state
 - `domain` — сущности и репозитории
 - `security` — JWT auth для HTTP и WebSocket, refresh-cookie configuration
@@ -154,6 +158,8 @@
 - `POST /api/chats/{chatId}/messages/read`
 - `GET /api/chats/{chatId}/typing`
 - `POST /api/chats/{chatId}/typing`
+- `GET /api/conferences`
+- `POST /api/conferences`
 - `WebSocket endpoint: /ws`
 
 ## Быстрый старт через Docker
@@ -179,6 +185,20 @@ docker compose up --build
 ```bash
 docker compose --profile redis up --build
 ```
+
+### Автономная server-side запись видеоконференций
+
+Для `Jibri` запускай отдельный recording-профиль:
+
+```bash
+docker compose --profile autonomous-recording up --build
+```
+
+Важно:
+
+- `Jibri` требует Linux host c loopback audio, поэтому на обычном Docker Desktop для Windows этот режим не считается полноценным
+- backend автоматически импортирует готовые файлы из общего volume после завершения встречи
+- organizer больше не загружает видео из браузера: запись идет через server-side file recording
 
 ### Что будет доступно
 
@@ -257,6 +277,12 @@ npm run dev
 docker compose --env-file .env.prod -f docker-compose.prod.yml up --build -d
 ```
 
+Для autonomous recording в prod добавь recording-профиль:
+
+```bash
+docker compose --profile autonomous-recording --env-file .env.prod -f docker-compose.prod.yml up --build -d
+```
+
 Важно:
 
 - в `prod` нет автогенерации JWT secret
@@ -282,6 +308,7 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml up --build -d
 | `APP_AUTH_REFRESH_COOKIE_SECURE` | флаг Secure для refresh cookie | `false` |
 | `VITE_API_URL` | базовый URL backend API | `http://localhost:8080` |
 | `VITE_WS_URL` | базовый URL для websocket | `http://localhost:8080` |
+| `VITE_JITSI_BASE_URL` | базовый URL Jitsi для видеоконференций | `https://meet.jit.si` |
 
 ## Ручная проверка
 
@@ -298,7 +325,8 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml up --build -d
 9. Добавь `user2` в контакты
 10. Создай группу из контактов
 11. Создай черновик, обнови страницу и проверь, что он сохранился
-12. Архивируй чат, обнови страницу и проверь, что архив сохранился
+12. Открой вкладку видеоконференций, запланируй встречу и проверь, что открылся встроенный Jitsi room
+13. Архивируй чат, обнови страницу и проверь, что архив сохранился
 13. Открой экран активных устройств и проверь, что отображается текущее устройство
 
 ## Текущие ограничения

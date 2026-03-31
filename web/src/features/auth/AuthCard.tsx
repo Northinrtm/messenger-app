@@ -1,6 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { ApiError, login, register } from "../../lib/api";
+import { ensureEncryptionReady } from "../../lib/e2ee";
 import type { AuthResponse } from "../../lib/types";
 
 type Props = {
@@ -15,11 +16,13 @@ export function AuthCard({ onAuthenticated }: Props) {
 
   const authMutation = useMutation({
     mutationFn: async () => {
-      if (mode === "register") {
-        return register({ username, displayName, password });
-      }
+      const response =
+        mode === "register"
+          ? await register({ username, displayName, password })
+          : await login({ username, password });
 
-      return login({ username, password });
+      await ensureEncryptionReady(response, password);
+      return response;
     },
     onSuccess: (response) => {
       onAuthenticated(response);

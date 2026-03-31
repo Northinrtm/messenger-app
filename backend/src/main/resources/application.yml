@@ -45,6 +45,10 @@ app:
     refresh-token-ttl: ${APP_JWT_REFRESH_TOKEN_TTL:P30D}
     secret: ${APP_JWT_SECRET:}
     generate-secret-if-missing: ${APP_JWT_GENERATE_SECRET_IF_MISSING:false}
+  media:
+    conference-recordings:
+      directory: ${APP_MEDIA_CONFERENCE_RECORDINGS_DIRECTORY:./storage/conference-recordings}
+      import-directory: ${APP_MEDIA_CONFERENCE_RECORDINGS_IMPORT_DIRECTORY:./storage/jibri-recordings}
 
 logging:
   level:
