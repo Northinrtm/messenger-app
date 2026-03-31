@@ -163,7 +163,6 @@ services:
     volumes:
       - jitsi_jibri_config:/config
       - conference_recordings_raw:/config/recordings
-      - /dev/shm:/dev/shm
       - /var/run/dbus:/var/run/dbus
       - /sys/devices/system/cpu:/sys/devices/system/cpu:ro
       - /dev/snd:/dev/snd
