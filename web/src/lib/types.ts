@@ -23,7 +23,7 @@ export type AuthResponse = {
 };
 
 export type MessageStatus = {
-  state: "SENT" | "DELIVERED" | "READ";
+  state: "SENDING" | "SENT" | "DELIVERED" | "READ";
   recipientCount: number;
   deliveredCount: number;
   readCount: number;
@@ -57,6 +57,7 @@ export type VideoConference = {
   id: string;
   title: string;
   roomName: string | null;
+  roomAccessCode: string | null;
   scheduledAt: string;
   createdAt: string;
   activatedAt: string | null;
@@ -75,6 +76,7 @@ export type ApiChatMessage = {
   sender: Participant;
   createdAt: string;
   status: MessageStatus | null;
+  clientMessageId?: string | null;
   encryptedPayload: EncryptedMessagePayload;
 };
 
@@ -85,6 +87,7 @@ export type ChatMessage = {
   content: string;
   createdAt: string;
   status: MessageStatus | null;
+  clientMessageId?: string | null;
 };
 
 export type UserSessionInfo = {
@@ -111,6 +114,15 @@ export type MessageStatusEvent = {
   messageId: string;
   chatId: string;
   status: MessageStatus;
+};
+
+export type MessageDeletionEvent = {
+  messageId: string;
+  chatId: string;
+};
+
+export type ChatRemovalEvent = {
+  chatId: string;
 };
 
 export type ApiErrorResponse = {

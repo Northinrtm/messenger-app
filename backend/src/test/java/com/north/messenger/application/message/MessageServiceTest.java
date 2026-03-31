@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.north.messenger.api.dto.CreateMessageRequest;
 import com.north.messenger.api.dto.EncryptedMessagePayloadRequest;
 import com.north.messenger.api.dto.MessageDeliveryState;
+import com.north.messenger.api.dto.MessageDeletionEventResponse;
 import com.north.messenger.api.dto.MessageReceiptRequest;
 import com.north.messenger.api.dto.MessageResponse;
 import com.north.messenger.api.dto.MessageStatusEventResponse;
@@ -23,6 +24,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -41,6 +43,7 @@ class MessageServiceTest {
     private MessageReceiptRepository messageReceiptRepository;
     private UserAccountRepository userAccountRepository;
     private SimpMessagingTemplate messagingTemplate;
+    private ApplicationEventPublisher eventPublisher;
     private MessageService messageService;
 
     @BeforeEach
@@ -51,6 +54,7 @@ class MessageServiceTest {
         messageReceiptRepository = mock(MessageReceiptRepository.class);
         userAccountRepository = mock(UserAccountRepository.class);
         messagingTemplate = mock(SimpMessagingTemplate.class);
+        eventPublisher = mock(ApplicationEventPublisher.class);
         messageService = new MessageService(
                 authService,
                 chatService,
@@ -58,10 +62,11 @@ class MessageServiceTest {
                 messageReceiptRepository,
                 userAccountRepository,
                 messagingTemplate,
-                new ObjectMapper()
+                new ObjectMapper(),
+                eventPublisher
         );
 
-        when(chatMessageRepository.save(any(ChatMessage.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(chatMessageRepository.saveAndFlush(any(ChatMessage.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(messageReceiptRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
@@ -78,6 +83,7 @@ class MessageServiceTest {
                 chatId,
                 "north",
                 new CreateMessageRequest(
+                        null,
                         new EncryptedMessagePayloadRequest(
                                 "RSA-OAEP-256/AES-GCM",
                                 "ciphertext-value",
@@ -94,6 +100,7 @@ class MessageServiceTest {
         assertThat(response.status()).isNotNull();
         assertThat(response.status().state()).isEqualTo(MessageDeliveryState.SENT);
         assertThat(response.status().recipientCount()).isEqualTo(1);
+        verify(chatService).restoreDeletedChatStateForUsers(eq(chatId), any());
     }
 
     @Test
@@ -147,6 +154,7 @@ class MessageServiceTest {
                 chatId,
                 "north",
                 new CreateMessageRequest(
+                        null,
                         new EncryptedMessagePayloadRequest(
                                 "RSA-OAEP-256/AES-GCM",
                                 "ciphertext-value",
@@ -172,8 +180,35 @@ class MessageServiceTest {
         when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
         when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
 
-        assertThatThrownBy(() -> messageService.sendMessage(chatId, "north", new CreateMessageRequest(null)))
+        assertThatThrownBy(() -> messageService.sendMessage(chatId, "north", new CreateMessageRequest(null, null)))
                 .hasMessageContaining("End-to-end encrypted payload is required");
+    }
+
+    @Test
+    void deleteMessageShouldNotifyAllParticipants() {
+        UUID chatId = UUID.randomUUID();
+        UUID messageId = UUID.randomUUID();
+        UserAccount currentUser = user("north");
+        UserAccount recipient = user("alice");
+        ChatMessage message = new ChatMessage(
+                messageId,
+                chatId,
+                currentUser.getId(),
+                "ciphertext-value",
+                Instant.parse("2026-03-24T12:00:00Z")
+        );
+        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
+        when(chatMessageRepository.findById(messageId)).thenReturn(java.util.Optional.of(message));
+        when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
+
+        messageService.deleteMessage(chatId, messageId, "north");
+
+        ArgumentCaptor<MessageDeletionEventResponse> eventCaptor = ArgumentCaptor.forClass(MessageDeletionEventResponse.class);
+        verify(messagingTemplate).convertAndSendToUser(eq("north"), eq("/queue/message-deletions"), eventCaptor.capture());
+        verify(messagingTemplate).convertAndSendToUser(eq("alice"), eq("/queue/message-deletions"), any(MessageDeletionEventResponse.class));
+        verify(chatMessageRepository).delete(message);
+        verify(chatService).notifyChatUpdated(chatId);
+        assertThat(eventCaptor.getValue().messageId()).isEqualTo(messageId);
     }
 
     private UserAccount user(String username) {

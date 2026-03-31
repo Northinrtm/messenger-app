@@ -12,9 +12,9 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -25,7 +25,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(AuthController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class})
+@Import({SecurityConfig.class, JwtAuthenticationFilter.class, AuthEndpointProtectionFilter.class})
 class SecurityConfigTest {
 
     @Autowired
@@ -34,16 +34,16 @@ class SecurityConfigTest {
     @Autowired
     private ObjectMapper objectMapper;
 
-    @MockBean
+    @MockitoBean
     private AuthService authService;
 
-    @MockBean
+    @MockitoBean
     private JwtService jwtService;
 
-    @MockBean
+    @MockitoBean
     private CustomUserDetailsService customUserDetailsService;
 
-    @MockBean
+    @MockitoBean
     private RefreshTokenCookieService refreshTokenCookieService;
 
     @Test
@@ -77,5 +77,50 @@ class SecurityConfigTest {
                 .andExpect(status().isOk());
 
         verify(refreshTokenCookieService).write(any(), any());
+    }
+
+    @Test
+    void shouldRejectCrossSiteLoginRequests() throws Exception {
+        mockMvc.perform(post("/api/auth/login")
+                        .header("Origin", "https://evil.example")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new LoginRequest("north", "password"))))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void shouldRateLimitRepeatedLoginAttemptsFromSameClient() throws Exception {
+        when(authService.login(any(LoginRequest.class), any())).thenReturn(new AuthService.IssuedAuthSession(
+                new AuthResponse(
+                        "access-token",
+                        Instant.parse("2026-03-22T12:00:00Z"),
+                        UUID.randomUUID(),
+                        new UserProfileResponse(
+                                UUID.randomUUID(),
+                                "north",
+                                "North",
+                                Instant.parse("2026-03-20T12:00:00Z"),
+                                null,
+                                true
+                        )
+                ),
+                "session.secret"
+        ));
+
+        for (int attempt = 0; attempt < 20; attempt += 1) {
+            mockMvc.perform(post("/api/auth/login")
+                            .header("Origin", "http://localhost:5173")
+                            .header("X-Forwarded-For", "203.0.113.10")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new LoginRequest("north", "password"))))
+                    .andExpect(status().isOk());
+        }
+
+        mockMvc.perform(post("/api/auth/login")
+                        .header("Origin", "http://localhost:5173")
+                        .header("X-Forwarded-For", "203.0.113.10")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new LoginRequest("north", "password"))))
+                .andExpect(status().isTooManyRequests());
     }
 }

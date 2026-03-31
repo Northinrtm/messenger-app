@@ -1,6 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
-import { ApiError, login, register } from "../../lib/api";
+import { describeError, login, register } from "../../lib/api";
 import { ensureEncryptionReady } from "../../lib/e2ee";
 import type { AuthResponse } from "../../lib/types";
 
@@ -25,17 +25,12 @@ export function AuthCard({ onAuthenticated }: Props) {
       return response;
     },
     onSuccess: (response) => {
-      onAuthenticated(response);
-    },
-    onSettled: () => {
       setPassword("");
+      onAuthenticated(response);
     },
   });
 
-  const error =
-    authMutation.error instanceof ApiError
-      ? [authMutation.error.message, ...authMutation.error.details].filter(Boolean).join(". ")
-      : null;
+  const error = authMutation.error ? describeError(authMutation.error) : null;
 
   return (
     <main className="auth-shell">

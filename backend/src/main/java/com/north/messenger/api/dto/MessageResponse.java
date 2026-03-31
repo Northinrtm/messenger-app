@@ -9,6 +9,7 @@ public record MessageResponse(
         ParticipantResponse sender,
         Instant createdAt,
         MessageStatusResponse status,
+        String clientMessageId,
         EncryptedMessagePayloadResponse encryptedPayload
 ) {
 }

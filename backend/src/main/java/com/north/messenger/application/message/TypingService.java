@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -62,14 +63,10 @@ public class TypingService {
         chatService.requireChatMembership(chatId, currentUser);
 
         Instant threshold = Instant.now().minusMillis(ACTIVE_TYPING_WINDOW_MILLIS);
+        cleanupExpiredTypingEntries(chatId, threshold);
+
         ConcurrentMap<UUID, Instant> chatTyping = typingByChatId.get(chatId);
         if (chatTyping == null || chatTyping.isEmpty()) {
-            return List.of();
-        }
-
-        chatTyping.entrySet().removeIf(entry -> entry.getValue().isBefore(threshold));
-        if (chatTyping.isEmpty()) {
-            typingByChatId.remove(chatId, chatTyping);
             return List.of();
         }
 
@@ -81,6 +78,16 @@ public class TypingService {
                 .toList();
     }
 
+    @Scheduled(fixedDelay = 30_000L)
+    @Transactional
+    public void purgeExpiredTypingEntries() {
+        purgeExpiredTypingEntries(Instant.now().minusMillis(ACTIVE_TYPING_WINDOW_MILLIS));
+    }
+
+    void purgeExpiredTypingEntries(Instant threshold) {
+        typingByChatId.forEach((chatId, ignored) -> cleanupExpiredTypingEntries(chatId, threshold));
+    }
+
     private void removeTypingUser(UUID chatId, UUID userId) {
         ConcurrentMap<UUID, Instant> chatTyping = typingByChatId.get(chatId);
         if (chatTyping == null) {
@@ -88,6 +95,18 @@ public class TypingService {
         }
 
         chatTyping.remove(userId);
+        if (chatTyping.isEmpty()) {
+            typingByChatId.remove(chatId, chatTyping);
+        }
+    }
+
+    private void cleanupExpiredTypingEntries(UUID chatId, Instant threshold) {
+        ConcurrentMap<UUID, Instant> chatTyping = typingByChatId.get(chatId);
+        if (chatTyping == null || chatTyping.isEmpty()) {
+            return;
+        }
+
+        chatTyping.entrySet().removeIf(entry -> entry.getValue().isBefore(threshold));
         if (chatTyping.isEmpty()) {
             typingByChatId.remove(chatId, chatTyping);
         }

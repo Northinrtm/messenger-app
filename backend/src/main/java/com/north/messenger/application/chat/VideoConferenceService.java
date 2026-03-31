@@ -13,9 +13,12 @@ import com.north.messenger.domain.repository.ConferenceRecordingRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import com.north.messenger.domain.repository.VideoConferenceParticipantRepository;
 import com.north.messenger.domain.repository.VideoConferenceRepository;
+import com.north.messenger.security.JwtProperties;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collection;
 import java.util.Comparator;
@@ -28,6 +31,8 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -49,6 +54,7 @@ public class VideoConferenceService {
     private final ConferenceRecordingRepository conferenceRecordingRepository;
     private final ConferenceRecordingStorage conferenceRecordingStorage;
     private final ConferenceRecordingImportService conferenceRecordingImportService;
+    private final byte[] conferenceAccessSecret;
 
     public VideoConferenceService(
             AuthService authService,
@@ -57,7 +63,8 @@ public class VideoConferenceService {
             VideoConferenceParticipantRepository videoConferenceParticipantRepository,
             ConferenceRecordingRepository conferenceRecordingRepository,
             ConferenceRecordingStorage conferenceRecordingStorage,
-            ConferenceRecordingImportService conferenceRecordingImportService
+            ConferenceRecordingImportService conferenceRecordingImportService,
+            JwtProperties jwtProperties
     ) {
         this.authService = authService;
         this.userAccountRepository = userAccountRepository;
@@ -66,6 +73,7 @@ public class VideoConferenceService {
         this.conferenceRecordingRepository = conferenceRecordingRepository;
         this.conferenceRecordingStorage = conferenceRecordingStorage;
         this.conferenceRecordingImportService = conferenceRecordingImportService;
+        this.conferenceAccessSecret = resolveConferenceAccessSecret(jwtProperties);
     }
 
     public List<VideoConferenceResponse> listConferences(String username) {
@@ -392,6 +400,7 @@ public class VideoConferenceService {
                 conference.getId(),
                 conference.getTitle(),
                 visibleRoomName(conference, currentUserId),
+                visibleRoomAccessCode(conference, currentUserId),
                 conference.getScheduledAt(),
                 conference.getCreatedAt(),
                 conference.getActivatedAt(),
@@ -611,18 +620,59 @@ public class VideoConferenceService {
         if (conference.isEnded()) {
             return conference.getRoomName();
         }
-        if (conference.getCreatedByUserId().equals(currentUserId) || conference.getStartedAt() != null) {
+        if (conference.getCreatedByUserId().equals(currentUserId) || conference.getActivatedAt() != null) {
             return conference.getRoomName();
         }
         return null;
     }
 
+    private String visibleRoomAccessCode(VideoConference conference, UUID currentUserId) {
+        if (conference.isEnded()) {
+            return null;
+        }
+
+        String visibleRoomName = visibleRoomName(conference, currentUserId);
+        if (visibleRoomName == null) {
+            return null;
+        }
+
+        return buildRoomAccessCode(conference);
+    }
+
     private String createRoomName(UUID conferenceId) {
         byte[] roomBytes = ByteBuffer.allocate(Long.BYTES * 2)
-                .putLong(conferenceId.getMostSignificantBits())
-                .putLong(conferenceId.getLeastSignificantBits())
+                .putLong(UUID.randomUUID().getMostSignificantBits())
+                .putLong(UUID.randomUUID().getLeastSignificantBits())
                 .array();
-        return "vc-" + Base64.getUrlEncoder().withoutPadding().encodeToString(roomBytes);
+        return "vc-" + Base64.getUrlEncoder().withoutPadding().encodeToString(roomBytes).toLowerCase(Locale.ROOT);
+    }
+
+    private byte[] resolveConferenceAccessSecret(JwtProperties jwtProperties) {
+        String configuredSecret = jwtProperties.secret();
+        if (configuredSecret != null && !configuredSecret.isBlank()) {
+            return Base64.getDecoder().decode(configuredSecret);
+        }
+
+        return "north-messenger-conference-access-fallback".getBytes(StandardCharsets.UTF_8);
+    }
+
+    private String buildRoomAccessCode(VideoConference conference) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(conferenceAccessSecret, "HmacSHA256"));
+            mac.update(conference.getId().toString().getBytes(StandardCharsets.UTF_8));
+            mac.update((byte) ':');
+            mac.update(conference.getRoomName().getBytes(StandardCharsets.UTF_8));
+            return Base64.getUrlEncoder()
+                    .withoutPadding()
+                    .encodeToString(Arrays.copyOf(mac.doFinal(), 18));
+        } catch (Exception exception) {
+            throw new ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Failed to build conference access code",
+                    exception
+            );
+        }
     }
 
     private String normalizeRecordingMimeType(String mimeType) {

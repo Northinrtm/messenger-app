@@ -3,7 +3,7 @@ import { AuthCard } from "../features/auth/AuthCard";
 import { UnlockCard } from "../features/auth/UnlockCard";
 import { NorthMessengerWorkspace } from "../features/chat/NorthMessengerWorkspace";
 import { refreshSession } from "../lib/api";
-import { hasUnlockedPrivateEncryptionKey } from "../lib/e2ee";
+import { clearUnlockedEncryptionState, hasUnlockedPrivateEncryptionKey } from "../lib/e2ee";
 import {
   getSessionRefreshDelay,
   isRefreshCompatible,
@@ -30,6 +30,7 @@ export function App() {
   const [showRestoringSessionCard, setShowRestoringSessionCard] = useState(false);
   const [refreshingExpiredSession, setRefreshingExpiredSession] = useState(false);
   const refreshInFlightRef = useRef(false);
+  const previousUserIdRef = useRef<string | null>(null);
 
   const requestSessionRefresh = useEffectEvent(async (blocking = false) => {
     if (refreshInFlightRef.current) {
@@ -87,6 +88,21 @@ export function App() {
       window.clearTimeout(timer);
     };
   }, [restoringSession]);
+
+  useEffect(() => {
+    const previousUserId = previousUserIdRef.current;
+    const nextUserId = session?.user.id ?? null;
+
+    if (previousUserId && previousUserId !== nextUserId) {
+      clearUnlockedEncryptionState(previousUserId);
+    }
+
+    if (!nextUserId && previousUserId) {
+      clearUnlockedEncryptionState(previousUserId);
+    }
+
+    previousUserIdRef.current = nextUserId;
+  }, [session?.user.id]);
 
   useEffect(() => {
     if (restoringSession || !session) {
@@ -158,18 +174,22 @@ export function App() {
             </section>
           ) : null}
         </main>
-      ) : sessionNeedsUnlock && session ? (
-        <UnlockCard
-          session={session}
-          onUnlocked={(nextSession) => {
-            setSession({ ...nextSession });
-          }}
-          onSignedOut={() => {
-            setSession(null);
-          }}
-        />
       ) : session ? (
-        <NorthMessengerWorkspace session={session} onSessionChange={setSession} />
+        <>
+          <NorthMessengerWorkspace session={session} onSessionChange={setSession} />
+          {sessionNeedsUnlock ? (
+            <UnlockCard
+              session={session}
+              variant="overlay"
+              onUnlocked={(nextSession) => {
+                setSession({ ...nextSession });
+              }}
+              onSignedOut={() => {
+                setSession(null);
+              }}
+            />
+          ) : null}
+        </>
       ) : (
         <AuthCard onAuthenticated={setSession} />
       )}

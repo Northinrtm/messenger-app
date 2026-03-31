@@ -23,6 +23,8 @@ import {
   addConferenceParticipants as addConferenceParticipantsRequest,
   addGroupParticipants,
   createVideoConference as createVideoConferenceRequest,
+  deleteChat as deleteChatRequest,
+  deleteMessage as deleteMessageRequest,
   downloadConferenceRecording as downloadConferenceRecordingRequest,
   endVideoConference as endVideoConferenceRequest,
   createDirectChat,
@@ -39,7 +41,7 @@ import {
   removeContact as removeContactRequest,
   revokeSession,
   searchUsers,
-  sendTypingState as sendTypingStateRequest,
+  sendTypingState,
   updateArchivedChat,
   updateProfile,
   updateProfileAvatar,
@@ -48,16 +50,24 @@ import { JITSI_BASE_URL } from "../../lib/config";
 import {
   getEncryptedMessages,
   isUnavailableEncryptedMessage,
+  primeEncryptedMessageRecipients,
   sendEncryptedMessage,
 } from "../../lib/e2ee";
 import { readLocalChatPreviews, writeLocalChatPreviews } from "../../lib/chatPreviewCache";
-import { readLocalDrafts, writeLocalDraft } from "../../lib/localDrafts";
-import { subscribeToChats } from "../../lib/realtime";
+import { readLocalDrafts, removeLocalDraft, writeLocalDraft } from "../../lib/localDrafts";
+import {
+  publishOutgoingMessage,
+  publishTypingEvent,
+  replaceSubscribedChatIds,
+  subscribeToChats,
+} from "../../lib/realtime";
 import type {
   AuthResponse,
+  ChatRemovalEvent,
   ChatDraft,
   ChatMessage,
   ChatSummary,
+  MessageDeletionEvent,
   MessageStatus,
   MessageStatusEvent,
   Participant,
@@ -68,15 +78,21 @@ import type {
   VideoConference,
 } from "../../lib/types";
 import {
+  applyChatMessageActivity,
   applyChatPreviewOverrides,
+  type ChatMessageActivityMode,
+  clearChatUnreadCount,
   flattenMessagePages,
   initials,
   mergeMessagePages,
   MESSAGE_PAGE_SIZE,
+  removeChatById,
+  removeChatPreviewOverride,
+  removeMessageById,
+  removeMessageByClientMessageId,
   upsertChat,
   upsertChatPreviewOverride,
   updateMessageStatusPages,
-  updateChatPreview,
 } from "./chatState";
 import {
   applyTypingEvent,
@@ -142,6 +158,28 @@ type TimelineItem =
       message: ChatMessage;
     };
 
+type SendMessageInput = {
+  chatId: string;
+  clientMessageId: string;
+  content: string;
+  participants: Participant[];
+};
+
+type ContextMenuState =
+  | {
+      kind: "chat";
+      chatId: string;
+      x: number;
+      y: number;
+    }
+  | {
+      kind: "message";
+      chatId: string;
+      messageId: string;
+      x: number;
+      y: number;
+    };
+
 const MENU_ACTIONS: MenuAction[] = [
   { id: "profile", label: "Мой профиль", symbol: "ME" },
   { id: "archive", label: "Архив", symbol: "AR" },
@@ -155,8 +193,13 @@ const MENU_ACTIONS: MenuAction[] = [
 const TYPING_EVENT_TTL_MS = 8_000;
 const TYPING_HEARTBEAT_MS = 3_000;
 const TYPING_IDLE_MS = 8_000;
+const CHATS_POLL_INTERVAL_MS = 2_000;
+const ACTIVE_MESSAGE_POLL_INTERVAL_MS = 1_000;
+const ACTIVE_TYPING_POLL_INTERVAL_MS = 1_500;
 const DRAFT_SAVE_DEBOUNCE_MS = 450;
 const CONFERENCE_ACTIVATION_LEAD_MS = 5 * 60 * 1000;
+const CONTEXT_MENU_WIDTH_PX = 224;
+const CONTEXT_MENU_GUTTER_PX = 12;
 const SIDEBAR_WIDTH_STORAGE_KEY = "north-messenger-sidebar-width";
 const DEFAULT_SIDEBAR_WIDTH = 380;
 const MIN_SIDEBAR_WIDTH = 280;
@@ -189,6 +232,8 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   >(() => readLocalChatPreviews(session.user.id));
   const [incomingToasts, setIncomingToasts] = useState<IncomingToast[]>([]);
   const [typingByChatId, setTypingByChatId] = useState<Record<string, Participant[]>>({});
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
   const [mobilePane, setMobilePane] = useState<"sidebar" | "conversation">("sidebar");
   const [isConferenceInfoOpen, setIsConferenceInfoOpen] = useState(false);
   const [conferenceRecordingState, setConferenceRecordingState] =
@@ -197,6 +242,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     Record<string, "pending" | "failed">
   >({});
   const messageStreamRef = useRef<HTMLDivElement | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const conferenceInfoButtonRef = useRef<HTMLButtonElement | null>(null);
   const conferenceInfoPanelRef = useRef<HTMLDivElement | null>(null);
   const pendingOlderScrollOffsetRef = useRef<number | null>(null);
@@ -236,7 +282,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const chatsQuery = useQuery({
     queryKey: ["chats", session.token],
     queryFn: () => getChats(session.token),
-    refetchInterval: 4000,
+    refetchInterval: CHATS_POLL_INTERVAL_MS,
     refetchIntervalInBackground: true,
   });
 
@@ -363,16 +409,12 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const activeDraft = activeChatId ? draftsByChatId[activeChatId] ?? "" : "";
   const activeConferenceIsArchived = Boolean(activeConference?.endedAt);
   const activeConferenceCanJoin = Boolean(
-    activeConference?.roomName && activeConference.startedAt && !activeConference.endedAt
+    activeConference?.roomName &&
+      activeConference?.roomAccessCode &&
+      activeConference.activatedAt &&
+      !activeConference.endedAt
   );
-  const activeConferenceJoinUrl =
-    activeConferenceCanJoin && activeConference?.roomName
-      ? buildJitsiConferenceUrl(activeConference.roomName, activeConference.title, profile.displayName)
-      : null;
-  const activeConferenceShareUrl =
-    activeConferenceCanJoin && activeConference?.roomName
-      ? buildJitsiShareUrl(activeConference.roomName)
-      : null;
+  const activeConferenceShareUrl: string | null = null;
   const activeConferenceIsOwnedByCurrentUser = activeConference
     ? activeConference.createdBy.id === profile.id
     : false;
@@ -386,7 +428,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     ? formatConferenceOrganizerLabel(activeConference.createdBy, profile)
     : null;
   const activeConferenceStatusLabel = activeConference
-    ? formatConferenceStatusLabelV2(activeConference)
+    ? formatConferenceStatusLabelV3(activeConference)
     : null;
   const activeConferenceHasRecording = Boolean(activeConference?.recordingCreatedAt);
   const activeConferenceRecordingImportState = activeConference
@@ -408,7 +450,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       (conferenceRecordingState === "starting" || conferenceRecordingState === "recording")
   );
   const activeConferenceStageHint = activeConference
-    ? formatConferenceStageHint(activeConference, activeConferenceIsOwnedByCurrentUser)
+    ? formatConferenceStageHintV3(activeConference, activeConferenceIsOwnedByCurrentUser)
     : null;
   const availableGroupInviteContacts =
     activeChat && !activeChat.direct
@@ -423,15 +465,20 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       )
     : [];
   const activeTypingQuery = useQuery({
-    queryKey: ["typing", session.token, activeChat?.id],
-    queryFn: () => getTypingParticipants(session.token, activeChat!.id),
-    enabled: Boolean(activeChat?.id),
-    refetchInterval: activeChat?.id ? 1_000 : false,
+    queryKey: ["typing", session.token, activeChatId],
+    queryFn: () => getTypingParticipants(session.token, activeChatId!),
+    enabled: Boolean(activeChatId) && !isRealtimeConnected,
+    refetchInterval: !isRealtimeConnected && activeChatId ? ACTIVE_TYPING_POLL_INTERVAL_MS : false,
     refetchIntervalInBackground: true,
-    staleTime: 0,
+    refetchOnWindowFocus: false,
   });
   const activeTypingParticipants = activeChatId
-    ? activeTypingQuery.data ?? typingByChatId[activeChatId] ?? []
+    ? isRealtimeConnected
+      ? typingByChatId[activeChatId] ?? []
+      : mergeTypingParticipants(
+          typingByChatId[activeChatId] ?? [],
+          activeTypingQuery.data ?? []
+        )
     : [];
   const conversationSubtitle = activeChat
     ? activeTypingParticipants.length > 0
@@ -453,8 +500,9 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) =>
       lastPage.length === MESSAGE_PAGE_SIZE ? lastPage[0]?.createdAt ?? undefined : undefined,
-    refetchInterval: activeChat?.id ? 5000 : false,
+    refetchInterval: !isRealtimeConnected && activeChat?.id ? ACTIVE_MESSAGE_POLL_INTERVAL_MS : false,
     refetchIntervalInBackground: true,
+    refetchOnWindowFocus: false,
   });
   const messages = flattenMessagePages(messagesQuery.data?.pages);
   const timelineItems = buildTimeline(messages);
@@ -462,6 +510,46 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     Boolean(activeChat?.id) && messagesQuery.data === undefined && messagesQuery.isFetching;
   const lastMessageId = messages[messages.length - 1]?.id ?? null;
   const lastMessage = messages[messages.length - 1] ?? null;
+  const contextMenuMessage =
+    contextMenu?.kind === "message"
+      ? messages.find((message) => message.id === contextMenu.messageId) ?? null
+      : null;
+  const canDeleteContextMenuMessage = Boolean(
+    contextMenuMessage &&
+      isOwnMessage(contextMenuMessage, session.user) &&
+      contextMenuMessage.id !== contextMenuMessage.clientMessageId
+  );
+
+  useEffect(() => {
+    if (isRealtimeConnected || !activeChatId || activeTypingQuery.data === undefined) {
+      return;
+    }
+
+    setTypingByChatId((current) =>
+      syncChatTypingParticipants(current, activeChatId, activeTypingQuery.data)
+    );
+  }, [activeChatId, activeTypingQuery.data, isRealtimeConnected]);
+
+  useEffect(() => {
+    if (!activeChat) {
+      return;
+    }
+
+    let cancelled = false;
+    void primeEncryptedMessageRecipients(session.token, activeChat.members).catch((error) => {
+      if (cancelled) {
+        return;
+      }
+
+      if (error instanceof ApiError && error.status === 401) {
+        onSessionChange(null);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeChat?.id, onSessionChange, session.token]);
 
   useEffect(() => {
     if (!activeConference) {
@@ -528,13 +616,24 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     }
   );
 
-  const applyServerChatPreviewMessage = useEffectEvent((message: ChatMessage) => {
+  const applyServerChatPreviewMessage = useEffectEvent((
+    message: ChatMessage,
+    unreadMode: ChatMessageActivityMode = "keep"
+  ) => {
     if (!message.content.trim() || isUnavailableEncryptedMessage(message.content)) {
       return;
     }
 
+    const hasChat = (
+      queryClient.getQueryData<ChatSummary[]>(["chats", session.token]) ?? []
+    ).some((chat) => chat.id === message.chatId);
+    if (!hasChat) {
+      void queryClient.invalidateQueries({ queryKey: ["chats", session.token] });
+      return;
+    }
+
     queryClient.setQueryData<ChatSummary[]>(["chats", session.token], (current) =>
-      updateChatPreview(current, message)
+      applyChatMessageActivity(current, message, unreadMode)
     );
   });
 
@@ -582,6 +681,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       return;
     }
 
+    clearChatUnreadIndicator(chatId);
     pendingIds.forEach((messageId) => readMessageIdsInFlightRef.current.add(messageId));
     try {
       await acknowledgeReadRequest(session.token, chatId, pendingIds);
@@ -613,14 +713,17 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     void acknowledgeRead(activeChatId, incomingMessageIds);
   });
 
-  const syncTypingState = useEffectEvent(async (chatId: string, typing: boolean) => {
-    try {
-      await sendTypingStateRequest(session.token, chatId, typing);
-    } catch (error) {
+  const syncTypingState = useEffectEvent((chatId: string, typing: boolean) => {
+    if (publishTypingEvent(chatId, typing)) {
+      return true;
+    }
+
+    void sendTypingState(session.token, chatId, typing).catch((error) => {
       if (error instanceof ApiError && error.status === 401) {
         onSessionChange(null);
       }
-    }
+    });
+    return true;
   });
 
   const sendTypingHeartbeat = useEffectEvent((chatId: string) => {
@@ -628,11 +731,11 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     const currentSignal = typingSignalRef.current;
 
     if (currentSignal.active && currentSignal.chatId && currentSignal.chatId !== chatId) {
-      void syncTypingState(currentSignal.chatId, false);
+      const sentStop = syncTypingState(currentSignal.chatId, false);
       typingSignalRef.current = {
         chatId: currentSignal.chatId,
         active: false,
-        lastSentAt: now,
+        lastSentAt: sentStop ? now : 0,
       };
     }
 
@@ -641,11 +744,11 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       return;
     }
 
-    void syncTypingState(chatId, true);
+    const sentHeartbeat = syncTypingState(chatId, true);
     typingSignalRef.current = {
       chatId,
       active: true,
-      lastSentAt: now,
+      lastSentAt: sentHeartbeat ? now : 0,
     };
   });
 
@@ -656,11 +759,11 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       return;
     }
 
-    void syncTypingState(targetChatId, false);
+    const sentStop = syncTypingState(targetChatId, false);
     typingSignalRef.current = {
       chatId: targetChatId,
       active: false,
-      lastSentAt: Date.now(),
+      lastSentAt: sentStop ? Date.now() : 0,
     };
   });
 
@@ -718,6 +821,76 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     setIncomingToasts((current) => current.filter((toast) => toast.chatId !== chatId));
   });
 
+  const clearChatUnreadIndicator = useEffectEvent((chatId: string) => {
+    queryClient.setQueryData<ChatSummary[]>(["chats", session.token], (current) =>
+      clearChatUnreadCount(current, chatId)
+    );
+  });
+
+  const clearChatPreviewOverride = useEffectEvent((chatId: string) => {
+    setChatPreviewOverrides((current) => removeChatPreviewOverride(current, chatId));
+  });
+
+  const finalizeDeletedChatArtifacts = useEffectEvent((chatId: string) => {
+    const nextDrafts = removeLocalDraft(session.user.id, chatId);
+    queryClient.setQueryData<ChatDraft[]>(["drafts", session.token], nextDrafts);
+  });
+
+  const deleteChatLocally = useEffectEvent((chatId: string) => {
+    queryClient.setQueryData<ChatSummary[]>(["chats", session.token], (current) =>
+      removeChatById(current, chatId)
+    );
+    queryClient.setQueryData<string[]>(["archived-chats", session.token], (current) =>
+      current?.filter((item) => item !== chatId) ?? []
+    );
+    queryClient.setQueryData<ChatDraft[]>(["drafts", session.token], (current) =>
+      current?.filter((draft) => draft.chatId !== chatId) ?? []
+    );
+    queryClient.removeQueries({ queryKey: ["messages", session.token, chatId] });
+    clearChatPreviewOverride(chatId);
+    clearChatAttention(chatId);
+    setDraftsByChatId((current) => {
+      if (!(chatId in current)) {
+        return current;
+      }
+
+      const next = { ...current };
+      delete next[chatId];
+      return next;
+    });
+
+    if (activeChatId === chatId) {
+      closeActiveChat();
+    }
+  });
+
+  const openChatContextMenu = useEffectEvent((event: MouseEvent | React.MouseEvent, chatId: string) => {
+    const x = event.clientX;
+    const y = event.clientY;
+    event.preventDefault();
+    setContextMenu({
+      kind: "chat",
+      chatId,
+      x,
+      y,
+    });
+  });
+
+  const openMessageContextMenu = useEffectEvent(
+    (event: MouseEvent | React.MouseEvent, chatId: string, messageId: string) => {
+      const x = event.clientX;
+      const y = event.clientY;
+      event.preventDefault();
+      setContextMenu({
+        kind: "message",
+        chatId,
+        messageId,
+        x,
+        y,
+      });
+    }
+  );
+
   const openSidebarSheet = useEffectEvent((sheet: Exclude<SidebarSheet, null>) => {
     setSidebarSheet(sheet);
     setIsMenuOpen(false);
@@ -755,11 +928,17 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     }
   });
 
-  const openChat = useEffectEvent((chatId: string) => {
+  const openChat = useEffectEvent((chatId: string, tabHint?: ConversationListTab) => {
+    setContextMenu(null);
     clearChatAttention(chatId);
-    const targetChat = chats.find((chat) => chat.id === chatId) ?? null;
-    if (targetChat) {
-      setActiveListTab(targetChat.direct ? "dialogs" : "groups");
+    clearChatUnreadIndicator(chatId);
+    if (tabHint && tabHint !== "conferences") {
+      setActiveListTab(tabHint);
+    } else {
+      const targetChat = chats.find((chat) => chat.id === chatId) ?? null;
+      if (targetChat) {
+        setActiveListTab(targetChat.direct ? "dialogs" : "groups");
+      }
     }
     setIsMenuOpen(false);
     setSidebarSheet(null);
@@ -772,6 +951,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   });
 
   const closeActiveChat = useEffectEvent(() => {
+    setContextMenu(null);
     if (activeChatId) {
       stopTyping(activeChatId);
     }
@@ -793,6 +973,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   });
 
   const openConference = useEffectEvent((conferenceId: string) => {
+    setContextMenu(null);
     if (activeChatId) {
       stopTyping(activeChatId);
     }
@@ -852,6 +1033,26 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const removeContact = (username: string) => {
     removeContactMutation.mutate(username);
   };
+
+  const deleteChatForSelf = useEffectEvent((chatId: string) => {
+    setContextMenu(null);
+    const chat = chats.find((item) => item.id === chatId);
+    const title = chat?.title ?? "этот чат";
+    if (!window.confirm(`Удалить чат "${title}" только у вас?`)) {
+      return;
+    }
+
+    deleteChatMutation.mutate(chatId);
+  });
+
+  const deleteMessageForEveryone = useEffectEvent((chatId: string, messageId: string) => {
+    setContextMenu(null);
+    if (!window.confirm("Удалить сообщение для всех участников чата?")) {
+      return;
+    }
+
+    deleteMessageMutation.mutate({ chatId, messageId });
+  });
 
   const addActiveChatToContacts = () => {
     if (!activeDirectParticipant) {
@@ -1017,30 +1218,8 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     }
 
     clearChatAttention(activeChatId);
-  }, [activeChatId, clearChatAttention]);
-
-  useEffect(() => {
-    if (!activeChatId || activeTypingQuery.data === undefined) {
-      return;
-    }
-
-    setTypingByChatId((current) => {
-      const nextParticipants = activeTypingQuery.data;
-      if (!nextParticipants.length) {
-        if (!(activeChatId in current)) {
-          return current;
-        }
-
-        const { [activeChatId]: _removed, ...rest } = current;
-        return rest;
-      }
-
-      return {
-        ...current,
-        [activeChatId]: nextParticipants,
-      };
-    });
-  }, [activeChatId, activeTypingQuery.data]);
+    clearChatUnreadIndicator(activeChatId);
+  }, [activeChatId, clearChatAttention, clearChatUnreadIndicator]);
 
   useEffect(() => {
     if (draftsQuery.data === undefined) {
@@ -1272,12 +1451,51 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     };
   }, []);
 
+  useEffect(() => {
+    if (!contextMenu) {
+      return;
+    }
+
+    const closeContextMenu = () => {
+      setContextMenu(null);
+    };
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && contextMenuRef.current?.contains(target)) {
+        return;
+      }
+
+      closeContextMenu();
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeContextMenu();
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("scroll", closeContextMenu, true);
+    window.addEventListener("blur", closeContextMenu);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("scroll", closeContextMenu, true);
+      window.removeEventListener("blur", closeContextMenu);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [contextMenu]);
+
   const handleRealtimeMessage = useEffectEvent((message: ChatMessage) => {
     if (handledRealtimeMessageIdsRef.current.has(message.id)) {
       return;
     }
 
     const nextMessage = ensureOwnMessageStatus(message, session.user);
+    const ownMessage = isOwnMessage(nextMessage, session.user);
+    const isVisibleActiveChat =
+      nextMessage.chatId === activeChatId && document.visibilityState !== "hidden";
     clearTypingParticipant(message.chatId, message.sender.id);
     rememberRealtimeMessage(message.id);
     applyChatPreviewMessage(nextMessage);
@@ -1286,10 +1504,14 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       ["messages", session.token, nextMessage.chatId],
       (current) => mergeMessagePages(current, nextMessage)
     );
-    applyServerChatPreviewMessage(nextMessage);
+    applyServerChatPreviewMessage(
+      nextMessage,
+      ownMessage || isVisibleActiveChat ? "clear" : "increment"
+    );
 
-    if (!isOwnMessage(nextMessage, session.user)) {
-      if (nextMessage.chatId === activeChatId && document.visibilityState !== "hidden") {
+    if (!ownMessage) {
+      if (isVisibleActiveChat) {
+        clearChatUnreadIndicator(nextMessage.chatId);
         void acknowledgeRead(nextMessage.chatId, [nextMessage.id]);
       } else {
         void acknowledgeDelivered(nextMessage.chatId, [nextMessage.id]);
@@ -1300,10 +1522,18 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   });
 
   const handleRealtimeChat = useEffectEvent((chat: ChatSummary) => {
+    const isNewChat = !(
+      queryClient.getQueryData<ChatSummary[]>(["chats", session.token]) ?? []
+    ).some((currentChat) => currentChat.id === chat.id);
+
     queryClient.setQueryData<ChatSummary[]>(
       ["chats", session.token],
       (current) => upsertChat(current, chat)
     );
+
+    if (isNewChat) {
+      void queryClient.invalidateQueries({ queryKey: ["chats", session.token] });
+    }
   });
 
   const handleRealtimeSession = useEffectEvent((event: SessionEvent) => {
@@ -1312,14 +1542,54 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     }
   });
 
+  const handleRealtimeConnect = useEffectEvent(() => {
+    void queryClient.invalidateQueries({ queryKey: ["chats", session.token] });
+    if (!activeChatId) {
+      return;
+    }
+
+    void queryClient.invalidateQueries({ queryKey: ["messages", session.token, activeChatId] });
+    if (activeDraft.trim()) {
+      sendTypingHeartbeat(activeChatId);
+    }
+  });
+
+  useEffect(() => {
+    if (isRealtimeConnected) {
+      return;
+    }
+
+    void queryClient.invalidateQueries({ queryKey: ["chats", session.token] });
+    if (!activeChatId) {
+      return;
+    }
+
+    void queryClient.invalidateQueries({ queryKey: ["messages", session.token, activeChatId] });
+    void queryClient.invalidateQueries({ queryKey: ["typing", session.token, activeChatId] });
+  }, [activeChatId, isRealtimeConnected, queryClient, session.token]);
+
   const handleRealtimeMessageStatus = useEffectEvent((event: MessageStatusEvent) => {
     queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
       ["messages", session.token, event.chatId],
       (current) => updateMessageStatusPages(current, event)
     );
-    void queryClient.invalidateQueries({
-      queryKey: ["messages", session.token, event.chatId],
-    });
+  });
+
+  const handleRealtimeMessageDeletion = useEffectEvent((event: MessageDeletionEvent) => {
+    queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
+      ["messages", session.token, event.chatId],
+      (current) => removeMessageById(current, event.messageId)
+    );
+    clearChatPreviewOverride(event.chatId);
+    void queryClient.invalidateQueries({ queryKey: ["chats", session.token] });
+    void queryClient.invalidateQueries({ queryKey: ["messages", session.token, event.chatId] });
+  });
+
+  const handleRealtimeChatRemoval = useEffectEvent((event: ChatRemovalEvent) => {
+    deleteChatLocally(event.chatId);
+    finalizeDeletedChatArtifacts(event.chatId);
+    void queryClient.invalidateQueries({ queryKey: ["chats", session.token] });
+    void queryClient.invalidateQueries({ queryKey: ["archived-chats", session.token] });
   });
 
   const handleRealtimeTyping = useEffectEvent((event: TypingEvent) => {
@@ -1346,27 +1616,36 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   });
 
   useEffect(() => {
-    const subscriptionIds = chatIdsKey ? chatIdsKey.split(",") : [];
     return subscribeToChats({
-      chatIds: subscriptionIds,
+      chatIds: [],
       token: session.token,
       currentUserId: session.user.id,
       onChat: handleRealtimeChat,
+      onChatRemoval: handleRealtimeChatRemoval,
+      onConnectionChange: setIsRealtimeConnected,
+      onConnect: handleRealtimeConnect,
       onMessage: handleRealtimeMessage,
+      onMessageDeletion: handleRealtimeMessageDeletion,
       onMessageStatus: handleRealtimeMessageStatus,
       onSessionEvent: handleRealtimeSession,
       onTyping: handleRealtimeTyping,
     });
   }, [
-    chatIdsKey,
+    handleRealtimeConnect,
     handleRealtimeChat,
+    handleRealtimeChatRemoval,
     handleRealtimeMessage,
+    handleRealtimeMessageDeletion,
     handleRealtimeMessageStatus,
     handleRealtimeSession,
     handleRealtimeTyping,
     session.token,
     session.user.id,
   ]);
+
+  useEffect(() => {
+    replaceSubscribedChatIds(chatIdsKey ? chatIdsKey.split(",") : []);
+  }, [chatIdsKey, session.token]);
 
   useEffect(() => {
     chatPreviewOverridesRef.current = chatPreviewOverrides;
@@ -1455,7 +1734,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     }
 
     applyChatPreviewMessage(lastMessage);
-    applyServerChatPreviewMessage(lastMessage);
+    applyServerChatPreviewMessage(lastMessage, "clear");
   }, [
     activeChatId,
     applyChatPreviewMessage,
@@ -1557,8 +1836,9 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       queryClient.setQueryData<ChatSummary[]>(["chats", session.token], (current) =>
         upsertChat(current, chat)
       );
+      void queryClient.invalidateQueries({ queryKey: ["chats", session.token] });
       setSidebarSheet(null);
-      openChat(chat.id);
+      openChat(chat.id, "dialogs");
     },
   });
 
@@ -1569,10 +1849,11 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       queryClient.setQueryData<ChatSummary[]>(["chats", session.token], (current) =>
         upsertChat(current, chat)
       );
+      void queryClient.invalidateQueries({ queryKey: ["chats", session.token] });
       setGroupTitle("");
       setGroupParticipantUsernames([]);
       setSidebarSheet(null);
-      openChat(chat.id);
+      openChat(chat.id, "groups");
     },
   });
 
@@ -1633,28 +1914,66 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   });
 
   const sendMessageMutation = useMutation({
-    mutationFn: (content: string) =>
-      sendEncryptedMessage(session.token, activeChat!.id, content, activeChat!.members),
-    onSuccess: (message) => {
-      const nextMessage = ensureOwnMessageStatus(message, session.user);
-      rememberRealtimeMessage(nextMessage.id);
-      applyChatPreviewMessage(nextMessage);
+    mutationFn: (input: SendMessageInput) =>
+      sendEncryptedMessage(
+        session.token,
+        input.chatId,
+        input.content,
+        input.participants,
+        input.clientMessageId,
+        {
+          sendViaRealtime: (request) => publishOutgoingMessage(input.chatId, request),
+        }
+      ),
+    onMutate: (input) => {
+      void queryClient.cancelQueries({ queryKey: ["messages", session.token, input.chatId] });
+      const optimisticMessage = createOptimisticOutgoingMessage(session.user, input);
+      applyChatPreviewMessage(optimisticMessage);
+      applyServerChatPreviewMessage(optimisticMessage, "clear");
       setDraftsByChatId((current) => {
-        const existingDraft = current[nextMessage.chatId] ?? "";
-        if (existingDraft.trim() !== nextMessage.content) {
+        const existingDraft = current[input.chatId] ?? "";
+        if (existingDraft.trim() !== input.content) {
           return current;
         }
 
         const next = { ...current };
-        delete next[nextMessage.chatId];
+        delete next[input.chatId];
         return next;
       });
-      scheduleDraftSave(nextMessage.chatId, "");
+      scheduleDraftSave(input.chatId, "");
       queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
-        ["messages", session.token, nextMessage.chatId],
+        ["messages", session.token, input.chatId],
+        (current) => mergeMessagePages(current, optimisticMessage)
+      );
+      return input;
+    },
+    onSuccess: (message, input) => {
+      const nextMessage = ensureOwnMessageStatus(message, session.user);
+      rememberRealtimeMessage(nextMessage.id);
+      queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
+        ["messages", session.token, input.chatId],
         (current) => mergeMessagePages(current, nextMessage)
       );
-      applyServerChatPreviewMessage(nextMessage);
+      applyChatPreviewMessage(nextMessage);
+      applyServerChatPreviewMessage(nextMessage, "clear");
+    },
+    onError: (_error, input) => {
+      queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
+        ["messages", session.token, input.chatId],
+        (current) => removeMessageByClientMessageId(current, input.clientMessageId)
+      );
+      void queryClient.invalidateQueries({ queryKey: ["chats", session.token] });
+      setDraftsByChatId((current) => {
+        if ((current[input.chatId] ?? "").trim()) {
+          return current;
+        }
+
+        return {
+          ...current,
+          [input.chatId]: input.content,
+        };
+      });
+      scheduleDraftSave(input.chatId, input.content);
     },
   });
 
@@ -1710,6 +2029,71 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     },
   });
 
+  const deleteChatMutation = useMutation({
+    mutationFn: (chatId: string) => deleteChatRequest(session.token, chatId),
+    onMutate: async (chatId) => {
+      const chatsKey = ["chats", session.token] as const;
+      const archivedKey = ["archived-chats", session.token] as const;
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: chatsKey }),
+        queryClient.cancelQueries({ queryKey: archivedKey }),
+      ]);
+
+      const previousChats = queryClient.getQueryData<ChatSummary[]>(chatsKey);
+      const previousArchived = queryClient.getQueryData<string[]>(archivedKey);
+      deleteChatLocally(chatId);
+      return {
+        chatId,
+        previousChats,
+        previousArchived,
+      };
+    },
+    onError: (_error, _chatId, context) => {
+      if (context?.previousChats) {
+        queryClient.setQueryData(["chats", session.token], context.previousChats);
+      }
+      if (context?.previousArchived) {
+        queryClient.setQueryData(["archived-chats", session.token], context.previousArchived);
+      }
+      void queryClient.invalidateQueries({ queryKey: ["drafts", session.token] });
+    },
+    onSuccess: (_result, chatId) => {
+      finalizeDeletedChatArtifacts(chatId);
+      void queryClient.invalidateQueries({ queryKey: ["chats", session.token] });
+      void queryClient.invalidateQueries({ queryKey: ["archived-chats", session.token] });
+      void queryClient.invalidateQueries({ queryKey: ["drafts", session.token] });
+    },
+  });
+
+  const deleteMessageMutation = useMutation({
+    mutationFn: ({ chatId, messageId }: { chatId: string; messageId: string }) =>
+      deleteMessageRequest(session.token, chatId, messageId),
+    onMutate: async ({ chatId, messageId }) => {
+      const messageKey = ["messages", session.token, chatId] as const;
+      await queryClient.cancelQueries({ queryKey: messageKey });
+      const previousMessages = queryClient.getQueryData<InfiniteData<ChatMessage[]>>(messageKey);
+      queryClient.setQueryData<InfiniteData<ChatMessage[]>>(messageKey, (current) =>
+        removeMessageById(current, messageId)
+      );
+      clearChatPreviewOverride(chatId);
+      void queryClient.invalidateQueries({ queryKey: ["chats", session.token] });
+      return {
+        chatId,
+        previousMessages,
+      };
+    },
+    onError: (_error, variables, context) => {
+      if (context?.previousMessages) {
+        queryClient.setQueryData(["messages", session.token, variables.chatId], context.previousMessages);
+      }
+      void queryClient.invalidateQueries({ queryKey: ["chats", session.token] });
+    },
+    onSuccess: (_result, variables) => {
+      void queryClient.invalidateQueries({ queryKey: ["messages", session.token, variables.chatId] });
+      void queryClient.invalidateQueries({ queryKey: ["chats", session.token] });
+    },
+  });
+
   const addContactMutation = useMutation({
     mutationFn: (user: UserProfile) => addContactRequest(session.token, user.username),
     onSuccess: (contact) => {
@@ -1742,6 +2126,8 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     updateProfileMutation.error,
     avatarMutation.error,
     updateArchivedChatMutation.error,
+    deleteChatMutation.error,
+    deleteMessageMutation.error,
     addContactMutation.error,
     removeContactMutation.error,
     chatsQuery.error,
@@ -1754,7 +2140,6 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     draftsQuery.error,
     userSearchQuery.error,
     contactsSearchQuery.error,
-    activeTypingQuery.error,
     messagesQuery.error,
   ].find(Boolean);
 
@@ -1790,7 +2175,12 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     }
 
     stopTyping(activeChat.id);
-    sendMessageMutation.mutate(trimmed);
+    sendMessageMutation.mutate({
+      chatId: activeChat.id,
+      clientMessageId: `client-${window.crypto.randomUUID()}`,
+      content: trimmed,
+      participants: activeChat.members,
+    });
   };
 
   const submitProfileDisplayName = () => {
@@ -1917,7 +2307,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
         </div>
       ) : (
         visibleConferences.map((conference) => {
-          const participantPreview = formatConferenceListPreviewV2(
+          const participantPreview = formatConferenceListPreviewV3(
             conference,
             session.user.username
           );
@@ -1992,6 +2382,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                   : "chat-tile north-chat-tile"
             }
             onClick={() => openChat(chat.id)}
+            onContextMenu={(event) => openChatContextMenu(event, chat.id)}
           >
             <AvatarCircle
               className="avatar north-avatar"
@@ -2095,46 +2486,11 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
 
                   <div className="conference-summary-rows">
                     <div className="conference-summary-row">
-                      <span className="conference-summary-label">Код комнаты</span>
-                      <code className="conference-summary-code">
-                        {activeConferenceIsArchived
-                          ? activeConferenceStatusLabel
-                          : activeConference.roomName ?? activeConferenceStatusLabel}
-                      </code>
-                      <button
-                        type="button"
-                        className="ghost-button compact conference-copy-button"
-                        onClick={() =>
-                          activeConference.roomName
-                            ? void navigator.clipboard.writeText(activeConference.roomName)
-                            : undefined
-                        }
-                        disabled={!activeConference.roomName || activeConferenceIsArchived}
-                      >
-                        Копировать код
-                      </button>
+                      <span className="conference-summary-label">Доступ</span>
+                      <span className="conference-summary-code">
+                        Комната доступна только приглашённым участникам внутри приложения.
+                      </span>
                     </div>
-
-                    {activeConferenceShareUrl ? (
-                      <div className="conference-summary-row">
-                        <span className="conference-summary-label">Ссылка</span>
-                        <a
-                          className="conference-summary-link"
-                          href={activeConferenceShareUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          {activeConferenceShareUrl}
-                        </a>
-                        <button
-                          type="button"
-                          className="ghost-button compact conference-copy-button"
-                          onClick={() => void navigator.clipboard.writeText(activeConferenceShareUrl)}
-                        >
-                          Копировать ссылку
-                        </button>
-                      </div>
-                    ) : null}
 
                     <div className="conference-summary-row participants">
                       <span className="conference-summary-label">Участники</span>
@@ -2211,15 +2567,6 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                 </button>
               </>
             ) : null}
-            {activeConferenceJoinUrl ? (
-              <button
-                type="button"
-                className="ghost-button compact archive-toggle-button"
-              onClick={() => window.open(activeConferenceJoinUrl, "_blank", "noopener,noreferrer")}
-            >
-              Открыть отдельно
-            </button>
-            ) : null}
           </div>
         ) : null}
 
@@ -2245,46 +2592,11 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
 
         <div className="conference-summary-rows">
           <div className="conference-summary-row">
-            <span className="conference-summary-label">Код комнаты</span>
-            <code className="conference-summary-code">
-              {activeConferenceIsArchived
-                ? activeConferenceStatusLabel
-                : activeConference.roomName ?? activeConferenceStatusLabel}
-            </code>
-            <button
-              type="button"
-              className="ghost-button compact conference-copy-button"
-              onClick={() =>
-                activeConference.roomName
-                  ? void navigator.clipboard.writeText(activeConference.roomName)
-                  : undefined
-              }
-              disabled={!activeConference.roomName || activeConferenceIsArchived}
-            >
-              Копировать код
-            </button>
+            <span className="conference-summary-label">Доступ</span>
+            <span className="conference-summary-code">
+              Прямые ссылки и коды скрыты. Войти могут только приглашённые участники.
+            </span>
           </div>
-
-          {activeConferenceShareUrl ? (
-            <div className="conference-summary-row">
-              <span className="conference-summary-label">Ссылка</span>
-              <a
-                className="conference-summary-link"
-                href={activeConferenceShareUrl}
-                target="_blank"
-                rel="noreferrer"
-              >
-                {activeConferenceShareUrl}
-              </a>
-              <button
-                type="button"
-                className="ghost-button compact conference-copy-button"
-                onClick={() => void navigator.clipboard.writeText(activeConferenceShareUrl)}
-              >
-                Копировать ссылку
-              </button>
-            </div>
-          ) : null}
 
           <div className="conference-summary-row participants">
             <span className="conference-summary-label">Участники</span>
@@ -2337,22 +2649,13 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                 <input
                   className="conference-link-input"
                   readOnly
-                  value={
-                    activeConferenceIsArchived
-                      ? activeConferenceStatusLabel ?? ""
-                      : activeConference.roomName ?? activeConferenceStatusLabel ?? ""
-                  }
+                  value="Вход доступен только внутри приложения"
                   onFocus={(event) => event.currentTarget.select()}
                 />
                 <button
                   type="button"
                   className="ghost-button compact"
-                  onClick={() =>
-                    activeConference.roomName
-                      ? void navigator.clipboard.writeText(activeConference.roomName)
-                      : undefined
-                  }
-                  disabled={!activeConference.roomName || activeConferenceIsArchived}
+                  disabled
                 >
                   РљРѕРїРёСЂРѕРІР°С‚СЊ
                 </button>
@@ -2387,6 +2690,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
               baseUrl={JITSI_BASE_URL}
               conferenceId={activeConference.id}
               roomName={activeConference.roomName!}
+              accessCode={activeConference.roomAccessCode!}
               displayName={profile.displayName}
               title={activeConference.title}
               autoStartServerRecording={activeConferenceIsOwnedByCurrentUser}
@@ -2405,6 +2709,18 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const workspaceStyle: CSSProperties = {
     ["--north-sidebar-width" as string]: `${sidebarWidth}px`,
   };
+  const contextMenuStyle: CSSProperties | undefined = contextMenu
+    ? {
+        left: `${Math.max(
+          CONTEXT_MENU_GUTTER_PX,
+          Math.min(contextMenu.x, window.innerWidth - CONTEXT_MENU_WIDTH_PX - CONTEXT_MENU_GUTTER_PX)
+        )}px`,
+        top: `${Math.max(
+          CONTEXT_MENU_GUTTER_PX,
+          Math.min(contextMenu.y, window.innerHeight - 64 - CONTEXT_MENU_GUTTER_PX)
+        )}px`,
+      }
+    : undefined;
 
   return (
     <main
@@ -2682,7 +2998,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                             <div key={conference.id} className="sheet-row">
                               <div className="sheet-row-copy">
                                 <strong>{conference.title}</strong>
-                                <span>{formatConferenceStatusLabelV2(conference)}</span>
+                                <span>{formatConferenceStatusLabelV3(conference)}</span>
                               </div>
                               <div className="sheet-row-actions">
                                 {conference.recordingCreatedAt ? (
@@ -2729,7 +3045,11 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                       ) : null}
                       {archivedChats.length > 0 ? <div className="section-title">Чаты</div> : null}
                       {archivedChats.map((chat) => (
-                      <div key={chat.id} className="sheet-row">
+                      <div
+                        key={chat.id}
+                        className="sheet-row"
+                        onContextMenu={(event) => openChatContextMenu(event, chat.id)}
+                      >
                         <div className="sheet-row-copy">
                           <strong>{chat.title}</strong>
                           <span>
@@ -3398,6 +3718,9 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                           ? "message-bubble is-mine"
                           : "message-bubble"
                       }
+                      onContextMenu={(event) =>
+                        openMessageContextMenu(event, item.message.chatId, item.message.id)
+                      }
                     >
                       <div className="message-meta">
                         <strong>
@@ -3449,9 +3772,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();
-                    if (!sendMessageMutation.isPending) {
-                      submitActiveDraft();
-                    }
+                    submitActiveDraft();
                   }
                 }}
                 placeholder="Напишите сообщение"
@@ -3460,7 +3781,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
               <button
                 type="submit"
                 className="primary-button north-send-button"
-                disabled={sendMessageMutation.isPending || !activeDraft.trim()}
+                disabled={!activeDraft.trim()}
               >
                 &gt;
               </button>
@@ -3478,8 +3799,42 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
           </div>
         )}
 
-        {errorText ? <div className="floating-error">{errorText}</div> : null}
+      {errorText ? <div className="floating-error">{errorText}</div> : null}
       </section>
+
+      {contextMenu ? (
+        <div
+          ref={contextMenuRef}
+          className="context-menu-surface"
+          style={contextMenuStyle}
+          role="menu"
+          aria-label={contextMenu.kind === "chat" ? "Chat actions" : "Message actions"}
+        >
+          {contextMenu.kind === "chat" ? (
+            <button
+              type="button"
+              className="context-menu-item is-danger"
+              role="menuitem"
+              onClick={() => deleteChatForSelf(contextMenu.chatId)}
+            >
+              Удалить чат только у меня
+            </button>
+          ) : canDeleteContextMenuMessage ? (
+            <button
+              type="button"
+              className="context-menu-item is-danger"
+              role="menuitem"
+              onClick={() => deleteMessageForEveryone(contextMenu.chatId, contextMenu.messageId)}
+            >
+              Удалить сообщение для всех
+            </button>
+          ) : (
+            <div className="context-menu-item is-disabled" role="presentation">
+              Удалять для всех можно только свои сообщения
+            </div>
+          )}
+        </div>
+      ) : null}
 
       {incomingToasts.length > 0 ? (
         <aside className="toast-stack" aria-live="polite">
@@ -3709,37 +4064,6 @@ function getConferenceActivationTime(value: string) {
   return new Date(new Date(value).getTime() - CONFERENCE_ACTIVATION_LEAD_MS);
 }
 
-function formatConferenceStatusLabel(conference: VideoConference) {
-  if (conference.endedAt) {
-    return `Завершена ${formatConferenceSchedule(conference.endedAt)}`;
-  }
-
-  if (conference.roomName) {
-    return "Комната открыта";
-  }
-
-  return `Откроется ${formatConferenceSchedule(getConferenceActivationTime(conference.scheduledAt).toISOString())}`;
-}
-
-function formatConferenceListPreview(conference: VideoConference, currentUsername: string) {
-  if (conference.endedAt) {
-    return "Встреча завершена и находится в архиве.";
-  }
-
-  if (!conference.roomName) {
-    return `Комната откроется ${formatConferenceSchedule(
-      getConferenceActivationTime(conference.scheduledAt).toISOString()
-    )}.`;
-  }
-
-  const participantPreview = conference.participants
-    .filter((participant) => participant.username !== currentUsername)
-    .map((participant) => participant.displayName)
-    .join(", ");
-
-  return participantPreview || "Участники будут видны после приглашения.";
-}
-
 function formatConferenceStatusLabelV2(conference: VideoConference) {
   const now = Date.now();
   const scheduledTime = new Date(conference.scheduledAt).getTime();
@@ -3817,7 +4141,7 @@ function formatConferenceStageHint(conference: VideoConference, isOrganizer: boo
   return `Комната станет доступна за 5 минут до старта: ${activationAt}.`;
 }
 
-function legacyFormatConferenceStatusLabelV2(conference: VideoConference) {
+function formatConferenceStatusLabelV3(conference: VideoConference) {
   if (conference.endedAt) {
     return `Завершена ${formatConferenceSchedule(conference.endedAt)}`;
   }
@@ -3827,13 +4151,16 @@ function legacyFormatConferenceStatusLabelV2(conference: VideoConference) {
   }
 
   if (conference.roomName || conference.activatedAt) {
-    return "Ожидает старта организатором";
+    return "Комната открыта для приглашенных";
   }
 
   return `Откроется ${formatConferenceSchedule(getConferenceActivationTime(conference.scheduledAt).toISOString())}`;
 }
 
-function legacyFormatConferenceListPreviewV2(conference: VideoConference, currentUsername: string) {
+function formatConferenceListPreviewV3(conference: VideoConference, currentUsername: string) {
+  const now = Date.now();
+  const scheduledTime = new Date(conference.scheduledAt).getTime();
+
   if (conference.endedAt) {
     return "Встреча завершена и находится в архиве.";
   }
@@ -3845,7 +4172,9 @@ function legacyFormatConferenceListPreviewV2(conference: VideoConference, curren
   }
 
   if (!conference.startedAt) {
-    return "Организатор еще не начал встречу.";
+    return scheduledTime <= now
+      ? "Комната уже открыта для приглашенных."
+      : `Подключение откроется автоматически ${formatConferenceSchedule(conference.scheduledAt)}.`;
   }
 
   const participantPreview = conference.participants
@@ -3856,7 +4185,10 @@ function legacyFormatConferenceListPreviewV2(conference: VideoConference, curren
   return participantPreview || "Встреча уже идет.";
 }
 
-function legacyFormatConferenceStageHint(conference: VideoConference, isOrganizer: boolean) {
+function formatConferenceStageHintV3(conference: VideoConference, isOrganizer: boolean) {
+  const now = Date.now();
+  const scheduledTime = new Date(conference.scheduledAt).getTime();
+
   if (conference.endedAt) {
     return `Встреча завершена ${formatConferenceSchedule(conference.endedAt)}.`;
   }
@@ -3866,9 +4198,15 @@ function legacyFormatConferenceStageHint(conference: VideoConference, isOrganize
   }
 
   if (conference.roomName || conference.activatedAt) {
+    if (scheduledTime <= now) {
+      return "Комната уже открыта. Войти могут только приглашённые участники.";
+    }
+
     return isOrganizer
-      ? "Комната уже подготовлена. После запуска участники смогут войти без прав модератора."
-      : "Организатор еще не начал встречу. Войти можно после его запуска.";
+      ? `Комната подготовлена. Вход для приглашённых откроется автоматически ${formatConferenceSchedule(
+          conference.scheduledAt
+        )}.`
+      : `Подключение откроется автоматически ${formatConferenceSchedule(conference.scheduledAt)}.`;
   }
 
   const activationAt = formatConferenceSchedule(
@@ -3917,54 +4255,6 @@ function formatDateTimeInputValue(date: Date) {
   return localDate.toISOString().slice(0, 16);
 }
 
-function buildJitsiConferenceUrl(roomName: string, title?: string, displayName?: string) {
-  const normalizedBaseUrl = normalizeJitsiBaseUrl(JITSI_BASE_URL);
-  const hashParams = [
-    "config.prejoinPageEnabled=false",
-    "config.prejoinConfig.enabled=false",
-    "config.requireDisplayName=false",
-  ];
-  const normalizedTitle = title?.trim();
-  if (normalizedTitle) {
-    hashParams.push(`config.subject=${encodeURIComponent(JSON.stringify(normalizedTitle))}`);
-  }
-  const normalizedDisplayName = displayName?.trim();
-  if (normalizedDisplayName) {
-    hashParams.push(
-      `userInfo.displayName=${encodeURIComponent(JSON.stringify(normalizedDisplayName))}`
-    );
-  }
-
-  return `${normalizedBaseUrl}/${encodeURIComponent(roomName)}#${hashParams.join("&")}`;
-}
-
-function buildJitsiShareUrl(roomName: string) {
-  const normalizedBaseUrl = normalizeJitsiBaseUrl(JITSI_BASE_URL);
-  return `${normalizedBaseUrl}/${encodeURIComponent(roomName)}`;
-}
-
-function normalizeJitsiBaseUrl(baseUrl: string) {
-  const fallbackOrigin =
-    typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
-  const normalizedUrl = new URL(baseUrl, fallbackOrigin);
-
-  const isLocalAddress =
-    normalizedUrl.hostname === "localhost" ||
-    normalizedUrl.hostname === "127.0.0.1" ||
-    normalizedUrl.hostname === "::1";
-
-  if (
-    typeof window !== "undefined" &&
-    window.location.protocol === "http:" &&
-    isLocalAddress &&
-    normalizedUrl.protocol === "https:"
-  ) {
-    normalizedUrl.protocol = "http:";
-  }
-
-  return normalizedUrl.toString().replace(/\/+$/, "");
-}
-
 function formatConferenceOrganizerLabel(organizer: Participant, currentUser: UserProfile) {
   return organizer.id === currentUser.id ? `${organizer.displayName} (вы)` : organizer.displayName;
 }
@@ -3996,6 +4286,69 @@ function clampSidebarWidth(width: number, viewportWidth: number) {
   return Math.min(maxWidth, Math.max(MIN_SIDEBAR_WIDTH, Math.round(width)));
 }
 
+function mergeTypingParticipants(primary: Participant[], fallback: Participant[]) {
+  const merged = new Map<string, Participant>();
+  primary.forEach((participant) => merged.set(participant.id, participant));
+  fallback.forEach((participant) => {
+    if (!merged.has(participant.id)) {
+      merged.set(participant.id, participant);
+    }
+  });
+  return [...merged.values()];
+}
+
+function syncChatTypingParticipants(
+  current: Record<string, Participant[]>,
+  chatId: string,
+  participants: Participant[]
+) {
+  const nextParticipants = participants.filter(
+    (participant, index, list) => list.findIndex((item) => item.id === participant.id) === index
+  );
+  const existingParticipants = current[chatId] ?? [];
+  const isSame =
+    existingParticipants.length === nextParticipants.length &&
+    existingParticipants.every((participant, index) => participant.id === nextParticipants[index]?.id);
+
+  if (isSame) {
+    return current;
+  }
+
+  if (!nextParticipants.length) {
+    if (!existingParticipants.length) {
+      return current;
+    }
+
+    const { [chatId]: _removed, ...rest } = current;
+    return rest;
+  }
+
+  return {
+    ...current,
+    [chatId]: nextParticipants,
+  };
+}
+
+function createOptimisticOutgoingMessage(
+  currentUser: UserProfile,
+  input: SendMessageInput
+): ChatMessage {
+  return {
+    id: input.clientMessageId,
+    chatId: input.chatId,
+    sender: currentUser,
+    content: input.content,
+    createdAt: new Date().toISOString(),
+    clientMessageId: input.clientMessageId,
+    status: {
+      state: "SENDING",
+      recipientCount: Math.max(0, input.participants.length - 1),
+      deliveredCount: 0,
+      readCount: 0,
+    },
+  };
+}
+
 function ensureOwnMessageStatus(message: ChatMessage, currentUser: UserProfile): ChatMessage {
   if (!isOwnMessage(message, currentUser) || message.status !== null) {
     return message;
@@ -4022,22 +4375,35 @@ function isCurrentUserParticipant(participant: Participant, currentUser: UserPro
 
 function getMessageStatusClassName(status: MessageStatus | null) {
   switch (status?.state) {
+    case "SENDING":
+    case "SENT":
+      return "message-status is-sent";
     case "READ":
       return "message-status is-read";
     case "DELIVERED":
       return "message-status is-delivered";
-    case "SENT":
     default:
       return "message-status is-sent";
   }
 }
 
 function getMessageStatusGlyph(status: MessageStatus | null) {
-  return status?.state === "SENT" ? "\u2713" : "\u2713\u2713";
+  switch (status?.state) {
+    case "SENDING":
+      return "\u2026";
+    case "READ":
+    case "DELIVERED":
+      return "\u2713\u2713";
+    case "SENT":
+    default:
+      return "\u2713";
+  }
 }
 
 function getMessageStatusLabel(status: MessageStatus | null) {
   switch (status?.state) {
+    case "SENDING":
+      return "\u041E\u0442\u043F\u0440\u0430\u0432\u043B\u044F\u0435\u0442\u0441\u044F";
     case "READ":
       return "Прочитано";
     case "DELIVERED":

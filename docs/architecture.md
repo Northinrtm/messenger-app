@@ -13,8 +13,9 @@ This repository is a production-style MVP for a direct-message messenger:
 
 - `api`: REST endpoints and DTOs
 - `application.auth`: registration, login and JWT issuing
-- `application.chat`: chat listing and direct-chat creation
-- `application.message`: message history and message sending
+- `application.chat`: chat listing, direct/group chats, video conferences and recording import
+- `application.message`: message history, sending, receipts and typing state
+- `application.e2ee`: user encryption key bundles and public key resolution
 - `domain`: entities and repositories
 - `security`: stateless JWT auth for HTTP requests
 - `config`: CORS, WebSocket STOMP broker and exception handling
@@ -27,8 +28,9 @@ This repository is a production-style MVP for a direct-message messenger:
 4. HTTP API uses the JWT filter for protected endpoints.
 5. WebSocket/STOMP connects to `/ws` with `Authorization: Bearer <token>`.
 6. The channel interceptor validates the token on `CONNECT` and validates membership on `SUBSCRIBE`.
-7. Sending a message goes through `POST /api/chats/{chatId}/messages`.
-8. Backend persists the message and pushes it to each participant via `/user/queue/messages`.
+7. Sending a message goes through `STOMP /app/chats/{chatId}/messages` over the existing `/ws` connection.
+8. HTTP `POST /api/chats/{chatId}/messages` stays as the fallback path when realtime send is unavailable.
+9. Backend persists the message and pushes it to each participant via `/user/queue/messages`.
 
 ## Why the backend is a modular monolith
 
@@ -47,5 +49,6 @@ The scaling boundary is still clear: auth, chat metadata, realtime fan-out, noti
 - add Redis-backed presence, typing indicators and fan-out
 - add Kafka or NATS for async delivery pipelines
 - add object storage for attachments
-- add message read state, unread counters and moderation events
+- add moderation events and richer media workflows
+- expand integration tests for conference recording import and delivery flows
 - expand integration tests with Testcontainers and enforce CI pipelines

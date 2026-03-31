@@ -6,6 +6,7 @@ export type ChatPreviewOverride = {
   lastMessage: string;
   lastMessageAt: string;
 };
+export type ChatMessageActivityMode = "keep" | "increment" | "clear";
 
 export function upsertChat(current: ChatSummary[] | undefined, nextChat: ChatSummary) {
   const list = current ?? [];
@@ -73,26 +74,82 @@ export function upsertChatPreviewOverride(
   };
 }
 
+export function removeChatPreviewOverride(
+  current: Record<string, ChatPreviewOverride>,
+  chatId: string
+) {
+  if (!(chatId in current)) {
+    return current;
+  }
+
+  const { [chatId]: _removed, ...rest } = current;
+  return rest;
+}
+
 export function updateChatPreview(
   current: ChatSummary[] | undefined,
   message: ChatMessage
+) {
+  return applyChatMessageActivity(current, message, "keep");
+}
+
+export function applyChatMessageActivity(
+  current: ChatSummary[] | undefined,
+  message: ChatMessage,
+  unreadMode: ChatMessageActivityMode
 ) {
   if (!current) {
     return current;
   }
 
-  return current
-    .map((chat) =>
-      chat.id === message.chatId
-        ? {
-            ...chat,
-            lastMessage: message.content,
-            lastMessageAt: message.createdAt,
-            updatedAt: message.createdAt,
-          }
-        : chat
-    )
+  let changed = false;
+  const next = current
+    .map((chat) => {
+      if (chat.id !== message.chatId) {
+        return chat;
+      }
+
+      changed = true;
+      return {
+        ...chat,
+        lastMessage: message.content,
+        lastMessageAt: message.createdAt,
+        updatedAt: message.createdAt,
+        unreadCount:
+          unreadMode === "increment"
+            ? chat.unreadCount + 1
+            : unreadMode === "clear"
+              ? 0
+              : chat.unreadCount,
+      };
+    })
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+
+  return changed ? next : current;
+}
+
+export function clearChatUnreadCount(
+  current: ChatSummary[] | undefined,
+  chatId: string
+) {
+  if (!current) {
+    return current;
+  }
+
+  let changed = false;
+  const next = current.map((chat) => {
+    if (chat.id !== chatId || chat.unreadCount === 0) {
+      return chat;
+    }
+
+    changed = true;
+    return {
+      ...chat,
+      unreadCount: 0,
+    };
+  });
+
+  return changed ? next : current;
 }
 
 export function mergeMessagePages(
@@ -106,20 +163,73 @@ export function mergeMessagePages(
     };
   }
 
-  const alreadyExists = current.pages.some((page) =>
-    page.some((message) => message.id === incoming.id)
-  );
-  if (alreadyExists) {
+  let replaced = false;
+  const pages = current.pages.map((page, index) => {
+    const existingIndex = page.findIndex((message) => matchesMessageIdentity(message, incoming));
+    if (existingIndex >= 0) {
+      replaced = true;
+      return page
+        .map((message, messageIndex) => (messageIndex === existingIndex ? incoming : message))
+        .sort(compareMessages);
+    }
+
+    return index === 0 ? [...page, incoming].sort(compareMessages) : page;
+  });
+
+  if (!replaced && pages[0]?.length === current.pages[0]?.length) {
     return current;
   }
 
-  const pages = current.pages.map((page, index) =>
-    index === 0 ? [...page, incoming].sort(compareMessages) : page
-  );
   return {
     ...current,
     pages,
   };
+}
+
+export function removeMessageByClientMessageId(
+  current: InfiniteData<ChatMessage[]> | undefined,
+  clientMessageId: string
+): InfiniteData<ChatMessage[]> | undefined {
+  if (!current) {
+    return current;
+  }
+
+  let changed = false;
+  const pages = current.pages.map((page) => {
+    const nextPage = page.filter((message) => message.clientMessageId !== clientMessageId);
+    changed = changed || nextPage.length !== page.length;
+    return nextPage;
+  });
+
+  return changed
+    ? {
+        ...current,
+        pages,
+      }
+    : current;
+}
+
+export function removeMessageById(
+  current: InfiniteData<ChatMessage[]> | undefined,
+  messageId: string
+): InfiniteData<ChatMessage[]> | undefined {
+  if (!current) {
+    return current;
+  }
+
+  let changed = false;
+  const pages = current.pages.map((page) => {
+    const nextPage = page.filter((message) => message.id !== messageId);
+    changed = changed || nextPage.length !== page.length;
+    return nextPage;
+  });
+
+  return changed
+    ? {
+        ...current,
+        pages,
+      }
+    : current;
 }
 
 export function updateMessageStatusPages(
@@ -158,19 +268,19 @@ export function flattenMessagePages(pages: ChatMessage[][] | undefined) {
     return [];
   }
 
-  const seen = new Set<string>();
-  return [...pages]
+  const deduped = new Map<string, ChatMessage>();
+  [...pages]
     .reverse()
     .flatMap((page: ChatMessage[]) => page)
-    .filter((message: ChatMessage) => {
-      if (seen.has(message.id)) {
-        return false;
+    .forEach((message: ChatMessage) => {
+      const dedupeKey = message.clientMessageId ? `client:${message.clientMessageId}` : `id:${message.id}`;
+      const existing = deduped.get(dedupeKey);
+      if (!existing || shouldPreferMessage(existing, message)) {
+        deduped.set(dedupeKey, message);
       }
+    });
 
-      seen.add(message.id);
-      return true;
-    })
-    .sort(compareMessages);
+  return [...deduped.values()].sort(compareMessages);
 }
 
 export function initials(title: string) {
@@ -196,6 +306,39 @@ export function normalizeUsername(value: string) {
   return value.trim().replace(/^@+/, "").toLowerCase();
 }
 
+export function removeChatById(current: ChatSummary[] | undefined, chatId: string) {
+  if (!current) {
+    return current;
+  }
+
+  const next = current.filter((chat) => chat.id !== chatId);
+  return next.length === current.length ? current : next;
+}
+
 function compareMessages(left: ChatMessage, right: ChatMessage) {
   return left.createdAt.localeCompare(right.createdAt);
+}
+
+function matchesMessageIdentity(left: ChatMessage, right: ChatMessage) {
+  if (left.id === right.id) {
+    return true;
+  }
+
+  return Boolean(
+    left.clientMessageId &&
+      right.clientMessageId &&
+      left.clientMessageId === right.clientMessageId
+  );
+}
+
+function shouldPreferMessage(current: ChatMessage, incoming: ChatMessage) {
+  if (incoming.createdAt.localeCompare(current.createdAt) > 0) {
+    return true;
+  }
+
+  return isOptimisticClientMessage(current) && !isOptimisticClientMessage(incoming);
+}
+
+function isOptimisticClientMessage(message: ChatMessage) {
+  return Boolean(message.clientMessageId && message.id === message.clientMessageId);
 }

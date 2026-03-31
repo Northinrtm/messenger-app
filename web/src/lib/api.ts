@@ -3,7 +3,6 @@ import type {
   ApiErrorResponse,
   ApiChatMessage,
   AuthResponse,
-  ChatDraft,
   ChatSummary,
   Participant,
   UserEncryptionKeyBundle,
@@ -23,6 +22,18 @@ export class ApiError extends Error {
     this.status = status;
     this.details = details;
   }
+}
+
+export function describeError(error: unknown) {
+  if (error instanceof ApiError) {
+    return [error.message, ...error.details].filter(Boolean).join(". ");
+  }
+
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+
+  return "Unexpected error";
 }
 
 type RequestOptions = {
@@ -54,26 +65,43 @@ function buildRequestUrl(path: string, query?: Record<string, string | number | 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const url = buildRequestUrl(path, options.query);
 
-  const response = await fetch(url, {
-    method: options.method ?? "GET",
-    credentials: "include",
-    headers: {
-      ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
-      ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: options.method ?? "GET",
+      cache: "no-store",
+      credentials: "include",
+      headers: {
+        ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
+        ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    });
+  } catch {
+    throw new ApiError("Cannot reach backend. Check that API and proxy are running.", 0);
+  }
 
   if (!response.ok) {
     let payload: ApiErrorResponse | null = null;
-    try {
-      payload = (await response.json()) as ApiErrorResponse;
-    } catch {
-      payload = null;
+    let fallbackMessage = "";
+    const contentType = response.headers.get("content-type") ?? "";
+
+    if (contentType.includes("application/json")) {
+      try {
+        payload = (await response.json()) as ApiErrorResponse;
+      } catch {
+        payload = null;
+      }
+    } else {
+      try {
+        fallbackMessage = normalizeErrorText(await response.text());
+      } catch {
+        fallbackMessage = "";
+      }
     }
 
     throw new ApiError(
-      payload?.error ?? "Request failed",
+      payload?.error ?? resolveHttpErrorMessage(response.status, response.statusText, fallbackMessage),
       response.status,
       payload?.details ?? []
     );
@@ -98,6 +126,36 @@ function extractFileName(contentDisposition: string | null) {
 
   const plainMatch = contentDisposition.match(/filename="?([^"]+)"?/i);
   return plainMatch?.[1] ?? null;
+}
+
+function normalizeErrorText(value: string) {
+  const normalized = value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  if (!normalized || normalized.length > 220) {
+    return "";
+  }
+  return normalized;
+}
+
+function resolveHttpErrorMessage(status: number, statusText: string, fallbackMessage: string) {
+  if (status === 502 || status === 503 || status === 504) {
+    return "Backend is unavailable";
+  }
+  if (status === 404) {
+    return "API endpoint was not found";
+  }
+  if (status === 401) {
+    return "Authentication failed";
+  }
+  if (status === 403) {
+    return "Access denied";
+  }
+  if (fallbackMessage) {
+    return fallbackMessage;
+  }
+  if (statusText.trim()) {
+    return `${status} ${statusText}`;
+  }
+  return `Request failed (${status})`;
 }
 
 export function register(input: {
@@ -169,10 +227,6 @@ export function getArchivedChats(token: string) {
   return request<string[]>("/api/chats/archive", { token });
 }
 
-export function getDrafts(token: string) {
-  return request<ChatDraft[]>("/api/chats/drafts", { token });
-}
-
 export function getVideoConferences(token: string) {
   return request<VideoConference[]>("/api/conferences", { token });
 }
@@ -209,41 +263,6 @@ export function addConferenceParticipants(
     token,
     body: input,
   });
-}
-
-export async function uploadConferenceRecording(
-  token: string,
-  conferenceId: string,
-  file: Blob,
-  fileName: string
-) {
-  const formData = new FormData();
-  formData.append("file", file, fileName);
-  const response = await fetch(buildRequestUrl(`/api/conferences/${conferenceId}/recording`), {
-    method: "POST",
-    credentials: "include",
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-    body: formData,
-  });
-
-  if (!response.ok) {
-    let payload: ApiErrorResponse | null = null;
-    try {
-      payload = (await response.json()) as ApiErrorResponse;
-    } catch {
-      payload = null;
-    }
-
-    throw new ApiError(
-      payload?.error ?? "Request failed",
-      response.status,
-      payload?.details ?? []
-    );
-  }
-
-  return (await response.json()) as VideoConference;
 }
 
 export async function downloadConferenceRecording(token: string, conferenceId: string) {
@@ -320,6 +339,7 @@ export function sendMessageRaw(
   token: string,
   chatId: string,
   body: {
+    clientMessageId?: string;
     encryptedPayload: {
       scheme: string;
       ciphertext: string;
@@ -351,17 +371,24 @@ export function acknowledgeRead(token: string, chatId: string, messageIds: strin
   });
 }
 
-export function sendTypingState(token: string, chatId: string, typing: boolean) {
-  return request<void>(`/api/chats/${chatId}/typing`, {
-    method: "POST",
+export function deleteMessage(token: string, chatId: string, messageId: string) {
+  return request<void>(`/api/chats/${chatId}/messages/${messageId}`, {
+    method: "DELETE",
     token,
-    body: { typing },
   });
 }
 
 export function getTypingParticipants(token: string, chatId: string) {
   return request<Participant[]>(`/api/chats/${chatId}/typing`, {
     token,
+  });
+}
+
+export function sendTypingState(token: string, chatId: string, typing: boolean) {
+  return request<void>(`/api/chats/${chatId}/typing`, {
+    method: "POST",
+    token,
+    body: { typing },
   });
 }
 
@@ -385,11 +412,10 @@ export function updateArchivedChat(token: string, chatId: string, archived: bool
   });
 }
 
-export function updateDraft(token: string, chatId: string, content: string) {
-  return request<void>(`/api/chats/${chatId}/draft`, {
-    method: "PUT",
+export function deleteChat(token: string, chatId: string) {
+  return request<void>(`/api/chats/${chatId}`, {
+    method: "DELETE",
     token,
-    body: { content },
   });
 }
 

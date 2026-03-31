@@ -1,16 +1,15 @@
 package com.north.messenger.api;
 
 import com.north.messenger.api.dto.AddGroupParticipantsRequest;
-import com.north.messenger.api.dto.ChatDraftResponse;
 import com.north.messenger.api.dto.ChatSummaryResponse;
 import com.north.messenger.api.dto.CreateDirectChatRequest;
 import com.north.messenger.api.dto.CreateGroupChatRequest;
-import com.north.messenger.api.dto.UpdateChatDraftRequest;
 import com.north.messenger.api.dto.UpdateArchivedChatRequest;
 import com.north.messenger.application.chat.ChatService;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -40,11 +39,6 @@ public class ChatController {
     @GetMapping("/archive")
     public List<UUID> listArchivedChatIds(Authentication authentication) {
         return chatService.listArchivedChatIds(authentication.getName());
-    }
-
-    @GetMapping("/drafts")
-    public List<ChatDraftResponse> listDrafts(Authentication authentication) {
-        return chatService.listDrafts(authentication.getName());
     }
 
     @PostMapping("/direct")
@@ -82,13 +76,9 @@ public class ChatController {
         chatService.updateArchivedChatState(authentication.getName(), chatId, request.archived());
     }
 
-    @PutMapping("/{chatId}/draft")
+    @DeleteMapping("/{chatId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void updateDraft(
-            Authentication authentication,
-            @PathVariable UUID chatId,
-            @Valid @RequestBody UpdateChatDraftRequest request
-    ) {
-        chatService.updateDraft(authentication.getName(), chatId, request);
+    public void deleteChatForSelf(Authentication authentication, @PathVariable UUID chatId) {
+        chatService.deleteChatForSelf(authentication.getName(), chatId);
     }
 }

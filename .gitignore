@@ -8,6 +8,9 @@
 backend/target/
 web/node_modules/
 web/dist/
+.codex-jshell-prefs
+.codex-tmp/
+.codex-tmp-*.js
+.codex-tmp-*.html
 *.log
 *.iml
-

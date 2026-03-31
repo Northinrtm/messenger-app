@@ -34,6 +34,10 @@ export function writeLocalDraft(userId: string, chatId: string, content: string)
   return readLocalDrafts(userId);
 }
 
+export function removeLocalDraft(userId: string, chatId: string) {
+  return writeLocalDraft(userId, chatId, "");
+}
+
 function readDraftMap(userId: string): Record<string, StoredDraftEntry> {
   const raw = window.localStorage.getItem(storageKey(userId));
   if (!raw) {

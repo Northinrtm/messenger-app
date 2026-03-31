@@ -8,6 +8,7 @@
     "desktop",
     "tileview",
     "fullscreen",
+    "recording",
     "settings",
     "hangup"
   ];

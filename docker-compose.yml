@@ -195,6 +195,7 @@ services:
       DB_USERNAME: messenger
       DB_PASSWORD: messenger
       APP_CORS_ALLOWED_ORIGINS: http://localhost:3000
+      APP_JWT_SECRET: ${APP_JWT_SECRET:-MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}
       APP_JWT_REFRESH_TOKEN_TTL: P30D
       APP_MEDIA_CONFERENCE_RECORDINGS_DIRECTORY: /app/storage/conference-recordings
       APP_MEDIA_CONFERENCE_RECORDINGS_IMPORT_DIRECTORY: /jibri-recordings

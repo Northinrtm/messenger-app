@@ -8,6 +8,7 @@ public record VideoConferenceResponse(
         UUID id,
         String title,
         String roomName,
+        String roomAccessCode,
         Instant scheduledAt,
         Instant createdAt,
         Instant activatedAt,

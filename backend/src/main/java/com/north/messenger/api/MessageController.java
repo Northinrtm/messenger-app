@@ -11,6 +11,7 @@ import java.util.UUID;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -68,6 +69,16 @@ public class MessageController {
             @Valid @RequestBody MessageReceiptRequest request
     ) {
         messageService.acknowledgeRead(chatId, authentication.getName(), request);
+    }
+
+    @DeleteMapping("/{messageId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteMessage(
+            Authentication authentication,
+            @PathVariable UUID chatId,
+            @PathVariable UUID messageId
+    ) {
+        messageService.deleteMessage(chatId, messageId, authentication.getName());
     }
 }
 

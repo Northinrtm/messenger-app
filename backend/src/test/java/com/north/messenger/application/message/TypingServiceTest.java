@@ -15,6 +15,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.assertj.core.api.Assertions.assertThat;
 
 class TypingServiceTest {
 
@@ -86,8 +87,42 @@ class TypingServiceTest {
 
         typingService.publishTyping(chatId, "user2", true);
 
-        org.assertj.core.api.Assertions.assertThat(typingService.listTypingParticipants(chatId, "north"))
+        assertThat(typingService.listTypingParticipants(chatId, "north"))
                 .extracting(ParticipantResponse::id)
                 .containsExactly(otherUser.getId());
+    }
+
+    @Test
+    void shouldPurgeExpiredTypingEntriesWithoutReadingChat() {
+        UUID chatId = UUID.randomUUID();
+        UserAccount viewer = new UserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UserAccount otherUser = new UserAccount(
+                UUID.randomUUID(),
+                "user2",
+                "User 2",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        when(authService.requireAuthenticatedUser("north")).thenReturn(viewer);
+        when(authService.requireAuthenticatedUser("user2")).thenReturn(otherUser);
+        when(chatService.findParticipants(chatId)).thenReturn(java.util.List.of(viewer, otherUser));
+        when(authService.toParticipant(otherUser)).thenReturn(new ParticipantResponse(
+                otherUser.getId(),
+                otherUser.getUsername(),
+                otherUser.getDisplayName(),
+                null,
+                true
+        ));
+
+        typingService.publishTyping(chatId, "user2", true);
+        typingService.purgeExpiredTypingEntries(Instant.now().plusSeconds(30));
+
+        assertThat(typingService.listTypingParticipants(chatId, "north")).isEmpty();
     }
 }

@@ -11,4 +11,6 @@ public interface UserArchivedChatRepository extends JpaRepository<UserArchivedCh
     List<UserArchivedChat> findAllByUserIdOrderByArchivedAtDesc(UUID userId);
 
     Optional<UserArchivedChat> findByUserIdAndChatId(UUID userId, UUID chatId);
+
+    void deleteByUserIdAndChatId(UUID userId, UUID chatId);
 }

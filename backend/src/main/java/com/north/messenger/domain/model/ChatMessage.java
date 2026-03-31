@@ -32,6 +32,9 @@ public class ChatMessage {
     @Column(name = "encrypted_keys_json", columnDefinition = "text")
     private String encryptedKeysJson;
 
+    @Column(name = "client_message_id", length = 120, updatable = false)
+    private String clientMessageId;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -39,7 +42,7 @@ public class ChatMessage {
     }
 
     public ChatMessage(UUID id, UUID chatId, UUID senderId, String content, Instant createdAt) {
-        this(id, chatId, senderId, content, null, null, null, createdAt);
+        this(id, chatId, senderId, content, null, null, null, null, createdAt);
     }
 
     public ChatMessage(
@@ -52,6 +55,20 @@ public class ChatMessage {
             String encryptedKeysJson,
             Instant createdAt
     ) {
+        this(id, chatId, senderId, content, encryptionScheme, encryptionIv, encryptedKeysJson, null, createdAt);
+    }
+
+    public ChatMessage(
+            UUID id,
+            UUID chatId,
+            UUID senderId,
+            String content,
+            String encryptionScheme,
+            String encryptionIv,
+            String encryptedKeysJson,
+            String clientMessageId,
+            Instant createdAt
+    ) {
         this.id = id;
         this.chatId = chatId;
         this.senderId = senderId;
@@ -59,6 +76,7 @@ public class ChatMessage {
         this.encryptionScheme = encryptionScheme;
         this.encryptionIv = encryptionIv;
         this.encryptedKeysJson = encryptedKeysJson;
+        this.clientMessageId = clientMessageId;
         this.createdAt = createdAt;
     }
 
@@ -88,6 +106,10 @@ public class ChatMessage {
 
     public String getEncryptedKeysJson() {
         return encryptedKeysJson;
+    }
+
+    public String getClientMessageId() {
+        return clientMessageId;
     }
 
     public Instant getCreatedAt() {

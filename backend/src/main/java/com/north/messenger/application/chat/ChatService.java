@@ -1,26 +1,25 @@
 package com.north.messenger.application.chat;
 
 import com.north.messenger.api.dto.ChatSummaryResponse;
-import com.north.messenger.api.dto.ChatDraftResponse;
+import com.north.messenger.api.dto.ChatRemovalEventResponse;
 import com.north.messenger.api.dto.CreateDirectChatRequest;
 import com.north.messenger.api.dto.CreateGroupChatRequest;
 import com.north.messenger.api.dto.AddGroupParticipantsRequest;
 import com.north.messenger.api.dto.ParticipantResponse;
-import com.north.messenger.api.dto.UpdateChatDraftRequest;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.model.ChatParticipant;
 import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.UserArchivedChat;
 import com.north.messenger.domain.model.UserAccount;
-import com.north.messenger.domain.model.UserChatDraft;
+import com.north.messenger.domain.model.UserDeletedChat;
 import com.north.messenger.domain.repository.UserArchivedChatRepository;
 import com.north.messenger.domain.repository.ChatMessageRepository;
 import com.north.messenger.domain.repository.ChatParticipantRepository;
 import com.north.messenger.domain.repository.ChatRoomRepository;
 import com.north.messenger.domain.repository.MessageReceiptRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
-import com.north.messenger.domain.repository.UserChatDraftRepository;
+import com.north.messenger.domain.repository.UserDeletedChatRepository;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -30,6 +29,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -51,8 +51,8 @@ public class ChatService {
     private final ChatMessageRepository chatMessageRepository;
     private final MessageReceiptRepository messageReceiptRepository;
     private final UserAccountRepository userAccountRepository;
-    private final UserChatDraftRepository userChatDraftRepository;
     private final UserArchivedChatRepository userArchivedChatRepository;
+    private final UserDeletedChatRepository userDeletedChatRepository;
     private final SimpMessagingTemplate messagingTemplate;
 
     public ChatService(
@@ -62,8 +62,8 @@ public class ChatService {
             ChatMessageRepository chatMessageRepository,
             MessageReceiptRepository messageReceiptRepository,
             UserAccountRepository userAccountRepository,
-            UserChatDraftRepository userChatDraftRepository,
             UserArchivedChatRepository userArchivedChatRepository,
+            UserDeletedChatRepository userDeletedChatRepository,
             SimpMessagingTemplate messagingTemplate
     ) {
         this.authService = authService;
@@ -72,8 +72,8 @@ public class ChatService {
         this.chatMessageRepository = chatMessageRepository;
         this.messageReceiptRepository = messageReceiptRepository;
         this.userAccountRepository = userAccountRepository;
-        this.userChatDraftRepository = userChatDraftRepository;
         this.userArchivedChatRepository = userArchivedChatRepository;
+        this.userDeletedChatRepository = userDeletedChatRepository;
         this.messagingTemplate = messagingTemplate;
     }
 
@@ -87,13 +87,22 @@ public class ChatService {
         List<UUID> chatIds = memberships.stream()
                 .map(ChatParticipant::getChatId)
                 .toList();
+        Set<UUID> deletedChatIds = userDeletedChatRepository.findAllByUserIdOrderByDeletedAtDesc(currentUser.getId()).stream()
+                .map(UserDeletedChat::getChatId)
+                .collect(Collectors.toSet());
+        List<UUID> visibleChatIds = chatIds.stream()
+                .filter(chatId -> !deletedChatIds.contains(chatId))
+                .toList();
+        if (visibleChatIds.isEmpty()) {
+            return List.of();
+        }
 
-        Map<UUID, ChatRoom> roomsById = chatRoomRepository.findAllById(chatIds).stream()
+        Map<UUID, ChatRoom> roomsById = chatRoomRepository.findAllById(visibleChatIds).stream()
                 .collect(Collectors.toMap(ChatRoom::getId, Function.identity()));
-        Map<UUID, Integer> unreadCountsByChatId = loadUnreadCounts(chatIds, currentUser.getId());
+        Map<UUID, Integer> unreadCountsByChatId = loadUnreadCounts(visibleChatIds, currentUser.getId());
 
         List<ChatSummaryResponse> chats = new ArrayList<>();
-        for (UUID chatId : chatIds) {
+        for (UUID chatId : visibleChatIds) {
             ChatRoom room = roomsById.get(chatId);
             if (room != null) {
                 chats.add(toSummary(room, currentUser.getId(), unreadCountsByChatId.getOrDefault(chatId, 0)));
@@ -106,24 +115,12 @@ public class ChatService {
 
     public List<UUID> listArchivedChatIds(String username) {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
+        Set<UUID> deletedChatIds = userDeletedChatRepository.findAllByUserIdOrderByDeletedAtDesc(currentUser.getId()).stream()
+                .map(UserDeletedChat::getChatId)
+                .collect(Collectors.toSet());
         return userArchivedChatRepository.findAllByUserIdOrderByArchivedAtDesc(currentUser.getId()).stream()
                 .map(UserArchivedChat::getChatId)
-                .toList();
-    }
-
-    public List<ChatDraftResponse> listDrafts(String username) {
-        UserAccount currentUser = authService.requireAuthenticatedUser(username);
-        LinkedHashSet<UUID> accessibleChatIds = chatParticipantRepository.findAllByUserIdOrderByJoinedAtAsc(currentUser.getId()).stream()
-                .map(ChatParticipant::getChatId)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-
-        if (accessibleChatIds.isEmpty()) {
-            return List.of();
-        }
-
-        return userChatDraftRepository.findAllByUserIdOrderByUpdatedAtDesc(currentUser.getId()).stream()
-                .filter(draft -> accessibleChatIds.contains(draft.getChatId()))
-                .map(draft -> new ChatDraftResponse(draft.getChatId(), draft.getContent(), draft.getUpdatedAt()))
+                .filter(chatId -> !deletedChatIds.contains(chatId))
                 .toList();
     }
 
@@ -145,25 +142,20 @@ public class ChatService {
     }
 
     @Transactional
-    public void updateDraft(String username, UUID chatId, UpdateChatDraftRequest request) {
+    public void deleteChatForSelf(String username, UUID chatId) {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
         requireChatMembership(chatId, currentUser);
 
-        String content = request.content();
-        if (content.isBlank()) {
-            userChatDraftRepository.findByUserIdAndChatId(currentUser.getId(), chatId)
-                    .ifPresent(userChatDraftRepository::delete);
-            return;
-        }
-
-        Instant now = Instant.now();
-        userChatDraftRepository.findByUserIdAndChatId(currentUser.getId(), chatId)
-                .ifPresentOrElse(
-                        draft -> draft.updateContent(content, now),
-                        () -> userChatDraftRepository.save(
-                                new UserChatDraft(UUID.randomUUID(), currentUser.getId(), chatId, content, now)
-                        )
-                );
+        userDeletedChatRepository.findByUserIdAndChatId(currentUser.getId(), chatId)
+                .orElseGet(() -> userDeletedChatRepository.save(
+                        new UserDeletedChat(UUID.randomUUID(), currentUser.getId(), chatId, Instant.now())
+                ));
+        userArchivedChatRepository.deleteByUserIdAndChatId(currentUser.getId(), chatId);
+        messagingTemplate.convertAndSendToUser(
+                currentUser.getUsername(),
+                "/queue/chat-removals",
+                new ChatRemovalEventResponse(chatId)
+        );
     }
 
     @Transactional
@@ -176,7 +168,11 @@ public class ChatService {
         }
 
         return chatRoomRepository.findDirectChatByParticipantIds(currentUser.getId(), participant.getId())
-                .map(room -> toSummary(room, currentUser.getId()))
+                .map(room -> {
+                    restoreDeletedChatStateForUsers(room.getId(), List.of(currentUser.getId()));
+                    notifyChatUpdated(room.getId());
+                    return toSummary(room, currentUser.getId());
+                })
                 .orElseGet(() -> createNewDirectChat(currentUser, participant));
     }
 
@@ -295,10 +291,15 @@ public class ChatService {
         ChatMessage lastMessage = chatMessageRepository.findTopByChatIdAndEncryptionSchemeIsNotNullOrderByCreatedAtDesc(chatId)
                 .orElse(null);
         Map<UUID, Integer> unreadCountsByUserId = loadUnreadCountsForUsers(chatId);
+        List<UserDeletedChat> deletedChatEntries = userDeletedChatRepository.findAllByChatId(chatId);
+        Set<UUID> deletedUserIds = (deletedChatEntries == null ? List.<UserDeletedChat>of() : deletedChatEntries).stream()
+                .map(UserDeletedChat::getUserId)
+                .collect(Collectors.toSet());
 
         memberships.stream()
                 .map(membership -> usersById.get(membership.getUserId()))
                 .filter(Objects::nonNull)
+                .filter(user -> !deletedUserIds.contains(user.getId()))
                 .forEach(user -> messagingTemplate.convertAndSendToUser(
                         user.getUsername(),
                         "/queue/chats",
@@ -323,6 +324,15 @@ public class ChatService {
 
     private ChatSummaryResponse toSummary(ChatRoom room, UUID currentUserId) {
         return toSummary(room, currentUserId, loadUnreadCount(room.getId(), currentUserId));
+    }
+
+    @Transactional
+    public void restoreDeletedChatStateForUsers(UUID chatId, Collection<UUID> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return;
+        }
+
+        userDeletedChatRepository.deleteByChatIdAndUserIdIn(chatId, userIds);
     }
 
     private ChatSummaryResponse toSummary(ChatRoom room, UUID currentUserId, int unreadCount) {

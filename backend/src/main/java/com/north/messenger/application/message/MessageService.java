@@ -8,6 +8,7 @@ import com.north.messenger.api.dto.EncryptedMessagePayloadRequest;
 import com.north.messenger.api.dto.EncryptedMessagePayloadResponse;
 import com.north.messenger.api.dto.MessageDeliveryState;
 import com.north.messenger.api.dto.MessageReceiptRequest;
+import com.north.messenger.api.dto.MessageDeletionEventResponse;
 import com.north.messenger.api.dto.MessageResponse;
 import com.north.messenger.api.dto.MessageStatusEventResponse;
 import com.north.messenger.api.dto.MessageStatusResponse;
@@ -31,7 +32,9 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,6 +51,7 @@ public class MessageService {
     private final UserAccountRepository userAccountRepository;
     private final SimpMessagingTemplate messagingTemplate;
     private final ObjectMapper objectMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
     public MessageService(
             AuthService authService,
@@ -56,7 +60,8 @@ public class MessageService {
             MessageReceiptRepository messageReceiptRepository,
             UserAccountRepository userAccountRepository,
             SimpMessagingTemplate messagingTemplate,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            ApplicationEventPublisher eventPublisher
     ) {
         this.authService = authService;
         this.chatService = chatService;
@@ -65,6 +70,7 @@ public class MessageService {
         this.userAccountRepository = userAccountRepository;
         this.messagingTemplate = messagingTemplate;
         this.objectMapper = objectMapper;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
@@ -96,7 +102,8 @@ public class MessageService {
                         message,
                         usersById.get(message.getSenderId()),
                         currentUser.getId(),
-                        summariesByMessageId.getOrDefault(message.getId(), MessageReceiptSummary.empty())
+                        summariesByMessageId.getOrDefault(message.getId(), MessageReceiptSummary.empty()),
+                        null
                 ))
                 .toList();
     }
@@ -106,6 +113,12 @@ public class MessageService {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
         chatService.requireChatMembership(chatId, currentUser);
         List<UserAccount> participants = chatService.findParticipants(chatId);
+        String clientMessageId = normalizeClientMessageId(request.clientMessageId());
+
+        MessageResponse existingResponse = findExistingMessageResponse(chatId, currentUser, clientMessageId);
+        if (existingResponse != null) {
+            return existingResponse;
+        }
 
         EncryptedMessagePayloadRequest encryptedPayload = request.encryptedPayload();
         if (encryptedPayload == null) {
@@ -120,43 +133,125 @@ public class MessageService {
         String encryptionIv = encryptedPayload.iv();
         String encryptedKeysJson = serializeEncryptedKeys(validateEncryptedPayload(encryptedPayload, participants));
 
-        ChatMessage message = new ChatMessage(
-                UUID.randomUUID(),
-                chatId,
-                currentUser.getId(),
-                content,
-                encryptionScheme,
-                encryptionIv,
-                encryptedKeysJson,
-                Instant.now()
-        );
-        chatMessageRepository.save(message);
+        try {
+            ChatMessage message = new ChatMessage(
+                    UUID.randomUUID(),
+                    chatId,
+                    currentUser.getId(),
+                    content,
+                    encryptionScheme,
+                    encryptionIv,
+                    encryptedKeysJson,
+                    clientMessageId,
+                    Instant.now()
+            );
+            chatMessageRepository.saveAndFlush(message);
 
-        List<MessageReceipt> receipts = participants.stream()
-                .filter(participant -> !participant.getId().equals(currentUser.getId()))
-                .map(participant -> new MessageReceipt(
-                        UUID.randomUUID(),
-                        message.getId(),
-                        participant.getId(),
-                        null,
-                        null
-                ))
-                .toList();
-        if (!receipts.isEmpty()) {
-            messageReceiptRepository.saveAll(receipts);
+            List<MessageReceipt> receipts = participants.stream()
+                    .filter(participant -> !participant.getId().equals(currentUser.getId()))
+                    .map(participant -> new MessageReceipt(
+                            UUID.randomUUID(),
+                            message.getId(),
+                            participant.getId(),
+                            null,
+                            null
+                    ))
+                    .toList();
+            if (!receipts.isEmpty()) {
+                messageReceiptRepository.saveAll(receipts);
+            }
+
+            chatService.restoreDeletedChatStateForUsers(
+                    chatId,
+                    participants.stream().map(UserAccount::getId).toList()
+            );
+
+            MessageReceiptSummary summary = summarizeReceipts(receipts);
+            MessageResponse responseForSender = toResponse(
+                    message,
+                    currentUser,
+                    currentUser.getId(),
+                    summary,
+                    clientMessageId
+            );
+            eventPublisher.publishEvent(new MessageDispatchEvent(chatId, message.getId(), clientMessageId));
+            return responseForSender;
+        } catch (DataIntegrityViolationException exception) {
+            MessageResponse deduplicatedResponse = findExistingMessageResponse(chatId, currentUser, clientMessageId);
+            if (deduplicatedResponse != null) {
+                return deduplicatedResponse;
+            }
+
+            throw exception;
+        }
+    }
+
+    @Transactional
+    public void deleteMessage(UUID chatId, UUID messageId, String username) {
+        UserAccount currentUser = authService.requireAuthenticatedUser(username);
+        chatService.requireChatMembership(chatId, currentUser);
+
+        ChatMessage message = chatMessageRepository.findById(messageId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found"));
+        if (!message.getChatId().equals(chatId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found in this chat");
+        }
+        if (!message.getSenderId().equals(currentUser.getId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the sender can delete the message for everyone");
         }
 
-        MessageReceiptSummary summary = summarizeReceipts(receipts);
-        MessageResponse responseForSender = toResponse(message, currentUser, currentUser.getId(), summary);
+        List<UserAccount> participants = chatService.findParticipants(chatId);
+        chatMessageRepository.delete(message);
+        participants.forEach(participant -> messagingTemplate.convertAndSendToUser(
+                participant.getUsername(),
+                "/queue/message-deletions",
+                new MessageDeletionEventResponse(messageId, chatId)
+        ));
         chatService.notifyChatUpdated(chatId);
+    }
+
+    @Transactional(readOnly = true)
+    public void dispatchMessage(MessageDispatchEvent event) {
+        ChatMessage message = chatMessageRepository.findById(event.messageId())
+                .orElse(null);
+        if (message == null) {
+            return;
+        }
+
+        UserAccount sender = userAccountRepository.findById(message.getSenderId())
+                .orElse(null);
+        if (sender == null) {
+            return;
+        }
+
+        List<UserAccount> participants = chatService.findParticipants(event.chatId());
+        MessageReceiptSummary summary = loadReceiptSummaries(List.of(message.getId()))
+                .getOrDefault(message.getId(), MessageReceiptSummary.empty());
 
         participants.forEach(participant -> {
-            MessageResponse response = participant.getId().equals(currentUser.getId())
-                    ? responseForSender
-                    : toResponse(message, currentUser, participant.getId(), summary);
+            MessageResponse response = participant.getId().equals(sender.getId())
+                    ? toResponse(message, sender, participant.getId(), summary, event.clientMessageId())
+                    : toResponse(message, sender, participant.getId(), summary, null);
             messagingTemplate.convertAndSendToUser(participant.getUsername(), "/queue/messages", response);
         });
-        return responseForSender;
+        chatService.notifyChatUpdated(event.chatId());
+    }
+
+    private MessageResponse findExistingMessageResponse(UUID chatId, UserAccount currentUser, String clientMessageId) {
+        if (clientMessageId == null) {
+            return null;
+        }
+
+        ChatMessage existingMessage = chatMessageRepository
+                .findByChatIdAndSenderIdAndClientMessageId(chatId, currentUser.getId(), clientMessageId)
+                .orElse(null);
+        if (existingMessage == null) {
+            return null;
+        }
+
+        MessageReceiptSummary summary = loadReceiptSummaries(List.of(existingMessage.getId()))
+                .getOrDefault(existingMessage.getId(), MessageReceiptSummary.empty());
+        return toResponse(existingMessage, currentUser, currentUser.getId(), summary, existingMessage.getClientMessageId());
     }
 
     @Transactional
@@ -213,7 +308,8 @@ public class MessageService {
             ChatMessage message,
             UserAccount sender,
             UUID currentUserId,
-            MessageReceiptSummary summary
+            MessageReceiptSummary summary,
+            String clientMessageId
     ) {
         MessageStatusResponse status = message.getSenderId().equals(currentUserId)
                 ? summary.toResponse()
@@ -225,6 +321,7 @@ public class MessageService {
                 authService.toParticipant(sender),
                 message.getCreatedAt(),
                 status,
+                clientMessageId,
                 toEncryptedPayload(message, currentUserId)
         );
     }
@@ -300,6 +397,14 @@ public class MessageService {
         int deliveredCount = (int) receipts.stream().filter(receipt -> receipt.getDeliveredAt() != null).count();
         int readCount = (int) receipts.stream().filter(receipt -> receipt.getReadAt() != null).count();
         return new MessageReceiptSummary(recipientCount, deliveredCount, readCount);
+    }
+
+    private String normalizeClientMessageId(String clientMessageId) {
+        if (clientMessageId == null || clientMessageId.isBlank()) {
+            return null;
+        }
+
+        return clientMessageId;
     }
 
     private Map<String, String> validateEncryptedPayload(

@@ -16,12 +16,14 @@ import type {
 
 const MESSAGE_SCHEME = "RSA-OAEP-256/AES-GCM";
 const KDF_ITERATIONS = 250_000;
-const PRIVATE_KEY_STORAGE_PREFIX = "north-messenger-e2ee-private:";
-const PUBLIC_KEY_STORAGE_PREFIX = "north-messenger-e2ee-public:";
 const ENCRYPTED_MESSAGE_UNAVAILABLE = "[Encrypted message unavailable]";
+const UNLOCKED_IDENTITY_STORAGE_PREFIX = "north-messenger:unlocked-e2ee:";
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 const publicKeyCache = new Map<string, string>();
+const importedPublicKeyCache = new Map<string, Promise<CryptoKey>>();
+const importedPrivateKeyCache = new Map<string, Promise<CryptoKey>>();
+const unlockedIdentityByUserId = new Map<string, LocalIdentity>();
 
 type LocalIdentity = {
   publicKey: string;
@@ -29,11 +31,31 @@ type LocalIdentity = {
 };
 
 export function hasUnlockedPrivateEncryptionKey(userId: string) {
-  return Boolean(window.sessionStorage.getItem(privateKeyStorageKey(userId)));
+  return readUnlockedIdentity(userId) !== null;
 }
 
 export function isUnavailableEncryptedMessage(content: string) {
   return content === ENCRYPTED_MESSAGE_UNAVAILABLE;
+}
+
+export function clearUnlockedEncryptionState(userId?: string) {
+  if (userId) {
+    const identity = unlockedIdentityByUserId.get(userId);
+    if (identity) {
+      importedPrivateKeyCache.delete(identity.privateKey);
+      publicKeyCache.delete(userId);
+      unlockedIdentityByUserId.delete(userId);
+    }
+    removeUnlockedIdentityFromSession(userId);
+    return;
+  }
+
+  unlockedIdentityByUserId.forEach((identity, currentUserId) => {
+    importedPrivateKeyCache.delete(identity.privateKey);
+    publicKeyCache.delete(currentUserId);
+    removeUnlockedIdentityFromSession(currentUserId);
+  });
+  unlockedIdentityByUserId.clear();
 }
 
 export async function ensureEncryptionReady(session: AuthResponse, password: string) {
@@ -90,7 +112,19 @@ export async function sendEncryptedMessage(
   token: string,
   chatId: string,
   content: string,
-  participants: Participant[]
+  participants: Participant[],
+  clientMessageId?: string,
+  options?: {
+    sendViaRealtime?: (request: {
+      clientMessageId?: string;
+      encryptedPayload: {
+        scheme: string;
+        ciphertext: string;
+        iv: string;
+        encryptedKeysByUserId: Record<string, string>;
+      };
+    }) => Promise<ChatMessage> | null;
+  }
 ) {
   const normalizedContent = content.trim();
   if (!normalizedContent) {
@@ -108,7 +142,20 @@ export async function sendEncryptedMessage(
   }
 
   const encryptedPayload = await encryptMessage(normalizedContent, publicKeysByUserId);
+  try {
+    const realtimeResponse = await options?.sendViaRealtime?.({
+      clientMessageId,
+      encryptedPayload,
+    });
+    if (realtimeResponse) {
+      return realtimeResponse;
+    }
+  } catch {
+    // Fall back to HTTP when realtime send is unavailable or acknowledgement is delayed.
+  }
+
   const response = await sendMessageRaw(token, chatId, {
+    clientMessageId,
     encryptedPayload,
   });
 
@@ -119,7 +166,13 @@ export async function sendEncryptedMessage(
     content: normalizedContent,
     createdAt: response.createdAt,
     status: response.status,
+    clientMessageId: response.clientMessageId ?? clientMessageId ?? null,
   } satisfies ChatMessage;
+}
+
+export async function primeEncryptedMessageRecipients(token: string, participants: Participant[]) {
+  const publicKeysByUserId = await loadPublicKeys(token, participants.map((participant) => participant.id));
+  await Promise.all([...publicKeysByUserId.values()].map((publicKey) => importPublicKey(publicKey)));
 }
 
 export async function hydrateChatMessage(
@@ -134,6 +187,7 @@ export async function hydrateChatMessage(
       content: ENCRYPTED_MESSAGE_UNAVAILABLE,
       createdAt: message.createdAt,
       status: message.status,
+      clientMessageId: message.clientMessageId ?? null,
     };
   }
 
@@ -146,6 +200,7 @@ export async function hydrateChatMessage(
       content,
       createdAt: message.createdAt,
       status: message.status,
+      clientMessageId: message.clientMessageId ?? null,
     };
   } catch {
     return {
@@ -155,6 +210,7 @@ export async function hydrateChatMessage(
       content: ENCRYPTED_MESSAGE_UNAVAILABLE,
       createdAt: message.createdAt,
       status: message.status,
+      clientMessageId: message.clientMessageId ?? null,
     };
   }
 }
@@ -347,7 +403,12 @@ async function deriveWrappingKey(password: string, salt: Uint8Array, iterations:
 }
 
 async function importPublicKey(serializedPublicKey: string) {
-  return window.crypto.subtle.importKey(
+  const cachedKey = importedPublicKeyCache.get(serializedPublicKey);
+  if (cachedKey) {
+    return cachedKey;
+  }
+
+  const importPromise = window.crypto.subtle.importKey(
     "jwk",
     JSON.parse(serializedPublicKey) as JsonWebKey,
     {
@@ -357,10 +418,23 @@ async function importPublicKey(serializedPublicKey: string) {
     false,
     ["encrypt"]
   );
+
+  importedPublicKeyCache.set(serializedPublicKey, importPromise);
+  try {
+    return await importPromise;
+  } catch (error) {
+    importedPublicKeyCache.delete(serializedPublicKey);
+    throw error;
+  }
 }
 
 async function importPrivateKey(serializedPrivateKey: string) {
-  return window.crypto.subtle.importKey(
+  const cachedKey = importedPrivateKeyCache.get(serializedPrivateKey);
+  if (cachedKey) {
+    return cachedKey;
+  }
+
+  const importPromise = window.crypto.subtle.importKey(
     "jwk",
     JSON.parse(serializedPrivateKey) as JsonWebKey,
     {
@@ -370,6 +444,14 @@ async function importPrivateKey(serializedPrivateKey: string) {
     false,
     ["decrypt"]
   );
+
+  importedPrivateKeyCache.set(serializedPrivateKey, importPromise);
+  try {
+    return await importPromise;
+  } catch (error) {
+    importedPrivateKeyCache.delete(serializedPrivateKey);
+    throw error;
+  }
 }
 
 function requireLocalIdentity(userId: string) {
@@ -382,54 +464,83 @@ function requireLocalIdentity(userId: string) {
 }
 
 function readUnlockedIdentity(userId: string): LocalIdentity | null {
-  const publicKey = window.sessionStorage.getItem(publicKeyStorageKey(userId));
-  const privateKey = window.sessionStorage.getItem(privateKeyStorageKey(userId));
-  if (!publicKey || !privateKey) {
-    const legacyIdentity = readLegacyIdentity(userId);
-    if (!legacyIdentity) {
-      return null;
-    }
-
-    writeUnlockedIdentity(userId, legacyIdentity);
-    clearLegacyIdentity(userId);
-    return legacyIdentity;
+  const inMemoryIdentity = unlockedIdentityByUserId.get(userId) ?? null;
+  if (inMemoryIdentity) {
+    return inMemoryIdentity;
   }
 
-  return {
-    publicKey,
-    privateKey,
-  };
-}
-
-function writeUnlockedIdentity(userId: string, identity: LocalIdentity) {
-  window.sessionStorage.setItem(publicKeyStorageKey(userId), identity.publicKey);
-  window.sessionStorage.setItem(privateKeyStorageKey(userId), identity.privateKey);
-}
-
-function readLegacyIdentity(userId: string): LocalIdentity | null {
-  const publicKey = window.localStorage.getItem(publicKeyStorageKey(userId));
-  const privateKey = window.localStorage.getItem(privateKeyStorageKey(userId));
-  if (!publicKey || !privateKey) {
+  const sessionIdentity = readUnlockedIdentityFromSession(userId);
+  if (!sessionIdentity) {
     return null;
   }
 
-  return {
-    publicKey,
-    privateKey,
-  };
+  unlockedIdentityByUserId.set(userId, sessionIdentity);
+  return sessionIdentity;
 }
 
-function clearLegacyIdentity(userId: string) {
-  window.localStorage.removeItem(publicKeyStorageKey(userId));
-  window.localStorage.removeItem(privateKeyStorageKey(userId));
+function writeUnlockedIdentity(userId: string, identity: LocalIdentity) {
+  unlockedIdentityByUserId.set(userId, identity);
+  writeUnlockedIdentityToSession(userId, identity);
 }
 
-function publicKeyStorageKey(userId: string) {
-  return `${PUBLIC_KEY_STORAGE_PREFIX}${userId}`;
+function readUnlockedIdentityFromSession(userId: string): LocalIdentity | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const rawValue = window.sessionStorage.getItem(getUnlockedIdentityStorageKey(userId));
+    if (!rawValue) {
+      return null;
+    }
+
+    const parsedIdentity = JSON.parse(rawValue) as Partial<LocalIdentity>;
+    if (
+      typeof parsedIdentity.publicKey !== "string" ||
+      parsedIdentity.publicKey.length === 0 ||
+      typeof parsedIdentity.privateKey !== "string" ||
+      parsedIdentity.privateKey.length === 0
+    ) {
+      removeUnlockedIdentityFromSession(userId);
+      return null;
+    }
+
+    return {
+      publicKey: parsedIdentity.publicKey,
+      privateKey: parsedIdentity.privateKey,
+    };
+  } catch {
+    removeUnlockedIdentityFromSession(userId);
+    return null;
+  }
 }
 
-function privateKeyStorageKey(userId: string) {
-  return `${PRIVATE_KEY_STORAGE_PREFIX}${userId}`;
+function writeUnlockedIdentityToSession(userId: string, identity: LocalIdentity) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.sessionStorage.setItem(getUnlockedIdentityStorageKey(userId), JSON.stringify(identity));
+  } catch {
+    return;
+  }
+}
+
+function removeUnlockedIdentityFromSession(userId: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.sessionStorage.removeItem(getUnlockedIdentityStorageKey(userId));
+  } catch {
+    return;
+  }
+}
+
+function getUnlockedIdentityStorageKey(userId: string) {
+  return `${UNLOCKED_IDENTITY_STORAGE_PREFIX}${userId}`;
 }
 
 function randomBytes(length: number) {

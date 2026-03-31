@@ -40,5 +40,7 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> 
             Pageable pageable
     );
 
+    Optional<ChatMessage> findByChatIdAndSenderIdAndClientMessageId(UUID chatId, UUID senderId, String clientMessageId);
+
     Optional<ChatMessage> findTopByChatIdAndEncryptionSchemeIsNotNullOrderByCreatedAtDesc(UUID chatId);
 }

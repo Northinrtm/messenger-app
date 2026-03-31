@@ -12,6 +12,8 @@ import com.north.messenger.domain.model.VideoConferenceParticipant;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import com.north.messenger.domain.repository.VideoConferenceParticipantRepository;
 import com.north.messenger.domain.repository.VideoConferenceRepository;
+import com.north.messenger.security.JwtProperties;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -31,6 +33,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class VideoConferenceServiceTest {
+
+    private static final String TEST_JWT_SECRET = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=";
 
     private AuthService authService;
     private UserAccountRepository userAccountRepository;
@@ -57,7 +61,14 @@ class VideoConferenceServiceTest {
                 videoConferenceParticipantRepository,
                 conferenceRecordingRepository,
                 conferenceRecordingStorage,
-                conferenceRecordingImportService
+                conferenceRecordingImportService,
+                new JwtProperties(
+                        TEST_JWT_SECRET,
+                        Duration.ofHours(12),
+                        Duration.ofDays(30),
+                        "north-messenger",
+                        false
+                )
         );
 
         when(videoConferenceRepository.save(any(VideoConference.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -111,8 +122,9 @@ class VideoConferenceServiceTest {
         assertThat(response.createdBy().id()).isEqualTo(currentUser.getId());
         assertThat(response.roomName())
                 .startsWith("vc-")
-                .hasSize(25)
+                .hasSizeGreaterThan(25)
                 .doesNotContain("+", "/", "=");
+        assertThat(response.roomAccessCode()).isNotBlank();
         assertThat(response.activatedAt()).isNotNull();
         assertThat(response.participants()).containsExactly(currentUserResponse);
         verify(videoConferenceRepository).save(any(VideoConference.class));
@@ -374,7 +386,7 @@ class VideoConferenceServiceTest {
     }
 
     @Test
-    void listConferencesShouldHideRoomUntilScheduledStart() {
+    void listConferencesShouldRevealRoomFiveMinutesBeforeScheduledStart() {
         UserAccount organizer = new UserAccount(
                 UUID.randomUUID(),
                 "north",
@@ -433,7 +445,8 @@ class VideoConferenceServiceTest {
         List<VideoConferenceResponse> response = videoConferenceService.listConferences("south");
 
         assertThat(response).hasSize(1);
-        assertThat(response.get(0).roomName()).isNull();
+        assertThat(response.get(0).roomName()).isEqualTo("vc-hidden");
+        assertThat(response.get(0).roomAccessCode()).isNotBlank();
         assertThat(response.get(0).startedAt()).isNull();
     }
 
@@ -500,6 +513,7 @@ class VideoConferenceServiceTest {
 
         assertThat(response).hasSize(1);
         assertThat(response.get(0).roomName()).isEqualTo("vc-visible");
+        assertThat(response.get(0).roomAccessCode()).isNotBlank();
         assertThat(response.get(0).startedAt()).isNotNull();
     }
 

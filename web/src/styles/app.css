@@ -89,6 +89,17 @@ textarea::placeholder {
   padding: 2rem;
 }
 
+.unlock-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: rgba(7, 12, 19, 0.6);
+  backdrop-filter: blur(12px);
+}
+
 .workspace-shell {
   display: grid;
   grid-template-columns: clamp(18.5rem, 26vw, 23rem) minmax(0, 1fr);
@@ -116,6 +127,18 @@ textarea::placeholder {
   width: min(100%, 32rem);
   padding: 2.4rem;
   border-radius: 2rem;
+}
+
+.unlock-card.is-overlay {
+  width: min(100%, 30rem);
+  box-shadow:
+    0 28px 88px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+.unlock-card.is-overlay h1 {
+  max-width: 10ch;
+  font-size: clamp(2.2rem, 5vw, 3.6rem);
 }
 
 .eyebrow {
@@ -1840,6 +1863,46 @@ textarea {
 
 .north-workspace .message-bubble.is-mine {
   background: #2b5278;
+}
+
+.context-menu-surface {
+  position: fixed;
+  z-index: 60;
+  min-width: 14rem;
+  max-width: min(18rem, calc(100vw - 1.5rem));
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.35rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.9rem;
+  background: rgba(24, 37, 53, 0.96);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(16px);
+}
+
+.context-menu-item {
+  width: 100%;
+  padding: 0.8rem 0.95rem;
+  border: 0;
+  border-radius: 0.7rem;
+  background: transparent;
+  color: #e8f2ff;
+  font-size: 0.95rem;
+  text-align: left;
+}
+
+.context-menu-item:hover {
+  transform: none;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.context-menu-item.is-danger {
+  color: #ffb2b2;
+}
+
+.context-menu-item.is-disabled {
+  color: #8ea2b6;
+  cursor: default;
 }
 
 .north-workspace .message-meta {

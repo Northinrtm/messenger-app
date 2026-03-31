@@ -7,6 +7,7 @@ type Props = {
   baseUrl: string;
   conferenceId?: string;
   roomName: string;
+  accessCode: string;
   displayName: string;
   title: string;
   autoStartServerRecording?: boolean;
@@ -75,6 +76,7 @@ export function ManagedConferenceStage({
   baseUrl,
   conferenceId,
   roomName,
+  accessCode,
   displayName,
   title,
   autoStartServerRecording = false,
@@ -120,6 +122,7 @@ export function ManagedConferenceStage({
     let exitRequested = false;
     let hangupTimerId: number | null = null;
     let serverRecordingRequested = false;
+    let roomAccessCodeApplied = false;
 
     const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
     const baseUrlObject = new URL(normalizedBaseUrl);
@@ -188,6 +191,15 @@ export function ManagedConferenceStage({
       if (normalizedConferenceTitle) {
         sendConferenceCommand(bridge, "subject", normalizedConferenceTitle);
       }
+    };
+
+    const applyRoomAccessCode = () => {
+      if (!bridge || !accessCode || roomAccessCodeApplied || isConferenceClosed) {
+        return;
+      }
+
+      roomAccessCodeApplied = true;
+      sendConferenceCommand(bridge, "password", accessCode);
     };
 
     const startServerRecording = () => {
@@ -296,14 +308,21 @@ export function ManagedConferenceStage({
         case "video-conference-joined":
           roleChangeRef.current?.(null);
           syncConferenceIdentity();
+          applyRoomAccessCode();
           return;
         case "participant-role-changed":
           if (eventPayload.role === "moderator") {
             roleChangeRef.current?.("moderator");
+            applyRoomAccessCode();
             startServerRecording();
             return;
           }
           roleChangeRef.current?.("participant");
+          return;
+        case "passwordRequired":
+        case "password-required":
+          roomAccessCodeApplied = false;
+          applyRoomAccessCode();
           return;
         case "recording-status-changed":
           handleRecordingStatusChange(eventPayload);
@@ -371,7 +390,7 @@ export function ManagedConferenceStage({
       bridge?.destroy();
       host.replaceChildren();
     };
-  }, [autoStartServerRecording, baseUrl, conferenceId, displayName, retryToken, roomName, title]);
+  }, [accessCode, autoStartServerRecording, baseUrl, conferenceId, displayName, retryToken, roomName, title]);
 
   return <div ref={hostRef} className="conference-embed-host" />;
 }

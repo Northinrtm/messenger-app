@@ -1,258 +1,211 @@
-# Messenger App
+﻿# Messenger App
 
-`Messenger App` — это MVP realtime-мессенджера с `Spring Boot` backend, `React + TypeScript` web-клиентом и запуском через `Docker Compose`.
+Messenger App is a realtime messenger monolith with:
 
-Проект собран как модульный монолит:
+- `Spring Boot` backend
+- `React + TypeScript` web client
+- `PostgreSQL` as the primary datastore
+- `Docker Compose` for local/dev deployment
+- embedded `Jitsi` stack for scheduled video conferences
 
-- `backend` отвечает за аутентификацию, сессии, профили, контакты, чаты, группы, видеоконференции, сообщения и realtime
-- `web` даёт Telegram-подобный интерфейс для общения и управления чатами
-- `postgres` — основной источник истины для пользователей, сессий, чатов и сообщений
-- `redis` вынесен в отдельный профиль и пока остается заделом под дальнейшее развитие presence и fan-out
+The current repository state is focused on direct chats, group chats, E2EE text messages, session management, and scheduled conferences.
 
-## Что уже работает
+## What Works Now
 
-### Backend
+### Auth and sessions
 
-- регистрация и вход по username/password
-- серверная политика сложности пароля и запрет слабых/часто используемых паролей
+- register and sign in with `username + password`
+- password policy enforcement on the backend
 - JWT access token
-- rotatable refresh token в `HttpOnly` cookie
-- хранение пользовательских сессий с привязкой к устройству
-- получение списка активных устройств и отзыв отдельных сессий
-- профиль текущего пользователя
-- изменение `displayName`
-- изменение аватара
-- поиск пользователей по `username` или `displayName`
-- контакты на сервере
-- создание личных чатов
-- создание групповых чатов
-- добавление участников в существующую группу
-- планирование видеоконференций
-- хранение списка участников видеоконференции
-- архив чатов на сервере
-- черновики на сервере
-- unread counters на сервере
-- загрузка истории сообщений с пагинацией
-- отправка сообщений
+- refresh token in `HttpOnly` cookie
+- session restore after page reload
+- active device/session list
+- revoke individual sessions
+- profile editing
+- avatar update
+
+### Chats and contacts
+
+- server-backed contacts
+- direct chats
+- group chats
+- add members to existing groups
+- archive chat for self
+- delete chat for self
+- direct chat shows in the dialogs list after the first message
+- group chat shows in the groups list immediately after creation
+- unread counters
+
+### Messages
+
+- end-to-end encrypted text messages
+- message history with pagination
+- optimistic send in the UI
 - delivered/read receipts
-- typing state по чатам
-- realtime-обновления через `WebSocket/STOMP` для чатов, сообщений, статусов сообщений и событий сессий
-- online-флаг пользователя на основе недавней активности сессии
+- typing indicator
+- delete own message for everyone
+- realtime delivery through `WebSocket/STOMP`
+- HTTP fallbacks for sensitive client flows where needed
 
-### Frontend
+### Video conferences
 
-- Telegram-подобный layout: список чатов слева, активный диалог справа
-- изменение ширины списка диалогов
-- поиск пользователей из верхней строки поиска
-- вкладки `Диалоги`, `Группы` и `Видеоконференции`
-- группы отображаются в левой панели сразу после создания
-- личные чаты появляются в левой панели после первого сообщения
-- список видеоконференций и экран планирования из бокового меню
-- профиль с редактированием имени
-- вставка аватара из буфера обмена в профиле
-- экран архива
-- экран контактов и добавление контактов из поиска
-- создание групп из контактов
-- добавление людей в группу из списка контактов
-- экран активных устройств
-- индикатор online/offline в личных диалогах
-- unread counters, черновики и live-обновление списка чатов
-- delivered/read-галочки у сообщений
-- typing indicators
-- встроенный Jitsi iframe для видеоконференций
-- восстановление сессии через refresh cookie без хранения секретов в `localStorage`
+- schedule conference
+- invite participants
+- conference becomes joinable 5 minutes before scheduled start
+- embedded Jitsi stage inside the app
+- in-app join path with per-room access code
+- conference archive
+- server-side recording import flow for `Jibri`
+- recording download from the app after import
 
-### Важные замечания по текущей реализации
+### UI
 
-- refresh token не хранится в `localStorage`: он живет в `HttpOnly` cookie
-- access token хранится только в памяти клиента
-- Redis не стартует по умолчанию в dev-compose и пока не участвует в основном message flow
-- realtime работает на встроенном Spring STOMP broker
-- typing state сейчас краткоживущий и хранится в памяти backend-процесса
+- Telegram-like split layout
+- dialogs / groups / conferences tabs
+- archive screen
+- contacts screen
+- sessions screen
+- right-click context menu for:
+  - deleting chat for self
+  - deleting own message for everyone
 
-## Что пока не реализовано
+## Security and E2EE
 
-- вложения и медиа
-- push-уведомления
-- реакции на сообщения
+- message content is encrypted client-side with `RSA-OAEP + AES-GCM`
+- backend stores encrypted payloads and wrapped per-user keys
+- refresh token is not stored in `localStorage`
+- access token is kept in client memory
+- unlocked private E2EE key is currently kept in `sessionStorage` for the current tab session:
+  - survives normal page refresh
+  - does not survive full browser/tab lifecycle reset
+- auth endpoints have extra protection against cross-site requests and brute-force bursts
+
+Important limitations:
+
+- this is not a hardened high-assurance messenger yet
+- metadata is still visible to the server: participants, timestamps, receipts, typing, chat membership
+- realtime and typing are currently designed for a single backend instance, not horizontal scale-out
+
+## Realtime Model
+
+- one long-lived `WebSocket/STOMP` connection per client session
+- message send path is realtime-first
+- message acknowledgement uses `clientMessageId`
+- chat list and message list still perform periodic sync to avoid stale UI state
+- typing is short-lived state with TTL
+
+## Video Conference Notes
+
+- scheduled conferences open 5 minutes before start time
+- invited users join from inside the app
+- direct public share flow has been removed from the main UI
+- current protection is practical app-level access control plus room access code, not full Jitsi JWT auth
+
+For autonomous recording:
+
+- run `Jibri` with the `autonomous-recording` profile
+- this is expected to work properly on Linux hosts
+- plain Docker Desktop on Windows is not a reliable target for full Jibri recording
+
+## What Is Not Implemented
+
+- file attachments and media uploads
+- reactions
 - reply / forward
-- edit / delete сообщений
-- end-to-end encryption
-- полноценный distributed presence / last seen
-- отдельный broker или gateway для realtime scale-out
+- message editing
+- push notifications
+- distributed presence / last seen service
+- external message broker for horizontal realtime scale
+- true server-side Jitsi JWT admission control
 
-## Технологии
+## Project Layout
 
-### Backend
+- `backend` - Spring Boot application
+- `web` - React/Vite frontend
+- `jitsi` - Jitsi config used by local compose
+- `docs` - supplementary architecture notes
 
-- `Java 17`
-- `Spring Boot 3.5.7`
-- `Spring Web`
-- `Spring Security`
-- `Spring Validation`
-- `Spring Data JPA`
-- `Spring WebSocket`
-- `Spring Actuator`
-- `Flyway`
-- `PostgreSQL`
-- `JJWT`
-- `Maven`
-- тесты: `JUnit 5`, `Spring Boot Test`, `Spring Security Test`
+Main backend areas:
 
-### Frontend
+- `application.auth`
+- `application.chat`
+- `application.message`
+- `application.e2ee`
+- `security`
+- `config`
 
-- `React 19`
-- `TypeScript 5`
-- `Vite 7`
-- `@vitejs/plugin-react-swc`
-- `TanStack Query`
-- `SockJS`
-- `STOMP.js`
-- тесты: `Vitest`, `JSDOM`
+## Run with Docker Compose
 
-### Infra
+Requirements:
 
-- `Docker Compose`
-- `PostgreSQL 17`
-- `Redis 7` в optional profile
-- `nginx`
+- Docker Desktop
 
-## Архитектура
-
-### Backend-модули
-
-- `api` — REST-контроллеры и DTO
-- `application.auth` — регистрация, логин, refresh flow, сессии, профиль, контакты, password policy
-- `application.chat` — список чатов, архив, черновики, direct/group chats, участники, unread counters и видеоконференции
-- `application.message` — история сообщений, отправка, delivered/read receipts, typing state
-- `domain` — сущности и репозитории
-- `security` — JWT auth для HTTP и WebSocket, refresh-cookie configuration
-- `config` — CORS, WebSocket/STOMP, обработка ошибок
-
-### Основные точки входа
-
-- `POST /api/auth/register`
-- `POST /api/auth/login`
-- `POST /api/auth/refresh`
-- `POST /api/auth/logout`
-- `GET /api/auth/me`
-- `PUT /api/auth/me`
-- `PUT /api/auth/me/avatar`
-- `GET /api/auth/sessions`
-- `DELETE /api/auth/sessions/{sessionId}`
-- `GET /api/users/search`
-- `GET /api/users/contacts`
-- `POST /api/users/contacts`
-- `DELETE /api/users/contacts/{username}`
-- `GET /api/chats`
-- `GET /api/chats/archive`
-- `GET /api/chats/drafts`
-- `POST /api/chats/direct`
-- `POST /api/chats/group`
-- `POST /api/chats/{chatId}/participants`
-- `PUT /api/chats/{chatId}/archive`
-- `PUT /api/chats/{chatId}/draft`
-- `GET /api/chats/{chatId}/messages`
-- `POST /api/chats/{chatId}/messages`
-- `POST /api/chats/{chatId}/messages/delivered`
-- `POST /api/chats/{chatId}/messages/read`
-- `GET /api/chats/{chatId}/typing`
-- `POST /api/chats/{chatId}/typing`
-- `GET /api/conferences`
-- `POST /api/conferences`
-- `WebSocket endpoint: /ws`
-
-## Быстрый старт через Docker
-
-### Требования
-
-- `Docker Desktop`
-
-### Запуск dev-контура
+Start the default stack:
 
 ```bash
 docker compose up --build
 ```
 
-Что делает этот режим:
+Services:
 
-- backend стартует в `dev`-профиле
-- если `APP_JWT_SECRET` не задан, backend сам генерирует временный signing secret
-- после рестарта backend все текущие сессии станут недействительными
+- web: `http://localhost:3000`
+- backend API: `http://localhost:8080`
+- backend health: `http://localhost:8080/actuator/health`
+- Jitsi web: `http://localhost:8090`
 
-Если нужен и Redis:
+Optional Redis profile:
 
 ```bash
 docker compose --profile redis up --build
 ```
 
-### Автономная server-side запись видеоконференций
-
-Для `Jibri` запускай отдельный recording-профиль:
+Autonomous recording profile:
 
 ```bash
 docker compose --profile autonomous-recording up --build
 ```
 
-Важно:
-
-- `Jibri` требует Linux host c loopback audio, поэтому на обычном Docker Desktop для Windows этот режим не считается полноценным
-- backend автоматически импортирует готовые файлы из общего volume после завершения встречи
-- organizer больше не загружает видео из браузера: запись идет через server-side file recording
-
-### Что будет доступно
-
-- web: `http://localhost:3000`
-- backend API: `http://localhost:8080`
-- healthcheck backend: `http://localhost:8080/actuator/health`
-
-### Остановка
+Stop:
 
 ```bash
 docker compose down
 ```
 
-### Сброс данных контейнеров
+Reset local data:
 
 ```bash
 docker compose down -v
 ```
 
-## Локальный запуск без Docker для backend и web
+## Run Backend and Web Locally
 
-Этот режим удобен, если инфраструктуру хочется держать в контейнерах, а backend и frontend запускать локально.
+Requirements:
 
-### Требования
+- Java 17+
+- Maven 3.9+
+- Node.js LTS
+- Docker Desktop for infrastructure
 
-- `Java 17+`
-- `Maven 3.9+`
-- актуальная LTS-версия `Node.js`
-- `Docker Desktop`
-
-### Поднять только инфраструктуру
+Start infrastructure only:
 
 ```bash
 docker compose up -d postgres
 ```
 
-Если нужен Redis:
+Optional Redis:
 
 ```bash
 docker compose --profile redis up -d redis
 ```
 
-### Запустить backend
-
-Если `APP_JWT_SECRET` не задан, запускай backend в `dev`-профиле:
+Run backend:
 
 ```bash
 cd backend
-SPRING_PROFILES_ACTIVE=dev mvn spring-boot:run
+mvn spring-boot:run
 ```
 
-Если хочешь, чтобы локальные сессии переживали рестарт backend, задай постоянный `APP_JWT_SECRET`.
-
-### Запустить frontend
+Run frontend:
 
 ```bash
 cd web
@@ -260,88 +213,73 @@ npm install
 npm run dev
 ```
 
-### Адреса в локальном режиме
+Default local URLs:
 
 - backend: `http://localhost:8080`
 - frontend dev server: `http://localhost:5173`
 
-## Запуск для клиентов
+## Environment
 
-Для клиентского контура используй постоянный JWT secret и `prod`-профиль backend.
+Important variables:
 
-1. Скопируй `.env.prod.example` в `.env.prod`
-2. Заполни `POSTGRES_PASSWORD`, `DB_PASSWORD`, `APP_CORS_ALLOWED_ORIGINS` и `APP_JWT_SECRET`
-3. Запусти:
+- `SERVER_PORT`
+- `DB_URL`
+- `DB_USERNAME`
+- `DB_PASSWORD`
+- `APP_CORS_ALLOWED_ORIGINS`
+- `APP_JWT_SECRET`
+- `APP_JWT_REFRESH_TOKEN_TTL`
+- `APP_AUTH_REFRESH_COOKIE_NAME`
+- `APP_AUTH_REFRESH_COOKIE_PATH`
+- `APP_AUTH_REFRESH_COOKIE_SAME_SITE`
+- `APP_AUTH_REFRESH_COOKIE_SECURE`
+- `APP_MEDIA_CONFERENCE_RECORDINGS_DIRECTORY`
+- `APP_MEDIA_CONFERENCE_RECORDINGS_IMPORT_DIRECTORY`
+- `VITE_API_URL`
+- `VITE_WS_URL`
+- `VITE_JITSI_BASE_URL`
 
-```bash
-docker compose --env-file .env.prod -f docker-compose.prod.yml up --build -d
-```
+Use:
 
-Для autonomous recording в prod добавь recording-профиль:
+- `.env.example` for base defaults
+- `.env.prod.example` for production-like deployment
 
-```bash
-docker compose --profile autonomous-recording --env-file .env.prod -f docker-compose.prod.yml up --build -d
-```
+## Production Notes
 
-Важно:
+- set a stable `APP_JWT_SECRET`
+- in production it must be a valid Base64 secret with at least 32 bytes after decoding
+- use `docker-compose.prod.yml` with `.env.prod`
+- refresh cookie secure mode is expected in production
 
-- в `prod` нет автогенерации JWT secret
-- `APP_JWT_SECRET` должен быть корректным Base64-ключом длиной не меньше 32 байт после декодирования
-- `APP_AUTH_REFRESH_COOKIE_SECURE=true` включен в prod-профиле
+## Current Constraints
 
-## Переменные окружения
+- realtime broker is the in-process Spring broker
+- typing state is held in backend memory with cleanup TTL
+- no multi-node realtime fan-out layer yet
+- no distributed presence store yet
+- backend verification in this workspace is limited by environment availability; web checks are the easiest to run locally
 
-Базовые значения лежат в [.env.example](.env.example), а пример для client/prod-контура — в [.env.prod.example](.env.prod.example).
+## Practical Manual Checks
 
-| Переменная | Назначение | Значение по умолчанию |
-|---|---|---|
-| `SERVER_PORT` | HTTP-порт backend | `8080` |
-| `DB_URL` | JDBC URL PostgreSQL | `jdbc:postgresql://localhost:5432/messenger` |
-| `DB_USERNAME` | пользователь PostgreSQL | `messenger` |
-| `DB_PASSWORD` | пароль PostgreSQL | `messenger` |
-| `APP_CORS_ALLOWED_ORIGINS` | разрешенные origins для backend | `http://localhost:5173` |
-| `APP_JWT_SECRET` | секрет подписи JWT | пусто в dev по умолчанию; обязателен для стабильного локального запуска и для prod |
-| `APP_JWT_REFRESH_TOKEN_TTL` | TTL refresh token | `P30D` |
-| `APP_AUTH_REFRESH_COOKIE_NAME` | имя refresh cookie | `north_refresh_token` |
-| `APP_AUTH_REFRESH_COOKIE_PATH` | path refresh cookie | `/api/auth` |
-| `APP_AUTH_REFRESH_COOKIE_SAME_SITE` | SameSite для refresh cookie | `Lax` |
-| `APP_AUTH_REFRESH_COOKIE_SECURE` | флаг Secure для refresh cookie | `false` |
-| `VITE_API_URL` | базовый URL backend API | `http://localhost:8080` |
-| `VITE_WS_URL` | базовый URL для websocket | `http://localhost:8080` |
-| `VITE_JITSI_BASE_URL` | базовый URL Jitsi для видеоконференций | `https://meet.jit.si` |
+1. Register `user1`.
+2. Register `user2` in another browser profile/incognito window.
+3. Open a direct chat from `user1` to `user2`.
+4. Send the first message.
+5. Verify the dialog appears in the dialogs list for both sides.
+6. Verify typing indicator.
+7. Verify delivered/read status.
+8. Verify right-click delete for message.
+9. Verify delete chat for self.
+10. Create a group and verify it appears in the groups tab.
+11. Schedule a conference and verify it becomes available 5 minutes before start.
+12. If `Jibri` profile is enabled, verify recording import after the conference ends.
 
-## Ручная проверка
+## Verification Used During Development
 
-Базовый сценарий:
+The web client has been repeatedly checked with:
 
-1. Открой `http://localhost:3000`
-2. Зарегистрируй `user1`
-3. Открой второе окно браузера или режим инкогнито
-4. Зарегистрируй `user2`
-5. Найди `user2` через поиск сверху и открой личный чат
-6. Отправь первое сообщение и проверь, что диалог появился в списке слева
-7. Проверь delivered/read-галочки
-8. Начни печатать в одном клиенте и проверь typing indicator во втором
-9. Добавь `user2` в контакты
-10. Создай группу из контактов
-11. Создай черновик, обнови страницу и проверь, что он сохранился
-12. Открой вкладку видеоконференций, запланируй встречу и проверь, что открылся встроенный Jitsi room
-13. Архивируй чат, обнови страницу и проверь, что архив сохранился
-13. Открой экран активных устройств и проверь, что отображается текущее устройство
+- `npm run typecheck`
+- `npm run test:run`
+- `npm run build`
 
-## Текущие ограничения
-
-- online-статус основан на недавней активности сессии, а не на полноценной presence-системе
-- typing state хранится в памяти backend-процесса и не рассчитан на несколько инстансов
-- используется встроенный in-process STOMP broker
-- Redis пока не включен в основной backend flow
-- в проекте нет вложений, реакций, reply/forward, edit/delete и push-уведомлений
-
-## Куда развивать дальше
-
-- вложения через object storage
-- reply / forward / edit / delete
-- реакции на сообщения
-- last seen и полноценный presence-service
-- Redis-backed fan-out или отдельный broker/gateway для realtime
-- e2e и integration tests на сценарии с двумя клиентами
+Backend verification depends on having `mvn`/Docker available in the local environment.

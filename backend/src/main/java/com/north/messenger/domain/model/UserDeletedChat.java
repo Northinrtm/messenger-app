@@ -8,8 +8,8 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "user_chat_drafts")
-public class UserChatDraft {
+@Table(name = "user_deleted_chats")
+public class UserDeletedChat {
 
     @Id
     private UUID id;
@@ -20,21 +20,17 @@ public class UserChatDraft {
     @Column(name = "chat_id", nullable = false, updatable = false)
     private UUID chatId;
 
-    @Column(name = "content", nullable = false, length = 2000)
-    private String content;
+    @Column(name = "deleted_at", nullable = false, updatable = false)
+    private Instant deletedAt;
 
-    @Column(name = "updated_at", nullable = false)
-    private Instant updatedAt;
-
-    protected UserChatDraft() {
+    protected UserDeletedChat() {
     }
 
-    public UserChatDraft(UUID id, UUID userId, UUID chatId, String content, Instant updatedAt) {
+    public UserDeletedChat(UUID id, UUID userId, UUID chatId, Instant deletedAt) {
         this.id = id;
         this.userId = userId;
         this.chatId = chatId;
-        this.content = content;
-        this.updatedAt = updatedAt;
+        this.deletedAt = deletedAt;
     }
 
     public UUID getId() {
@@ -49,16 +45,7 @@ public class UserChatDraft {
         return chatId;
     }
 
-    public String getContent() {
-        return content;
-    }
-
-    public Instant getUpdatedAt() {
-        return updatedAt;
-    }
-
-    public void updateContent(String nextContent, Instant at) {
-        this.content = nextContent;
-        this.updatedAt = at;
+    public Instant getDeletedAt() {
+        return deletedAt;
     }
 }

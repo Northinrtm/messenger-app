@@ -4,6 +4,7 @@ import {
   flattenMessagePages,
   mergeMessagePages,
   parseUsernames,
+  removeMessageByClientMessageId,
   upsertChatPreviewOverride,
   updateMessageStatusPages,
 } from "./chatState";
@@ -42,6 +43,17 @@ describe("chatState", () => {
     expect(flattenMessagePages(pages).map((item: ChatMessage) => item.id)).toEqual(["1", "2", "3"]);
   });
 
+  it("prefers the confirmed server message over the optimistic client copy", () => {
+    const pages = [[
+      { ...message("client-1", "2026-03-22T10:00:00.000Z"), clientMessageId: "client-1" },
+      { ...message("server-1", "2026-03-22T10:00:01.000Z"), clientMessageId: "client-1" },
+    ]];
+
+    expect(flattenMessagePages(pages)).toEqual([
+      { ...message("server-1", "2026-03-22T10:00:01.000Z"), clientMessageId: "client-1" },
+    ]);
+  });
+
   it("merges a realtime message into the newest page only once", () => {
     const current = {
       pages: [[message("1", "2026-03-22T10:00:00.000Z")]],
@@ -54,6 +66,32 @@ describe("chatState", () => {
 
     expect(merged.pages[0].map((item: ChatMessage) => item.id)).toEqual(["1", "2"]);
     expect(duplicate.pages[0].map((item: ChatMessage) => item.id)).toEqual(["1", "2"]);
+  });
+
+  it("replaces an optimistic message when the server echoes the same client message id", () => {
+    const current = {
+      pages: [[{ ...message("local-1", "2026-03-22T10:00:00.000Z"), clientMessageId: "client-1" }]],
+      pageParams: [null],
+    };
+    const confirmed = {
+      ...message("server-1", "2026-03-22T10:00:01.000Z"),
+      clientMessageId: "client-1",
+    };
+
+    const merged = mergeMessagePages(current, confirmed);
+
+    expect(merged.pages[0]).toEqual([confirmed]);
+  });
+
+  it("removes an optimistic message by client message id", () => {
+    const current = {
+      pages: [[{ ...message("local-1", "2026-03-22T10:00:00.000Z"), clientMessageId: "client-1" }]],
+      pageParams: [null],
+    };
+
+    const next = removeMessageByClientMessageId(current, "client-1");
+
+    expect(next?.pages[0]).toEqual([]);
   });
 
   it("normalizes usernames for chat creation inputs", () => {

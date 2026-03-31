@@ -1,6 +1,6 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { ApiError, logout } from "../../lib/api";
+import { describeError, logout } from "../../lib/api";
 import { ensureEncryptionReady } from "../../lib/e2ee";
 import type { AuthResponse } from "../../lib/types";
 
@@ -8,21 +8,30 @@ type Props = {
   session: AuthResponse;
   onUnlocked: (session: AuthResponse) => void;
   onSignedOut: () => void;
+  variant?: "standalone" | "overlay";
 };
 
-export function UnlockCard({ session, onUnlocked, onSignedOut }: Props) {
+export function UnlockCard({
+  session,
+  onUnlocked,
+  onSignedOut,
+  variant = "standalone",
+}: Props) {
   const [password, setPassword] = useState("");
+  const queryClient = useQueryClient();
 
   const unlockMutation = useMutation({
     mutationFn: async () => {
       await ensureEncryptionReady(session, password);
       return session;
     },
-    onSuccess: (nextSession) => {
-      onUnlocked(nextSession);
-    },
-    onSettled: () => {
+    onSuccess: async (nextSession) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["messages", session.token] }),
+        queryClient.invalidateQueries({ queryKey: ["chats", session.token] }),
+      ]);
       setPassword("");
+      onUnlocked(nextSession);
     },
   });
 
@@ -33,20 +42,20 @@ export function UnlockCard({ session, onUnlocked, onSignedOut }: Props) {
     },
   });
 
-  const error =
-    unlockMutation.error instanceof ApiError
-      ? [unlockMutation.error.message, ...unlockMutation.error.details].filter(Boolean).join(". ")
-      : null;
+  const error = unlockMutation.error ? describeError(unlockMutation.error) : null;
+  const isOverlay = variant === "overlay";
+  const containerClassName = isOverlay ? "unlock-overlay" : "auth-shell";
+  const cardClassName = isOverlay ? "auth-card unlock-card is-overlay" : "auth-card unlock-card";
+  const description = isOverlay
+    ? "Your session is active, but this browser tab does not have the private key for message decryption unlocked yet."
+    : "Your session was restored, but the private key for message decryption is locked in this browser tab.";
 
   return (
-    <main className="auth-shell">
-      <section className="auth-card">
+    <div className={containerClassName}>
+      <section className={cardClassName} role={isOverlay ? "dialog" : undefined} aria-modal={isOverlay || undefined}>
         <div className="eyebrow">Unlock E2EE</div>
         <h1>Unlock encrypted chats.</h1>
-        <p className="auth-copy">
-          Your session was restored, but the private key for message decryption is locked in this
-          browser.
-        </p>
+        <p className="auth-copy">{description}</p>
 
         <form
           className="auth-form"
@@ -84,6 +93,6 @@ export function UnlockCard({ session, onUnlocked, onSignedOut }: Props) {
           </button>
         </div>
       </section>
-    </main>
+    </div>
   );
 }
