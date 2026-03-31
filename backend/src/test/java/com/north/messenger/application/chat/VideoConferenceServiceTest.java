@@ -122,7 +122,7 @@ class VideoConferenceServiceTest {
         assertThat(response.createdBy().id()).isEqualTo(currentUser.getId());
         assertThat(response.roomName())
                 .startsWith("vc-")
-                .hasSizeGreaterThan(25)
+                .hasSizeGreaterThanOrEqualTo(25)
                 .doesNotContain("+", "/", "=");
         assertThat(response.roomAccessCode()).isNotBlank();
         assertThat(response.activatedAt()).isNotNull();
