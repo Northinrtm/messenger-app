@@ -175,8 +175,6 @@ services:
   backend:
     build:
       context: ./backend
-      provenance: false
-      sbom: false
     container_name: messenger-backend
     restart: unless-stopped
     environment:
@@ -203,8 +201,6 @@ services:
   web:
     build:
       context: ./web
-      provenance: false
-      sbom: false
       args:
         VITE_API_URL: ""
         VITE_WS_URL: ""
