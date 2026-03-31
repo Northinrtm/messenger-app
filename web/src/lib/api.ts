@@ -41,6 +41,7 @@ type RequestOptions = {
   token?: string;
   body?: unknown;
   query?: Record<string, string | number | undefined | null>;
+  timeoutMs?: number;
 };
 
 function buildRequestUrl(path: string, query?: Record<string, string | number | undefined | null>) {
@@ -64,6 +65,13 @@ function buildRequestUrl(path: string, query?: Record<string, string | number | 
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const url = buildRequestUrl(path, options.query);
+  const controller = options.timeoutMs ? new AbortController() : null;
+  const timeout =
+    controller && options.timeoutMs
+      ? window.setTimeout(() => {
+          controller.abort("request-timeout");
+        }, options.timeoutMs)
+      : null;
 
   let response: Response;
   try {
@@ -71,14 +79,22 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       method: options.method ?? "GET",
       cache: "no-store",
       credentials: "include",
+      signal: controller?.signal,
       headers: {
         ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
         ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
       },
       body: options.body ? JSON.stringify(options.body) : undefined,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new ApiError("Backend did not respond in time. Try again.", 0);
+    }
     throw new ApiError("Cannot reach backend. Check that API and proxy are running.", 0);
+  } finally {
+    if (timeout !== null) {
+      window.clearTimeout(timeout);
+    }
   }
 
   if (!response.ok) {
@@ -166,6 +182,7 @@ export function register(input: {
   return request<AuthResponse>("/api/auth/register", {
     method: "POST",
     body: input,
+    timeoutMs: 10000,
   });
 }
 
@@ -173,18 +190,21 @@ export function login(input: { username: string; password: string }) {
   return request<AuthResponse>("/api/auth/login", {
     method: "POST",
     body: input,
+    timeoutMs: 10000,
   });
 }
 
 export function refreshSession() {
   return request<AuthResponse>("/api/auth/refresh", {
     method: "POST",
+    timeoutMs: 6000,
   });
 }
 
 export function logout() {
   return request<void>("/api/auth/logout", {
     method: "POST",
+    timeoutMs: 8000,
   });
 }
 
