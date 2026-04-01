@@ -5,6 +5,11 @@ APP_DIR="${1:-/opt/messenger-app}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 ENV_FILE="${ENV_FILE:-.env.prod}"
 SERVICES="${SERVICES:-web backend edge}"
+STATUS_FILE="${DEPLOY_STATUS_FILE:-}"
+
+if [[ -n "$STATUS_FILE" ]]; then
+  trap 'status=$?; trap - EXIT; printf "%s" "$status" > "$STATUS_FILE"; exit "$status"' EXIT
+fi
 
 if docker compose version >/dev/null 2>&1; then
   compose_cmd=(docker compose)
