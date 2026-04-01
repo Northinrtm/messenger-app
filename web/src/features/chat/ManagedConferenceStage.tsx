@@ -60,7 +60,7 @@ type ScopedMessageBridgeOptions = {
 
 const BRIDGE_MESSAGE_METHOD = "message";
 const BRIDGE_READY_METHOD = "__ready__";
-const JITSI_HIDDEN_DOMAIN = "hidden.meet.jitsi";
+const JITSI_HIDDEN_DOMAIN = "recorder.meet.jitsi";
 const MINIMAL_TOOLBAR_BUTTONS = [
   "microphone",
   "camera",

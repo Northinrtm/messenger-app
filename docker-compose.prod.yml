@@ -30,6 +30,7 @@ services:
       XMPP_DOMAIN: meet.jitsi
       XMPP_AUTH_DOMAIN: auth.meet.jitsi
       XMPP_GUEST_DOMAIN: guest.meet.jitsi
+      XMPP_HIDDEN_DOMAIN: recorder.meet.jitsi
       XMPP_INTERNAL_MUC_DOMAIN: internal-muc.meet.jitsi
       XMPP_MUC_DOMAIN: muc.meet.jitsi
       XMPP_RECORDER_DOMAIN: recorder.meet.jitsi
@@ -63,6 +64,7 @@ services:
       XMPP_SERVER: xmpp.meet.jitsi
       XMPP_DOMAIN: meet.jitsi
       XMPP_AUTH_DOMAIN: auth.meet.jitsi
+      XMPP_HIDDEN_DOMAIN: recorder.meet.jitsi
       XMPP_INTERNAL_MUC_DOMAIN: internal-muc.meet.jitsi
       XMPP_MUC_DOMAIN: muc.meet.jitsi
       XMPP_RECORDER_DOMAIN: recorder.meet.jitsi
@@ -127,6 +129,7 @@ services:
       XMPP_SERVER: xmpp.meet.jitsi
       XMPP_DOMAIN: meet.jitsi
       XMPP_AUTH_DOMAIN: auth.meet.jitsi
+      XMPP_HIDDEN_DOMAIN: recorder.meet.jitsi
       XMPP_GUEST_DOMAIN: guest.meet.jitsi
       XMPP_INTERNAL_MUC_DOMAIN: internal-muc.meet.jitsi
       XMPP_MUC_DOMAIN: muc.meet.jitsi
@@ -158,6 +161,7 @@ services:
       TZ: ${TZ:-Europe/Moscow}
       XMPP_AUTH_DOMAIN: auth.meet.jitsi
       XMPP_DOMAIN: meet.jitsi
+      XMPP_HIDDEN_DOMAIN: recorder.meet.jitsi
       XMPP_INTERNAL_MUC_DOMAIN: internal-muc.meet.jitsi
       XMPP_RECORDER_DOMAIN: recorder.meet.jitsi
       XMPP_SERVER: xmpp.meet.jitsi
