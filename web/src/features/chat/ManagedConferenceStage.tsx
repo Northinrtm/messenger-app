@@ -393,6 +393,7 @@ function buildConferenceFrameUrl(input: {
   hashParams.set("config.recordingService.enabled", JSON.stringify(false));
   hashParams.set("config.recordingService.sharingEnabled", JSON.stringify(false));
   hashParams.set("config.localRecording.disable", JSON.stringify(false));
+  hashParams.set("config.localRecording.disableSelfRecording", JSON.stringify(false));
   hashParams.set("config.localRecording.notifyAllParticipants", JSON.stringify(true));
   hashParams.set("config.recordings.suggestRecording", JSON.stringify(false));
   hashParams.set(

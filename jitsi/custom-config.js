@@ -30,6 +30,7 @@
   config.localRecording = Object.assign({}, config.localRecording, {
     enabled: true,
     disable: false,
+    disableSelfRecording: false,
     notifyAllParticipants: true
   });
   config.recordingService = Object.assign({}, config.recordingService, {
