@@ -24,7 +24,7 @@
   config.disablePolls = true;
   config.disableReactions = true;
   config.enableClosePage = false;
-  config.hiddenDomain = "recorder.meet.jitsi";
+  config.hiddenDomain = "hidden.meet.jitsi";
   config.fileRecordingsEnabled = true;
   config.fileRecordingsServiceEnabled = true;
   config.recordingService = Object.assign({}, config.recordingService, {

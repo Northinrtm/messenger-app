@@ -60,6 +60,7 @@ type ScopedMessageBridgeOptions = {
 
 const BRIDGE_MESSAGE_METHOD = "message";
 const BRIDGE_READY_METHOD = "__ready__";
+const JITSI_HIDDEN_DOMAIN = "hidden.meet.jitsi";
 const MINIMAL_TOOLBAR_BUTTONS = [
   "microphone",
   "camera",
@@ -419,7 +420,7 @@ function buildConferenceFrameUrl(input: {
   hashParams.set("config.enableClosePage", JSON.stringify(false));
   hashParams.set("config.welcomePage.disabled", JSON.stringify(true));
   hashParams.set("config.whiteboard.enabled", JSON.stringify(false));
-  hashParams.set("config.hiddenDomain", JSON.stringify("recorder.meet.jitsi"));
+  hashParams.set("config.hiddenDomain", JSON.stringify(JITSI_HIDDEN_DOMAIN));
   hashParams.set("config.fileRecordingsEnabled", JSON.stringify(true));
   hashParams.set("config.fileRecordingsServiceEnabled", JSON.stringify(true));
   hashParams.set("config.recordingService.enabled", JSON.stringify(true));
