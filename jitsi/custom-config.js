@@ -25,11 +25,18 @@
   config.disableReactions = true;
   config.enableClosePage = false;
   config.hiddenDomain = "recorder.meet.jitsi";
-  config.fileRecordingsEnabled = true;
-  config.fileRecordingsServiceEnabled = true;
+  config.fileRecordingsEnabled = false;
+  config.fileRecordingsServiceEnabled = false;
+  config.localRecording = Object.assign({}, config.localRecording, {
+    disable: false,
+    notifyAllParticipants: true
+  });
   config.recordingService = Object.assign({}, config.recordingService, {
-    enabled: true,
-    sharingEnabled: true
+    enabled: false,
+    sharingEnabled: false
+  });
+  config.recordings = Object.assign({}, config.recordings, {
+    suggestRecording: false
   });
   config.welcomePage = Object.assign({}, config.welcomePage, {
     disabled: true

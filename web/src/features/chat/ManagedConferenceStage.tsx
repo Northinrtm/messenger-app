@@ -5,12 +5,10 @@ export type ConferenceRecordingState = "idle" | "starting" | "recording" | "stop
 
 type Props = {
   baseUrl: string;
-  conferenceId?: string;
   roomName: string;
   accessCode: string;
   displayName: string;
   title: string;
-  autoStartServerRecording?: boolean;
   exitRequestToken?: number;
   onRecordingStateChange?: (state: ConferenceRecordingState) => void;
   onRoleChange?: (role: ConferenceParticipantRole | null) => void;
@@ -67,6 +65,7 @@ const MINIMAL_TOOLBAR_BUTTONS = [
   "desktop",
   "tileview",
   "fullscreen",
+  "recording",
   "settings",
   "hangup",
 ];
@@ -75,12 +74,10 @@ let jitsiExternalApiId = 0;
 
 export function ManagedConferenceStage({
   baseUrl,
-  conferenceId,
   roomName,
   accessCode,
   displayName,
   title,
-  autoStartServerRecording = false,
   exitRequestToken = 0,
   onRecordingStateChange,
   onRoleChange,
@@ -122,7 +119,7 @@ export function ManagedConferenceStage({
     let bridge: ScopedMessageBridge | null = null;
     let exitRequested = false;
     let hangupTimerId: number | null = null;
-    let serverRecordingRequested = false;
+    let localRecordingActive = false;
     let roomAccessCodeApplied = false;
 
     const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
@@ -153,31 +150,19 @@ export function ManagedConferenceStage({
       }
     };
 
-    const stopServerRecording = () => {
-      if (!bridge || !autoStartServerRecording || !serverRecordingRequested) {
-        return;
-      }
-
-      updateRecordingState("stopping");
-      sendConferenceCommand(bridge, "stop-recording", {
-        mode: "file",
-      });
-    };
-
     const requestConferenceExit = () => {
       if (!bridge || isConferenceClosed || exitRequested) {
         return;
       }
 
       exitRequested = true;
-      stopServerRecording();
       clearHangupTimer();
       hangupTimerId = window.setTimeout(() => {
         if (!bridge || isConferenceClosed) {
           return;
         }
         sendConferenceCommand(bridge, "video-hangup");
-      }, autoStartServerRecording && serverRecordingRequested ? 450 : 0);
+      }, 0);
     };
 
     const syncConferenceIdentity = () => {
@@ -201,23 +186,6 @@ export function ManagedConferenceStage({
 
       roomAccessCodeApplied = true;
       sendConferenceCommand(bridge, "password", accessCode);
-    };
-
-    const startServerRecording = () => {
-      if (!bridge || !autoStartServerRecording || serverRecordingRequested || isConferenceClosed) {
-        return;
-      }
-
-      serverRecordingRequested = true;
-      updateRecordingState("starting");
-      sendConferenceCommand(bridge, "start-recording", {
-        mode: "file",
-        shouldShare: false,
-        extraMetadata: {
-          conferenceId,
-          roomName,
-        },
-      });
     };
 
     const handleConferenceExit = () => {
@@ -249,7 +217,7 @@ export function ManagedConferenceStage({
     };
 
     const handleRecordingStatusChange = (eventPayload: JitsiEventPayload) => {
-      if (eventPayload.mode && eventPayload.mode !== "file") {
+      if (eventPayload.mode && eventPayload.mode !== "local") {
         return;
       }
 
@@ -266,25 +234,25 @@ export function ManagedConferenceStage({
         case "on":
         case "started":
         case "running":
-          serverRecordingRequested = true;
+          localRecordingActive = true;
           updateRecordingState("recording");
           return;
         case "off":
         case "stopped":
           if (!exitRequested) {
-            serverRecordingRequested = false;
+            localRecordingActive = false;
             updateRecordingState("idle");
           }
           return;
         case "pending":
         case "starting":
         case "retrying":
-          serverRecordingRequested = true;
+          localRecordingActive = true;
           updateRecordingState("starting");
           return;
         case "error":
         case "failed":
-          serverRecordingRequested = false;
+          localRecordingActive = false;
           updateRecordingState("failed");
           return;
         default:
@@ -315,7 +283,6 @@ export function ManagedConferenceStage({
           if (eventPayload.role === "moderator") {
             roleChangeRef.current?.("moderator");
             applyRoomAccessCode();
-            startServerRecording();
             return;
           }
           roleChangeRef.current?.("participant");
@@ -385,13 +352,12 @@ export function ManagedConferenceStage({
       cancelled = true;
       clearHangupTimer();
       requestConferenceExitRef.current = null;
-      stopServerRecording();
       roleChangeRef.current?.(null);
       updateRecordingState("idle");
       bridge?.destroy();
       host.replaceChildren();
     };
-  }, [accessCode, autoStartServerRecording, baseUrl, conferenceId, displayName, retryToken, roomName, title]);
+  }, [accessCode, baseUrl, displayName, retryToken, roomName, title]);
 
   return <div ref={hostRef} className="conference-embed-host" />;
 }
@@ -421,10 +387,13 @@ function buildConferenceFrameUrl(input: {
   hashParams.set("config.welcomePage.disabled", JSON.stringify(true));
   hashParams.set("config.whiteboard.enabled", JSON.stringify(false));
   hashParams.set("config.hiddenDomain", JSON.stringify(JITSI_HIDDEN_DOMAIN));
-  hashParams.set("config.fileRecordingsEnabled", JSON.stringify(true));
-  hashParams.set("config.fileRecordingsServiceEnabled", JSON.stringify(true));
-  hashParams.set("config.recordingService.enabled", JSON.stringify(true));
-  hashParams.set("config.recordingService.sharingEnabled", JSON.stringify(true));
+  hashParams.set("config.fileRecordingsEnabled", JSON.stringify(false));
+  hashParams.set("config.fileRecordingsServiceEnabled", JSON.stringify(false));
+  hashParams.set("config.recordingService.enabled", JSON.stringify(false));
+  hashParams.set("config.recordingService.sharingEnabled", JSON.stringify(false));
+  hashParams.set("config.localRecording.disable", JSON.stringify(false));
+  hashParams.set("config.localRecording.notifyAllParticipants", JSON.stringify(true));
+  hashParams.set("config.recordings.suggestRecording", JSON.stringify(false));
   hashParams.set(
     "config.buttonsWithNotifyClick",
     JSON.stringify([{ key: "hangup", preventExecution: true }])

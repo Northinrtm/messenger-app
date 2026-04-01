@@ -25,7 +25,6 @@ import {
   createVideoConference as createVideoConferenceRequest,
   deleteChat as deleteChatRequest,
   deleteMessage as deleteMessageRequest,
-  downloadConferenceRecording as downloadConferenceRecordingRequest,
   endVideoConference as endVideoConferenceRequest,
   createDirectChat,
   createGroupChat,
@@ -238,9 +237,6 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const [isConferenceInfoOpen, setIsConferenceInfoOpen] = useState(false);
   const [conferenceRecordingState, setConferenceRecordingState] =
     useState<ConferenceRecordingState>("idle");
-  const [conferenceRecordingImportStates, setConferenceRecordingImportStates] = useState<
-    Record<string, "pending" | "failed">
-  >({});
   const messageStreamRef = useRef<HTMLDivElement | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const conferenceInfoButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -430,25 +426,8 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const activeConferenceStatusLabel = activeConference
     ? formatConferenceStatusLabelV3(activeConference)
     : null;
-  const activeConferenceHasRecording = Boolean(activeConference?.recordingCreatedAt);
-  const activeConferenceRecordingImportState = activeConference
-    ? conferenceRecordingImportStates[activeConference.id] ?? null
-    : null;
-  const activeConferenceRecordingPending = Boolean(
-    activeConference?.endedAt &&
-      !activeConference.recordingCreatedAt &&
-      activeConferenceRecordingImportState === "pending"
-  );
-  const activeConferenceRecordingFailed = Boolean(
-    activeConference?.endedAt &&
-      !activeConference.recordingCreatedAt &&
-      activeConferenceRecordingImportState === "failed"
-  );
-  const activeConferenceServerRecordingActive = Boolean(
-    activeConferenceCanJoin &&
-      activeConferenceIsOwnedByCurrentUser &&
-      (conferenceRecordingState === "starting" || conferenceRecordingState === "recording")
-  );
+  const activeConferenceLocalRecordingActive =
+    conferenceRecordingState === "starting" || conferenceRecordingState === "recording";
   const activeConferenceStageHint = activeConference
     ? formatConferenceStageHintV3(activeConference, activeConferenceIsOwnedByCurrentUser)
     : null;
@@ -552,49 +531,8 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   }, [activeChat?.id, onSessionChange, session.token]);
 
   useEffect(() => {
-    if (!activeConference) {
-      setConferenceRecordingState("idle");
-      return;
-    }
-
-    if (activeConference.recordingCreatedAt) {
-      setConferenceRecordingState("idle");
-      setConferenceRecordingImportStates((current) => {
-        if (!(activeConference.id in current)) {
-          return current;
-        }
-
-        const next = { ...current };
-        delete next[activeConference.id];
-        return next;
-      });
-    }
-  }, [activeConference?.id, activeConference?.recordingCreatedAt]);
-
-  useEffect(() => {
-    if (!activeConference) {
-      return;
-    }
-
-    if (conferenceRecordingState === "failed") {
-      setConferenceRecordingImportStates((current) => ({
-        ...current,
-        [activeConference.id]: "failed",
-      }));
-      return;
-    }
-
-    if (
-      conferenceRecordingState === "starting" ||
-      conferenceRecordingState === "recording" ||
-      conferenceRecordingState === "stopping"
-    ) {
-      setConferenceRecordingImportStates((current) => ({
-        ...current,
-        [activeConference.id]: "pending",
-      }));
-    }
-  }, [activeConference?.id, conferenceRecordingState]);
+    setConferenceRecordingState("idle");
+  }, [activeConference?.id]);
 
   const rememberRealtimeMessage = (messageId: string) => {
     handledRealtimeMessageIdsRef.current.set(messageId, true);
@@ -1117,29 +1055,6 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const toggleConferenceInviteParticipant = (username: string) => {
     setConferenceInviteUsernames((current) => toggleUsernameSelection(current, username));
   };
-
-  const openConferenceRecording = useEffectEvent(async (conferenceId: string) => {
-    const recording = await downloadConferenceRecordingRequest(session.token, conferenceId);
-    const url = window.URL.createObjectURL(recording.blob);
-    window.open(url, "_blank", "noopener,noreferrer");
-    window.setTimeout(() => {
-      window.URL.revokeObjectURL(url);
-    }, 60_000);
-  });
-
-  const downloadConferenceRecording = useEffectEvent(async (conferenceId: string) => {
-    const recording = await downloadConferenceRecordingRequest(session.token, conferenceId);
-    const url = window.URL.createObjectURL(recording.blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = recording.fileName ?? `conference-recording-${conferenceId}.webm`;
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    window.setTimeout(() => {
-      window.URL.revokeObjectURL(url);
-    }, 10_000);
-  });
 
   const syncProfile = useEffectEvent((nextProfile: UserProfile) => {
     queryClient.setQueryData(["profile", session.token], nextProfile);
@@ -2144,8 +2059,6 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const errorText =
     requestError instanceof ApiError
       ? [requestError.message, ...requestError.details].filter(Boolean).join(". ")
-      : conferenceRecordingState === "failed"
-        ? "Не удалось запустить серверную запись Jitsi. Проверьте Jibri и настройки recording stack."
       : null;
 
   const loadOlderMessages = () => {
@@ -2515,9 +2428,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
         </div>
         {activeConferenceCanJoin ||
         activeConferenceCanManageParticipants ||
-        activeConferenceHasRecording ||
-        activeConferenceRecordingPending ||
-        activeConferenceRecordingFailed ? (
+        activeConferenceLocalRecordingActive ? (
           <div className="conversation-actions conference-actions">
             {activeConferenceCanManageParticipants ? (
               <button
@@ -2528,36 +2439,8 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                 Добавить участников
               </button>
             ) : null}
-            {activeConferenceServerRecordingActive ? (
-              <span className="conference-recording-badge">Идет серверная запись</span>
-            ) : null}
-            {activeConferenceRecordingPending ? (
-              <span className="conference-recording-badge is-pending">
-                Запись обрабатывается на сервере
-              </span>
-            ) : null}
-            {activeConferenceRecordingFailed ? (
-              <span className="conference-recording-badge is-failed">
-                Запись недоступна
-              </span>
-            ) : null}
-            {activeConferenceHasRecording ? (
-              <>
-                <button
-                  type="button"
-                  className="ghost-button compact"
-                  onClick={() => void openConferenceRecording(activeConference.id)}
-                >
-                  Запись
-                </button>
-                <button
-                  type="button"
-                  className="ghost-button compact"
-                  onClick={() => void downloadConferenceRecording(activeConference.id)}
-                >
-                  Скачать
-                </button>
-              </>
+            {activeConferenceLocalRecordingActive ? (
+              <span className="conference-recording-badge">Идет локальная запись</span>
             ) : null}
           </div>
         ) : null}
@@ -2681,12 +2564,10 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
             <ManagedConferenceStage
               key={`${activeConference.id}:${activeConference.roomName}:${activeConference.roomAccessCode}`}
               baseUrl={JITSI_BASE_URL}
-              conferenceId={activeConference.id}
               roomName={activeConference.roomName!}
               accessCode={activeConference.roomAccessCode!}
               displayName={profile.displayName}
               title={activeConference.title}
-              autoStartServerRecording={activeConferenceIsOwnedByCurrentUser}
               onRecordingStateChange={setConferenceRecordingState}
               onConferenceExit={handleConferenceStageExit}
             />
@@ -2994,36 +2875,6 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                                 <span>{formatConferenceStatusLabelV3(conference)}</span>
                               </div>
                               <div className="sheet-row-actions">
-                                {conference.recordingCreatedAt ? (
-                                  <>
-                                    <button
-                                      type="button"
-                                      className="ghost-button compact"
-                                      onClick={() => void openConferenceRecording(conference.id)}
-                                    >
-                                      Запись
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="ghost-button compact"
-                                      onClick={() => void downloadConferenceRecording(conference.id)}
-                                    >
-                                      Скачать
-                                    </button>
-                                  </>
-                                ) : conferenceRecordingImportStates[conference.id] === "pending" ? (
-                                  <span className="conference-recording-badge is-pending">
-                                    Запись обрабатывается
-                                  </span>
-                                ) : conferenceRecordingImportStates[conference.id] === "failed" ? (
-                                  <span className="conference-recording-badge is-failed">
-                                    Запись недоступна
-                                  </span>
-                                ) : (
-                                  <span className="conference-recording-badge is-unavailable">
-                                    Записи нет
-                                  </span>
-                                )}
                                 <button
                                   type="button"
                                   className="ghost-button compact"
