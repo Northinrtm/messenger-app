@@ -41,6 +41,7 @@ import {
   revokeSession,
   searchUsers,
   sendTypingState,
+  toggleMessageReaction as toggleMessageReactionRequest,
   updateArchivedChat,
   updateProfile,
   updateProfileAvatar,
@@ -65,6 +66,8 @@ import type {
   ChatRemovalEvent,
   ChatDraft,
   ChatMessage,
+  MessageReaction,
+  MessageReactionEvent,
   ChatSummary,
   MessageDeletionEvent,
   MessageStatus,
@@ -91,6 +94,7 @@ import {
   removeMessageByClientMessageId,
   upsertChat,
   upsertChatPreviewOverride,
+  updateMessageReactionsPages,
   updateMessageStatusPages,
 } from "./chatState";
 import {
@@ -203,6 +207,16 @@ const SIDEBAR_WIDTH_STORAGE_KEY = "north-messenger-sidebar-width";
 const DEFAULT_SIDEBAR_WIDTH = 380;
 const MIN_SIDEBAR_WIDTH = 280;
 const MAX_SIDEBAR_WIDTH = 560;
+const MESSAGE_REACTION_OPTIONS: Array<{
+  key: MessageReaction["key"];
+  emoji: string;
+  label: string;
+}> = [
+  { key: "LIKE", emoji: "👍", label: "Лайк" },
+  { key: "DISLIKE", emoji: "👎", label: "Дизлайк" },
+  { key: "EYES", emoji: "👀", label: "Глаза" },
+  { key: "OK", emoji: "👌", label: "Окей" },
+];
 
 export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const queryClient = useQueryClient();
@@ -361,6 +375,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const archivedConferencesLoading =
     archivedConferencesQuery.data === undefined && archivedConferencesQuery.isFetching;
   const archivedChatIdSet = new Set(archivedChatIds);
+  const allConferences = mergeVideoConferenceCollections(conferences, archivedConferences);
   const chatIds = chats.map((chat) => chat.id).sort();
   const chatIdsKey = chatIds.join(",");
   const normalizedSearch = deferredSearch.trim().toLowerCase();
@@ -381,8 +396,8 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const archivedChats = listedChats.filter((chat) => archivedChatIdSet.has(chat.id));
   const groupContacts = contacts.filter((contact) => contact.username !== session.user.username);
   const visibleConferences = !normalizedSearch
-    ? conferences
-    : conferences.filter((conference) => {
+    ? allConferences
+    : allConferences.filter((conference) => {
         const participantText = conference.participants
           .map((participant) => `${participant.username} ${participant.displayName}`)
           .join(" ")
@@ -395,9 +410,12 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
 
   const activeChat = chats.find((chat) => chat.id === activeChatId) ?? null;
   const activeConference =
-    conferences.find((conference) => conference.id === activeConferenceId) ??
-    archivedConferences.find((conference) => conference.id === activeConferenceId) ??
-    null;
+    allConferences.find((conference) => conference.id === activeConferenceId) ?? null;
+  const conferenceCandidates = mergeConferenceCandidates(
+    groupContacts,
+    activeChat && !activeChat.direct ? activeChat.members : [],
+    session.user.username
+  );
   const activeDirectParticipant = activeChat ? getDirectParticipant(activeChat, session.user) : null;
   const activeDirectInContacts = activeDirectParticipant
     ? contacts.some((contact) => contact.username === activeDirectParticipant.username)
@@ -856,6 +874,24 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     }
   });
 
+  const openGroupConferenceComposer = useEffectEvent((mode: "instant" | "scheduled") => {
+    if (!activeChat || activeChat.direct) {
+      return;
+    }
+
+    openConferenceSheet();
+    setConferenceComposerMode(mode);
+    setConferenceTitle(`Встреча ${activeChat.title}`);
+    setConferenceParticipantUsernames(
+      activeChat.members
+        .filter((member) => member.username !== session.user.username)
+        .map((member) => member.username)
+    );
+    if (mode === "scheduled") {
+      setConferenceScheduledAt(createInitialConferenceDateTime());
+    }
+  });
+
   const activateListTab = useEffectEvent((tab: ConversationListTab) => {
     setActiveListTab(tab);
     setSidebarSheet(null);
@@ -983,6 +1019,12 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
 
     deleteMessageMutation.mutate({ chatId, messageId });
   });
+
+  const toggleReactionForMessage = useEffectEvent(
+    (chatId: string, messageId: string, key: MessageReaction["key"]) => {
+      toggleMessageReactionMutation.mutate({ chatId, messageId, key });
+    }
+  );
 
   const addActiveChatToContacts = () => {
     if (!activeDirectParticipant) {
@@ -1492,6 +1534,13 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     void queryClient.invalidateQueries({ queryKey: ["messages", session.token, event.chatId] });
   });
 
+  const handleRealtimeMessageReaction = useEffectEvent((event: MessageReactionEvent) => {
+    queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
+      ["messages", session.token, event.chatId],
+      (current) => updateMessageReactionsPages(current, event)
+    );
+  });
+
   const handleRealtimeChatRemoval = useEffectEvent((event: ChatRemovalEvent) => {
     deleteChatLocally(event.chatId);
     finalizeDeletedChatArtifacts(event.chatId);
@@ -1533,6 +1582,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       onConnect: handleRealtimeConnect,
       onMessage: handleRealtimeMessage,
       onMessageDeletion: handleRealtimeMessageDeletion,
+      onMessageReaction: handleRealtimeMessageReaction,
       onMessageStatus: handleRealtimeMessageStatus,
       onSessionEvent: handleRealtimeSession,
       onTyping: handleRealtimeTyping,
@@ -1543,6 +1593,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     handleRealtimeChatRemoval,
     handleRealtimeMessage,
     handleRealtimeMessageDeletion,
+    handleRealtimeMessageReaction,
     handleRealtimeMessageStatus,
     handleRealtimeSession,
     handleRealtimeTyping,
@@ -2001,6 +2052,24 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     },
   });
 
+  const toggleMessageReactionMutation = useMutation({
+    mutationFn: ({
+      chatId,
+      messageId,
+      key,
+    }: {
+      chatId: string;
+      messageId: string;
+      key: MessageReaction["key"];
+    }) => toggleMessageReactionRequest(session.token, chatId, messageId, key),
+    onSuccess: (event) => {
+      queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
+        ["messages", session.token, event.chatId],
+        (current) => updateMessageReactionsPages(current, event)
+      );
+    },
+  });
+
   const addContactMutation = useMutation({
     mutationFn: (user: UserProfile) => addContactRequest(session.token, user.username),
     onSuccess: (contact) => {
@@ -2035,6 +2104,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     updateArchivedChatMutation.error,
     deleteChatMutation.error,
     deleteMessageMutation.error,
+    toggleMessageReactionMutation.error,
     addContactMutation.error,
     removeContactMutation.error,
     chatsQuery.error,
@@ -2775,14 +2845,14 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                     ) : null}
 
                     <div className="group-picker-list conference-picker-list">
-                      {contactsLoading ? (
+                      {contactsLoading && conferenceCandidates.length === 0 ? (
                         <div className="empty-list">Загружаем контакты...</div>
-                      ) : groupContacts.length === 0 ? (
+                      ) : conferenceCandidates.length === 0 ? (
                         <div className="empty-list">
-                          Контактов пока нет. Встречу все равно можно создать и поделиться ссылкой.
+                          Пока некого добавлять. Создайте группу или добавьте контакты.
                         </div>
                       ) : (
-                        groupContacts.map((contact) => {
+                        conferenceCandidates.map((contact) => {
                           const selected = conferenceParticipantUsernames.includes(contact.username);
                           return (
                             <button
@@ -2859,34 +2929,12 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                 </div>
 
                 <div className="sheet-list">
-                  {archivedChatsLoading || archivedConferencesLoading ? (
+                  {archivedChatsLoading ? (
                     <div className="empty-list">Загружаем архив...</div>
-                  ) : archivedChats.length === 0 && archivedConferences.length === 0 ? (
+                  ) : archivedChats.length === 0 ? (
                     <div className="empty-list">Архив пока пуст.</div>
                   ) : (
                     <>
-                      {archivedConferences.length > 0 ? (
-                        <>
-                          <div className="section-title">Видеоконференции</div>
-                          {archivedConferences.map((conference) => (
-                            <div key={conference.id} className="sheet-row">
-                              <div className="sheet-row-copy">
-                                <strong>{conference.title}</strong>
-                                <span>{formatConferenceStatusLabelV3(conference)}</span>
-                              </div>
-                              <div className="sheet-row-actions">
-                                <button
-                                  type="button"
-                                  className="ghost-button compact"
-                                  onClick={() => openConference(conference.id)}
-                                >
-                                  Открыть
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </>
-                      ) : null}
                       {archivedChats.length > 0 ? <div className="section-title">Чаты</div> : null}
                       {archivedChats.map((chat) => (
                       <div
@@ -3495,13 +3543,29 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                   </div>
                 </div>
                 {!activeChat.direct ? (
-                  <button
-                    type="button"
-                    className="ghost-button compact"
-                    onClick={openGroupMembersSheet}
-                  >
-                    Добавить людей
-                  </button>
+                  <div className="member-strip">
+                    <button
+                      type="button"
+                      className="ghost-button compact"
+                      onClick={() => openGroupConferenceComposer("instant")}
+                    >
+                      Созвон
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button compact"
+                      onClick={() => openGroupConferenceComposer("scheduled")}
+                    >
+                      Запланировать
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button compact"
+                      onClick={openGroupMembersSheet}
+                    >
+                      Добавить людей
+                    </button>
+                  </div>
                 ) : null}
               </div>
               <div className="conversation-actions">
@@ -3586,6 +3650,38 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                         </div>
                       </div>
                       <p>{item.message.content}</p>
+                      <div className="message-reactions" aria-label="Реакции на сообщение">
+                        {MESSAGE_REACTION_OPTIONS.map((reactionOption) => {
+                          const reaction = getMessageReaction(item.message, reactionOption.key);
+                          const canReact = item.message.id !== item.message.clientMessageId;
+                          return (
+                            <button
+                              type="button"
+                              key={reactionOption.key}
+                              className={
+                                reaction?.reactedByCurrentUser
+                                  ? "message-reaction-button is-active"
+                                  : "message-reaction-button"
+                              }
+                              onClick={() =>
+                                toggleReactionForMessage(
+                                  item.message.chatId,
+                                  item.message.id,
+                                  reactionOption.key
+                                )
+                              }
+                              disabled={!canReact}
+                              title={reactionOption.label}
+                              aria-label={reactionOption.label}
+                            >
+                              <span>{reactionOption.emoji}</span>
+                              {reaction ? (
+                                <span className="message-reaction-count">{reaction.count}</span>
+                              ) : null}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </article>
                   )
                 )
@@ -3900,8 +3996,48 @@ function upsertVideoConferences(
   );
 }
 
+function mergeVideoConferenceCollections(
+  current: VideoConference[] | undefined,
+  incoming: VideoConference[] | undefined
+) {
+  return (incoming ?? []).reduce(
+    (next, conference) => upsertVideoConferences(next, conference),
+    current ?? []
+  );
+}
+
 function removeVideoConference(current: VideoConference[] | undefined, conferenceId: string) {
   return (current ?? []).filter((item) => item.id !== conferenceId);
+}
+
+function mergeConferenceCandidates(
+  contacts: Array<Participant | UserProfile>,
+  groupMembers: Participant[],
+  currentUsername: string
+) {
+  const candidates = new Map<string, Participant | UserProfile>();
+
+  contacts.forEach((contact) => {
+    if (contact.username !== currentUsername) {
+      candidates.set(contact.username, contact);
+    }
+  });
+
+  groupMembers.forEach((member) => {
+    if (member.username === currentUsername) {
+      return;
+    }
+
+    if (candidates.has(member.username)) {
+      return;
+    }
+
+    candidates.set(member.username, member);
+  });
+
+  return [...candidates.values()].sort((left, right) =>
+    left.displayName.localeCompare(right.displayName, "ru-RU")
+  );
 }
 
 function getConferenceActivationTime(value: string) {
@@ -3932,7 +4068,7 @@ function formatConferenceListPreviewV2(conference: VideoConference, currentUsern
   const scheduledTime = new Date(conference.scheduledAt).getTime();
 
   if (conference.endedAt) {
-    return "Встреча завершена и находится в архиве.";
+    return "Встреча завершена.";
   }
 
   if (!conference.roomName && !conference.activatedAt) {
@@ -4006,7 +4142,7 @@ function formatConferenceListPreviewV3(conference: VideoConference, currentUsern
   const scheduledTime = new Date(conference.scheduledAt).getTime();
 
   if (conference.endedAt) {
-    return "Встреча завершена и находится в архиве.";
+    return "Встреча завершена.";
   }
 
   if (!conference.roomName && !conference.activatedAt) {
@@ -4184,6 +4320,7 @@ function createOptimisticOutgoingMessage(
     content: input.content,
     createdAt: new Date().toISOString(),
     clientMessageId: input.clientMessageId,
+    reactions: [],
     status: {
       state: "SENDING",
       recipientCount: Math.max(0, input.participants.length - 1),
@@ -4207,6 +4344,10 @@ function ensureOwnMessageStatus(message: ChatMessage, currentUser: UserProfile):
       readCount: 0,
     },
   };
+}
+
+function getMessageReaction(message: ChatMessage, key: MessageReaction["key"]) {
+  return message.reactions.find((reaction) => reaction.key === key) ?? null;
 }
 
 function isOwnMessage(message: ChatMessage, currentUser: UserProfile) {

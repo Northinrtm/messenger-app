@@ -6,9 +6,15 @@ import {
   parseUsernames,
   removeMessageByClientMessageId,
   upsertChatPreviewOverride,
+  updateMessageReactionsPages,
   updateMessageStatusPages,
 } from "./chatState";
-import type { ChatMessage, ChatSummary, MessageStatusEvent } from "../../lib/types";
+import type {
+  ChatMessage,
+  ChatSummary,
+  MessageReactionEvent,
+  MessageStatusEvent,
+} from "../../lib/types";
 
 function message(id: string, createdAt: string): ChatMessage {
   return {
@@ -24,6 +30,7 @@ function message(id: string, createdAt: string): ChatMessage {
     content: `message-${id}`,
     createdAt,
     status: null,
+    reactions: [],
   };
 }
 
@@ -117,6 +124,28 @@ describe("chatState", () => {
     const next = updateMessageStatusPages(current, event);
 
     expect(next?.pages[0][0].status?.state).toBe("READ");
+  });
+
+  it("updates message reactions in cached pages", () => {
+    const current = {
+      pages: [[message("1", "2026-03-22T10:00:00.000Z")]],
+      pageParams: [null],
+    };
+    const event: MessageReactionEvent = {
+      messageId: "1",
+      chatId: "chat-1",
+      reactions: [
+        {
+          key: "LIKE",
+          count: 2,
+          reactedByCurrentUser: true,
+        },
+      ],
+    };
+
+    const next = updateMessageReactionsPages(current, event);
+
+    expect(next?.pages[0][0].reactions).toEqual(event.reactions);
   });
 
   it("applies a decrypted preview over the server placeholder for the same message timestamp", () => {

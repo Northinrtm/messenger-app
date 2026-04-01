@@ -4,6 +4,7 @@ import type {
   ApiChatMessage,
   AuthResponse,
   ChatSummary,
+  MessageReactionEvent,
   Participant,
   UserEncryptionKeyBundle,
   UserEncryptionPublicKey,
@@ -395,6 +396,19 @@ export function deleteMessage(token: string, chatId: string, messageId: string) 
   return request<void>(`/api/chats/${chatId}/messages/${messageId}`, {
     method: "DELETE",
     token,
+  });
+}
+
+export function toggleMessageReaction(
+  token: string,
+  chatId: string,
+  messageId: string,
+  key: "LIKE" | "DISLIKE" | "EYES" | "OK"
+) {
+  return request<MessageReactionEvent>(`/api/chats/${chatId}/messages/${messageId}/reactions`, {
+    method: "PUT",
+    token,
+    body: { key },
   });
 }
 

@@ -1,5 +1,10 @@
 import type { InfiniteData } from "@tanstack/react-query";
-import type { ChatMessage, ChatSummary, MessageStatusEvent } from "../../lib/types";
+import type {
+  ChatMessage,
+  ChatSummary,
+  MessageReactionEvent,
+  MessageStatusEvent,
+} from "../../lib/types";
 
 export const MESSAGE_PAGE_SIZE = 50;
 export type ChatPreviewOverride = {
@@ -251,6 +256,37 @@ export function updateMessageStatusPages(
       return {
         ...message,
         status: event.status,
+      };
+    })
+  );
+
+  return changed
+    ? {
+        ...current,
+        pages,
+      }
+    : current;
+}
+
+export function updateMessageReactionsPages(
+  current: InfiniteData<ChatMessage[]> | undefined,
+  event: MessageReactionEvent
+): InfiniteData<ChatMessage[]> | undefined {
+  if (!current) {
+    return current;
+  }
+
+  let changed = false;
+  const pages = current.pages.map((page) =>
+    page.map((message) => {
+      if (message.id !== event.messageId) {
+        return message;
+      }
+
+      changed = true;
+      return {
+        ...message,
+        reactions: event.reactions,
       };
     })
   );

@@ -9,16 +9,21 @@ import com.north.messenger.api.dto.EncryptedMessagePayloadResponse;
 import com.north.messenger.api.dto.MessageDeliveryState;
 import com.north.messenger.api.dto.MessageReceiptRequest;
 import com.north.messenger.api.dto.MessageDeletionEventResponse;
+import com.north.messenger.api.dto.MessageReactionEventResponse;
+import com.north.messenger.api.dto.MessageReactionSummaryResponse;
 import com.north.messenger.api.dto.MessageResponse;
 import com.north.messenger.api.dto.MessageStatusEventResponse;
 import com.north.messenger.api.dto.MessageStatusResponse;
+import com.north.messenger.api.dto.ToggleMessageReactionRequest;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.chat.ChatService;
 import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.model.MessageReceipt;
+import com.north.messenger.domain.model.MessageReaction;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.repository.ChatMessageRepository;
 import com.north.messenger.domain.repository.MessageReceiptRepository;
+import com.north.messenger.domain.repository.MessageReactionRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -44,10 +49,13 @@ import org.springframework.web.server.ResponseStatusException;
 @Transactional(readOnly = true)
 public class MessageService {
 
+    private static final List<String> REACTION_KEYS = List.of("LIKE", "DISLIKE", "EYES", "OK");
+
     private final AuthService authService;
     private final ChatService chatService;
     private final ChatMessageRepository chatMessageRepository;
     private final MessageReceiptRepository messageReceiptRepository;
+    private final MessageReactionRepository messageReactionRepository;
     private final UserAccountRepository userAccountRepository;
     private final SimpMessagingTemplate messagingTemplate;
     private final ObjectMapper objectMapper;
@@ -58,6 +66,7 @@ public class MessageService {
             ChatService chatService,
             ChatMessageRepository chatMessageRepository,
             MessageReceiptRepository messageReceiptRepository,
+            MessageReactionRepository messageReactionRepository,
             UserAccountRepository userAccountRepository,
             SimpMessagingTemplate messagingTemplate,
             ObjectMapper objectMapper,
@@ -67,6 +76,7 @@ public class MessageService {
         this.chatService = chatService;
         this.chatMessageRepository = chatMessageRepository;
         this.messageReceiptRepository = messageReceiptRepository;
+        this.messageReactionRepository = messageReactionRepository;
         this.userAccountRepository = userAccountRepository;
         this.messagingTemplate = messagingTemplate;
         this.objectMapper = objectMapper;
@@ -96,6 +106,10 @@ public class MessageService {
         Map<UUID, MessageReceiptSummary> summariesByMessageId = loadReceiptSummaries(
                 recentMessages.stream().map(ChatMessage::getId).toList()
         );
+        Map<UUID, List<MessageReactionSummaryResponse>> reactionsByMessageId = loadReactionSummaries(
+                recentMessages.stream().map(ChatMessage::getId).toList(),
+                currentUser.getId()
+        );
 
         return recentMessages.stream()
                 .map(message -> toResponse(
@@ -103,6 +117,7 @@ public class MessageService {
                         usersById.get(message.getSenderId()),
                         currentUser.getId(),
                         summariesByMessageId.getOrDefault(message.getId(), MessageReceiptSummary.empty()),
+                        reactionsByMessageId.getOrDefault(message.getId(), List.of()),
                         null
                 ))
                 .toList();
@@ -172,6 +187,7 @@ public class MessageService {
                     currentUser,
                     currentUser.getId(),
                     summary,
+                    List.of(),
                     clientMessageId
             );
             eventPublisher.publishEvent(new MessageDispatchEvent(chatId, message.getId(), clientMessageId));
@@ -210,6 +226,50 @@ public class MessageService {
         chatService.notifyChatUpdated(chatId);
     }
 
+    @Transactional
+    public MessageReactionEventResponse toggleReaction(
+            UUID chatId,
+            UUID messageId,
+            String username,
+            ToggleMessageReactionRequest request
+    ) {
+        UserAccount currentUser = authService.requireAuthenticatedUser(username);
+        chatService.requireChatMembership(chatId, currentUser);
+
+        ChatMessage message = chatMessageRepository.findById(messageId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found"));
+        if (!message.getChatId().equals(chatId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found in this chat");
+        }
+
+        String reactionKey = normalizeReactionKey(request.key());
+        messageReactionRepository.findByMessageIdAndUserIdAndReactionKey(messageId, currentUser.getId(), reactionKey)
+                .ifPresentOrElse(
+                        messageReactionRepository::delete,
+                        () -> messageReactionRepository.save(new MessageReaction(
+                                UUID.randomUUID(),
+                                messageId,
+                                currentUser.getId(),
+                                reactionKey,
+                                Instant.now()
+                        ))
+                );
+
+        MessageReactionEventResponse event = new MessageReactionEventResponse(
+                messageId,
+                chatId,
+                loadReactionSummaries(List.of(messageId), currentUser.getId())
+                        .getOrDefault(messageId, List.of())
+        );
+
+        chatService.findParticipants(chatId).forEach(participant -> messagingTemplate.convertAndSendToUser(
+                participant.getUsername(),
+                "/queue/message-reactions",
+                buildReactionEvent(messageId, chatId, participant.getId())
+        ));
+        return event;
+    }
+
     @Transactional(readOnly = true)
     public void dispatchMessage(MessageDispatchEvent event) {
         ChatMessage message = chatMessageRepository.findById(event.messageId())
@@ -230,8 +290,8 @@ public class MessageService {
 
         participants.forEach(participant -> {
             MessageResponse response = participant.getId().equals(sender.getId())
-                    ? toResponse(message, sender, participant.getId(), summary, event.clientMessageId())
-                    : toResponse(message, sender, participant.getId(), summary, null);
+                    ? toResponse(message, sender, participant.getId(), summary, List.of(), event.clientMessageId())
+                    : toResponse(message, sender, participant.getId(), summary, List.of(), null);
             messagingTemplate.convertAndSendToUser(participant.getUsername(), "/queue/messages", response);
         });
         chatService.notifyChatUpdated(event.chatId());
@@ -251,7 +311,18 @@ public class MessageService {
 
         MessageReceiptSummary summary = loadReceiptSummaries(List.of(existingMessage.getId()))
                 .getOrDefault(existingMessage.getId(), MessageReceiptSummary.empty());
-        return toResponse(existingMessage, currentUser, currentUser.getId(), summary, existingMessage.getClientMessageId());
+        List<MessageReactionSummaryResponse> reactions = loadReactionSummaries(
+                List.of(existingMessage.getId()),
+                currentUser.getId()
+        ).getOrDefault(existingMessage.getId(), List.of());
+        return toResponse(
+                existingMessage,
+                currentUser,
+                currentUser.getId(),
+                summary,
+                reactions,
+                existingMessage.getClientMessageId()
+        );
     }
 
     @Transactional
@@ -309,6 +380,7 @@ public class MessageService {
             UserAccount sender,
             UUID currentUserId,
             MessageReceiptSummary summary,
+            List<MessageReactionSummaryResponse> reactions,
             String clientMessageId
     ) {
         MessageStatusResponse status = message.getSenderId().equals(currentUserId)
@@ -322,7 +394,61 @@ public class MessageService {
                 message.getCreatedAt(),
                 status,
                 clientMessageId,
+                reactions,
                 toEncryptedPayload(message, currentUserId)
+        );
+    }
+
+    private Map<UUID, List<MessageReactionSummaryResponse>> loadReactionSummaries(
+            Collection<UUID> messageIds,
+            UUID currentUserId
+    ) {
+        List<UUID> ids = sanitizeMessageIds(messageIds);
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<UUID, List<MessageReaction>> reactionsByMessageId = messageReactionRepository.findAllByMessageIdIn(ids)
+                .stream()
+                .collect(Collectors.groupingBy(MessageReaction::getMessageId));
+
+        return ids.stream().collect(Collectors.toMap(
+                Function.identity(),
+                messageId -> summarizeReactions(reactionsByMessageId.getOrDefault(messageId, List.of()), currentUserId)
+        ));
+    }
+
+    private List<MessageReactionSummaryResponse> summarizeReactions(
+            Collection<MessageReaction> reactions,
+            UUID currentUserId
+    ) {
+        if (reactions.isEmpty()) {
+            return List.of();
+        }
+
+        Map<String, List<MessageReaction>> reactionsByKey = reactions.stream()
+                .collect(Collectors.groupingBy(MessageReaction::getReactionKey));
+
+        return REACTION_KEYS.stream()
+                .map(key -> {
+                    List<MessageReaction> reactionsForKey = reactionsByKey.getOrDefault(key, List.of());
+                    if (reactionsForKey.isEmpty()) {
+                        return null;
+                    }
+
+                    boolean reactedByCurrentUser = reactionsForKey.stream()
+                            .anyMatch(reaction -> reaction.getUserId().equals(currentUserId));
+                    return new MessageReactionSummaryResponse(key, reactionsForKey.size(), reactedByCurrentUser);
+                })
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    private MessageReactionEventResponse buildReactionEvent(UUID messageId, UUID chatId, UUID currentUserId) {
+        return new MessageReactionEventResponse(
+                messageId,
+                chatId,
+                loadReactionSummaries(List.of(messageId), currentUserId).getOrDefault(messageId, List.of())
         );
     }
 
@@ -405,6 +531,19 @@ public class MessageService {
         }
 
         return clientMessageId;
+    }
+
+    private String normalizeReactionKey(String reactionKey) {
+        if (reactionKey == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Reaction key is required");
+        }
+
+        String normalized = reactionKey.trim().toUpperCase(java.util.Locale.ROOT);
+        if (!REACTION_KEYS.contains(normalized)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported reaction");
+        }
+
+        return normalized;
     }
 
     private Map<String, String> validateEncryptedPayload(

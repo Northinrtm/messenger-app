@@ -732,6 +732,48 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+.message-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.8rem;
+}
+
+.message-reaction-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 2rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(245, 239, 231, 0.82);
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.message-reaction-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.14);
+  transform: translateY(-1px);
+}
+
+.message-reaction-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.message-reaction-button.is-active {
+  background: rgba(82, 135, 255, 0.22);
+  border-color: rgba(125, 194, 255, 0.42);
+  color: #eff7ff;
+}
+
+.message-reaction-count {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
 .typing-indicator {
   display: inline-flex;
   align-items: center;

@@ -16,6 +16,7 @@ import com.north.messenger.domain.model.MessageReceipt;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.repository.ChatMessageRepository;
 import com.north.messenger.domain.repository.MessageReceiptRepository;
+import com.north.messenger.domain.repository.MessageReactionRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import java.time.Instant;
 import java.util.List;
@@ -41,6 +42,7 @@ class MessageServiceTest {
     private ChatService chatService;
     private ChatMessageRepository chatMessageRepository;
     private MessageReceiptRepository messageReceiptRepository;
+    private MessageReactionRepository messageReactionRepository;
     private UserAccountRepository userAccountRepository;
     private SimpMessagingTemplate messagingTemplate;
     private ApplicationEventPublisher eventPublisher;
@@ -52,6 +54,7 @@ class MessageServiceTest {
         chatService = mock(ChatService.class);
         chatMessageRepository = mock(ChatMessageRepository.class);
         messageReceiptRepository = mock(MessageReceiptRepository.class);
+        messageReactionRepository = mock(MessageReactionRepository.class);
         userAccountRepository = mock(UserAccountRepository.class);
         messagingTemplate = mock(SimpMessagingTemplate.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
@@ -60,6 +63,7 @@ class MessageServiceTest {
                 chatService,
                 chatMessageRepository,
                 messageReceiptRepository,
+                messageReactionRepository,
                 userAccountRepository,
                 messagingTemplate,
                 new ObjectMapper(),

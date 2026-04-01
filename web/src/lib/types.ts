@@ -29,6 +29,12 @@ export type MessageStatus = {
   readCount: number;
 };
 
+export type MessageReaction = {
+  key: "LIKE" | "DISLIKE" | "EYES" | "OK";
+  count: number;
+  reactedByCurrentUser: boolean;
+};
+
 export type EncryptedMessagePayload = {
   scheme: string;
   ciphertext: string;
@@ -77,6 +83,7 @@ export type ApiChatMessage = {
   createdAt: string;
   status: MessageStatus | null;
   clientMessageId?: string | null;
+  reactions: MessageReaction[];
   encryptedPayload: EncryptedMessagePayload;
 };
 
@@ -88,6 +95,7 @@ export type ChatMessage = {
   createdAt: string;
   status: MessageStatus | null;
   clientMessageId?: string | null;
+  reactions: MessageReaction[];
 };
 
 export type UserSessionInfo = {
@@ -119,6 +127,12 @@ export type MessageStatusEvent = {
 export type MessageDeletionEvent = {
   messageId: string;
   chatId: string;
+};
+
+export type MessageReactionEvent = {
+  messageId: string;
+  chatId: string;
+  reactions: MessageReaction[];
 };
 
 export type ChatRemovalEvent = {

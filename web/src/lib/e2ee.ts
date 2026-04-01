@@ -167,6 +167,7 @@ export async function sendEncryptedMessage(
     createdAt: response.createdAt,
     status: response.status,
     clientMessageId: response.clientMessageId ?? clientMessageId ?? null,
+    reactions: response.reactions ?? [],
   } satisfies ChatMessage;
 }
 
@@ -188,6 +189,7 @@ export async function hydrateChatMessage(
       createdAt: message.createdAt,
       status: message.status,
       clientMessageId: message.clientMessageId ?? null,
+      reactions: message.reactions ?? [],
     };
   }
 
@@ -201,6 +203,7 @@ export async function hydrateChatMessage(
       createdAt: message.createdAt,
       status: message.status,
       clientMessageId: message.clientMessageId ?? null,
+      reactions: message.reactions ?? [],
     };
   } catch {
     return {
@@ -211,6 +214,7 @@ export async function hydrateChatMessage(
       createdAt: message.createdAt,
       status: message.status,
       clientMessageId: message.clientMessageId ?? null,
+      reactions: message.reactions ?? [],
     };
   }
 }

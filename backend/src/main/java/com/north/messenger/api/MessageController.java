@@ -2,7 +2,9 @@ package com.north.messenger.api;
 
 import com.north.messenger.api.dto.CreateMessageRequest;
 import com.north.messenger.api.dto.MessageReceiptRequest;
+import com.north.messenger.api.dto.MessageReactionEventResponse;
 import com.north.messenger.api.dto.MessageResponse;
+import com.north.messenger.api.dto.ToggleMessageReactionRequest;
 import com.north.messenger.application.message.MessageService;
 import jakarta.validation.Valid;
 import java.time.Instant;
@@ -20,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.PutMapping;
 
 @RestController
 @RequestMapping("/api/chats/{chatId}/messages")
@@ -79,6 +82,16 @@ public class MessageController {
             @PathVariable UUID messageId
     ) {
         messageService.deleteMessage(chatId, messageId, authentication.getName());
+    }
+
+    @PutMapping("/{messageId}/reactions")
+    public MessageReactionEventResponse toggleReaction(
+            Authentication authentication,
+            @PathVariable UUID chatId,
+            @PathVariable UUID messageId,
+            @Valid @RequestBody ToggleMessageReactionRequest request
+    ) {
+        return messageService.toggleReaction(chatId, messageId, authentication.getName(), request);
     }
 }
 

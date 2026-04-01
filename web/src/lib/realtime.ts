@@ -7,6 +7,7 @@ import type {
   ChatMessage,
   ChatSummary,
   MessageDeletionEvent,
+  MessageReactionEvent,
   MessageStatusEvent,
   SessionEvent,
   TypingEvent,
@@ -20,6 +21,7 @@ type SubscriptionOptions = {
   onChatRemoval?: (event: ChatRemovalEvent) => void;
   onMessage: (message: ChatMessage) => void;
   onMessageDeletion?: (event: MessageDeletionEvent) => void;
+  onMessageReaction?: (event: MessageReactionEvent) => void;
   onMessageStatus?: (event: MessageStatusEvent) => void;
   onSessionEvent: (event: SessionEvent) => void;
   onTyping?: (event: TypingEvent) => void;
@@ -36,6 +38,7 @@ type RealtimeConnection = {
   onConnect?: () => void;
   onMessage: (message: ChatMessage) => void;
   onMessageDeletion?: (event: MessageDeletionEvent) => void;
+  onMessageReaction?: (event: MessageReactionEvent) => void;
   onMessageStatus?: (event: MessageStatusEvent) => void;
   onSessionEvent: (event: SessionEvent) => void;
   onTyping?: (event: TypingEvent) => void;
@@ -70,6 +73,7 @@ export function subscribeToChats({
   onChatRemoval,
   onMessage,
   onMessageDeletion,
+  onMessageReaction,
   onMessageStatus,
   onSessionEvent,
   onTyping,
@@ -85,6 +89,7 @@ export function subscribeToChats({
     onConnect,
     onMessage,
     onMessageDeletion,
+    onMessageReaction,
     onMessageStatus,
     onSessionEvent,
     onTyping,
@@ -140,6 +145,14 @@ export function subscribeToChats({
       connection.userSubscriptions.push(
         client.subscribe("/user/queue/message-statuses", (frame) => {
           connection.onMessageStatus?.(JSON.parse(frame.body) as MessageStatusEvent);
+        })
+      );
+    }
+
+    if (connection.onMessageReaction) {
+      connection.userSubscriptions.push(
+        client.subscribe("/user/queue/message-reactions", (frame) => {
+          connection.onMessageReaction?.(JSON.parse(frame.body) as MessageReactionEvent);
         })
       );
     }
