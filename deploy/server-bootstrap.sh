@@ -20,14 +20,28 @@ fi
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
-apt-get install -y --no-install-recommends \
-  ca-certificates \
-  curl \
-  docker.io \
-  docker-compose-plugin \
-  fail2ban \
-  git \
+
+packages=(
+  ca-certificates
+  curl
+  fail2ban
+  git
   ufw
+)
+
+if ! command -v docker >/dev/null 2>&1; then
+  packages+=(docker.io)
+fi
+
+if ! docker compose version >/dev/null 2>&1 && ! command -v docker-compose >/dev/null 2>&1; then
+  if apt-cache show docker-compose-plugin >/dev/null 2>&1; then
+    packages+=(docker-compose-plugin)
+  else
+    packages+=(docker-compose)
+  fi
+fi
+
+apt-get install -y --no-install-recommends "${packages[@]}"
 
 if ! id -u "$DEPLOY_USER" >/dev/null 2>&1; then
   useradd --create-home --shell /bin/bash "$DEPLOY_USER"
@@ -41,7 +55,7 @@ chmod 600 "$DEPLOY_HOME/.ssh/authorized_keys"
 usermod -aG docker "$DEPLOY_USER"
 
 install -d -m 755 "$APP_DIR"
-chown "$DEPLOY_USER:$DEPLOY_USER" "$APP_DIR"
+chown -R "$DEPLOY_USER:$DEPLOY_USER" "$APP_DIR"
 
 install -d -m 755 /etc/ssh/sshd_config.d
 cp /opt/messenger-app/deploy/sshd_config.d/10-messenger-hardening.conf /etc/ssh/sshd_config.d/10-messenger-hardening.conf
