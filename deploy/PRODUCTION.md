@@ -26,13 +26,18 @@ Repository helpers:
 
 Store these in GitHub `production` environment secrets:
 
-- `PROD_SSH_HOST`
-- `PROD_SSH_PORT`
-- `PROD_SSH_USER`
 - `PROD_SSH_KEY`
-- `PROD_APP_DIR`
 
 Do not store `.env.prod` in GitHub. Keep app secrets on the server.
+
+The current deploy workflow already has the production host, port, user, and app directory baked in:
+
+- host: `83.147.244.194`
+- port: `22`
+- user: `deploy`
+- app dir: `/opt/messenger-app`
+
+So the only secret you need in GitHub is the private key for that `deploy` user.
 
 ## Deploy flow
 
@@ -72,5 +77,5 @@ If that is not enough, reboot the server from the provider panel.
 3. Run `DEPLOY_PUBLIC_KEY='ssh-ed25519 ...' bash deploy/server-bootstrap.sh`.
 4. Verify key-based login as `deploy`.
 5. Run `bash deploy/disable-ssh-passwords.sh`.
-6. Configure GitHub `production` environment secrets.
+6. Configure GitHub `production` environment secret `PROD_SSH_KEY`.
 7. Use the `Deploy Production` workflow for future deploys.
