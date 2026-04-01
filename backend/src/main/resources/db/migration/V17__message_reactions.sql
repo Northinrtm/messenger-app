@@ -1,7 +1,7 @@
 create table message_reactions (
     id uuid primary key,
     message_id uuid not null references chat_messages(id) on delete cascade,
-    user_id uuid not null references users(id) on delete cascade,
+    user_id uuid not null references app_users(id) on delete cascade,
     reaction_key varchar(24) not null,
     created_at timestamptz not null default now()
 );
