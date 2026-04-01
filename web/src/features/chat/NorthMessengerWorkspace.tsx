@@ -252,6 +252,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const [conferenceRecordingState, setConferenceRecordingState] =
     useState<ConferenceRecordingState>("idle");
   const messageStreamRef = useRef<HTMLDivElement | null>(null);
+  const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const conferenceInfoButtonRef = useRef<HTMLButtonElement | null>(null);
   const conferenceInfoPanelRef = useRef<HTMLDivElement | null>(null);
@@ -515,6 +516,9 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     contextMenuMessage &&
       isOwnMessage(contextMenuMessage, session.user) &&
       contextMenuMessage.id !== contextMenuMessage.clientMessageId
+  );
+  const canReactContextMenuMessage = Boolean(
+    contextMenuMessage && contextMenuMessage.id !== contextMenuMessage.clientMessageId
   );
 
   useEffect(() => {
@@ -1025,6 +1029,42 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       toggleMessageReactionMutation.mutate({ chatId, messageId, key });
     }
   );
+
+  const toggleReactionFromContextMenu = useEffectEvent(
+    (chatId: string, messageId: string, key: MessageReaction["key"]) => {
+      setContextMenu(null);
+      toggleMessageReactionMutation.mutate({ chatId, messageId, key });
+    }
+  );
+
+  const replyToMessage = useEffectEvent((message: ChatMessage) => {
+    setContextMenu(null);
+    const currentDraft = draftsByChatId[message.chatId] ?? "";
+    const replyPrefix = buildReplyDraftPrefix(message);
+    const nextDraft = currentDraft.startsWith(replyPrefix)
+      ? currentDraft
+      : currentDraft.trim()
+        ? `${replyPrefix}\n${currentDraft}`
+        : replyPrefix;
+
+    setDraftsByChatId((current) => ({
+      ...current,
+      [message.chatId]: nextDraft,
+    }));
+    scheduleDraftSave(message.chatId, nextDraft);
+    window.requestAnimationFrame(() => {
+      composerTextareaRef.current?.focus();
+      const length = composerTextareaRef.current?.value.length ?? 0;
+      composerTextareaRef.current?.setSelectionRange(length, length);
+    });
+  });
+
+  const copyMessageText = useEffectEvent((message: ChatMessage) => {
+    setContextMenu(null);
+    void navigator.clipboard.writeText(message.content).catch(() => {
+      window.alert("Не получилось скопировать текст сообщения.");
+    });
+  });
 
   const addActiveChatToContacts = () => {
     if (!activeDirectParticipant) {
@@ -3707,6 +3747,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
               }}
             >
               <textarea
+                ref={composerTextareaRef}
                 value={activeDraft}
                 onChange={(event) => handleComposerChange(event.target.value)}
                 onKeyDown={(event) => {
@@ -3745,11 +3786,66 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       {contextMenu ? (
         <div
           ref={contextMenuRef}
-          className="context-menu-surface"
+          className="context-menu-shell"
           style={contextMenuStyle}
-          role="menu"
-          aria-label={contextMenu.kind === "chat" ? "Chat actions" : "Message actions"}
         >
+          {contextMenu.kind === "message" && contextMenuMessage ? (
+            <div className="context-menu-reaction-bar" aria-label="Реакции на сообщение">
+              {MESSAGE_REACTION_OPTIONS.map((reactionOption) => {
+                const reaction = getMessageReaction(contextMenuMessage, reactionOption.key);
+                return (
+                  <button
+                    key={reactionOption.key}
+                    type="button"
+                    className={
+                      reaction?.reactedByCurrentUser
+                        ? "context-menu-reaction-button is-active"
+                        : "context-menu-reaction-button"
+                    }
+                    onClick={() =>
+                      toggleReactionFromContextMenu(
+                        contextMenu.chatId,
+                        contextMenu.messageId,
+                        reactionOption.key
+                      )
+                    }
+                    disabled={!canReactContextMenuMessage}
+                    title={reactionOption.label}
+                    aria-label={reactionOption.label}
+                  >
+                    {reactionOption.emoji}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+          <div
+            className="context-menu-surface"
+            role="menu"
+            aria-label={contextMenu.kind === "chat" ? "Chat actions" : "Message actions"}
+          >
+          {contextMenu.kind === "message" && contextMenuMessage ? (
+            <>
+              <button
+                type="button"
+                className="context-menu-item"
+                role="menuitem"
+                onClick={() => replyToMessage(contextMenuMessage)}
+              >
+                <span className="context-menu-item-icon">↩</span>
+                <span className="context-menu-item-label">Ответить</span>
+              </button>
+              <button
+                type="button"
+                className="context-menu-item"
+                role="menuitem"
+                onClick={() => copyMessageText(contextMenuMessage)}
+              >
+                <span className="context-menu-item-icon">⧉</span>
+                <span className="context-menu-item-label">Копировать текст</span>
+              </button>
+            </>
+          ) : null}
           {contextMenu.kind === "chat" ? (
             <button
               type="button"
@@ -3773,6 +3869,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
               Удалять для всех можно только свои сообщения
             </div>
           )}
+        </div>
         </div>
       ) : null}
 
@@ -4348,6 +4445,12 @@ function ensureOwnMessageStatus(message: ChatMessage, currentUser: UserProfile):
 
 function getMessageReaction(message: ChatMessage, key: MessageReaction["key"]) {
   return message.reactions.find((reaction) => reaction.key === key) ?? null;
+}
+
+function buildReplyDraftPrefix(message: ChatMessage) {
+  const collapsedText = message.content.trim().replace(/\s+/g, " ");
+  const preview = collapsedText.length > 96 ? `${collapsedText.slice(0, 93)}...` : collapsedText;
+  return `↪ ${message.sender.displayName}: ${preview}`;
 }
 
 function isOwnMessage(message: ChatMessage, currentUser: UserProfile) {
