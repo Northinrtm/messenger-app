@@ -1,0 +1,29 @@
+name: Production Health Check
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/10 * * * *"
+
+concurrency:
+  group: production-healthcheck
+  cancel-in-progress: true
+
+jobs:
+  public-health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check homepage
+        run: |
+          body="$(mktemp)"
+          code="$(curl -fsS --max-time 15 --retry 2 --retry-delay 2 -o "$body" -w "%{http_code}" https://pishi.ktsf.ru/)"
+          test "$code" = "200"
+          grep -qi "North Messenger" "$body"
+
+      - name: Check auth refresh responds quickly
+        run: |
+          body="$(mktemp)"
+          code="$(curl -sS --max-time 15 --retry 1 --retry-delay 2 -o "$body" -w "%{http_code}" -X POST https://pishi.ktsf.ru/api/auth/refresh)"
+          test "$code" = "403"
+          grep -q '"status":403' "$body"
