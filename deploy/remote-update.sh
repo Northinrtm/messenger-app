@@ -29,5 +29,5 @@ git checkout main
 git pull --ff-only origin main
 
 "${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build --no-cache $SERVICES
-"${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --force-recreate $SERVICES
+"${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --no-deps --force-recreate $SERVICES
 "${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps
