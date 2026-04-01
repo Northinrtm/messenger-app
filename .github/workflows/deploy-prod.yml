@@ -11,6 +11,7 @@ jobs:
   deploy:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment: production
     env:
       PROD_APP_DIR: /opt/messenger-app
@@ -33,8 +34,42 @@ jobs:
 
       - name: Upload deploy script
         run: |
-          scp -P "${PROD_SSH_PORT:-22}" deploy/remote-update.sh "$PROD_SSH_USER@$PROD_SSH_HOST:/tmp/messenger-remote-update.sh"
+          scp \
+            -P "${PROD_SSH_PORT:-22}" \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            deploy/remote-update.sh "$PROD_SSH_USER@$PROD_SSH_HOST:/tmp/messenger-remote-update.sh"
 
       - name: Deploy stack
         run: |
-          ssh -p "${PROD_SSH_PORT:-22}" "$PROD_SSH_USER@$PROD_SSH_HOST" "chmod +x /tmp/messenger-remote-update.sh && /tmp/messenger-remote-update.sh '${PROD_APP_DIR:-/opt/messenger-app}'"
+          REMOTE_LOG="/tmp/messenger-remote-update.log"
+          REMOTE_EXIT="/tmp/messenger-remote-update.exit"
+
+          ssh \
+            -p "${PROD_SSH_PORT:-22}" \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            "$PROD_SSH_USER@$PROD_SSH_HOST" \
+            "rm -f '$REMOTE_LOG' '$REMOTE_EXIT' && chmod +x /tmp/messenger-remote-update.sh && nohup bash -lc '/tmp/messenger-remote-update.sh \"${PROD_APP_DIR:-/opt/messenger-app}\" > \"$REMOTE_LOG\" 2>&1; printf \"%s\" \$? > \"$REMOTE_EXIT\"' >/dev/null 2>&1 &"
+
+          for attempt in $(seq 1 180); do
+            output="$(ssh \
+              -p "${PROD_SSH_PORT:-22}" \
+              -o ServerAliveInterval=30 \
+              -o ServerAliveCountMax=10 \
+              "$PROD_SSH_USER@$PROD_SSH_HOST" \
+              "status=''; if [ -f '$REMOTE_EXIT' ]; then status=\$(cat '$REMOTE_EXIT'); fi; echo \"__STATUS__:\$status\"; tail -n 60 '$REMOTE_LOG' 2>/dev/null || true")"
+
+            echo "$output"
+
+            status="$(printf '%s\n' "$output" | sed -n 's/^__STATUS__://p' | tail -n 1)"
+            if [ -n "$status" ]; then
+              test "$status" = "0"
+              exit 0
+            fi
+
+            sleep 10
+          done
+
+          echo "Timed out waiting for remote deployment to finish." >&2
+          exit 1
