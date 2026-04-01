@@ -134,6 +134,7 @@ services:
       XMPP_INTERNAL_MUC_DOMAIN: internal-muc.meet.jitsi
       XMPP_MUC_DOMAIN: muc.meet.jitsi
     volumes:
+      - ./jitsi/base.html:/usr/share/jitsi-meet/base.html:ro
       - jitsi_web_config:/config
       - ./jitsi/custom-config.js:/config/custom-config.js
 
