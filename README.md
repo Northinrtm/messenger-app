@@ -250,6 +250,10 @@ Use:
 - in production it must be a valid Base64 secret with at least 32 bytes after decoding
 - use `docker-compose.prod.yml` with `.env.prod`
 - refresh cookie secure mode is expected in production
+- keep `.env.prod` only on the server
+- prefer a dedicated `deploy` user with SSH key auth over `root + password`
+- use the manual GitHub Actions deploy workflow instead of long interactive SSH sessions
+- see [deploy/PRODUCTION.md](/d:/programs/coding/VSprojects/messenger-app/deploy/PRODUCTION.md) for the production runbook
 
 ## Current Constraints
 
