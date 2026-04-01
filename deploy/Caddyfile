@@ -3,6 +3,22 @@
 
     redir /meet /meet/ 308
 
+    @jitsi_config {
+        path /meet/config.js /meet/interface_config.js
+    }
+    header @jitsi_config {
+        Cache-Control "no-store, no-cache, must-revalidate"
+        Pragma "no-cache"
+        Expires "0"
+    }
+
+    @jitsi_html path_regexp jitsi_html ^/meet(?:/[^./?]+)?/?$
+    header @jitsi_html {
+        Cache-Control "no-store, no-cache, must-revalidate"
+        Pragma "no-cache"
+        Expires "0"
+    }
+
     handle_path /meet/* {
         reverse_proxy jitsi-web:80 {
             transport http {
