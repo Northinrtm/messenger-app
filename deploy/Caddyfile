@@ -1,20 +1,35 @@
 {$APP_DOMAIN} {
     encode gzip zstd
-    reverse_proxy web:80 {
-        health_uri /healthz
-        health_interval 30s
-        health_timeout 5s
-        transport http {
-            dial_timeout 5s
+
+    redir /meet /meet/ 308
+
+    handle_path /meet/* {
+        reverse_proxy jitsi-web:80 {
+            transport http {
+                dial_timeout 5s
+            }
         }
     }
-}
 
-https://{$APP_DOMAIN}:8443 {
-    encode gzip zstd
-    reverse_proxy jitsi-web:80 {
-        transport http {
-            dial_timeout 5s
+    @jitsi_transport {
+        path /http-bind /xmpp-websocket /colibri-ws/* /colibri-relay-ws/*
+    }
+    handle @jitsi_transport {
+        reverse_proxy jitsi-web:80 {
+            transport http {
+                dial_timeout 5s
+            }
+        }
+    }
+
+    handle {
+        reverse_proxy web:80 {
+            health_uri /healthz
+            health_interval 30s
+            health_timeout 5s
+            transport http {
+                dial_timeout 5s
+            }
         }
     }
 }

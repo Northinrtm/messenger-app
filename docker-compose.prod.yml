@@ -246,7 +246,6 @@ services:
     ports:
       - "80:80"
       - "443:443"
-      - "8443:8443"
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

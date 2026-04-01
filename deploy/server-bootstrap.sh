@@ -72,7 +72,6 @@ else
 fi
 ufw allow 80/tcp
 ufw allow 443/tcp
-ufw allow 8443/tcp
 ufw allow 4443/tcp
 ufw allow 10000/udp
 ufw --force enable

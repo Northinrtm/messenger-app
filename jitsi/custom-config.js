@@ -1,7 +1,17 @@
 (function applyMessengerJitsiOverrides() {
   var isHttps = window.location.protocol === "https:";
-  var httpBaseUrl = (isHttps ? "https://" : "http://") + window.location.host;
-  var websocketBaseUrl = (isHttps ? "wss://" : "ws://") + window.location.host;
+  var contextRoot = function(pathname) {
+    var contextRootEndIndex = pathname.lastIndexOf("/");
+
+    return (
+      contextRootEndIndex === -1
+      ? "/"
+      : pathname.substring(0, contextRootEndIndex + 1)
+    );
+  };
+  var normalizedContextRoot = contextRoot(window.location.pathname).replace(/\/$/, "");
+  var httpBaseUrl = window.location.origin + normalizedContextRoot;
+  var websocketBaseUrl = (isHttps ? "wss://" : "ws://") + window.location.host + normalizedContextRoot;
   var minimalToolbarButtons = [
     "microphone",
     "camera",
