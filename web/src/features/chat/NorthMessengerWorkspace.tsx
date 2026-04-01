@@ -945,9 +945,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     setConferenceComposerMode(null);
     setMobilePane("conversation");
     setActiveConferenceId(null);
-    startTransition(() => {
-      setActiveChatId(chatId);
-    });
+    setActiveChatId(chatId);
   });
 
   const closeActiveChat = useEffectEvent(() => {
@@ -958,18 +956,14 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
 
     setSidebarSheet(null);
     setMobilePane("sidebar");
-    startTransition(() => {
-      setActiveChatId(null);
-    });
+    setActiveChatId(null);
   });
 
   const closeActiveConference = useEffectEvent(() => {
     setIsConferenceInfoOpen(false);
     setSidebarSheet(null);
     setMobilePane("sidebar");
-    startTransition(() => {
-      setActiveConferenceId(null);
-    });
+    setActiveConferenceId(null);
   });
 
   const openConference = useEffectEvent((conferenceId: string) => {
@@ -985,9 +979,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     setConferenceComposerMode(null);
     setMobilePane("conversation");
     setActiveChatId(null);
-    startTransition(() => {
-      setActiveConferenceId(conferenceId);
-    });
+    setActiveConferenceId(conferenceId);
   });
 
   const handleConferenceStageExit = useEffectEvent(() => {
@@ -2687,6 +2679,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
         {activeConferenceCanJoin && activeConference.roomName ? (
           <div className="conference-stage">
             <ManagedConferenceStage
+              key={`${activeConference.id}:${activeConference.roomName}:${activeConference.roomAccessCode}`}
               baseUrl={JITSI_BASE_URL}
               conferenceId={activeConference.id}
               roomName={activeConference.roomName!}
