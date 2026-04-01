@@ -254,6 +254,7 @@ Use:
 - prefer a dedicated `deploy` user with SSH key auth over `root + password`
 - use the manual GitHub Actions deploy workflow instead of long interactive SSH sessions
 - see [deploy/PRODUCTION.md](/d:/programs/coding/VSprojects/messenger-app/deploy/PRODUCTION.md) for the production runbook
+- server bootstrap helpers live in [deploy](/d:/programs/coding/VSprojects/messenger-app/deploy)
 
 ## Current Constraints
 

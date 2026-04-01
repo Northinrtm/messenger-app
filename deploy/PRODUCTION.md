@@ -14,6 +14,14 @@ Keep production deploys short and avoid long-lived interactive `root` SSH sessio
 6. Enable `fail2ban` and firewall rules for SSH.
 7. Disable password-based SSH after confirming key-based access works.
 
+Repository helpers:
+
+- [server-bootstrap.sh](/d:/programs/coding/VSprojects/messenger-app/deploy/server-bootstrap.sh)
+- [disable-ssh-passwords.sh](/d:/programs/coding/VSprojects/messenger-app/deploy/disable-ssh-passwords.sh)
+- [10-messenger-hardening.conf](/d:/programs/coding/VSprojects/messenger-app/deploy/sshd_config.d/10-messenger-hardening.conf)
+- [20-disable-password-auth.conf](/d:/programs/coding/VSprojects/messenger-app/deploy/sshd_config.d/20-disable-password-auth.conf)
+- [messenger-sshd.local](/d:/programs/coding/VSprojects/messenger-app/deploy/fail2ban/jail.d/messenger-sshd.local)
+
 ## One-time GitHub Secrets
 
 Store these in GitHub `production` environment secrets:
@@ -56,3 +64,13 @@ systemctl restart ssh || systemctl restart sshd
 ```
 
 If that is not enough, reboot the server from the provider panel.
+
+## Minimal first-access sequence
+
+1. Log in as `root` from the provider console.
+2. Clone the repo to `/opt/messenger-app`.
+3. Run `DEPLOY_PUBLIC_KEY='ssh-ed25519 ...' bash deploy/server-bootstrap.sh`.
+4. Verify key-based login as `deploy`.
+5. Run `bash deploy/disable-ssh-passwords.sh`.
+6. Configure GitHub `production` environment secrets.
+7. Use the `Deploy Production` workflow for future deploys.
