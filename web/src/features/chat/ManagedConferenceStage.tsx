@@ -389,6 +389,7 @@ function buildConferenceFrameUrl(input: {
   hashParams.set("config.hiddenDomain", JSON.stringify(JITSI_HIDDEN_DOMAIN));
   hashParams.set("config.fileRecordingsEnabled", JSON.stringify(false));
   hashParams.set("config.fileRecordingsServiceEnabled", JSON.stringify(false));
+  hashParams.set("config.localRecording.enabled", JSON.stringify(true));
   hashParams.set("config.recordingService.enabled", JSON.stringify(false));
   hashParams.set("config.recordingService.sharingEnabled", JSON.stringify(false));
   hashParams.set("config.localRecording.disable", JSON.stringify(false));

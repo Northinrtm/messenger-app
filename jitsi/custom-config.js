@@ -28,6 +28,7 @@
   config.fileRecordingsEnabled = false;
   config.fileRecordingsServiceEnabled = false;
   config.localRecording = Object.assign({}, config.localRecording, {
+    enabled: true,
     disable: false,
     notifyAllParticipants: true
   });
