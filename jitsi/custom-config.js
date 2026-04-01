@@ -8,7 +8,7 @@
     "desktop",
     "tileview",
     "fullscreen",
-    "recording",
+    "localrecording",
     "settings",
     "hangup"
   ];

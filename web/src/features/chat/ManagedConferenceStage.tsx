@@ -65,7 +65,7 @@ const MINIMAL_TOOLBAR_BUTTONS = [
   "desktop",
   "tileview",
   "fullscreen",
-  "recording",
+  "localrecording",
   "settings",
   "hangup",
 ];
