@@ -1949,7 +1949,6 @@ textarea {
   width: min(18rem, calc(100vw - 1.5rem));
   display: grid;
   gap: 0.38rem;
-  max-height: calc(100vh - 1.5rem);
 }
 
 .context-menu-reaction-bar,
@@ -2004,9 +2003,6 @@ textarea {
   gap: 0.2rem;
   padding: 0.35rem;
   border-radius: 0.9rem;
-  max-height: min(30rem, calc(100vh - 7rem));
-  overflow-y: auto;
-  overscroll-behavior: contain;
 }
 
 .context-menu-item {

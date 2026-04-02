@@ -10,6 +10,7 @@ import {
   useDeferredValue,
   useEffect,
   useEffectEvent,
+  useLayoutEffect,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
   useRef,
@@ -215,8 +216,8 @@ const MAX_CACHED_MESSAGE_PAGES = 4;
 const DRAFT_SAVE_DEBOUNCE_MS = 450;
 const CONFERENCE_ACTIVATION_LEAD_MS = 5 * 60 * 1000;
 const CONTEXT_MENU_WIDTH_PX = 224;
+const CONTEXT_MENU_ESTIMATED_HEIGHT_PX = 560;
 const CONTEXT_MENU_GUTTER_PX = 12;
-const CONTEXT_MENU_FLIP_BREAKPOINT_RATIO = 0.58;
 const SIDEBAR_WIDTH_STORAGE_KEY = "north-messenger-sidebar-width";
 const DEFAULT_SIDEBAR_WIDTH = 380;
 const MIN_SIDEBAR_WIDTH = 280;
@@ -260,6 +261,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const [incomingToasts, setIncomingToasts] = useState<IncomingToast[]>([]);
   const [typingByChatId, setTypingByChatId] = useState<Record<string, Participant[]>>({});
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [contextMenuSize, setContextMenuSize] = useState<{ width: number; height: number } | null>(null);
   const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
   const [mobilePane, setMobilePane] = useState<"sidebar" | "conversation">("sidebar");
   const [isConferenceInfoOpen, setIsConferenceInfoOpen] = useState(false);
@@ -1718,6 +1720,21 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     };
   }, [contextMenu]);
 
+  useLayoutEffect(() => {
+    if (!contextMenu) {
+      setContextMenuSize(null);
+      return;
+    }
+
+    const nextWidth = contextMenuRef.current?.offsetWidth ?? CONTEXT_MENU_WIDTH_PX;
+    const nextHeight = contextMenuRef.current?.offsetHeight ?? CONTEXT_MENU_ESTIMATED_HEIGHT_PX;
+    setContextMenuSize((current) =>
+      current?.width === nextWidth && current.height === nextHeight
+        ? current
+        : { width: nextWidth, height: nextHeight }
+    );
+  }, [contextMenu]);
+
   const handleRealtimeMessage = useEffectEvent((message: ChatMessage) => {
     if (handledRealtimeMessageIdsRef.current.has(message.id)) {
       return;
@@ -3102,28 +3119,21 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   };
   const contextMenuStyle: CSSProperties | undefined = contextMenu
     ? (() => {
+        const menuWidth = contextMenuSize?.width ?? CONTEXT_MENU_WIDTH_PX;
+        const menuHeight = contextMenuSize?.height ?? CONTEXT_MENU_ESTIMATED_HEIGHT_PX;
         const left = Math.max(
           CONTEXT_MENU_GUTTER_PX,
-          Math.min(contextMenu.x, window.innerWidth - CONTEXT_MENU_WIDTH_PX - CONTEXT_MENU_GUTTER_PX)
+          Math.min(contextMenu.x, window.innerWidth - menuWidth - CONTEXT_MENU_GUTTER_PX)
         );
-        const shouldFlipVertically =
-          contextMenu.y > window.innerHeight * CONTEXT_MENU_FLIP_BREAKPOINT_RATIO;
+        const top = Math.max(
+          CONTEXT_MENU_GUTTER_PX,
+          Math.min(contextMenu.y, window.innerHeight - menuHeight - CONTEXT_MENU_GUTTER_PX)
+        );
 
-        return shouldFlipVertically
-          ? {
-              left: `${left}px`,
-              bottom: `${Math.max(
-                CONTEXT_MENU_GUTTER_PX,
-                window.innerHeight - contextMenu.y + CONTEXT_MENU_GUTTER_PX
-              )}px`,
-            }
-          : {
-              left: `${left}px`,
-              top: `${Math.max(
-                CONTEXT_MENU_GUTTER_PX,
-                Math.min(contextMenu.y, window.innerHeight - 64 - CONTEXT_MENU_GUTTER_PX)
-              )}px`,
-            };
+        return {
+          left: `${left}px`,
+          top: `${top}px`,
+        };
       })()
     : undefined;
 
