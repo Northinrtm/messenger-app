@@ -193,6 +193,8 @@ services:
       APP_JWT_SECRET: ${APP_JWT_SECRET:?APP_JWT_SECRET must be set}
       APP_JWT_REFRESH_TOKEN_TTL: ${APP_JWT_REFRESH_TOKEN_TTL:-P30D}
       APP_AUTH_REFRESH_COOKIE_SECURE: ${APP_AUTH_REFRESH_COOKIE_SECURE:-true}
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: ${MANAGEMENT_TRACING_SAMPLING_PROBABILITY:-1.0}
+      MANAGEMENT_OTLP_TRACING_ENDPOINT: ${MANAGEMENT_OTLP_TRACING_ENDPOINT:-http://otel-collector:4318/v1/traces}
       APP_MEDIA_CONFERENCE_RECORDINGS_DIRECTORY: /app/storage/conference-recordings
       APP_MEDIA_CONFERENCE_RECORDINGS_IMPORT_DIRECTORY: /jibri-recordings
     depends_on:
@@ -207,6 +209,90 @@ services:
     volumes:
       - conference_recordings_archive:/app/storage/conference-recordings
       - conference_recordings_raw:/jibri-recordings:ro
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: messenger-postgres-exporter
+    restart: unless-stopped
+    cpus: 0.25
+    mem_limit: 128m
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATA_SOURCE_URI: postgres:5432/messenger?sslmode=disable
+      DATA_SOURCE_USER: ${DB_USERNAME:-messenger}
+      DATA_SOURCE_PASS: ${DB_PASSWORD:?DB_PASSWORD must be set}
+
+  tempo:
+    image: grafana/tempo:latest
+    container_name: messenger-tempo
+    restart: unless-stopped
+    cpus: 0.5
+    mem_limit: 256m
+    command:
+      - "-config.file=/etc/tempo/tempo.yml"
+    volumes:
+      - ./deploy/observability/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo_data:/var/tempo
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: messenger-otel-collector
+    restart: unless-stopped
+    cpus: 0.5
+    mem_limit: 256m
+    command:
+      - "--config=/etc/otelcol-contrib/config.yaml"
+    depends_on:
+      tempo:
+        condition: service_started
+    volumes:
+      - ./deploy/observability/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: messenger-prometheus
+    restart: unless-stopped
+    cpus: 0.5
+    mem_limit: 256m
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    depends_on:
+      backend:
+        condition: service_started
+      postgres-exporter:
+        condition: service_started
+    volumes:
+      - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: messenger-grafana
+    restart: unless-stopped
+    cpus: 0.5
+    mem_limit: 256m
+    depends_on:
+      prometheus:
+        condition: service_started
+      tempo:
+        condition: service_started
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?GRAFANA_ADMIN_USER must be set}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SECURITY_COOKIE_SECURE: "true"
+      GF_SERVER_DOMAIN: ${APP_DOMAIN:?APP_DOMAIN must be set}
+      GF_SERVER_ROOT_URL: https://${APP_DOMAIN:?APP_DOMAIN must be set}/observability/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./deploy/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
 
   web:
     build:
@@ -242,6 +328,8 @@ services:
         condition: service_healthy
       jitsi-web:
         condition: service_started
+      grafana:
+        condition: service_started
     environment:
       APP_DOMAIN: ${APP_DOMAIN:?APP_DOMAIN must be set}
     ports:
@@ -256,10 +344,13 @@ volumes:
   caddy_config:
   caddy_data:
   postgres_data:
+  grafana_data:
   jitsi_prosody_config:
   jitsi_jicofo_config:
   jitsi_jvb_config:
   jitsi_jibri_config:
   jitsi_web_config:
+  prometheus_data:
+  tempo_data:
   conference_recordings_raw:
   conference_recordings_archive:

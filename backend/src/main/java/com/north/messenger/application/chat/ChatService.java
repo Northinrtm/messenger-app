@@ -8,6 +8,7 @@ import com.north.messenger.api.dto.MessageSnippetResponse;
 import com.north.messenger.api.dto.AddGroupParticipantsRequest;
 import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.application.auth.AuthService;
+import com.north.messenger.observability.MessengerTelemetry;
 import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.model.ChatParticipant;
 import com.north.messenger.domain.model.ChatRoom;
@@ -35,6 +36,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import io.micrometer.core.instrument.Timer;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -58,6 +60,7 @@ public class ChatService {
     private final UserDeletedChatRepository userDeletedChatRepository;
     private final UserDeletedMessageRepository userDeletedMessageRepository;
     private final SimpMessagingTemplate messagingTemplate;
+    private final MessengerTelemetry telemetry;
 
     public ChatService(
             AuthService authService,
@@ -69,7 +72,8 @@ public class ChatService {
             UserArchivedChatRepository userArchivedChatRepository,
             UserDeletedChatRepository userDeletedChatRepository,
             UserDeletedMessageRepository userDeletedMessageRepository,
-            SimpMessagingTemplate messagingTemplate
+            SimpMessagingTemplate messagingTemplate,
+            MessengerTelemetry telemetry
     ) {
         this.authService = authService;
         this.chatRoomRepository = chatRoomRepository;
@@ -81,6 +85,7 @@ public class ChatService {
         this.userDeletedChatRepository = userDeletedChatRepository;
         this.userDeletedMessageRepository = userDeletedMessageRepository;
         this.messagingTemplate = messagingTemplate;
+        this.telemetry = telemetry;
     }
 
     public List<ChatSummaryResponse> listChats(String username) {
@@ -270,6 +275,11 @@ public class ChatService {
         return room;
     }
 
+    public ChatRoom getChatRoom(UUID chatId) {
+        return chatRoomRepository.findById(chatId)
+                .orElse(null);
+    }
+
     public ChatSummaryResponse getChatSummaryForUser(UUID chatId, UserAccount user) {
         ChatRoom room = requireChatMembership(chatId, user);
         return toSummary(room, user.getId());
@@ -288,6 +298,7 @@ public class ChatService {
     }
 
     public void notifyChatUpdated(UUID chatId) {
+        Timer.Sample telemetrySample = telemetry.startSample();
         ChatRoom room = chatRoomRepository.findById(chatId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Chat not found"));
         List<ChatParticipant> memberships = chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId);
@@ -300,21 +311,29 @@ public class ChatService {
                 .map(UserDeletedChat::getUserId)
                 .collect(Collectors.toSet());
 
-        memberships.stream()
+        List<UserAccount> audience = memberships.stream()
                 .map(membership -> usersById.get(membership.getUserId()))
                 .filter(Objects::nonNull)
                 .filter(user -> !deletedUserIds.contains(user.getId()))
-                .forEach(user -> messagingTemplate.convertAndSendToUser(
-                        user.getUsername(),
-                        "/queue/chats",
-                        toSummary(
-                                room,
-                                user.getId(),
-                                memberships,
-                                usersById,
-                                unreadCountsByUserId.getOrDefault(user.getId(), 0)
-                        )
-                ));
+                .toList();
+
+        try {
+            audience.forEach(user -> messagingTemplate.convertAndSendToUser(
+                            user.getUsername(),
+                            "/queue/chats",
+                            toSummary(
+                                    room,
+                                    user.getId(),
+                                    memberships,
+                                    usersById,
+                                    unreadCountsByUserId.getOrDefault(user.getId(), 0)
+                            )
+                    ));
+            telemetry.recordChatSummaryBroadcast(telemetrySample, room, audience.size(), "sent", chatId);
+        } catch (RuntimeException exception) {
+            telemetry.recordChatSummaryBroadcast(telemetrySample, room, audience.size(), "error", chatId);
+            throw exception;
+        }
     }
 
     @Transactional

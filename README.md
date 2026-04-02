@@ -94,6 +94,37 @@ Important limitations:
 - chat list and message list still perform periodic sync to avoid stale UI state
 - typing is short-lived state with TTL
 
+## Observability
+
+- `Spring Boot Actuator` is enabled
+- health endpoint: `/actuator/health`
+- metrics endpoint: `/actuator/metrics`
+- Prometheus scrape endpoint: `/actuator/prometheus`
+- custom backend latency/counter metrics:
+  - `messenger.message.send.duration`
+  - `messenger.message.send.total`
+  - `messenger.message.dispatch.duration`
+  - `messenger.message.dispatch.total`
+  - `messenger.chat.summary.broadcast.duration`
+  - `messenger.chat.summary.broadcast.total`
+- executor metrics for async message fan-out:
+  - `messenger.message.dispatch.executor.*`
+- slow-path warnings are logged for:
+  - message persistence before dispatch
+  - post-commit message fan-out
+  - chat summary broadcast
+
+Current note:
+
+- `/actuator/health` is public
+- scrape endpoints are exposed on the backend container for internal Prometheus access
+- `edge` blocks external `/actuator/*` requests, so metrics stay off the public internet
+
+Production note:
+
+- Grafana is intended to be published through `https://<APP_DOMAIN>/observability/`
+- Prometheus, Tempo, Postgres exporter, and the OTLP collector stay internal to the Docker network
+
 ## Video Conference Notes
 
 - scheduled conferences open 5 minutes before start time

@@ -50,8 +50,29 @@ The workflow uploads `deploy/remote-update.sh` and runs it on the server.
 1. verify the server checkout is clean
 2. fast-forward `main`
 3. rebuild `web`, `backend`, and `edge`
-4. recreate those services
+4. recreate those services plus observability services
 5. print `docker compose ps`
+
+## Observability
+
+Production observability runs on the same server with these internal services:
+
+- `prometheus`
+- `grafana`
+- `tempo`
+- `otel-collector`
+- `postgres-exporter`
+
+Only Grafana is exposed externally, through:
+
+- `https://<APP_DOMAIN>/observability/`
+
+Required `.env.prod` values:
+
+- `GRAFANA_ADMIN_USER`
+- `GRAFANA_ADMIN_PASSWORD`
+- `MANAGEMENT_TRACING_SAMPLING_PROBABILITY`
+- `MANAGEMENT_OTLP_TRACING_ENDPOINT`
 
 ## Emergency manual deploy
 

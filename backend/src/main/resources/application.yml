@@ -41,7 +41,16 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,metrics,prometheus
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  tracing:
+    sampling:
+      probability: ${MANAGEMENT_TRACING_SAMPLING_PROBABILITY:1.0}
+  otlp:
+    tracing:
+      endpoint: ${MANAGEMENT_OTLP_TRACING_ENDPOINT:http://otel-collector:4318/v1/traces}
 
 app:
   cors:
@@ -64,5 +73,7 @@ app:
       import-directory: ${APP_MEDIA_CONFERENCE_RECORDINGS_IMPORT_DIRECTORY:./storage/jibri-recordings}
 
 logging:
+  pattern:
+    correlation: "[trace_id=%X{traceId:-} span_id=%X{spanId:-}] "
   level:
     org.springframework.web.socket: INFO

@@ -20,6 +20,7 @@ import com.north.messenger.api.dto.ToggleMessageReactionRequest;
 import com.north.messenger.api.dto.UpdateMessageRequest;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.chat.ChatService;
+import com.north.messenger.observability.MessengerTelemetry;
 import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.MessageReceipt;
@@ -43,6 +44,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import io.micrometer.core.instrument.Timer;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -68,6 +70,7 @@ public class MessageService {
     private final SimpMessagingTemplate messagingTemplate;
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
+    private final MessengerTelemetry telemetry;
 
     public MessageService(
             AuthService authService,
@@ -79,7 +82,8 @@ public class MessageService {
             UserDeletedMessageRepository userDeletedMessageRepository,
             SimpMessagingTemplate messagingTemplate,
             ObjectMapper objectMapper,
-            ApplicationEventPublisher eventPublisher
+            ApplicationEventPublisher eventPublisher,
+            MessengerTelemetry telemetry
     ) {
         this.authService = authService;
         this.chatService = chatService;
@@ -91,6 +95,7 @@ public class MessageService {
         this.messagingTemplate = messagingTemplate;
         this.objectMapper = objectMapper;
         this.eventPublisher = eventPublisher;
+        this.telemetry = telemetry;
     }
 
     @Transactional
@@ -149,14 +154,23 @@ public class MessageService {
 
     @Transactional
     public MessageResponse sendMessage(UUID chatId, String username, CreateMessageRequest request) {
+        Timer.Sample telemetrySample = telemetry.startSample();
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
-        chatService.requireChatMembership(chatId, currentUser);
+        ChatRoom room = chatService.requireChatMembership(chatId, currentUser);
         List<UserAccount> participants = chatService.findParticipants(chatId);
         String clientMessageId = normalizeClientMessageId(request.clientMessageId());
         UUID replyToMessageId = validateReplyTarget(chatId, request.replyToMessageId());
 
         MessageResponse existingResponse = findExistingMessageResponse(chatId, currentUser, clientMessageId);
         if (existingResponse != null) {
+            telemetry.recordMessageSend(
+                    telemetrySample,
+                    room,
+                    participants.size(),
+                    "deduplicated",
+                    chatId,
+                    clientMessageId
+            );
             return existingResponse;
         }
 
@@ -219,13 +233,47 @@ public class MessageService {
                             .get(message.getId())
             );
             eventPublisher.publishEvent(new MessageDispatchEvent(chatId, message.getId(), clientMessageId));
+            telemetry.recordMessageSend(
+                    telemetrySample,
+                    room,
+                    participants.size(),
+                    "accepted",
+                    chatId,
+                    clientMessageId
+            );
             return responseForSender;
         } catch (DataIntegrityViolationException exception) {
             MessageResponse deduplicatedResponse = findExistingMessageResponse(chatId, currentUser, clientMessageId);
             if (deduplicatedResponse != null) {
+                telemetry.recordMessageSend(
+                        telemetrySample,
+                        room,
+                        participants.size(),
+                        "deduplicated",
+                        chatId,
+                        clientMessageId
+                );
                 return deduplicatedResponse;
             }
 
+            telemetry.recordMessageSend(
+                    telemetrySample,
+                    room,
+                    participants.size(),
+                    "error",
+                    chatId,
+                    clientMessageId
+            );
+            throw exception;
+        } catch (RuntimeException exception) {
+            telemetry.recordMessageSend(
+                    telemetrySample,
+                    room,
+                    participants.size(),
+                    "error",
+                    chatId,
+                    clientMessageId
+            );
             throw exception;
         }
     }
@@ -306,7 +354,7 @@ public class MessageService {
                 Instant.now()
         );
         chatMessageRepository.saveAndFlush(message);
-        broadcastMessage(message, null);
+        broadcastMessage(message, null, "update");
 
         UserAccount sender = userAccountRepository.findById(message.getSenderId()).orElse(currentUser);
         MessageReceiptSummary summary = loadReceiptSummaries(List.of(message.getId()))
@@ -365,67 +413,107 @@ public class MessageService {
         ChatMessage message = chatMessageRepository.findById(event.messageId())
                 .orElse(null);
         if (message == null) {
+            telemetry.recordMessageDispatchMissing(event.chatId(), event.messageId(), "after_commit");
             return;
         }
-        broadcastMessage(message, event.clientMessageId());
+        broadcastMessage(message, event.clientMessageId(), "after_commit");
     }
 
-    private void broadcastMessage(ChatMessage message, String senderClientMessageId) {
+    private void broadcastMessage(ChatMessage message, String senderClientMessageId, String source) {
+        Timer.Sample telemetrySample = telemetry.startSample();
+        ChatRoom room = chatService.getChatRoom(message.getChatId());
         UserAccount sender = userAccountRepository.findById(message.getSenderId())
                 .orElse(null);
-        if (sender == null) {
+        if (sender == null || room == null) {
+            if (room != null) {
+                telemetry.recordMessageDispatch(
+                        telemetrySample,
+                        room,
+                        0,
+                        source,
+                        "missing_sender",
+                        message.getChatId(),
+                        message.getId()
+                );
+            } else {
+                telemetry.recordMessageDispatchMissing(message.getChatId(), message.getId(), source);
+            }
             return;
         }
 
-        List<UserAccount> participants = chatService.findParticipants(message.getChatId());
-        MessageReceiptSummary summary = loadReceiptSummaries(List.of(message.getId()))
-                .getOrDefault(message.getId(), MessageReceiptSummary.empty());
-        Map<UUID, MessageSnippetResponse> repliesByMessageId = loadReplySnippetsByMessageId(
-                List.of(message),
-                participants.stream().collect(Collectors.toMap(UserAccount::getId, Function.identity()))
-        );
-        ParticipantResponse senderParticipant = authService.toParticipant(sender);
-        Map<String, String> encryptedKeysByUserId = deserializeEncryptedKeys(message);
-        Map<String, List<MessageReaction>> reactionsByKey = messageReactionRepository.findAllByMessageIdIn(
-                        List.of(message.getId())
-                ).stream()
-                .collect(Collectors.groupingBy(MessageReaction::getReactionKey));
-        MessageSnippetResponse replyTo = repliesByMessageId.get(message.getId());
+        int participantCount = 0;
+        try {
+            List<UserAccount> participants = chatService.findParticipants(message.getChatId());
+            participantCount = participants.size();
+            MessageReceiptSummary summary = loadReceiptSummaries(List.of(message.getId()))
+                    .getOrDefault(message.getId(), MessageReceiptSummary.empty());
+            Map<UUID, MessageSnippetResponse> repliesByMessageId = loadReplySnippetsByMessageId(
+                    List.of(message),
+                    participants.stream().collect(Collectors.toMap(UserAccount::getId, Function.identity()))
+            );
+            ParticipantResponse senderParticipant = authService.toParticipant(sender);
+            Map<String, String> encryptedKeysByUserId = deserializeEncryptedKeys(message);
+            Map<String, List<MessageReaction>> reactionsByKey = messageReactionRepository.findAllByMessageIdIn(
+                            List.of(message.getId())
+                    ).stream()
+                    .collect(Collectors.groupingBy(MessageReaction::getReactionKey));
+            MessageSnippetResponse replyTo = repliesByMessageId.get(message.getId());
 
-        participants.forEach(participant -> {
-            List<MessageReactionSummaryResponse> reactions = summarizeReactions(
-                    reactionsByKey,
-                    participant.getId()
+            participants.forEach(participant -> {
+                List<MessageReactionSummaryResponse> reactions = summarizeReactions(
+                        reactionsByKey,
+                        participant.getId()
+                );
+                EncryptedMessagePayloadResponse encryptedPayload = toEncryptedPayload(
+                        message,
+                        participant.getId(),
+                        encryptedKeysByUserId
+                );
+                MessageResponse response = participant.getId().equals(sender.getId())
+                        ? toResponse(
+                                message,
+                                senderParticipant,
+                                participant.getId(),
+                                summary,
+                                reactions,
+                                senderClientMessageId,
+                                replyTo,
+                                encryptedPayload
+                        )
+                        : toResponse(
+                                message,
+                                senderParticipant,
+                                participant.getId(),
+                                summary,
+                                reactions,
+                                null,
+                                replyTo,
+                                encryptedPayload
+                );
+                messagingTemplate.convertAndSendToUser(participant.getUsername(), "/queue/messages", response);
+            });
+            telemetry.recordMessageDispatch(
+                    telemetrySample,
+                    room,
+                    participantCount,
+                    source,
+                    "sent",
+                    message.getChatId(),
+                    message.getId()
             );
-            EncryptedMessagePayloadResponse encryptedPayload = toEncryptedPayload(
-                    message,
-                    participant.getId(),
-                    encryptedKeysByUserId
+            chatService.notifyChatUpdated(message.getChatId());
+        } catch (RuntimeException exception) {
+            telemetry.recordMessageDispatch(
+                    telemetrySample,
+                    room,
+                    participantCount,
+                    source,
+                    "error",
+                    message.getChatId(),
+                    message.getId()
             );
-            MessageResponse response = participant.getId().equals(sender.getId())
-                    ? toResponse(
-                            message,
-                            senderParticipant,
-                            participant.getId(),
-                            summary,
-                            reactions,
-                            senderClientMessageId,
-                            replyTo,
-                            encryptedPayload
-                    )
-                    : toResponse(
-                            message,
-                            senderParticipant,
-                            participant.getId(),
-                            summary,
-                            reactions,
-                            null,
-                            replyTo,
-                            encryptedPayload
-                    );
-            messagingTemplate.convertAndSendToUser(participant.getUsername(), "/queue/messages", response);
-        });
-        chatService.notifyChatUpdated(message.getChatId());
+            throw exception;
+        }
     }
 
     private Map<UUID, MessageSnippetResponse> loadReplySnippetsByMessageId(

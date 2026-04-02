@@ -4,7 +4,8 @@ set -euo pipefail
 APP_DIR="${1:-/opt/messenger-app}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 ENV_FILE="${ENV_FILE:-.env.prod}"
-SERVICES="${SERVICES:-web backend edge}"
+BUILD_SERVICES="${BUILD_SERVICES:-web backend edge}"
+RUNTIME_SERVICES="${RUNTIME_SERVICES:-web backend edge postgres-exporter tempo otel-collector prometheus grafana}"
 STATUS_FILE="${DEPLOY_STATUS_FILE:-}"
 
 if [[ -n "$STATUS_FILE" ]]; then
@@ -33,6 +34,6 @@ git fetch origin main
 git checkout main
 git pull --ff-only origin main
 
-"${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build --no-cache $SERVICES
-"${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --no-deps --force-recreate $SERVICES
+"${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build --no-cache $BUILD_SERVICES
+"${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --no-deps --force-recreate $RUNTIME_SERVICES
 "${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps

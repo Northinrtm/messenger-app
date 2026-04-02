@@ -2,6 +2,7 @@
     encode gzip zstd
 
     redir /meet /meet/ 308
+    redir /observability /observability/ 308
 
     @jitsi_config {
         path /meet/config.js /meet/interface_config.js
@@ -32,6 +33,20 @@
     }
     handle @jitsi_transport {
         reverse_proxy jitsi-web:80 {
+            transport http {
+                dial_timeout 5s
+            }
+        }
+    }
+
+    @blocked_actuator path /actuator/*
+    handle @blocked_actuator {
+        respond "Not found" 404
+    }
+
+    handle /observability/* {
+        reverse_proxy grafana:3000 {
+            header_up X-Forwarded-Prefix /observability
             transport http {
                 dial_timeout 5s
             }
