@@ -4,6 +4,7 @@ import {
   flattenMessagePages,
   mergeMessagePages,
   parseUsernames,
+  replaceChatPreviewOverride,
   removeMessageByClientMessageId,
   upsertChatPreviewOverride,
   updateMessageReactionsPages,
@@ -211,5 +212,24 @@ describe("chatState", () => {
     const next = upsertChatPreviewOverride(current, message("2", "2026-03-22T10:00:00.000Z"));
 
     expect(next).toBe(current);
+  });
+
+  it("replaces the preview override when a deletion reveals an older latest message", () => {
+    const current = {
+      "chat-1": {
+        lastMessage: "deleted message",
+        lastMessageAt: "2026-03-22T10:02:00.000Z",
+      },
+    };
+
+    const next = replaceChatPreviewOverride(current, "chat-1", {
+      lastMessage: "visible older message",
+      lastMessageAt: "2026-03-22T10:01:00.000Z",
+    });
+
+    expect(next["chat-1"]).toEqual({
+      lastMessage: "visible older message",
+      lastMessageAt: "2026-03-22T10:01:00.000Z",
+    });
   });
 });

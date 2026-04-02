@@ -92,6 +92,30 @@ export function removeChatPreviewOverride(
   return rest;
 }
 
+export function replaceChatPreviewOverride(
+  current: Record<string, ChatPreviewOverride>,
+  chatId: string,
+  nextPreview: ChatPreviewOverride | null
+) {
+  if (!nextPreview) {
+    return removeChatPreviewOverride(current, chatId);
+  }
+
+  const existing = current[chatId];
+  if (
+    existing &&
+    existing.lastMessage === nextPreview.lastMessage &&
+    existing.lastMessageAt === nextPreview.lastMessageAt
+  ) {
+    return current;
+  }
+
+  return {
+    ...current,
+    [chatId]: nextPreview,
+  };
+}
+
 export function updateChatPreview(
   current: ChatSummary[] | undefined,
   message: ChatMessage

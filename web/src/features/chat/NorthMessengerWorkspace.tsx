@@ -98,6 +98,7 @@ import {
   removeChatPreviewOverride,
   removeMessageById,
   removeMessageByClientMessageId,
+  replaceChatPreviewOverride,
   upsertChat,
   upsertChatPreviewOverride,
   updateChatPinnedMessage,
@@ -914,7 +915,12 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     }
 
     const previewText = buildChatListPreviewText(latestMessage);
-    applyChatPreviewMessage(latestMessage);
+    setChatPreviewOverrides((current) =>
+      replaceChatPreviewOverride(current, chatId, {
+        lastMessage: previewText,
+        lastMessageAt: latestMessage.createdAt,
+      })
+    );
     queryClient.setQueryData<ChatSummary[]>(["chats", session.token], (current) =>
       applyChatMessageActivity(
         current,
@@ -951,7 +957,12 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       }
 
       const previewText = buildChatListPreviewText(latestMessage);
-      applyChatPreviewMessage(latestMessage);
+      setChatPreviewOverrides((current) =>
+        replaceChatPreviewOverride(current, chatId, {
+          lastMessage: previewText,
+          lastMessageAt: latestMessage.createdAt,
+        })
+      );
       queryClient.setQueryData<ChatSummary[]>(["chats", session.token], (current) =>
         applyChatMessageActivity(
           current,
