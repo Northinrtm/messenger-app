@@ -176,6 +176,33 @@ textarea::placeholder {
   line-height: 1.65;
 }
 
+.auth-device-unlock,
+.auth-action-stack {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.auth-device-unlock {
+  margin-top: 1.2rem;
+}
+
+.auth-device-button,
+.auth-secondary-button,
+.auth-trust-button {
+  width: 100%;
+}
+
+.auth-device-note {
+  margin: 0;
+  color: rgba(245, 239, 231, 0.58);
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.auth-secondary-button {
+  box-shadow: none;
+}
+
 .mode-switch {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -1564,8 +1591,15 @@ textarea {
 }
 
 .has-image {
-  overflow: hidden;
   background: #243344;
+}
+
+.avatar-image-shell {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+  overflow: hidden;
 }
 
 .has-image img {
@@ -1621,6 +1655,7 @@ textarea {
   border-radius: 50%;
   background: #61d26f;
   box-shadow: 0 0 0 2px #17212b;
+  z-index: 1;
 }
 
 .chat-title-wrap {
@@ -1914,6 +1949,7 @@ textarea {
   width: min(18rem, calc(100vw - 1.5rem));
   display: grid;
   gap: 0.38rem;
+  max-height: calc(100vh - 1.5rem);
 }
 
 .context-menu-reaction-bar,
@@ -1968,6 +2004,9 @@ textarea {
   gap: 0.2rem;
   padding: 0.35rem;
   border-radius: 0.9rem;
+  max-height: min(30rem, calc(100vh - 7rem));
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .context-menu-item {
@@ -2131,7 +2170,7 @@ textarea {
   gap: 0.8rem;
   align-items: center;
   margin: 0 1.25rem;
-  padding: 0.85rem 1rem;
+  padding: 0.8rem 1rem;
   border-radius: 1rem;
   background: #182533;
   border: 1px solid rgba(255, 255, 255, 0.05);
@@ -2139,29 +2178,57 @@ textarea {
 
 .pinned-message-main {
   min-width: 0;
-  display: grid;
-  gap: 0.18rem;
+  display: flex;
+  align-items: stretch;
+  gap: 0.75rem;
   border: 0;
   background: transparent;
   color: #e6f1fb;
   text-align: left;
 }
 
-.pinned-message-main strong {
-  color: #f4fbff;
-}
-
 .pinned-message-label {
-  font-size: 0.72rem;
-  letter-spacing: 0.08em;
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: #7fa1c0;
+}
+
+.pinned-message-accent {
+  align-self: stretch;
+}
+
+.pinned-message-copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.15rem;
+}
+
+.pinned-message-sender {
+  color: #f4fbff;
+  font-size: 1.02rem;
+}
+
+.pinned-message-preview {
+  color: #e6f1fb;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pinned-message-actions {
   display: flex;
   gap: 0.55rem;
   flex-wrap: wrap;
+  align-items: center;
+}
+
+.pinned-message-close {
+  min-width: 2.4rem;
+  width: 2.4rem;
+  padding: 0;
+  font-size: 1.15rem;
+  line-height: 1;
 }
 
 .north-composer {

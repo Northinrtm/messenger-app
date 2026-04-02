@@ -19,6 +19,8 @@ const MESSAGE_SCHEME = "RSA-OAEP-256/AES-GCM";
 const KDF_ITERATIONS = 250_000;
 const ENCRYPTED_MESSAGE_UNAVAILABLE = "[Encrypted message unavailable]";
 const UNLOCKED_IDENTITY_STORAGE_PREFIX = "north-messenger:unlocked-e2ee:";
+const TRUSTED_DEVICE_STORAGE_PREFIX = "north-messenger:trusted-device-e2ee:";
+const TRUSTED_DEVICE_RP_NAME = "North Messenger";
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 const publicKeyCache = new Map<string, string>();
@@ -31,8 +33,35 @@ type LocalIdentity = {
   privateKey: string;
 };
 
+type TrustedDeviceUnlockRecord = {
+  credentialId: string;
+  prfSalt: string;
+  iv: string;
+  ciphertext: string;
+  createdAt: string;
+};
+
 export function hasUnlockedPrivateEncryptionKey(userId: string) {
   return readUnlockedIdentity(userId) !== null;
+}
+
+export function isTrustedDeviceUnlockSupported() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const credentialsContainer = navigator.credentials;
+  return Boolean(
+    window.isSecureContext &&
+      typeof PublicKeyCredential !== "undefined" &&
+      credentialsContainer &&
+      typeof credentialsContainer.create === "function" &&
+      typeof credentialsContainer.get === "function"
+  );
+}
+
+export function hasTrustedDeviceUnlock(userId: string) {
+  return readTrustedDeviceUnlockRecord(userId) !== null;
 }
 
 export function isUnavailableEncryptedMessage(content: string) {
@@ -97,6 +126,89 @@ export async function ensureEncryptionReady(session: AuthResponse, password: str
 
   writeUnlockedIdentity(session.user.id, generatedIdentity);
   publicKeyCache.set(session.user.id, generatedIdentity.publicKey);
+}
+
+export async function trustCurrentDeviceUnlock(session: AuthResponse) {
+  if (!isTrustedDeviceUnlockSupported()) {
+    throw new ApiError("This browser does not support secure device unlock for encrypted chats yet", 400);
+  }
+
+  const identity = readUnlockedIdentity(session.user.id);
+  if (!identity) {
+    throw new ApiError("Unlock encrypted chats with your password first", 409);
+  }
+
+  const credentialId = await createTrustedDeviceCredential(session);
+  const prfSalt = randomBytes(32);
+  const wrappingKey = await deriveTrustedDeviceKey(credentialId, prfSalt);
+  const iv = randomBytes(12);
+  const payload = textEncoder.encode(JSON.stringify(identity));
+  const ciphertext = new Uint8Array(
+    await window.crypto.subtle.encrypt(
+      {
+        name: "AES-GCM",
+        iv,
+      },
+      wrappingKey,
+      payload
+    )
+  );
+
+  writeTrustedDeviceUnlockRecord(session.user.id, {
+    credentialId: bytesToBase64(credentialId),
+    prfSalt: bytesToBase64(prfSalt),
+    iv: bytesToBase64(iv),
+    ciphertext: bytesToBase64(ciphertext),
+    createdAt: new Date().toISOString(),
+  });
+}
+
+export async function unlockWithTrustedDevice(userId: string) {
+  if (!isTrustedDeviceUnlockSupported()) {
+    throw new ApiError("This browser does not support secure device unlock for encrypted chats yet", 400);
+  }
+
+  const record = readTrustedDeviceUnlockRecord(userId);
+  if (!record) {
+    throw new ApiError("Secure device unlock is not configured in this browser yet", 404);
+  }
+
+  try {
+    const wrappingKey = await deriveTrustedDeviceKey(
+      base64ToBytes(record.credentialId),
+      base64ToBytes(record.prfSalt)
+    );
+    const plaintext = await window.crypto.subtle.decrypt(
+      {
+        name: "AES-GCM",
+        iv: base64ToBytes(record.iv),
+      },
+      wrappingKey,
+      base64ToBytes(record.ciphertext)
+    );
+
+    const parsedIdentity = JSON.parse(textDecoder.decode(plaintext)) as Partial<LocalIdentity>;
+    if (
+      typeof parsedIdentity.publicKey !== "string" ||
+      parsedIdentity.publicKey.length === 0 ||
+      typeof parsedIdentity.privateKey !== "string" ||
+      parsedIdentity.privateKey.length === 0
+    ) {
+      throw new Error("Invalid trusted identity");
+    }
+
+    writeUnlockedIdentity(userId, {
+      publicKey: parsedIdentity.publicKey,
+      privateKey: parsedIdentity.privateKey,
+    });
+    publicKeyCache.set(userId, parsedIdentity.publicKey);
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw error;
+    }
+
+    throw new ApiError("Device unlock failed. Re-enter your password and trust this device again", 400);
+  }
 }
 
 export async function getEncryptedMessages(
@@ -534,6 +646,65 @@ function writeUnlockedIdentity(userId: string, identity: LocalIdentity) {
   writeUnlockedIdentityToSession(userId, identity);
 }
 
+function readTrustedDeviceUnlockRecord(userId: string): TrustedDeviceUnlockRecord | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(getTrustedDeviceStorageKey(userId));
+    if (!rawValue) {
+      return null;
+    }
+
+    const parsedRecord = JSON.parse(rawValue) as Partial<TrustedDeviceUnlockRecord>;
+    if (
+      typeof parsedRecord.credentialId !== "string" ||
+      typeof parsedRecord.prfSalt !== "string" ||
+      typeof parsedRecord.iv !== "string" ||
+      typeof parsedRecord.ciphertext !== "string"
+    ) {
+      removeTrustedDeviceUnlockRecord(userId);
+      return null;
+    }
+
+    return {
+      credentialId: parsedRecord.credentialId,
+      prfSalt: parsedRecord.prfSalt,
+      iv: parsedRecord.iv,
+      ciphertext: parsedRecord.ciphertext,
+      createdAt: typeof parsedRecord.createdAt === "string" ? parsedRecord.createdAt : "",
+    };
+  } catch {
+    removeTrustedDeviceUnlockRecord(userId);
+    return null;
+  }
+}
+
+function writeTrustedDeviceUnlockRecord(userId: string, record: TrustedDeviceUnlockRecord) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(getTrustedDeviceStorageKey(userId), JSON.stringify(record));
+  } catch {
+    return;
+  }
+}
+
+function removeTrustedDeviceUnlockRecord(userId: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.removeItem(getTrustedDeviceStorageKey(userId));
+  } catch {
+    return;
+  }
+}
+
 function readUnlockedIdentityFromSession(userId: string): LocalIdentity | null {
   if (typeof window === "undefined") {
     return null;
@@ -594,6 +765,110 @@ function getUnlockedIdentityStorageKey(userId: string) {
   return `${UNLOCKED_IDENTITY_STORAGE_PREFIX}${userId}`;
 }
 
+function getTrustedDeviceStorageKey(userId: string) {
+  return `${TRUSTED_DEVICE_STORAGE_PREFIX}${userId}`;
+}
+
+async function createTrustedDeviceCredential(session: AuthResponse) {
+  const userIdBytes = textEncoder.encode(session.user.id);
+  const credential = (await navigator.credentials.create({
+    publicKey: {
+      challenge: toArrayBuffer(randomBytes(32)),
+      rp: {
+        id: getTrustedDeviceRpId(),
+        name: TRUSTED_DEVICE_RP_NAME,
+      },
+      user: {
+        id: toArrayBuffer(userIdBytes),
+        name: session.user.username,
+        displayName: session.user.displayName,
+      },
+      pubKeyCredParams: [
+        { type: "public-key", alg: -7 },
+        { type: "public-key", alg: -257 },
+      ],
+      authenticatorSelection: {
+        authenticatorAttachment: "platform",
+        residentKey: "preferred",
+        userVerification: "required",
+      },
+      extensions: {
+        prf: {
+          eval: {
+            first: toArrayBuffer(randomBytes(32)),
+          },
+        },
+      } as Record<string, unknown>,
+      timeout: 60_000,
+      attestation: "none",
+    },
+  })) as PublicKeyCredential | null;
+
+  if (!credential) {
+    throw new ApiError("Device unlock setup was cancelled", 400);
+  }
+
+  return new Uint8Array(credential.rawId);
+}
+
+async function deriveTrustedDeviceKey(credentialId: Uint8Array, prfSalt: Uint8Array) {
+  const credentialIdBase64Url = bytesToBase64Url(credentialId);
+  const assertion = (await navigator.credentials.get({
+    publicKey: {
+      challenge: toArrayBuffer(randomBytes(32)),
+      rpId: getTrustedDeviceRpId(),
+      allowCredentials: [
+        {
+          id: toArrayBuffer(credentialId),
+          type: "public-key",
+        },
+      ],
+      userVerification: "required",
+      timeout: 60_000,
+      extensions: {
+        prf: {
+          evalByCredential: {
+            [credentialIdBase64Url]: {
+              first: toArrayBuffer(prfSalt),
+            },
+          },
+        },
+      } as Record<string, unknown>,
+    },
+  })) as PublicKeyCredential | null;
+
+  if (!assertion) {
+    throw new ApiError("Device unlock was cancelled", 400);
+  }
+
+  const extensionResults = assertion.getClientExtensionResults() as {
+    prf?: {
+      enabled?: boolean;
+      results?: {
+        first?: ArrayBuffer;
+      };
+    };
+  };
+  const prfOutput = extensionResults.prf?.results?.first;
+  if (!(prfOutput instanceof ArrayBuffer) || prfOutput.byteLength === 0) {
+    throw new ApiError("This authenticator does not expose the secure PRF output required for device unlock", 400);
+  }
+
+  return window.crypto.subtle.importKey(
+    "raw",
+    prfOutput,
+    {
+      name: "AES-GCM",
+    },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+function getTrustedDeviceRpId() {
+  return window.location.hostname;
+}
+
 function randomBytes(length: number) {
   const bytes = new Uint8Array(length);
   window.crypto.getRandomValues(bytes);
@@ -606,6 +881,10 @@ function bytesToBase64(bytes: Uint8Array) {
     binary += String.fromCharCode(byte);
   });
   return window.btoa(binary);
+}
+
+function bytesToBase64Url(bytes: Uint8Array) {
+  return bytesToBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/u, "");
 }
 
 function base64ToBytes(value: string) {

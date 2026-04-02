@@ -208,10 +208,15 @@ const TYPING_IDLE_MS = 8_000;
 const CHATS_POLL_INTERVAL_MS = 2_000;
 const ACTIVE_MESSAGE_POLL_INTERVAL_MS = 1_000;
 const ACTIVE_TYPING_POLL_INTERVAL_MS = 1_500;
+const MESSAGE_QUERY_GC_TIME_MS = 60_000;
+const TYPING_QUERY_GC_TIME_MS = 15_000;
+const SEARCH_QUERY_GC_TIME_MS = 30_000;
+const MAX_CACHED_MESSAGE_PAGES = 4;
 const DRAFT_SAVE_DEBOUNCE_MS = 450;
 const CONFERENCE_ACTIVATION_LEAD_MS = 5 * 60 * 1000;
 const CONTEXT_MENU_WIDTH_PX = 224;
 const CONTEXT_MENU_GUTTER_PX = 12;
+const CONTEXT_MENU_FLIP_BREAKPOINT_RATIO = 0.58;
 const SIDEBAR_WIDTH_STORAGE_KEY = "north-messenger-sidebar-width";
 const DEFAULT_SIDEBAR_WIDTH = 380;
 const MIN_SIDEBAR_WIDTH = 280;
@@ -361,6 +366,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     queryFn: () => searchUsers(session.token, deferredSearch.trim()),
     enabled: deferredSearch.trim().length > 0,
     staleTime: 15_000,
+    gcTime: SEARCH_QUERY_GC_TIME_MS,
   });
 
   const contactsSearchQuery = useQuery({
@@ -368,6 +374,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     queryFn: () => searchUsers(session.token, deferredContactSearch.trim()),
     enabled: deferredContactSearch.trim().length > 0,
     staleTime: 15_000,
+    gcTime: SEARCH_QUERY_GC_TIME_MS,
   });
 
   const serverChats = chatsQuery.data ?? [];
@@ -490,6 +497,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     refetchInterval: !isRealtimeConnected && activeChatId ? ACTIVE_TYPING_POLL_INTERVAL_MS : false,
     refetchIntervalInBackground: true,
     refetchOnWindowFocus: false,
+    gcTime: TYPING_QUERY_GC_TIME_MS,
   });
   const activeTypingParticipants = activeChatId
     ? isRealtimeConnected
@@ -519,9 +527,11 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) =>
       lastPage.length === MESSAGE_PAGE_SIZE ? lastPage[0]?.createdAt ?? undefined : undefined,
+    maxPages: MAX_CACHED_MESSAGE_PAGES,
     refetchInterval: !isRealtimeConnected && activeChat?.id ? ACTIVE_MESSAGE_POLL_INTERVAL_MS : false,
     refetchIntervalInBackground: true,
     refetchOnWindowFocus: false,
+    gcTime: MESSAGE_QUERY_GC_TIME_MS,
   });
   const messages = flattenMessagePages(messagesQuery.data?.pages);
   const timelineItems = buildTimeline(messages);
@@ -863,14 +873,18 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     setChatPreviewOverrides((current) => removeChatPreviewOverride(current, chatId));
   });
 
-  const resolveLatestCachedMessage = useEffectEvent((chatId: string) => {
-    return getLatestMessageFromPages(
-      queryClient.getQueryData<InfiniteData<ChatMessage[]>>(["messages", session.token, chatId])
-    );
-  });
-
   const syncChatPreviewFromCache = useEffectEvent((chatId: string) => {
-    const latestMessage = resolveLatestCachedMessage(chatId);
+    const cachedPages = queryClient.getQueryData<InfiniteData<ChatMessage[]>>([
+      "messages",
+      session.token,
+      chatId,
+    ]);
+    if (cachedPages === undefined) {
+      void queryClient.invalidateQueries({ queryKey: ["chats", session.token] });
+      return;
+    }
+
+    const latestMessage = getLatestMessageFromPages(cachedPages);
     if (!latestMessage || !latestMessage.content.trim() || isUnavailableEncryptedMessage(latestMessage.content)) {
       clearChatPreviewOverride(chatId);
       queryClient.setQueryData<ChatSummary[]>(["chats", session.token], (current) =>
@@ -1880,6 +1894,28 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   useEffect(() => {
     replaceSubscribedChatIds(chatIdsKey ? chatIdsKey.split(",") : []);
   }, [chatIdsKey, session.token]);
+
+  useEffect(() => {
+    queryClient
+      .getQueryCache()
+      .findAll({ queryKey: ["messages", session.token] })
+      .forEach((query) => {
+        const queryChatId = typeof query.queryKey[2] === "string" ? query.queryKey[2] : null;
+        if (queryChatId !== activeChatId) {
+          queryClient.removeQueries({ queryKey: query.queryKey, exact: true });
+        }
+      });
+
+    queryClient
+      .getQueryCache()
+      .findAll({ queryKey: ["typing", session.token] })
+      .forEach((query) => {
+        const queryChatId = typeof query.queryKey[2] === "string" ? query.queryKey[2] : null;
+        if (queryChatId !== activeChatId) {
+          queryClient.removeQueries({ queryKey: query.queryKey, exact: true });
+        }
+      });
+  }, [activeChatId, queryClient, session.token]);
 
   useEffect(() => {
     chatPreviewOverridesRef.current = chatPreviewOverrides;
@@ -3062,16 +3098,30 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     ["--north-sidebar-width" as string]: `${sidebarWidth}px`,
   };
   const contextMenuStyle: CSSProperties | undefined = contextMenu
-    ? {
-        left: `${Math.max(
+    ? (() => {
+        const left = Math.max(
           CONTEXT_MENU_GUTTER_PX,
           Math.min(contextMenu.x, window.innerWidth - CONTEXT_MENU_WIDTH_PX - CONTEXT_MENU_GUTTER_PX)
-        )}px`,
-        top: `${Math.max(
-          CONTEXT_MENU_GUTTER_PX,
-          Math.min(contextMenu.y, window.innerHeight - 64 - CONTEXT_MENU_GUTTER_PX)
-        )}px`,
-      }
+        );
+        const shouldFlipVertically =
+          contextMenu.y > window.innerHeight * CONTEXT_MENU_FLIP_BREAKPOINT_RATIO;
+
+        return shouldFlipVertically
+          ? {
+              left: `${left}px`,
+              bottom: `${Math.max(
+                CONTEXT_MENU_GUTTER_PX,
+                window.innerHeight - contextMenu.y + CONTEXT_MENU_GUTTER_PX
+              )}px`,
+            }
+          : {
+              left: `${left}px`,
+              top: `${Math.max(
+                CONTEXT_MENU_GUTTER_PX,
+                Math.min(contextMenu.y, window.innerHeight - 64 - CONTEXT_MENU_GUTTER_PX)
+              )}px`,
+            };
+      })()
     : undefined;
 
   return (
@@ -4122,9 +4172,12 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                   className="pinned-message-main"
                   onClick={() => scrollToMessage(activeChat.id, activePinnedMessage.id)}
                 >
-                  <span className="pinned-message-label">Закреплено</span>
-                  <strong>{activePinnedMessage.sender.displayName}</strong>
-                  <span>{activePinnedMessage.preview}</span>
+                  <span className="message-reply-accent pinned-message-accent" aria-hidden="true" />
+                  <span className="pinned-message-copy">
+                    <span className="pinned-message-label">Закреплённое сообщение</span>
+                    <strong className="pinned-message-sender">{activePinnedMessage.sender.displayName}</strong>
+                    <span className="pinned-message-preview">{activePinnedMessage.preview}</span>
+                  </span>
                 </button>
                 <div className="pinned-message-actions">
                   <button
@@ -4136,7 +4189,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                   </button>
                   <button
                     type="button"
-                    className="ghost-button compact"
+                    className="ghost-button compact pinned-message-close"
                     onClick={() =>
                       pinMessageMutation.mutate({
                         chatId: activeChat.id,
@@ -4144,8 +4197,9 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                       })
                     }
                     disabled={pinMessageMutation.isPending}
+                    aria-label="Открепить сообщение"
                   >
-                    Открепить
+                    ×
                   </button>
                 </div>
               </div>
@@ -4578,7 +4632,13 @@ type AvatarCircleProps = {
 function AvatarCircle({ className, name, avatarUrl = null, badge, online = false }: AvatarCircleProps) {
   return (
     <div className={`${className} ${avatarUrl ? "has-image" : avatarTone(name)}`}>
-      {avatarUrl ? <img src={avatarUrl} alt={name} /> : initials(name)}
+      {avatarUrl ? (
+        <span className="avatar-image-shell">
+          <img src={avatarUrl} alt={name} />
+        </span>
+      ) : (
+        initials(name)
+      )}
       {badge ? <span className="avatar-badge">{badge}</span> : null}
       {online ? <span className="avatar-presence" /> : null}
     </div>
