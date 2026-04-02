@@ -136,9 +136,19 @@ textarea::placeholder {
     inset 0 1px 0 rgba(255, 255, 255, 0.035);
 }
 
+.unlock-card.is-device-loading {
+  width: min(100%, 24rem);
+  padding: 2rem 1.8rem;
+}
+
 .unlock-card.is-overlay h1 {
   max-width: 10ch;
   font-size: clamp(2.2rem, 5vw, 3.6rem);
+}
+
+.unlock-card.is-device-loading h1 {
+  max-width: 12ch;
+  font-size: clamp(1.9rem, 4vw, 2.6rem);
 }
 
 .eyebrow {
@@ -186,10 +196,40 @@ textarea::placeholder {
   margin-top: 1.2rem;
 }
 
+.auth-device-unlock.is-compact {
+  margin-top: 1rem;
+  justify-items: stretch;
+}
+
 .auth-device-button,
 .auth-secondary-button,
 .auth-trust-button {
   width: 100%;
+}
+
+.auth-inline-loader {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.42rem;
+  min-height: 2.2rem;
+}
+
+.auth-inline-loader-dot {
+  width: 0.48rem;
+  height: 0.48rem;
+  border-radius: 999px;
+  background: #76adff;
+  opacity: 0.34;
+  animation: typing-dot-pulse 1.1s ease-in-out infinite;
+}
+
+.auth-inline-loader-dot:nth-child(2) {
+  animation-delay: 120ms;
+}
+
+.auth-inline-loader-dot:nth-child(3) {
+  animation-delay: 240ms;
 }
 
 .auth-device-note {
