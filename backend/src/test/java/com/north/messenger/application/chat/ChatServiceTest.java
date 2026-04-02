@@ -1,6 +1,7 @@
 package com.north.messenger.application.chat;
 
 import com.north.messenger.application.auth.AuthService;
+import com.north.messenger.observability.MessengerTelemetry;
 import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.model.ChatParticipant;
 import com.north.messenger.domain.model.ChatRoom;
@@ -45,6 +46,7 @@ class ChatServiceTest {
     private UserDeletedChatRepository userDeletedChatRepository;
     private UserDeletedMessageRepository userDeletedMessageRepository;
     private SimpMessagingTemplate messagingTemplate;
+    private MessengerTelemetry telemetry;
     private ChatService chatService;
 
     @BeforeEach
@@ -59,6 +61,7 @@ class ChatServiceTest {
         userDeletedChatRepository = mock(UserDeletedChatRepository.class);
         userDeletedMessageRepository = mock(UserDeletedMessageRepository.class);
         messagingTemplate = mock(SimpMessagingTemplate.class);
+        telemetry = mock(MessengerTelemetry.class);
         chatService = new ChatService(
                 authService,
                 chatRoomRepository,
@@ -69,7 +72,8 @@ class ChatServiceTest {
                 userArchivedChatRepository,
                 userDeletedChatRepository,
                 userDeletedMessageRepository,
-                messagingTemplate
+                messagingTemplate,
+                telemetry
         );
         when(userArchivedChatRepository.save(any(UserArchivedChat.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(userDeletedChatRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));

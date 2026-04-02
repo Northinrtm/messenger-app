@@ -11,6 +11,7 @@ import com.north.messenger.api.dto.MessageStatusEventResponse;
 import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.chat.ChatService;
+import com.north.messenger.observability.MessengerTelemetry;
 import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.MessageReceipt;
@@ -49,6 +50,7 @@ class MessageServiceTest {
     private UserDeletedMessageRepository userDeletedMessageRepository;
     private SimpMessagingTemplate messagingTemplate;
     private ApplicationEventPublisher eventPublisher;
+    private MessengerTelemetry telemetry;
     private MessageService messageService;
 
     @BeforeEach
@@ -62,6 +64,7 @@ class MessageServiceTest {
         userDeletedMessageRepository = mock(UserDeletedMessageRepository.class);
         messagingTemplate = mock(SimpMessagingTemplate.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
+        telemetry = mock(MessengerTelemetry.class);
         messageService = new MessageService(
                 authService,
                 chatService,
@@ -72,7 +75,8 @@ class MessageServiceTest {
                 userDeletedMessageRepository,
                 messagingTemplate,
                 new ObjectMapper(),
-                eventPublisher
+                eventPublisher,
+                telemetry
         );
 
         when(chatMessageRepository.saveAndFlush(any(ChatMessage.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -85,6 +89,9 @@ class MessageServiceTest {
         UserAccount currentUser = user("north");
         UserAccount recipient = user("alice");
         when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
+        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
+                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
+        );
         when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
         when(authService.toParticipant(currentUser)).thenReturn(participant(currentUser));
 
@@ -157,6 +164,9 @@ class MessageServiceTest {
         UserAccount currentUser = user("north");
         UserAccount recipient = user("alice");
         when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
+        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
+                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
+        );
         when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
         when(authService.toParticipant(currentUser)).thenReturn(participant(currentUser));
 
@@ -189,6 +199,9 @@ class MessageServiceTest {
         UserAccount currentUser = user("north");
         UserAccount recipient = user("alice");
         when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
+        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
+                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
+        );
         when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
 
         assertThatThrownBy(() -> messageService.sendMessage(chatId, "north", new CreateMessageRequest(null, null, null)))
