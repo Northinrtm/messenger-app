@@ -225,7 +225,7 @@ services:
       DATA_SOURCE_PASS: ${DB_PASSWORD:?DB_PASSWORD must be set}
 
   tempo:
-    image: ghcr.io/grafana/helm-charts/tempo:1.24.0
+    image: mirror.gcr.io/grafana/tempo:2.9.0
     container_name: messenger-tempo
     restart: unless-stopped
     cpus: 0.5
@@ -251,7 +251,7 @@ services:
       - ./deploy/observability/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
 
   prometheus:
-    image: quay.io/prometheus/prometheus:latest
+    image: mirror.gcr.io/prom/prometheus:v3.5.0
     container_name: messenger-prometheus
     restart: unless-stopped
     cpus: 0.5
@@ -270,7 +270,7 @@ services:
       - prometheus_data:/prometheus
 
   grafana:
-    image: ghcr.io/grafana/helm-charts/grafana:10.3.0
+    image: mirror.gcr.io/grafana/grafana:10.3.0
     container_name: messenger-grafana
     restart: unless-stopped
     cpus: 0.5
