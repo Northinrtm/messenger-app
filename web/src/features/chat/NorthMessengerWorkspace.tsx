@@ -396,6 +396,9 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     archivedConferencesQuery.data === undefined && archivedConferencesQuery.isFetching;
   const archivedChatIdSet = new Set(archivedChatIds);
   const allConferences = mergeVideoConferenceCollections(conferences, archivedConferences);
+  const listedConferences = conferences.filter((conference) =>
+    conference.participants.some((participant) => participant.id === session.user.id) && !conference.endedAt
+  );
   const chatIds = chats.map((chat) => chat.id).sort();
   const chatIdsKey = chatIds.join(",");
   const normalizedSearch = deferredSearch.trim().toLowerCase();
@@ -425,8 +428,8 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       contact.username !== session.user.username && !directChatUsernames.has(contact.username)
   );
   const visibleConferences = !normalizedSearch
-    ? allConferences
-    : allConferences.filter((conference) => {
+    ? listedConferences
+    : listedConferences.filter((conference) => {
         const participantText = conference.participants
           .map((participant) => `${participant.username} ${participant.displayName}`)
           .join(" ")
