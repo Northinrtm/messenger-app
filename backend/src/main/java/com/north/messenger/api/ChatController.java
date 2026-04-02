@@ -5,6 +5,7 @@ import com.north.messenger.api.dto.ChatSummaryResponse;
 import com.north.messenger.api.dto.CreateDirectChatRequest;
 import com.north.messenger.api.dto.CreateGroupChatRequest;
 import com.north.messenger.api.dto.UpdateArchivedChatRequest;
+import com.north.messenger.api.dto.UpdatePinnedMessageRequest;
 import com.north.messenger.application.chat.ChatService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -80,5 +81,14 @@ public class ChatController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteChatForSelf(Authentication authentication, @PathVariable UUID chatId) {
         chatService.deleteChatForSelf(authentication.getName(), chatId);
+    }
+
+    @PutMapping("/{chatId}/pin")
+    public ChatSummaryResponse updatePinnedMessage(
+            Authentication authentication,
+            @PathVariable UUID chatId,
+            @RequestBody UpdatePinnedMessageRequest request
+    ) {
+        return chatService.updatePinnedMessage(authentication.getName(), chatId, request.messageId());
     }
 }

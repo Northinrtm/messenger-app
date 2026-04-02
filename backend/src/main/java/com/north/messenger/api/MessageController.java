@@ -5,6 +5,7 @@ import com.north.messenger.api.dto.MessageReceiptRequest;
 import com.north.messenger.api.dto.MessageReactionEventResponse;
 import com.north.messenger.api.dto.MessageResponse;
 import com.north.messenger.api.dto.ToggleMessageReactionRequest;
+import com.north.messenger.api.dto.UpdateMessageRequest;
 import com.north.messenger.application.message.MessageService;
 import jakarta.validation.Valid;
 import java.time.Instant;
@@ -79,9 +80,20 @@ public class MessageController {
     public void deleteMessage(
             Authentication authentication,
             @PathVariable UUID chatId,
-            @PathVariable UUID messageId
+            @PathVariable UUID messageId,
+            @RequestParam(defaultValue = "EVERYONE") String scope
     ) {
-        messageService.deleteMessage(chatId, messageId, authentication.getName());
+        messageService.deleteMessage(chatId, messageId, authentication.getName(), scope);
+    }
+
+    @PutMapping("/{messageId}")
+    public MessageResponse updateMessage(
+            Authentication authentication,
+            @PathVariable UUID chatId,
+            @PathVariable UUID messageId,
+            @Valid @RequestBody UpdateMessageRequest request
+    ) {
+        return messageService.updateMessage(chatId, messageId, authentication.getName(), request);
     }
 
     @PutMapping("/{messageId}/reactions")

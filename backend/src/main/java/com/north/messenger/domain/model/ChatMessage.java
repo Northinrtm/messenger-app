@@ -35,6 +35,12 @@ public class ChatMessage {
     @Column(name = "client_message_id", length = 120, updatable = false)
     private String clientMessageId;
 
+    @Column(name = "reply_to_message_id")
+    private UUID replyToMessageId;
+
+    @Column(name = "edited_at")
+    private Instant editedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -42,7 +48,7 @@ public class ChatMessage {
     }
 
     public ChatMessage(UUID id, UUID chatId, UUID senderId, String content, Instant createdAt) {
-        this(id, chatId, senderId, content, null, null, null, null, createdAt);
+        this(id, chatId, senderId, content, null, null, null, null, null, createdAt);
     }
 
     public ChatMessage(
@@ -55,7 +61,7 @@ public class ChatMessage {
             String encryptedKeysJson,
             Instant createdAt
     ) {
-        this(id, chatId, senderId, content, encryptionScheme, encryptionIv, encryptedKeysJson, null, createdAt);
+        this(id, chatId, senderId, content, encryptionScheme, encryptionIv, encryptedKeysJson, null, null, createdAt);
     }
 
     public ChatMessage(
@@ -67,6 +73,7 @@ public class ChatMessage {
             String encryptionIv,
             String encryptedKeysJson,
             String clientMessageId,
+            UUID replyToMessageId,
             Instant createdAt
     ) {
         this.id = id;
@@ -77,6 +84,7 @@ public class ChatMessage {
         this.encryptionIv = encryptionIv;
         this.encryptedKeysJson = encryptedKeysJson;
         this.clientMessageId = clientMessageId;
+        this.replyToMessageId = replyToMessageId;
         this.createdAt = createdAt;
     }
 
@@ -112,6 +120,14 @@ public class ChatMessage {
         return clientMessageId;
     }
 
+    public UUID getReplyToMessageId() {
+        return replyToMessageId;
+    }
+
+    public Instant getEditedAt() {
+        return editedAt;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
@@ -133,6 +149,17 @@ public class ChatMessage {
         this.encryptionScheme = encryptionScheme;
         this.encryptionIv = encryptionIv;
         this.encryptedKeysJson = encryptedKeysJson;
+    }
+
+    public void updateEncryptedContent(
+            String ciphertext,
+            String encryptionScheme,
+            String encryptionIv,
+            String encryptedKeysJson,
+            Instant editedAt
+    ) {
+        encrypt(ciphertext, encryptionScheme, encryptionIv, encryptedKeysJson);
+        this.editedAt = editedAt;
     }
 }
 

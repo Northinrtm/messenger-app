@@ -29,7 +29,9 @@ function message(id: string, createdAt: string): ChatMessage {
     },
     content: `message-${id}`,
     createdAt,
+    editedAt: null,
     status: null,
+    replyTo: null,
     reactions: [],
   };
 }
@@ -159,6 +161,7 @@ describe("chatState", () => {
         lastMessageAt: "2026-03-22T10:00:00.000Z",
         updatedAt: "2026-03-22T10:00:00.000Z",
         unreadCount: 0,
+        pinnedMessage: null,
       },
     ];
 
@@ -183,6 +186,7 @@ describe("chatState", () => {
         lastMessageAt: "2026-03-22T10:01:00.000Z",
         updatedAt: "2026-03-22T10:01:00.000Z",
         unreadCount: 0,
+        pinnedMessage: null,
       },
     ];
 

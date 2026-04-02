@@ -1973,7 +1973,7 @@ textarea {
 .context-menu-item {
   width: 100%;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.75rem;
   padding: 0.8rem 0.95rem;
   border: 0;
@@ -2002,6 +2002,7 @@ textarea {
 .context-menu-item-icon {
   width: 1.2rem;
   flex: 0 0 1.2rem;
+  margin-top: 0.08rem;
   text-align: center;
   color: inherit;
   font-size: 1rem;
@@ -2013,6 +2014,219 @@ textarea {
 
 .north-workspace .message-meta strong {
   color: #f4fbff;
+}
+
+.message-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.7rem;
+  width: 100%;
+}
+
+.message-row.is-mine {
+  justify-content: flex-end;
+}
+
+.message-row-avatar {
+  width: 2.4rem;
+  height: 2.4rem;
+  flex: 0 0 2.4rem;
+  align-self: flex-end;
+  margin-bottom: 0.15rem;
+}
+
+.north-workspace .message-bubble {
+  position: relative;
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.95rem 1rem 0.9rem;
+}
+
+.message-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: #f4fbff;
+  line-height: 1.5;
+}
+
+.message-edited-label {
+  font-size: 0.73rem;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  color: #88a5c3;
+}
+
+.message-reply-card,
+.message-reply-card.is-compact,
+.composer-reply-preview,
+.composer-context-edit {
+  width: 100%;
+  display: flex;
+  align-items: stretch;
+  gap: 0.7rem;
+  padding: 0.75rem 0.8rem;
+  border: 0;
+  border-radius: 0.95rem;
+  background: rgba(7, 19, 30, 0.28);
+  color: inherit;
+  text-align: left;
+}
+
+.north-workspace .message-bubble.is-mine .message-reply-card,
+.north-workspace .message-bubble.is-mine .composer-reply-preview,
+.north-workspace .message-bubble.is-mine .composer-context-edit {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.message-reply-card.is-compact {
+  padding: 0.65rem 0.72rem;
+}
+
+.message-reply-accent {
+  width: 0.22rem;
+  flex: 0 0 0.22rem;
+  border-radius: 999px;
+  background: #69afff;
+}
+
+.message-reply-copy,
+.composer-context-copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.14rem;
+}
+
+.message-reply-copy strong,
+.composer-context-copy strong {
+  color: #8fd2ff;
+  font-size: 0.86rem;
+}
+
+.message-reply-copy span:last-child,
+.composer-context-copy span:last-child {
+  color: #d6e7f8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-row .message-reactions {
+  margin-top: -0.05rem;
+}
+
+.message-row.is-mine .message-reactions {
+  justify-content: flex-end;
+}
+
+.message-reaction-button {
+  min-width: 2.6rem;
+  min-height: 2rem;
+  padding: 0 0.72rem;
+  border-radius: 999px;
+}
+
+.pinned-message-banner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.8rem;
+  align-items: center;
+  margin: 0 1.25rem;
+  padding: 0.85rem 1rem;
+  border-radius: 1rem;
+  background: #182533;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.pinned-message-main {
+  min-width: 0;
+  display: grid;
+  gap: 0.18rem;
+  border: 0;
+  background: transparent;
+  color: #e6f1fb;
+  text-align: left;
+}
+
+.pinned-message-main strong {
+  color: #f4fbff;
+}
+
+.pinned-message-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #7fa1c0;
+}
+
+.pinned-message-actions {
+  display: flex;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.north-composer {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.north-composer-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.8rem;
+  align-items: stretch;
+}
+
+.composer-context {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.65rem;
+  align-items: center;
+  padding: 0.75rem 0.85rem;
+  border-radius: 1rem;
+  background: #182533;
+}
+
+.composer-context-label {
+  color: #7fa1c0;
+  font-size: 0.76rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.composer-context-close {
+  width: 2rem;
+  height: 2rem;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #dceaf7;
+}
+
+.composer-context-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.context-menu-item-copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.16rem;
+}
+
+.context-menu-item-label {
+  font-size: 0.95rem;
+}
+
+.context-menu-item-hint {
+  color: #8ea2b6;
+  font-size: 0.79rem;
+  line-height: 1.25;
+}
+
+.context-menu-item:disabled .context-menu-item-hint,
+.context-menu-item.is-disabled .context-menu-item-hint {
+  color: inherit;
 }
 
 .north-workspace .message-status.is-sent,

@@ -4,6 +4,7 @@ import {
   getOwnEncryptionKeyBundle,
   resolveEncryptionPublicKeys,
   sendMessageRaw,
+  updateMessage,
   upsertOwnEncryptionKeyBundle,
 } from "./api";
 import type {
@@ -114,9 +115,11 @@ export async function sendEncryptedMessage(
   content: string,
   participants: Participant[],
   clientMessageId?: string,
+  replyToMessageId?: string | null,
   options?: {
     sendViaRealtime?: (request: {
       clientMessageId?: string;
+      replyToMessageId?: string | null;
       encryptedPayload: {
         scheme: string;
         ciphertext: string;
@@ -145,6 +148,7 @@ export async function sendEncryptedMessage(
   try {
     const realtimeResponse = await options?.sendViaRealtime?.({
       clientMessageId,
+      replyToMessageId,
       encryptedPayload,
     });
     if (realtimeResponse) {
@@ -156,6 +160,7 @@ export async function sendEncryptedMessage(
 
   const response = await sendMessageRaw(token, chatId, {
     clientMessageId,
+    replyToMessageId,
     encryptedPayload,
   });
 
@@ -165,9 +170,45 @@ export async function sendEncryptedMessage(
     sender: response.sender,
     content: normalizedContent,
     createdAt: response.createdAt,
+    editedAt: response.editedAt,
     status: response.status,
     clientMessageId: response.clientMessageId ?? clientMessageId ?? null,
+    replyTo: response.replyTo,
     reactions: response.reactions ?? [],
+  } satisfies ChatMessage;
+}
+
+export async function updateEncryptedMessage(
+  token: string,
+  userId: string,
+  chatId: string,
+  messageId: string,
+  content: string,
+  participants: Participant[]
+) {
+  const normalizedContent = content.trim();
+  if (!normalizedContent) {
+    throw new ApiError("Message content cannot be blank", 400);
+  }
+
+  const publicKeysByUserId = await loadPublicKeys(token, participants.map((participant) => participant.id));
+  const missingParticipants = participants.filter((participant) => !publicKeysByUserId.has(participant.id));
+  if (missingParticipants.length > 0) {
+    throw new ApiError(
+      "Encrypted chat is unavailable until every participant signs in after the E2EE upgrade",
+      409,
+      missingParticipants.map((participant) => participant.displayName)
+    );
+  }
+
+  const encryptedPayload = await encryptMessage(normalizedContent, publicKeysByUserId);
+  const response = await updateMessage(token, chatId, messageId, {
+    encryptedPayload,
+  });
+
+  return {
+    ...(await hydrateChatMessage(response, userId)),
+    content: normalizedContent,
   } satisfies ChatMessage;
 }
 
@@ -187,8 +228,10 @@ export async function hydrateChatMessage(
       sender: message.sender,
       content: ENCRYPTED_MESSAGE_UNAVAILABLE,
       createdAt: message.createdAt,
+      editedAt: message.editedAt,
       status: message.status,
       clientMessageId: message.clientMessageId ?? null,
+      replyTo: message.replyTo,
       reactions: message.reactions ?? [],
     };
   }
@@ -201,8 +244,10 @@ export async function hydrateChatMessage(
       sender: message.sender,
       content,
       createdAt: message.createdAt,
+      editedAt: message.editedAt,
       status: message.status,
       clientMessageId: message.clientMessageId ?? null,
+      replyTo: message.replyTo,
       reactions: message.reactions ?? [],
     };
   } catch {
@@ -212,8 +257,10 @@ export async function hydrateChatMessage(
       sender: message.sender,
       content: ENCRYPTED_MESSAGE_UNAVAILABLE,
       createdAt: message.createdAt,
+      editedAt: message.editedAt,
       status: message.status,
       clientMessageId: message.clientMessageId ?? null,
+      replyTo: message.replyTo,
       reactions: message.reactions ?? [],
     };
   }

@@ -28,6 +28,8 @@ import {
   endVideoConference as endVideoConferenceRequest,
   createDirectChat,
   createGroupChat,
+  updateMessage as updateMessageRequest,
+  updatePinnedMessage as updatePinnedMessageRequest,
   getArchivedChats,
   getArchivedVideoConferences,
   getChats,
@@ -52,6 +54,7 @@ import {
   isUnavailableEncryptedMessage,
   primeEncryptedMessageRecipients,
   sendEncryptedMessage,
+  updateEncryptedMessage,
 } from "../../lib/e2ee";
 import { readLocalChatPreviews, writeLocalChatPreviews } from "../../lib/chatPreviewCache";
 import { readLocalDrafts, removeLocalDraft, writeLocalDraft } from "../../lib/localDrafts";
@@ -68,6 +71,7 @@ import type {
   ChatMessage,
   MessageReaction,
   MessageReactionEvent,
+  MessageSnippet,
   ChatSummary,
   MessageDeletionEvent,
   MessageStatus,
@@ -85,6 +89,7 @@ import {
   type ChatMessageActivityMode,
   clearChatUnreadCount,
   flattenMessagePages,
+  getLatestMessageFromPages,
   initials,
   mergeMessagePages,
   MESSAGE_PAGE_SIZE,
@@ -94,6 +99,8 @@ import {
   removeMessageByClientMessageId,
   upsertChat,
   upsertChatPreviewOverride,
+  updateChatPinnedMessage,
+  updateMessageById,
   updateMessageReactionsPages,
   updateMessageStatusPages,
 } from "./chatState";
@@ -121,6 +128,7 @@ type SidebarSheet =
   | "groupMembers"
   | "contacts"
   | "sessions"
+  | "forward"
   | null;
 
 type ConversationListTab = "dialogs" | "groups" | "conferences";
@@ -166,6 +174,7 @@ type SendMessageInput = {
   clientMessageId: string;
   content: string;
   participants: Participant[];
+  replyTo?: MessageSnippet | null;
 };
 
 type ContextMenuState =
@@ -251,6 +260,9 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const [isConferenceInfoOpen, setIsConferenceInfoOpen] = useState(false);
   const [conferenceRecordingState, setConferenceRecordingState] =
     useState<ConferenceRecordingState>("idle");
+  const [replyingToMessageId, setReplyingToMessageId] = useState<string | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [forwardingMessageId, setForwardingMessageId] = useState<string | null>(null);
   const messageStreamRef = useRef<HTMLDivElement | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
@@ -396,6 +408,15 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const visibleGroupChats = visibleChats.filter((chat) => !chat.direct);
   const archivedChats = listedChats.filter((chat) => archivedChatIdSet.has(chat.id));
   const groupContacts = contacts.filter((contact) => contact.username !== session.user.username);
+  const directChatUsernames = new Set(
+    chats
+      .map((chat) => (chat.direct ? getDirectParticipant(chat, session.user)?.username ?? null : null))
+      .filter((username): username is string => Boolean(username))
+  );
+  const forwardContactOptions = contacts.filter(
+    (contact) =>
+      contact.username !== session.user.username && !directChatUsernames.has(contact.username)
+  );
   const visibleConferences = !normalizedSearch
     ? allConferences
     : allConferences.filter((conference) => {
@@ -512,14 +533,50 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     contextMenu?.kind === "message"
       ? messages.find((message) => message.id === contextMenu.messageId) ?? null
       : null;
-  const canDeleteContextMenuMessage = Boolean(
+  const replyingToMessage =
+    replyingToMessageId && activeChat
+      ? messages.find((message) => message.id === replyingToMessageId) ?? null
+      : null;
+  const editingMessage =
+    editingMessageId && activeChat
+      ? messages.find((message) => message.id === editingMessageId) ?? null
+      : null;
+  const forwardingMessage =
+    forwardingMessageId && activeChat
+      ? messages.find((message) => message.id === forwardingMessageId) ?? null
+      : null;
+  const activePinnedMessage = activeChat?.pinnedMessage ?? null;
+  const forwardableChats = visibleChats.filter((chat) => chat.id !== activeChat?.id);
+  const canDeleteContextMenuMessageForSelf = Boolean(
+    contextMenuMessage && contextMenuMessage.id !== contextMenuMessage.clientMessageId
+  );
+  const canDeleteContextMenuMessageForEveryone = Boolean(
     contextMenuMessage &&
-      isOwnMessage(contextMenuMessage, session.user) &&
-      contextMenuMessage.id !== contextMenuMessage.clientMessageId
+      contextMenuMessage.id !== contextMenuMessage.clientMessageId &&
+      (activeChat?.direct || isOwnMessage(contextMenuMessage, session.user))
   );
   const canReactContextMenuMessage = Boolean(
     contextMenuMessage && contextMenuMessage.id !== contextMenuMessage.clientMessageId
   );
+  const canEditContextMenuMessage = Boolean(
+    contextMenuMessage &&
+      isOwnMessage(contextMenuMessage, session.user) &&
+      contextMenuMessage.id !== contextMenuMessage.clientMessageId
+  );
+  const canForwardContextMenuMessage = Boolean(
+    contextMenuMessage && !isUnavailableEncryptedMessage(contextMenuMessage.content)
+  );
+  const canPinContextMenuMessage = Boolean(
+    contextMenuMessage &&
+      activeChat &&
+      contextMenuMessage.id !== contextMenuMessage.clientMessageId
+  );
+  const isPinnedContextMenuMessage =
+    Boolean(contextMenuMessage && activeChat?.pinnedMessage?.id === contextMenuMessage.id);
+  const deleteForEveryoneLabel = activeChat?.direct ? "Удалить для обоих" : "Удалить для всех";
+  const deleteForEveryoneHint = activeChat?.direct
+    ? "Сообщение исчезнет у вас обоих"
+    : "Сообщение исчезнет у всех участников";
 
   useEffect(() => {
     if (isRealtimeConnected || !activeChatId || activeTypingQuery.data === undefined) {
@@ -567,12 +624,19 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   };
 
   const applyChatPreviewMessage = useEffectEvent(
-    (message: Pick<ChatMessage, "chatId" | "content" | "createdAt">) => {
-      if (!message.content.trim() || isUnavailableEncryptedMessage(message.content)) {
+    (message: Pick<ChatMessage, "chatId" | "content" | "createdAt" | "replyTo">) => {
+      const previewText = buildChatListPreviewText(message);
+      if (!previewText.trim() || isUnavailableEncryptedMessage(message.content)) {
         return;
       }
 
-      setChatPreviewOverrides((current) => upsertChatPreviewOverride(current, message));
+      setChatPreviewOverrides((current) =>
+        upsertChatPreviewOverride(current, {
+          chatId: message.chatId,
+          content: previewText,
+          createdAt: message.createdAt,
+        })
+      );
     }
   );
 
@@ -580,7 +644,8 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     message: ChatMessage,
     unreadMode: ChatMessageActivityMode = "keep"
   ) => {
-    if (!message.content.trim() || isUnavailableEncryptedMessage(message.content)) {
+    const previewText = buildChatListPreviewText(message);
+    if (!previewText.trim() || isUnavailableEncryptedMessage(message.content)) {
       return;
     }
 
@@ -593,7 +658,14 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     }
 
     queryClient.setQueryData<ChatSummary[]>(["chats", session.token], (current) =>
-      applyChatMessageActivity(current, message, unreadMode)
+      applyChatMessageActivity(
+        current,
+        {
+          ...message,
+          content: previewText,
+        },
+        unreadMode
+      )
     );
   });
 
@@ -791,6 +863,89 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     setChatPreviewOverrides((current) => removeChatPreviewOverride(current, chatId));
   });
 
+  const resolveLatestCachedMessage = useEffectEvent((chatId: string) => {
+    return getLatestMessageFromPages(
+      queryClient.getQueryData<InfiniteData<ChatMessage[]>>(["messages", session.token, chatId])
+    );
+  });
+
+  const syncChatPreviewFromCache = useEffectEvent((chatId: string) => {
+    const latestMessage = resolveLatestCachedMessage(chatId);
+    if (!latestMessage || !latestMessage.content.trim() || isUnavailableEncryptedMessage(latestMessage.content)) {
+      clearChatPreviewOverride(chatId);
+      queryClient.setQueryData<ChatSummary[]>(["chats", session.token], (current) =>
+        current?.map((chat) =>
+          chat.id !== chatId
+            ? chat
+            : {
+                ...chat,
+                lastMessage: null,
+                lastMessageAt: null,
+              }
+        ) ?? []
+      );
+      return;
+    }
+
+    const previewText = buildChatListPreviewText(latestMessage);
+    applyChatPreviewMessage(latestMessage);
+    queryClient.setQueryData<ChatSummary[]>(["chats", session.token], (current) =>
+      applyChatMessageActivity(
+        current,
+        {
+          ...latestMessage,
+          content: previewText,
+        },
+        "keep"
+      )
+    );
+  });
+
+  const syncChatPinnedSummary = useEffectEvent((chatId: string, pinnedMessage: MessageSnippet | null) => {
+    queryClient.setQueryData<ChatSummary[]>(["chats", session.token], (current) =>
+      updateChatPinnedMessage(current, chatId, pinnedMessage)
+    );
+  });
+
+  const clearComposerContext = useEffectEvent((mode: "all" | "reply" | "edit" | "forward" = "all") => {
+    if (mode === "all" || mode === "reply") {
+      setReplyingToMessageId(null);
+    }
+    if (mode === "all" || mode === "edit") {
+      setEditingMessageId(null);
+    }
+    if (mode === "all" || mode === "forward") {
+      setForwardingMessageId(null);
+      if (sidebarSheet === "forward") {
+        setSidebarSheet(null);
+      }
+    }
+  });
+
+  const focusComposer = useEffectEvent(() => {
+    window.requestAnimationFrame(() => {
+      composerTextareaRef.current?.focus();
+      const length = composerTextareaRef.current?.value.length ?? 0;
+      composerTextareaRef.current?.setSelectionRange(length, length);
+    });
+  });
+
+  const scrollToMessage = useEffectEvent((chatId: string, messageId: string) => {
+    if (activeChatId !== chatId) {
+      openChat(chatId);
+      window.setTimeout(() => {
+        document
+          .querySelector<HTMLElement>(`[data-message-id="${messageId}"]`)
+          ?.scrollIntoView({ block: "center", behavior: "smooth" });
+      }, 120);
+      return;
+    }
+
+    document
+      .querySelector<HTMLElement>(`[data-message-id="${messageId}"]`)
+      ?.scrollIntoView({ block: "center", behavior: "smooth" });
+  });
+
   const finalizeDeletedChatArtifacts = useEffectEvent((chatId: string) => {
     const nextDrafts = removeLocalDraft(session.user.id, chatId);
     queryClient.setQueryData<ChatDraft[]>(["drafts", session.token], nextDrafts);
@@ -820,6 +975,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     });
 
     if (activeChatId === chatId) {
+      clearComposerContext();
       closeActiveChat();
     }
   });
@@ -908,6 +1064,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
 
   const openChat = useEffectEvent((chatId: string, tabHint?: ConversationListTab) => {
     setContextMenu(null);
+    clearComposerContext();
     clearChatAttention(chatId);
     clearChatUnreadIndicator(chatId);
     if (tabHint && tabHint !== "conferences") {
@@ -928,6 +1085,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
 
   const closeActiveChat = useEffectEvent(() => {
     setContextMenu(null);
+    clearComposerContext();
     if (activeChatId) {
       stopTyping(activeChatId);
     }
@@ -939,6 +1097,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
 
   const closeActiveConference = useEffectEvent(() => {
     setIsConferenceInfoOpen(false);
+    clearComposerContext();
     setSidebarSheet(null);
     setMobilePane("sidebar");
     setActiveConferenceId(null);
@@ -946,6 +1105,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
 
   const openConference = useEffectEvent((conferenceId: string) => {
     setContextMenu(null);
+    clearComposerContext();
     if (activeChatId) {
       stopTyping(activeChatId);
     }
@@ -1021,7 +1181,16 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       return;
     }
 
-    deleteMessageMutation.mutate({ chatId, messageId });
+    deleteMessageMutation.mutate({ chatId, messageId, scope: "EVERYONE" });
+  });
+
+  const deleteMessageForSelf = useEffectEvent((chatId: string, messageId: string) => {
+    setContextMenu(null);
+    if (!window.confirm("Удалить сообщение только у вас?")) {
+      return;
+    }
+
+    deleteMessageMutation.mutate({ chatId, messageId, scope: "SELF" });
   });
 
   const toggleReactionForMessage = useEffectEvent(
@@ -1039,23 +1208,34 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
 
   const replyToMessage = useEffectEvent((message: ChatMessage) => {
     setContextMenu(null);
-    const currentDraft = draftsByChatId[message.chatId] ?? "";
-    const replyPrefix = buildReplyDraftPrefix(message);
-    const nextDraft = currentDraft.startsWith(replyPrefix)
-      ? currentDraft
-      : currentDraft.trim()
-        ? `${replyPrefix}\n${currentDraft}`
-        : replyPrefix;
+    setEditingMessageId(null);
+    setReplyingToMessageId(message.id);
+    focusComposer();
+  });
 
+  const editMessage = useEffectEvent((message: ChatMessage) => {
+    setContextMenu(null);
+    setReplyingToMessageId(null);
+    setEditingMessageId(message.id);
     setDraftsByChatId((current) => ({
       ...current,
-      [message.chatId]: nextDraft,
+      [message.chatId]: message.content,
     }));
-    scheduleDraftSave(message.chatId, nextDraft);
-    window.requestAnimationFrame(() => {
-      composerTextareaRef.current?.focus();
-      const length = composerTextareaRef.current?.value.length ?? 0;
-      composerTextareaRef.current?.setSelectionRange(length, length);
+    scheduleDraftSave(message.chatId, message.content);
+    focusComposer();
+  });
+
+  const forwardMessage = useEffectEvent((message: ChatMessage) => {
+    setContextMenu(null);
+    setForwardingMessageId(message.id);
+    openSidebarSheet("forward");
+  });
+
+  const togglePinnedMessage = useEffectEvent((message: ChatMessage) => {
+    setContextMenu(null);
+    pinMessageMutation.mutate({
+      chatId: message.chatId,
+      messageId: activeChat?.pinnedMessage?.id === message.id ? null : message.id,
     });
   });
 
@@ -1063,6 +1243,28 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     setContextMenu(null);
     void navigator.clipboard.writeText(message.content).catch(() => {
       window.alert("Не получилось скопировать текст сообщения.");
+    });
+  });
+
+  const forwardMessageToChat = useEffectEvent((chatId: string) => {
+    if (!forwardingMessage) {
+      return;
+    }
+
+    forwardMessageMutation.mutate({
+      message: forwardingMessage,
+      targetChatId: chatId,
+    });
+  });
+
+  const forwardMessageToContact = useEffectEvent((username: string) => {
+    if (!forwardingMessage) {
+      return;
+    }
+
+    forwardMessageMutation.mutate({
+      message: forwardingMessage,
+      targetUsername: username,
     });
   });
 
@@ -1168,7 +1370,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       chatId: message.chatId,
       title: chat?.title ?? "Новое сообщение",
       senderName: message.sender.displayName,
-      preview: formatToastPreview(message.content),
+      preview: formatToastPreview(buildChatListPreviewText(message)),
     };
 
     const existingTimeoutId = toastTimeoutsRef.current.get(toastId);
@@ -1294,7 +1496,30 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     if (sidebarSheet !== "conferenceMembers") {
       setConferenceInviteUsernames([]);
     }
+
+    if (sidebarSheet !== "forward") {
+      setForwardingMessageId(null);
+    }
   }, [sidebarSheet]);
+
+  useEffect(() => {
+    if (replyingToMessageId && !replyingToMessage) {
+      setReplyingToMessageId(null);
+    }
+  }, [replyingToMessage, replyingToMessageId]);
+
+  useEffect(() => {
+    if (editingMessageId && !editingMessage) {
+      setEditingMessageId(null);
+    }
+  }, [editingMessage, editingMessageId]);
+
+  useEffect(() => {
+    if (forwardingMessageId && !forwardingMessage && sidebarSheet === "forward") {
+      setSidebarSheet(null);
+      setForwardingMessageId(null);
+    }
+  }, [forwardingMessage, forwardingMessageId, sidebarSheet]);
 
   useEffect(() => {
     if (sidebarSheet !== "profile") {
@@ -1569,9 +1794,20 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       ["messages", session.token, event.chatId],
       (current) => removeMessageById(current, event.messageId)
     );
-    clearChatPreviewOverride(event.chatId);
+    if (activeChat?.pinnedMessage?.id === event.messageId) {
+      syncChatPinnedSummary(event.chatId, null);
+    }
+    if (replyingToMessageId === event.messageId) {
+      setReplyingToMessageId(null);
+    }
+    if (editingMessageId === event.messageId) {
+      setEditingMessageId(null);
+    }
+    if (forwardingMessageId === event.messageId) {
+      clearComposerContext("forward");
+    }
+    syncChatPreviewFromCache(event.chatId);
     void queryClient.invalidateQueries({ queryKey: ["chats", session.token] });
-    void queryClient.invalidateQueries({ queryKey: ["messages", session.token, event.chatId] });
   });
 
   const handleRealtimeMessageReaction = useEffectEvent((event: MessageReactionEvent) => {
@@ -1919,6 +2155,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
         input.content,
         input.participants,
         input.clientMessageId,
+        input.replyTo?.id ?? null,
         {
           sendViaRealtime: (request) => publishOutgoingMessage(input.chatId, request),
         }
@@ -1954,6 +2191,9 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       );
       applyChatPreviewMessage(nextMessage);
       applyServerChatPreviewMessage(nextMessage, "clear");
+      if (input.replyTo) {
+        clearComposerContext("reply");
+      }
     },
     onError: (_error, input) => {
       queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
@@ -2064,8 +2304,15 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   });
 
   const deleteMessageMutation = useMutation({
-    mutationFn: ({ chatId, messageId }: { chatId: string; messageId: string }) =>
-      deleteMessageRequest(session.token, chatId, messageId),
+    mutationFn: ({
+      chatId,
+      messageId,
+      scope,
+    }: {
+      chatId: string;
+      messageId: string;
+      scope: "SELF" | "EVERYONE";
+    }) => deleteMessageRequest(session.token, chatId, messageId, scope),
     onMutate: async ({ chatId, messageId }) => {
       const messageKey = ["messages", session.token, chatId] as const;
       await queryClient.cancelQueries({ queryKey: messageKey });
@@ -2073,8 +2320,19 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       queryClient.setQueryData<InfiniteData<ChatMessage[]>>(messageKey, (current) =>
         removeMessageById(current, messageId)
       );
-      clearChatPreviewOverride(chatId);
-      void queryClient.invalidateQueries({ queryKey: ["chats", session.token] });
+      if (activeChat?.pinnedMessage?.id === messageId) {
+        syncChatPinnedSummary(chatId, null);
+      }
+      if (replyingToMessageId === messageId) {
+        setReplyingToMessageId(null);
+      }
+      if (editingMessageId === messageId) {
+        setEditingMessageId(null);
+      }
+      if (forwardingMessageId === messageId) {
+        clearComposerContext("forward");
+      }
+      syncChatPreviewFromCache(chatId);
       return {
         chatId,
         previousMessages,
@@ -2084,11 +2342,107 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       if (context?.previousMessages) {
         queryClient.setQueryData(["messages", session.token, variables.chatId], context.previousMessages);
       }
+      void queryClient.invalidateQueries({ queryKey: ["messages", session.token, variables.chatId] });
       void queryClient.invalidateQueries({ queryKey: ["chats", session.token] });
     },
     onSuccess: (_result, variables) => {
-      void queryClient.invalidateQueries({ queryKey: ["messages", session.token, variables.chatId] });
+      syncChatPreviewFromCache(variables.chatId);
       void queryClient.invalidateQueries({ queryKey: ["chats", session.token] });
+    },
+  });
+
+  const editMessageMutation = useMutation({
+    mutationFn: ({
+      chatId,
+      messageId,
+      content,
+      participants,
+    }: {
+      chatId: string;
+      messageId: string;
+      content: string;
+      participants: Participant[];
+    }) =>
+      updateEncryptedMessage(
+        session.token,
+        session.user.id,
+        chatId,
+        messageId,
+        content,
+        participants
+      ),
+    onSuccess: (message, variables) => {
+      queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
+        ["messages", session.token, variables.chatId],
+        (current) => updateMessageById(current, variables.messageId, () => message)
+      );
+      if (activeChat?.pinnedMessage?.id === message.id) {
+        syncChatPinnedSummary(variables.chatId, toMessageSnippet(message));
+      }
+      syncChatPreviewFromCache(variables.chatId);
+      clearComposerContext("edit");
+      setDraftsByChatId((current) => ({
+        ...current,
+        [variables.chatId]: "",
+      }));
+      scheduleDraftSave(variables.chatId, "");
+    },
+  });
+
+  const pinMessageMutation = useMutation({
+    mutationFn: ({ chatId, messageId }: { chatId: string; messageId: string | null }) =>
+      updatePinnedMessageRequest(session.token, chatId, messageId),
+    onSuccess: (chat) => {
+      queryClient.setQueryData<ChatSummary[]>(["chats", session.token], (current) =>
+        upsertChat(current, chat)
+      );
+    },
+  });
+
+  const forwardMessageMutation = useMutation({
+    mutationFn: async ({
+      message,
+      targetChatId,
+      targetUsername,
+    }: {
+      message: ChatMessage;
+      targetChatId?: string;
+      targetUsername?: string;
+    }) => {
+      let targetChat = targetChatId ? chats.find((chat) => chat.id === targetChatId) ?? null : null;
+      if (!targetChat) {
+        if (!targetUsername) {
+          throw new ApiError("Forward target is required", 400);
+        }
+        targetChat = await createDirectChat(session.token, targetUsername);
+      }
+
+      const sentMessage = await sendEncryptedMessage(
+        session.token,
+        targetChat.id,
+        message.content,
+        targetChat.members,
+        crypto.randomUUID(),
+        null,
+        {
+          sendViaRealtime: (request) => publishOutgoingMessage(targetChat.id, request),
+        }
+      );
+
+      return { targetChat, sentMessage };
+    },
+    onSuccess: ({ targetChat, sentMessage }) => {
+      queryClient.setQueryData<ChatSummary[]>(["chats", session.token], (current) =>
+        upsertChat(current, targetChat)
+      );
+      queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
+        ["messages", session.token, targetChat.id],
+        (current) => mergeMessagePages(current, ensureOwnMessageStatus(sentMessage, session.user))
+      );
+      applyChatPreviewMessage(sentMessage);
+      applyServerChatPreviewMessage(sentMessage, "clear");
+      clearComposerContext("forward");
+      openChat(targetChat.id, targetChat.direct ? "dialogs" : "groups");
     },
   });
 
@@ -2144,6 +2498,9 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     updateArchivedChatMutation.error,
     deleteChatMutation.error,
     deleteMessageMutation.error,
+    editMessageMutation.error,
+    pinMessageMutation.error,
+    forwardMessageMutation.error,
     toggleMessageReactionMutation.error,
     addContactMutation.error,
     removeContactMutation.error,
@@ -2190,11 +2547,22 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     }
 
     stopTyping(activeChat.id);
+    if (editingMessage) {
+      editMessageMutation.mutate({
+        chatId: activeChat.id,
+        messageId: editingMessage.id,
+        content: trimmed,
+        participants: activeChat.members,
+      });
+      return;
+    }
+
     sendMessageMutation.mutate({
       chatId: activeChat.id,
       clientMessageId: `client-${window.crypto.randomUUID()}`,
       content: trimmed,
       participants: activeChat.members,
+      replyTo: replyingToMessage ? toMessageSnippet(replyingToMessage) : null,
     });
   };
 
@@ -3014,6 +3382,117 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
               </div>
             ) : null}
 
+            {sidebarSheet === "forward" ? (
+              <div className="sheet-card">
+                <div className="sheet-head">
+                  <div>
+                    <div className="section-title">Переслать</div>
+                    <p className="sheet-copy">Выберите чат, группу или контакт для пересылки сообщения.</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="ghost-button compact"
+                    onClick={() => clearComposerContext("forward")}
+                  >
+                    Закрыть
+                  </button>
+                </div>
+
+                {!forwardingMessage ? (
+                  <div className="empty-list">Сообщение для пересылки не найдено.</div>
+                ) : (
+                  <div className="sheet-list">
+                    <div className="forward-preview-card">
+                      <span className="forward-preview-label">Сообщение</span>
+                      {forwardingMessage.replyTo ? (
+                        <button
+                          type="button"
+                          className="message-reply-card is-compact"
+                          onClick={() =>
+                            scrollToMessage(forwardingMessage.chatId, forwardingMessage.replyTo!.id)
+                          }
+                        >
+                          <span className="message-reply-accent" aria-hidden="true" />
+                          <span className="message-reply-copy">
+                            <strong>{forwardingMessage.replyTo.sender.displayName}</strong>
+                            <span>{forwardingMessage.replyTo.preview}</span>
+                          </span>
+                        </button>
+                      ) : null}
+                      <div className="forward-preview-body">
+                        <strong>{forwardingMessage.sender.displayName}</strong>
+                        <p>{buildMessagePreview(forwardingMessage.content, 180)}</p>
+                      </div>
+                    </div>
+
+                    <div className="forward-target-section">
+                      <div className="section-title">Чаты и группы</div>
+                      {forwardableChats.length === 0 ? (
+                        <div className="empty-list">Нет других открытых чатов для пересылки.</div>
+                      ) : (
+                        forwardableChats.map((chat) => {
+                          const directParticipant = getDirectParticipant(chat, session.user);
+                          return (
+                            <button
+                              type="button"
+                              key={chat.id}
+                              className="sheet-row sheet-row-with-avatar forward-target-row"
+                              onClick={() => forwardMessageToChat(chat.id)}
+                              disabled={forwardMessageMutation.isPending}
+                            >
+                              <AvatarCircle
+                                className="menu-row-avatar sheet-contact-avatar"
+                                name={directParticipant?.displayName ?? chat.title}
+                                avatarUrl={directParticipant?.avatarUrl ?? null}
+                                badge={chat.direct ? undefined : "GR"}
+                                online={chat.direct ? directParticipant?.online : false}
+                              />
+                              <div className="sheet-row-copy">
+                                <strong>{chat.title}</strong>
+                                <span>
+                                  {chat.direct
+                                    ? describeChat(chat, session.user)
+                                    : formatMemberCount(chat.members.length)}
+                                </span>
+                              </div>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+
+                    <div className="forward-target-section">
+                      <div className="section-title">Контакты</div>
+                      {forwardContactOptions.length === 0 ? (
+                        <div className="empty-list">Нет контактов без личного чата.</div>
+                      ) : (
+                        forwardContactOptions.map((contact) => (
+                          <button
+                            type="button"
+                            key={contact.username}
+                            className="sheet-row sheet-row-with-avatar forward-target-row"
+                            onClick={() => forwardMessageToContact(contact.username)}
+                            disabled={forwardMessageMutation.isPending}
+                          >
+                            <AvatarCircle
+                              className="menu-row-avatar sheet-contact-avatar"
+                              name={contact.displayName}
+                              avatarUrl={contact.avatarUrl}
+                              online={contact.online}
+                            />
+                            <div className="sheet-row-copy">
+                              <strong>{contact.displayName}</strong>
+                              <span>@{contact.username}</span>
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : null}
+
             {sidebarSheet === "profile" ? (
               <div className="sheet-card">
                 <div className="sheet-head">
@@ -3636,6 +4115,42 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
               </div>
             </header>
 
+            {activePinnedMessage ? (
+              <div className="pinned-message-banner">
+                <button
+                  type="button"
+                  className="pinned-message-main"
+                  onClick={() => scrollToMessage(activeChat.id, activePinnedMessage.id)}
+                >
+                  <span className="pinned-message-label">Закреплено</span>
+                  <strong>{activePinnedMessage.sender.displayName}</strong>
+                  <span>{activePinnedMessage.preview}</span>
+                </button>
+                <div className="pinned-message-actions">
+                  <button
+                    type="button"
+                    className="ghost-button compact"
+                    onClick={() => scrollToMessage(activeChat.id, activePinnedMessage.id)}
+                  >
+                    Перейти
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost-button compact"
+                    onClick={() =>
+                      pinMessageMutation.mutate({
+                        chatId: activeChat.id,
+                        messageId: null,
+                      })
+                    }
+                    disabled={pinMessageMutation.isPending}
+                  >
+                    Открепить
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
             <div className="message-stream north-message-stream" ref={messageStreamRef}>
               {messagesQuery.hasNextPage ? (
                 <button
@@ -3659,17 +4174,31 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                       <span>{item.label}</span>
                     </div>
                   ) : (
-                    <article
+                    <div
                       key={item.key}
                       className={
-                        isOwnMessage(item.message, session.user)
-                          ? "message-bubble is-mine"
-                          : "message-bubble"
-                      }
-                      onContextMenu={(event) =>
-                        openMessageContextMenu(event, item.message.chatId, item.message.id)
+                        isOwnMessage(item.message, session.user) ? "message-row is-mine" : "message-row"
                       }
                     >
+                      {!isOwnMessage(item.message, session.user) ? (
+                        <AvatarCircle
+                          className="avatar message-row-avatar north-avatar"
+                          name={item.message.sender.displayName}
+                          avatarUrl={item.message.sender.avatarUrl ?? null}
+                          online={item.message.sender.online}
+                        />
+                      ) : null}
+                      <article
+                        data-message-id={item.message.id}
+                        className={
+                          isOwnMessage(item.message, session.user)
+                            ? "message-bubble is-mine"
+                            : "message-bubble"
+                        }
+                        onContextMenu={(event) =>
+                          openMessageContextMenu(event, item.message.chatId, item.message.id)
+                        }
+                      >
                       <div className="message-meta">
                         <strong>
                           {isOwnMessage(item.message, session.user)
@@ -3677,6 +4206,9 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                             : item.message.sender.displayName}
                         </strong>
                         <div className="message-meta-trailing">
+                          {item.message.editedAt ? (
+                            <span className="message-edited-label">изменено</span>
+                          ) : null}
                           <span>{formatClock(item.message.createdAt)}</span>
                           {isOwnMessage(item.message, session.user) ? (
                             <span
@@ -3689,40 +4221,54 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                           ) : null}
                         </div>
                       </div>
-                      <p>{item.message.content}</p>
-                      <div className="message-reactions" aria-label="Реакции на сообщение">
-                        {MESSAGE_REACTION_OPTIONS.map((reactionOption) => {
-                          const reaction = getMessageReaction(item.message, reactionOption.key);
-                          const canReact = item.message.id !== item.message.clientMessageId;
-                          return (
-                            <button
-                              type="button"
-                              key={reactionOption.key}
-                              className={
-                                reaction?.reactedByCurrentUser
-                                  ? "message-reaction-button is-active"
-                                  : "message-reaction-button"
-                              }
-                              onClick={() =>
-                                toggleReactionForMessage(
-                                  item.message.chatId,
-                                  item.message.id,
-                                  reactionOption.key
-                                )
-                              }
-                              disabled={!canReact}
-                              title={reactionOption.label}
-                              aria-label={reactionOption.label}
-                            >
-                              <span>{reactionOption.emoji}</span>
-                              {reaction ? (
-                                <span className="message-reaction-count">{reaction.count}</span>
-                              ) : null}
-                            </button>
-                          );
-                        })}
-                      </div>
+                      {item.message.replyTo ? (
+                        <button
+                          type="button"
+                          className="message-reply-card"
+                          onClick={() => scrollToMessage(item.message.chatId, item.message.replyTo!.id)}
+                        >
+                          <span className="message-reply-accent" aria-hidden="true" />
+                          <span className="message-reply-copy">
+                            <strong>{item.message.replyTo.sender.displayName}</strong>
+                            <span>{item.message.replyTo.preview}</span>
+                          </span>
+                        </button>
+                      ) : null}
+                      <div className="message-body">{item.message.content}</div>
+                      {item.message.reactions.length > 0 ? (
+                        <div className="message-reactions" aria-label="Реакции на сообщение">
+                          {item.message.reactions.map((reaction) => {
+                            const reactionOption = getReactionOption(reaction.key);
+                            return (
+                              <button
+                                type="button"
+                                key={reaction.key}
+                                className={
+                                  reaction.reactedByCurrentUser
+                                    ? "message-reaction-button is-active"
+                                    : "message-reaction-button"
+                                }
+                                onClick={() =>
+                                  toggleReactionForMessage(
+                                    item.message.chatId,
+                                    item.message.id,
+                                    reaction.key
+                                  )
+                                }
+                                title={reactionOption?.label ?? reaction.key}
+                                aria-label={reactionOption?.label ?? reaction.key}
+                              >
+                                <span>{reactionOption?.emoji ?? reaction.key}</span>
+                                {reaction.count > 1 ? (
+                                  <span className="message-reaction-count">{reaction.count}</span>
+                                ) : null}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : null}
                     </article>
+                    </div>
                   )
                 )
               )}
@@ -3746,26 +4292,78 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                 submitActiveDraft();
               }}
             >
-              <textarea
-                ref={composerTextareaRef}
-                value={activeDraft}
-                onChange={(event) => handleComposerChange(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault();
-                    submitActiveDraft();
+              {replyingToMessage ? (
+                <div className="composer-context">
+                  <button
+                    type="button"
+                    className="composer-reply-preview"
+                    onClick={() => scrollToMessage(replyingToMessage.chatId, replyingToMessage.id)}
+                  >
+                    <span className="message-reply-accent" aria-hidden="true" />
+                    <span className="composer-context-copy">
+                      <span className="composer-context-label">Ответ</span>
+                      <strong>{replyingToMessage.sender.displayName}</strong>
+                      <span>{buildMessagePreview(replyingToMessage.content, 120)}</span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="composer-context-close"
+                    onClick={() => clearComposerContext("reply")}
+                    aria-label="Отменить ответ"
+                  >
+                    ×
+                  </button>
+                </div>
+              ) : null}
+              {editingMessage ? (
+                <div className="composer-context">
+                  <div className="composer-context-edit">
+                    <span className="message-reply-accent" aria-hidden="true" />
+                    <span className="composer-context-copy">
+                      <span className="composer-context-label">Редактирование</span>
+                      <strong>{editingMessage.sender.displayName}</strong>
+                      <span>{buildMessagePreview(editingMessage.content, 120)}</span>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="composer-context-close"
+                    onClick={() => clearComposerContext("edit")}
+                    aria-label="Отменить редактирование"
+                  >
+                    ×
+                  </button>
+                </div>
+              ) : null}
+              <div className="north-composer-body">
+                <textarea
+                  ref={composerTextareaRef}
+                  value={activeDraft}
+                  onChange={(event) => handleComposerChange(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      submitActiveDraft();
+                    }
+                  }}
+                  placeholder={
+                    editingMessage
+                      ? "Измените сообщение"
+                      : replyingToMessage
+                        ? "Напишите ответ"
+                        : "Напишите сообщение"
                   }
-                }}
-                placeholder="Напишите сообщение"
-                rows={1}
-              />
-              <button
-                type="submit"
-                className="primary-button north-send-button"
-                disabled={!activeDraft.trim()}
-              >
-                &gt;
-              </button>
+                  rows={1}
+                />
+                <button
+                  type="submit"
+                  className="primary-button north-send-button"
+                  disabled={!activeDraft.trim()}
+                >
+                  {editingMessage ? "✓" : ">"}
+                </button>
+              </div>
             </form>
           </>
         ) : chatsLoading || conferencesLoading ? (
@@ -3824,52 +4422,126 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
             role="menu"
             aria-label={contextMenu.kind === "chat" ? "Chat actions" : "Message actions"}
           >
-          {contextMenu.kind === "message" && contextMenuMessage ? (
-            <>
+            {contextMenu.kind === "message" && contextMenuMessage ? (
+              <>
+                <button
+                  type="button"
+                  className="context-menu-item"
+                  role="menuitem"
+                  onClick={() => replyToMessage(contextMenuMessage)}
+                >
+                  <span className="context-menu-item-icon">↩</span>
+                  <span className="context-menu-item-copy">
+                    <span className="context-menu-item-label">Ответить</span>
+                    <span className="context-menu-item-hint">Показать цитату над полем ввода</span>
+                  </span>
+                </button>
+                {canEditContextMenuMessage ? (
+                  <button
+                    type="button"
+                    className="context-menu-item"
+                    role="menuitem"
+                    onClick={() => editMessage(contextMenuMessage)}
+                  >
+                    <span className="context-menu-item-icon">✎</span>
+                    <span className="context-menu-item-copy">
+                      <span className="context-menu-item-label">Редактировать</span>
+                      <span className="context-menu-item-hint">Изменить текст сообщения</span>
+                    </span>
+                  </button>
+                ) : null}
+                {canForwardContextMenuMessage ? (
+                  <button
+                    type="button"
+                    className="context-menu-item"
+                    role="menuitem"
+                    onClick={() => forwardMessage(contextMenuMessage)}
+                  >
+                    <span className="context-menu-item-icon">⇢</span>
+                    <span className="context-menu-item-copy">
+                      <span className="context-menu-item-label">Переслать</span>
+                      <span className="context-menu-item-hint">Отправить в другой чат или группу</span>
+                    </span>
+                  </button>
+                ) : null}
+                {canPinContextMenuMessage ? (
+                  <button
+                    type="button"
+                    className="context-menu-item"
+                    role="menuitem"
+                    onClick={() => togglePinnedMessage(contextMenuMessage)}
+                  >
+                    <span className="context-menu-item-icon">📌</span>
+                    <span className="context-menu-item-copy">
+                      <span className="context-menu-item-label">
+                        {isPinnedContextMenuMessage ? "Открепить" : "Закрепить"}
+                      </span>
+                      <span className="context-menu-item-hint">
+                        {isPinnedContextMenuMessage
+                          ? "Убрать сообщение из шапки чата"
+                          : "Показать сообщение сверху чата"}
+                      </span>
+                    </span>
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="context-menu-item"
+                  role="menuitem"
+                  onClick={() => copyMessageText(contextMenuMessage)}
+                >
+                  <span className="context-menu-item-icon">⧉</span>
+                  <span className="context-menu-item-copy">
+                    <span className="context-menu-item-label">Копировать текст</span>
+                    <span className="context-menu-item-hint">Скопировать сообщение в буфер</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="context-menu-item is-danger"
+                  role="menuitem"
+                  onClick={() => deleteMessageForSelf(contextMenu.chatId, contextMenu.messageId)}
+                  disabled={!canDeleteContextMenuMessageForSelf}
+                >
+                  <span className="context-menu-item-icon">🗑</span>
+                  <span className="context-menu-item-copy">
+                    <span className="context-menu-item-label">Удалить у себя</span>
+                    <span className="context-menu-item-hint">Сообщение исчезнет только у вас</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="context-menu-item is-danger"
+                  role="menuitem"
+                  onClick={() => deleteMessageForEveryone(contextMenu.chatId, contextMenu.messageId)}
+                  disabled={!canDeleteContextMenuMessageForEveryone}
+                >
+                  <span className="context-menu-item-icon">🗑</span>
+                  <span className="context-menu-item-copy">
+                    <span className="context-menu-item-label">{deleteForEveryoneLabel}</span>
+                    <span className="context-menu-item-hint">
+                      {canDeleteContextMenuMessageForEveryone
+                        ? deleteForEveryoneHint
+                        : "Удалить для всех можно только свои сообщения"}
+                    </span>
+                  </span>
+                </button>
+              </>
+            ) : (
               <button
                 type="button"
-                className="context-menu-item"
+                className="context-menu-item is-danger"
                 role="menuitem"
-                onClick={() => replyToMessage(contextMenuMessage)}
+                onClick={() => deleteChatForSelf(contextMenu.chatId)}
               >
-                <span className="context-menu-item-icon">↩</span>
-                <span className="context-menu-item-label">Ответить</span>
+                <span className="context-menu-item-icon">🗑</span>
+                <span className="context-menu-item-copy">
+                  <span className="context-menu-item-label">Удалить чат у себя</span>
+                  <span className="context-menu-item-hint">Чат исчезнет только из вашего списка</span>
+                </span>
               </button>
-              <button
-                type="button"
-                className="context-menu-item"
-                role="menuitem"
-                onClick={() => copyMessageText(contextMenuMessage)}
-              >
-                <span className="context-menu-item-icon">⧉</span>
-                <span className="context-menu-item-label">Копировать текст</span>
-              </button>
-            </>
-          ) : null}
-          {contextMenu.kind === "chat" ? (
-            <button
-              type="button"
-              className="context-menu-item is-danger"
-              role="menuitem"
-              onClick={() => deleteChatForSelf(contextMenu.chatId)}
-            >
-              Удалить чат только у меня
-            </button>
-          ) : canDeleteContextMenuMessage ? (
-            <button
-              type="button"
-              className="context-menu-item is-danger"
-              role="menuitem"
-              onClick={() => deleteMessageForEveryone(contextMenu.chatId, contextMenu.messageId)}
-            >
-              Удалить сообщение для всех
-            </button>
-          ) : (
-            <div className="context-menu-item is-disabled" role="presentation">
-              Удалять для всех можно только свои сообщения
-            </div>
-          )}
-        </div>
+            )}
+          </div>
         </div>
       ) : null}
 
@@ -4416,7 +5088,9 @@ function createOptimisticOutgoingMessage(
     sender: currentUser,
     content: input.content,
     createdAt: new Date().toISOString(),
+    editedAt: null,
     clientMessageId: input.clientMessageId,
+    replyTo: input.replyTo ?? null,
     reactions: [],
     status: {
       state: "SENDING",
@@ -4447,10 +5121,36 @@ function getMessageReaction(message: ChatMessage, key: MessageReaction["key"]) {
   return message.reactions.find((reaction) => reaction.key === key) ?? null;
 }
 
-function buildReplyDraftPrefix(message: ChatMessage) {
-  const collapsedText = message.content.trim().replace(/\s+/g, " ");
-  const preview = collapsedText.length > 96 ? `${collapsedText.slice(0, 93)}...` : collapsedText;
-  return `↪ ${message.sender.displayName}: ${preview}`;
+function getReactionOption(key: MessageReaction["key"]) {
+  return MESSAGE_REACTION_OPTIONS.find((reaction) => reaction.key === key) ?? null;
+}
+
+function buildMessagePreview(content: string, maxLength = 96) {
+  const collapsedText = content.trim().replace(/\s+/g, " ");
+  if (collapsedText.length <= maxLength) {
+    return collapsedText;
+  }
+
+  return `${collapsedText.slice(0, maxLength - 3)}...`;
+}
+
+function buildChatListPreviewText(message: Pick<ChatMessage, "content" | "replyTo">) {
+  if (message.replyTo) {
+    return `↪ ${message.replyTo.sender.displayName}: ${buildMessagePreview(message.replyTo.preview, 56)}`;
+  }
+
+  return buildMessagePreview(message.content, 88);
+}
+
+function toMessageSnippet(
+  message: Pick<ChatMessage, "id" | "sender" | "createdAt" | "content">
+): MessageSnippet {
+  return {
+    id: message.id,
+    sender: message.sender,
+    createdAt: message.createdAt,
+    preview: buildMessagePreview(message.content, 88),
+  };
 }
 
 function isOwnMessage(message: ChatMessage, currentUser: UserProfile) {

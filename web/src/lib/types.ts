@@ -35,6 +35,13 @@ export type MessageReaction = {
   reactedByCurrentUser: boolean;
 };
 
+export type MessageSnippet = {
+  id: string;
+  sender: Participant;
+  createdAt: string;
+  preview: string;
+};
+
 export type EncryptedMessagePayload = {
   scheme: string;
   ciphertext: string;
@@ -51,6 +58,7 @@ export type ChatSummary = {
   lastMessageAt: string | null;
   updatedAt: string;
   unreadCount: number;
+  pinnedMessage: MessageSnippet | null;
 };
 
 export type ChatDraft = {
@@ -81,8 +89,10 @@ export type ApiChatMessage = {
   chatId: string;
   sender: Participant;
   createdAt: string;
+  editedAt: string | null;
   status: MessageStatus | null;
   clientMessageId?: string | null;
+  replyTo: MessageSnippet | null;
   reactions: MessageReaction[];
   encryptedPayload: EncryptedMessagePayload;
 };
@@ -93,8 +103,10 @@ export type ChatMessage = {
   sender: Participant;
   content: string;
   createdAt: string;
+  editedAt: string | null;
   status: MessageStatus | null;
   clientMessageId?: string | null;
+  replyTo: MessageSnippet | null;
   reactions: MessageReaction[];
 };
 

@@ -12,12 +12,14 @@ import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.chat.ChatService;
 import com.north.messenger.domain.model.ChatMessage;
+import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.MessageReceipt;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.repository.ChatMessageRepository;
 import com.north.messenger.domain.repository.MessageReceiptRepository;
 import com.north.messenger.domain.repository.MessageReactionRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
+import com.north.messenger.domain.repository.UserDeletedMessageRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -44,6 +46,7 @@ class MessageServiceTest {
     private MessageReceiptRepository messageReceiptRepository;
     private MessageReactionRepository messageReactionRepository;
     private UserAccountRepository userAccountRepository;
+    private UserDeletedMessageRepository userDeletedMessageRepository;
     private SimpMessagingTemplate messagingTemplate;
     private ApplicationEventPublisher eventPublisher;
     private MessageService messageService;
@@ -56,6 +59,7 @@ class MessageServiceTest {
         messageReceiptRepository = mock(MessageReceiptRepository.class);
         messageReactionRepository = mock(MessageReactionRepository.class);
         userAccountRepository = mock(UserAccountRepository.class);
+        userDeletedMessageRepository = mock(UserDeletedMessageRepository.class);
         messagingTemplate = mock(SimpMessagingTemplate.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
         messageService = new MessageService(
@@ -65,6 +69,7 @@ class MessageServiceTest {
                 messageReceiptRepository,
                 messageReactionRepository,
                 userAccountRepository,
+                userDeletedMessageRepository,
                 messagingTemplate,
                 new ObjectMapper(),
                 eventPublisher
@@ -87,6 +92,7 @@ class MessageServiceTest {
                 chatId,
                 "north",
                 new CreateMessageRequest(
+                        null,
                         null,
                         new EncryptedMessagePayloadRequest(
                                 "RSA-OAEP-256/AES-GCM",
@@ -159,6 +165,7 @@ class MessageServiceTest {
                 "north",
                 new CreateMessageRequest(
                         null,
+                        null,
                         new EncryptedMessagePayloadRequest(
                                 "RSA-OAEP-256/AES-GCM",
                                 "ciphertext-value",
@@ -184,7 +191,7 @@ class MessageServiceTest {
         when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
         when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
 
-        assertThatThrownBy(() -> messageService.sendMessage(chatId, "north", new CreateMessageRequest(null, null)))
+        assertThatThrownBy(() -> messageService.sendMessage(chatId, "north", new CreateMessageRequest(null, null, null)))
                 .hasMessageContaining("End-to-end encrypted payload is required");
     }
 
@@ -194,6 +201,7 @@ class MessageServiceTest {
         UUID messageId = UUID.randomUUID();
         UserAccount currentUser = user("north");
         UserAccount recipient = user("alice");
+        ChatRoom room = new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"));
         ChatMessage message = new ChatMessage(
                 messageId,
                 chatId,
@@ -202,10 +210,11 @@ class MessageServiceTest {
                 Instant.parse("2026-03-24T12:00:00Z")
         );
         when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
+        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(room);
         when(chatMessageRepository.findById(messageId)).thenReturn(java.util.Optional.of(message));
         when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
 
-        messageService.deleteMessage(chatId, messageId, "north");
+        messageService.deleteMessage(chatId, messageId, "north", "EVERYONE");
 
         ArgumentCaptor<MessageDeletionEventResponse> eventCaptor = ArgumentCaptor.forClass(MessageDeletionEventResponse.class);
         verify(messagingTemplate).convertAndSendToUser(eq("north"), eq("/queue/message-deletions"), eventCaptor.capture());

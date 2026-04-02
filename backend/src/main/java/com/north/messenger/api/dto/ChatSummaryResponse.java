@@ -12,7 +12,8 @@ public record ChatSummaryResponse(
         String lastMessage,
         Instant lastMessageAt,
         Instant updatedAt,
-        int unreadCount
+        int unreadCount,
+        MessageSnippetResponse pinnedMessage
 ) {
 }
 

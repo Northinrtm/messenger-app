@@ -361,6 +361,7 @@ export function sendMessageRaw(
   chatId: string,
   body: {
     clientMessageId?: string;
+    replyToMessageId?: string | null;
     encryptedPayload: {
       scheme: string;
       ciphertext: string;
@@ -371,6 +372,26 @@ export function sendMessageRaw(
 ) {
   return request<ApiChatMessage>(`/api/chats/${chatId}/messages`, {
     method: "POST",
+    token,
+    body,
+  });
+}
+
+export function updateMessage(
+  token: string,
+  chatId: string,
+  messageId: string,
+  body: {
+    encryptedPayload: {
+      scheme: string;
+      ciphertext: string;
+      iv: string;
+      encryptedKeysByUserId: Record<string, string>;
+    };
+  }
+) {
+  return request<ApiChatMessage>(`/api/chats/${chatId}/messages/${messageId}`, {
+    method: "PUT",
     token,
     body,
   });
@@ -392,10 +413,16 @@ export function acknowledgeRead(token: string, chatId: string, messageIds: strin
   });
 }
 
-export function deleteMessage(token: string, chatId: string, messageId: string) {
+export function deleteMessage(
+  token: string,
+  chatId: string,
+  messageId: string,
+  scope: "SELF" | "EVERYONE" = "EVERYONE"
+) {
   return request<void>(`/api/chats/${chatId}/messages/${messageId}`, {
     method: "DELETE",
     token,
+    query: { scope },
   });
 }
 
@@ -450,6 +477,18 @@ export function deleteChat(token: string, chatId: string) {
   return request<void>(`/api/chats/${chatId}`, {
     method: "DELETE",
     token,
+  });
+}
+
+export function updatePinnedMessage(
+  token: string,
+  chatId: string,
+  messageId: string | null
+) {
+  return request<ChatSummary>(`/api/chats/${chatId}/pin`, {
+    method: "PUT",
+    token,
+    body: { messageId },
   });
 }
 

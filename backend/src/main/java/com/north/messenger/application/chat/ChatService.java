@@ -4,6 +4,7 @@ import com.north.messenger.api.dto.ChatSummaryResponse;
 import com.north.messenger.api.dto.ChatRemovalEventResponse;
 import com.north.messenger.api.dto.CreateDirectChatRequest;
 import com.north.messenger.api.dto.CreateGroupChatRequest;
+import com.north.messenger.api.dto.MessageSnippetResponse;
 import com.north.messenger.api.dto.AddGroupParticipantsRequest;
 import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.application.auth.AuthService;
@@ -20,6 +21,7 @@ import com.north.messenger.domain.repository.ChatRoomRepository;
 import com.north.messenger.domain.repository.MessageReceiptRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import com.north.messenger.domain.repository.UserDeletedChatRepository;
+import com.north.messenger.domain.repository.UserDeletedMessageRepository;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -33,6 +35,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
@@ -53,6 +56,7 @@ public class ChatService {
     private final UserAccountRepository userAccountRepository;
     private final UserArchivedChatRepository userArchivedChatRepository;
     private final UserDeletedChatRepository userDeletedChatRepository;
+    private final UserDeletedMessageRepository userDeletedMessageRepository;
     private final SimpMessagingTemplate messagingTemplate;
 
     public ChatService(
@@ -64,6 +68,7 @@ public class ChatService {
             UserAccountRepository userAccountRepository,
             UserArchivedChatRepository userArchivedChatRepository,
             UserDeletedChatRepository userDeletedChatRepository,
+            UserDeletedMessageRepository userDeletedMessageRepository,
             SimpMessagingTemplate messagingTemplate
     ) {
         this.authService = authService;
@@ -74,6 +79,7 @@ public class ChatService {
         this.userAccountRepository = userAccountRepository;
         this.userArchivedChatRepository = userArchivedChatRepository;
         this.userDeletedChatRepository = userDeletedChatRepository;
+        this.userDeletedMessageRepository = userDeletedMessageRepository;
         this.messagingTemplate = messagingTemplate;
     }
 
@@ -288,8 +294,6 @@ public class ChatService {
         Map<UUID, UserAccount> usersById = findUsersById(
                 memberships.stream().map(ChatParticipant::getUserId).toList()
         );
-        ChatMessage lastMessage = chatMessageRepository.findTopByChatIdAndEncryptionSchemeIsNotNullOrderByCreatedAtDesc(chatId)
-                .orElse(null);
         Map<UUID, Integer> unreadCountsByUserId = loadUnreadCountsForUsers(chatId);
         List<UserDeletedChat> deletedChatEntries = userDeletedChatRepository.findAllByChatId(chatId);
         Set<UUID> deletedUserIds = (deletedChatEntries == null ? List.<UserDeletedChat>of() : deletedChatEntries).stream()
@@ -308,10 +312,30 @@ public class ChatService {
                                 user.getId(),
                                 memberships,
                                 usersById,
-                                lastMessage,
                                 unreadCountsByUserId.getOrDefault(user.getId(), 0)
                         )
                 ));
+    }
+
+    @Transactional
+    public ChatSummaryResponse updatePinnedMessage(String username, UUID chatId, UUID messageId) {
+        UserAccount currentUser = authService.requireAuthenticatedUser(username);
+        ChatRoom room = requireChatMembership(chatId, currentUser);
+
+        if (messageId == null) {
+            room.clearPinnedMessage();
+        } else {
+            ChatMessage message = chatMessageRepository.findById(messageId)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found"));
+            if (!message.getChatId().equals(chatId)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Message must belong to the same chat");
+            }
+
+            room.pinMessage(message.getId(), Instant.now());
+        }
+
+        notifyChatUpdated(chatId);
+        return getChatSummaryForUser(chatId, currentUser);
     }
 
     private ChatSummaryResponse createNewDirectChat(UserAccount currentUser, UserAccount participant) {
@@ -340,9 +364,7 @@ public class ChatService {
         Map<UUID, UserAccount> usersById = findUsersById(
                 memberships.stream().map(ChatParticipant::getUserId).toList()
         );
-        ChatMessage lastMessage = chatMessageRepository.findTopByChatIdAndEncryptionSchemeIsNotNullOrderByCreatedAtDesc(room.getId())
-                .orElse(null);
-        return toSummary(room, currentUserId, memberships, usersById, lastMessage, unreadCount);
+        return toSummary(room, currentUserId, memberships, usersById, unreadCount);
     }
 
     private ChatSummaryResponse toSummary(
@@ -350,7 +372,6 @@ public class ChatService {
             UUID currentUserId,
             List<ChatParticipant> memberships,
             Map<UUID, UserAccount> usersById,
-            ChatMessage lastMessage,
             int unreadCount
     ) {
         Map<UUID, Boolean> onlineByUserId = authService.resolveOnlineByUserIds(
@@ -362,6 +383,8 @@ public class ChatService {
                 .map(user -> authService.toParticipant(user, onlineByUserId.getOrDefault(user.getId(), false)))
                 .toList();
 
+        ChatMessage lastMessage = findLatestVisibleMessage(room.getId(), currentUserId);
+        MessageSnippetResponse pinnedMessage = buildPinnedSnippet(room, currentUserId, usersById);
         Instant updatedAt = lastMessage != null ? lastMessage.getCreatedAt() : room.getCreatedAt();
 
         String title;
@@ -383,12 +406,58 @@ public class ChatService {
                 lastMessage != null ? summarizeLastMessage(lastMessage) : null,
                 lastMessage != null ? lastMessage.getCreatedAt() : null,
                 updatedAt,
-                unreadCount
+                unreadCount,
+                pinnedMessage
         );
     }
 
     private int loadUnreadCount(UUID chatId, UUID userId) {
         return loadUnreadCounts(List.of(chatId), userId).getOrDefault(chatId, 0);
+    }
+
+    private ChatMessage findLatestVisibleMessage(UUID chatId, UUID userId) {
+        return chatMessageRepository.findLatestVisibleByChatIdAndUserId(
+                        chatId,
+                        userId,
+                        PageRequest.of(0, 1)
+                ).stream()
+                .findFirst()
+                .orElse(null);
+    }
+
+    private MessageSnippetResponse buildPinnedSnippet(
+            ChatRoom room,
+            UUID currentUserId,
+            Map<UUID, UserAccount> usersById
+    ) {
+        UUID pinnedMessageId = room.getPinnedMessageId();
+        if (pinnedMessageId == null) {
+            return null;
+        }
+
+        if (userDeletedMessageRepository.existsByUserIdAndMessageId(currentUserId, pinnedMessageId)) {
+            return null;
+        }
+
+        ChatMessage pinnedMessage = chatMessageRepository.findById(pinnedMessageId).orElse(null);
+        if (pinnedMessage == null || !pinnedMessage.getChatId().equals(room.getId())) {
+            return null;
+        }
+
+        UserAccount sender = usersById.get(pinnedMessage.getSenderId());
+        if (sender == null) {
+            sender = userAccountRepository.findById(pinnedMessage.getSenderId()).orElse(null);
+        }
+        if (sender == null) {
+            return null;
+        }
+
+        return new MessageSnippetResponse(
+                pinnedMessage.getId(),
+                authService.toParticipant(sender),
+                pinnedMessage.getCreatedAt(),
+                summarizeLastMessage(pinnedMessage)
+        );
     }
 
     private String summarizeLastMessage(ChatMessage lastMessage) {

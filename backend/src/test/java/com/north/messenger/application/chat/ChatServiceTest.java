@@ -14,6 +14,7 @@ import com.north.messenger.domain.repository.MessageReceiptRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import com.north.messenger.domain.repository.UserArchivedChatRepository;
 import com.north.messenger.domain.repository.UserDeletedChatRepository;
+import com.north.messenger.domain.repository.UserDeletedMessageRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -21,6 +22,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.data.domain.Pageable;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -41,6 +43,7 @@ class ChatServiceTest {
     private UserAccountRepository userAccountRepository;
     private UserArchivedChatRepository userArchivedChatRepository;
     private UserDeletedChatRepository userDeletedChatRepository;
+    private UserDeletedMessageRepository userDeletedMessageRepository;
     private SimpMessagingTemplate messagingTemplate;
     private ChatService chatService;
 
@@ -54,6 +57,7 @@ class ChatServiceTest {
         userAccountRepository = mock(UserAccountRepository.class);
         userArchivedChatRepository = mock(UserArchivedChatRepository.class);
         userDeletedChatRepository = mock(UserDeletedChatRepository.class);
+        userDeletedMessageRepository = mock(UserDeletedMessageRepository.class);
         messagingTemplate = mock(SimpMessagingTemplate.class);
         chatService = new ChatService(
                 authService,
@@ -64,6 +68,7 @@ class ChatServiceTest {
                 userAccountRepository,
                 userArchivedChatRepository,
                 userDeletedChatRepository,
+                userDeletedMessageRepository,
                 messagingTemplate
         );
         when(userArchivedChatRepository.save(any(UserArchivedChat.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -121,8 +126,8 @@ class ChatServiceTest {
         when(userAccountRepository.findAllByIdIn(List.of(user.getId(), peer.getId()))).thenReturn(List.of(user, peer));
         when(authService.resolveOnlineByUserIds(List.of(user.getId(), peer.getId())))
                 .thenReturn(java.util.Map.of(user.getId(), true, peer.getId(), true));
-        when(chatMessageRepository.findTopByChatIdAndEncryptionSchemeIsNotNullOrderByCreatedAtDesc(chatId))
-                .thenReturn(Optional.empty());
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(eq(chatId), eq(user.getId()), any(Pageable.class)))
+                .thenReturn(List.of());
         when(authService.toParticipant(user, true)).thenReturn(new com.north.messenger.api.dto.ParticipantResponse(
                 user.getId(), user.getUsername(), user.getDisplayName(), user.getAvatarUrl(), true
         ));
@@ -177,8 +182,8 @@ class ChatServiceTest {
         when(userAccountRepository.findAllByIdIn(List.of(user.getId(), peer.getId()))).thenReturn(List.of(user, peer));
         when(authService.resolveOnlineByUserIds(List.of(user.getId(), peer.getId())))
                 .thenReturn(java.util.Map.of(user.getId(), true, peer.getId(), true));
-        when(chatMessageRepository.findTopByChatIdAndEncryptionSchemeIsNotNullOrderByCreatedAtDesc(chatId))
-                .thenReturn(Optional.of(encryptedMessage));
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(eq(chatId), eq(user.getId()), any(Pageable.class)))
+                .thenReturn(List.of(encryptedMessage));
         when(authService.toParticipant(user, true)).thenReturn(new com.north.messenger.api.dto.ParticipantResponse(
                 user.getId(), user.getUsername(), user.getDisplayName(), user.getAvatarUrl(), true
         ));
@@ -249,8 +254,8 @@ class ChatServiceTest {
         ));
         when(authService.resolveOnlineByUserIds(List.of(user.getId(), peer.getId())))
                 .thenReturn(java.util.Map.of(user.getId(), true, peer.getId(), true));
-        when(chatMessageRepository.findTopByChatIdAndEncryptionSchemeIsNotNullOrderByCreatedAtDesc(chatId))
-                .thenReturn(Optional.empty());
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(eq(chatId), eq(peer.getId()), any(Pageable.class)))
+                .thenReturn(List.of());
         when(authService.toParticipant(user, true)).thenReturn(new com.north.messenger.api.dto.ParticipantResponse(
                 user.getId(), user.getUsername(), user.getDisplayName(), user.getAvatarUrl(), true
         ));

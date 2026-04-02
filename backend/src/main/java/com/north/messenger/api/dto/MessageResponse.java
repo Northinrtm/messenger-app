@@ -9,8 +9,10 @@ public record MessageResponse(
         UUID chatId,
         ParticipantResponse sender,
         Instant createdAt,
+        Instant editedAt,
         MessageStatusResponse status,
         String clientMessageId,
+        MessageSnippetResponse replyTo,
         List<MessageReactionSummaryResponse> reactions,
         EncryptedMessagePayloadResponse encryptedPayload
 ) {

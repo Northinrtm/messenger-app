@@ -18,10 +18,15 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> 
             where message.chatId = :chatId
               and message.encryptionScheme is not null
               and message.encryptionScheme <> ''
+              and not exists (
+                select 1 from UserDeletedMessage deleted
+                where deleted.userId = :userId and deleted.messageId = message.id
+              )
             order by message.createdAt desc
             """)
-    List<ChatMessage> findEncryptedByChatIdOrderByCreatedAtDesc(
+    List<ChatMessage> findVisibleEncryptedByChatIdOrderByCreatedAtDesc(
             @Param("chatId") UUID chatId,
+            @Param("userId") UUID userId,
             Pageable pageable
     );
 
@@ -32,15 +37,38 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> 
               and message.encryptionScheme is not null
               and message.encryptionScheme <> ''
               and message.createdAt < :before
+              and not exists (
+                select 1 from UserDeletedMessage deleted
+                where deleted.userId = :userId and deleted.messageId = message.id
+              )
             order by message.createdAt desc
             """)
-    List<ChatMessage> findEncryptedByChatIdAndCreatedAtBeforeOrderByCreatedAtDesc(
+    List<ChatMessage> findVisibleEncryptedByChatIdAndCreatedAtBeforeOrderByCreatedAtDesc(
             @Param("chatId") UUID chatId,
             @Param("before") Instant before,
+            @Param("userId") UUID userId,
             Pageable pageable
     );
 
     Optional<ChatMessage> findByChatIdAndSenderIdAndClientMessageId(UUID chatId, UUID senderId, String clientMessageId);
 
     Optional<ChatMessage> findTopByChatIdAndEncryptionSchemeIsNotNullOrderByCreatedAtDesc(UUID chatId);
+
+    @Query("""
+            select message
+            from ChatMessage message
+            where message.chatId = :chatId
+              and message.encryptionScheme is not null
+              and message.encryptionScheme <> ''
+              and not exists (
+                select 1 from UserDeletedMessage deleted
+                where deleted.userId = :userId and deleted.messageId = message.id
+              )
+            order by message.createdAt desc
+            """)
+    List<ChatMessage> findLatestVisibleByChatIdAndUserId(
+            @Param("chatId") UUID chatId,
+            @Param("userId") UUID userId,
+            Pageable pageable
+    );
 }

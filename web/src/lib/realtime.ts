@@ -229,6 +229,7 @@ export function publishOutgoingMessage(
   chatId: string,
   request: {
     clientMessageId?: string;
+    replyToMessageId?: string | null;
     encryptedPayload: OutgoingEncryptedMessagePayload;
   }
 ) {

@@ -12,25 +12,31 @@ import com.north.messenger.api.dto.MessageDeletionEventResponse;
 import com.north.messenger.api.dto.MessageReactionEventResponse;
 import com.north.messenger.api.dto.MessageReactionSummaryResponse;
 import com.north.messenger.api.dto.MessageResponse;
+import com.north.messenger.api.dto.MessageSnippetResponse;
 import com.north.messenger.api.dto.MessageStatusEventResponse;
 import com.north.messenger.api.dto.MessageStatusResponse;
 import com.north.messenger.api.dto.ToggleMessageReactionRequest;
+import com.north.messenger.api.dto.UpdateMessageRequest;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.chat.ChatService;
 import com.north.messenger.domain.model.ChatMessage;
+import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.MessageReceipt;
 import com.north.messenger.domain.model.MessageReaction;
 import com.north.messenger.domain.model.UserAccount;
+import com.north.messenger.domain.model.UserDeletedMessage;
 import com.north.messenger.domain.repository.ChatMessageRepository;
 import com.north.messenger.domain.repository.MessageReceiptRepository;
 import com.north.messenger.domain.repository.MessageReactionRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
+import com.north.messenger.domain.repository.UserDeletedMessageRepository;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.HashMap;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -57,6 +63,7 @@ public class MessageService {
     private final MessageReceiptRepository messageReceiptRepository;
     private final MessageReactionRepository messageReactionRepository;
     private final UserAccountRepository userAccountRepository;
+    private final UserDeletedMessageRepository userDeletedMessageRepository;
     private final SimpMessagingTemplate messagingTemplate;
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
@@ -68,6 +75,7 @@ public class MessageService {
             MessageReceiptRepository messageReceiptRepository,
             MessageReactionRepository messageReactionRepository,
             UserAccountRepository userAccountRepository,
+            UserDeletedMessageRepository userDeletedMessageRepository,
             SimpMessagingTemplate messagingTemplate,
             ObjectMapper objectMapper,
             ApplicationEventPublisher eventPublisher
@@ -78,6 +86,7 @@ public class MessageService {
         this.messageReceiptRepository = messageReceiptRepository;
         this.messageReactionRepository = messageReactionRepository;
         this.userAccountRepository = userAccountRepository;
+        this.userDeletedMessageRepository = userDeletedMessageRepository;
         this.messagingTemplate = messagingTemplate;
         this.objectMapper = objectMapper;
         this.eventPublisher = eventPublisher;
@@ -92,8 +101,17 @@ public class MessageService {
         PageRequest pageRequest = PageRequest.of(0, safeLimit);
         List<ChatMessage> recentMessages = new ArrayList<>(
                 before == null
-                        ? chatMessageRepository.findEncryptedByChatIdOrderByCreatedAtDesc(chatId, pageRequest)
-                        : chatMessageRepository.findEncryptedByChatIdAndCreatedAtBeforeOrderByCreatedAtDesc(chatId, before, pageRequest)
+                        ? chatMessageRepository.findVisibleEncryptedByChatIdOrderByCreatedAtDesc(
+                                chatId,
+                                currentUser.getId(),
+                                pageRequest
+                        )
+                        : chatMessageRepository.findVisibleEncryptedByChatIdAndCreatedAtBeforeOrderByCreatedAtDesc(
+                                chatId,
+                                before,
+                                currentUser.getId(),
+                                pageRequest
+                        )
         );
         recentMessages.sort((left, right) -> left.getCreatedAt().compareTo(right.getCreatedAt()));
 
@@ -110,6 +128,10 @@ public class MessageService {
                 recentMessages.stream().map(ChatMessage::getId).toList(),
                 currentUser.getId()
         );
+        Map<UUID, MessageSnippetResponse> repliesByMessageId = loadReplySnippetsByMessageId(
+                recentMessages,
+                usersById
+        );
 
         return recentMessages.stream()
                 .map(message -> toResponse(
@@ -118,7 +140,8 @@ public class MessageService {
                         currentUser.getId(),
                         summariesByMessageId.getOrDefault(message.getId(), MessageReceiptSummary.empty()),
                         reactionsByMessageId.getOrDefault(message.getId(), List.of()),
-                        null
+                        null,
+                        repliesByMessageId.get(message.getId())
                 ))
                 .toList();
     }
@@ -129,6 +152,7 @@ public class MessageService {
         chatService.requireChatMembership(chatId, currentUser);
         List<UserAccount> participants = chatService.findParticipants(chatId);
         String clientMessageId = normalizeClientMessageId(request.clientMessageId());
+        UUID replyToMessageId = validateReplyTarget(chatId, request.replyToMessageId());
 
         MessageResponse existingResponse = findExistingMessageResponse(chatId, currentUser, clientMessageId);
         if (existingResponse != null) {
@@ -158,6 +182,7 @@ public class MessageService {
                     encryptionIv,
                     encryptedKeysJson,
                     clientMessageId,
+                    replyToMessageId,
                     Instant.now()
             );
             chatMessageRepository.saveAndFlush(message);
@@ -188,7 +213,9 @@ public class MessageService {
                     currentUser.getId(),
                     summary,
                     List.of(),
-                    clientMessageId
+                    clientMessageId,
+                    loadReplySnippetsByMessageId(List.of(message), Map.of(currentUser.getId(), currentUser))
+                            .get(message.getId())
             );
             eventPublisher.publishEvent(new MessageDispatchEvent(chatId, message.getId(), clientMessageId));
             return responseForSender;
@@ -203,17 +230,40 @@ public class MessageService {
     }
 
     @Transactional
-    public void deleteMessage(UUID chatId, UUID messageId, String username) {
+    public void deleteMessage(UUID chatId, UUID messageId, String username, String rawScope) {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
-        chatService.requireChatMembership(chatId, currentUser);
+        ChatRoom room = chatService.requireChatMembership(chatId, currentUser);
 
         ChatMessage message = chatMessageRepository.findById(messageId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found"));
         if (!message.getChatId().equals(chatId)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found in this chat");
         }
-        if (!message.getSenderId().equals(currentUser.getId())) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the sender can delete the message for everyone");
+
+        DeleteScope scope = parseDeleteScope(rawScope);
+        if (scope == DeleteScope.SELF) {
+            userDeletedMessageRepository.findByUserIdAndMessageId(currentUser.getId(), messageId)
+                    .orElseGet(() -> userDeletedMessageRepository.save(
+                            new UserDeletedMessage(UUID.randomUUID(), currentUser.getId(), messageId, Instant.now())
+                    ));
+            messagingTemplate.convertAndSendToUser(
+                    currentUser.getUsername(),
+                    "/queue/message-deletions",
+                    new MessageDeletionEventResponse(messageId, chatId)
+            );
+            chatService.notifyChatUpdated(chatId);
+            return;
+        }
+
+        if (!room.isDirect() && !message.getSenderId().equals(currentUser.getId())) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Delete for everyone is only available for your own group messages"
+            );
+        }
+
+        if (Objects.equals(room.getPinnedMessageId(), messageId)) {
+            room.clearPinnedMessage();
         }
 
         List<UserAccount> participants = chatService.findParticipants(chatId);
@@ -224,6 +274,45 @@ public class MessageService {
                 new MessageDeletionEventResponse(messageId, chatId)
         ));
         chatService.notifyChatUpdated(chatId);
+    }
+
+    @Transactional
+    public MessageResponse updateMessage(UUID chatId, UUID messageId, String username, UpdateMessageRequest request) {
+        UserAccount currentUser = authService.requireAuthenticatedUser(username);
+        chatService.requireChatMembership(chatId, currentUser);
+
+        ChatMessage message = chatMessageRepository.findById(messageId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found"));
+        if (!message.getChatId().equals(chatId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found in this chat");
+        }
+        if (!message.getSenderId().equals(currentUser.getId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the sender can edit the message");
+        }
+
+        EncryptedMessagePayloadRequest encryptedPayload = request.encryptedPayload();
+        if (encryptedPayload == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Encrypted payload is required");
+        }
+
+        List<UserAccount> participants = chatService.findParticipants(chatId);
+        String encryptedKeysJson = serializeEncryptedKeys(validateEncryptedPayload(encryptedPayload, participants));
+        message.updateEncryptedContent(
+                encryptedPayload.ciphertext(),
+                encryptedPayload.scheme(),
+                encryptedPayload.iv(),
+                encryptedKeysJson,
+                Instant.now()
+        );
+        chatMessageRepository.saveAndFlush(message);
+        broadcastMessage(message, null);
+
+        UserAccount sender = userAccountRepository.findById(message.getSenderId()).orElse(currentUser);
+        MessageReceiptSummary summary = loadReceiptSummaries(List.of(message.getId()))
+                .getOrDefault(message.getId(), MessageReceiptSummary.empty());
+        MessageSnippetResponse replyTo = loadReplySnippetsByMessageId(List.of(message), Map.of(sender.getId(), sender))
+                .get(message.getId());
+        return toResponse(message, sender, currentUser.getId(), summary, List.of(), null, replyTo);
     }
 
     @Transactional
@@ -277,24 +366,107 @@ public class MessageService {
         if (message == null) {
             return;
         }
+        broadcastMessage(message, event.clientMessageId());
+    }
 
+    private void broadcastMessage(ChatMessage message, String senderClientMessageId) {
         UserAccount sender = userAccountRepository.findById(message.getSenderId())
                 .orElse(null);
         if (sender == null) {
             return;
         }
 
-        List<UserAccount> participants = chatService.findParticipants(event.chatId());
+        List<UserAccount> participants = chatService.findParticipants(message.getChatId());
         MessageReceiptSummary summary = loadReceiptSummaries(List.of(message.getId()))
                 .getOrDefault(message.getId(), MessageReceiptSummary.empty());
+        Map<UUID, MessageSnippetResponse> repliesByMessageId = loadReplySnippetsByMessageId(
+                List.of(message),
+                participants.stream().collect(Collectors.toMap(UserAccount::getId, Function.identity()))
+        );
 
         participants.forEach(participant -> {
+            List<MessageReactionSummaryResponse> reactions = loadReactionSummaries(
+                    List.of(message.getId()),
+                    participant.getId()
+            ).getOrDefault(message.getId(), List.of());
             MessageResponse response = participant.getId().equals(sender.getId())
-                    ? toResponse(message, sender, participant.getId(), summary, List.of(), event.clientMessageId())
-                    : toResponse(message, sender, participant.getId(), summary, List.of(), null);
+                    ? toResponse(
+                            message,
+                            sender,
+                            participant.getId(),
+                            summary,
+                            reactions,
+                            senderClientMessageId,
+                            repliesByMessageId.get(message.getId())
+                    )
+                    : toResponse(
+                            message,
+                            sender,
+                            participant.getId(),
+                            summary,
+                            reactions,
+                            null,
+                            repliesByMessageId.get(message.getId())
+                    );
             messagingTemplate.convertAndSendToUser(participant.getUsername(), "/queue/messages", response);
         });
-        chatService.notifyChatUpdated(event.chatId());
+        chatService.notifyChatUpdated(message.getChatId());
+    }
+
+    private Map<UUID, MessageSnippetResponse> loadReplySnippetsByMessageId(
+            Collection<ChatMessage> messages,
+            Map<UUID, UserAccount> knownUsersById
+    ) {
+        List<ChatMessage> messagesWithReply = messages.stream()
+                .filter(message -> message.getReplyToMessageId() != null)
+                .toList();
+        if (messagesWithReply.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<UUID, ChatMessage> referencedMessagesById = chatMessageRepository.findAllById(
+                        messagesWithReply.stream().map(ChatMessage::getReplyToMessageId).distinct().toList()
+                ).stream()
+                .collect(Collectors.toMap(ChatMessage::getId, Function.identity()));
+        if (referencedMessagesById.isEmpty()) {
+            return Map.of();
+        }
+
+        Set<UUID> missingSenderIds = referencedMessagesById.values().stream()
+                .map(ChatMessage::getSenderId)
+                .filter(senderId -> !knownUsersById.containsKey(senderId))
+                .collect(Collectors.toSet());
+
+        Map<UUID, UserAccount> usersById = new HashMap<>(knownUsersById);
+        if (!missingSenderIds.isEmpty()) {
+            userAccountRepository.findAllByIdIn(missingSenderIds)
+                    .forEach(user -> usersById.put(user.getId(), user));
+        }
+
+        return messagesWithReply.stream()
+                .map(message -> {
+                    ChatMessage referencedMessage = referencedMessagesById.get(message.getReplyToMessageId());
+                    if (referencedMessage == null) {
+                        return null;
+                    }
+
+                    UserAccount sender = usersById.get(referencedMessage.getSenderId());
+                    if (sender == null) {
+                        return null;
+                    }
+
+                    return Map.entry(
+                            message.getId(),
+                            new MessageSnippetResponse(
+                                    referencedMessage.getId(),
+                                    authService.toParticipant(sender),
+                                    referencedMessage.getCreatedAt(),
+                                    summarizeMessagePreview(referencedMessage)
+                            )
+                    );
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
     private MessageResponse findExistingMessageResponse(UUID chatId, UserAccount currentUser, String clientMessageId) {
@@ -321,7 +493,9 @@ public class MessageService {
                 currentUser.getId(),
                 summary,
                 reactions,
-                existingMessage.getClientMessageId()
+                existingMessage.getClientMessageId(),
+                loadReplySnippetsByMessageId(List.of(existingMessage), Map.of(currentUser.getId(), currentUser))
+                        .get(existingMessage.getId())
         );
     }
 
@@ -381,7 +555,8 @@ public class MessageService {
             UUID currentUserId,
             MessageReceiptSummary summary,
             List<MessageReactionSummaryResponse> reactions,
-            String clientMessageId
+            String clientMessageId,
+            MessageSnippetResponse replyTo
     ) {
         MessageStatusResponse status = message.getSenderId().equals(currentUserId)
                 ? summary.toResponse()
@@ -392,8 +567,10 @@ public class MessageService {
                 message.getChatId(),
                 authService.toParticipant(sender),
                 message.getCreatedAt(),
+                message.getEditedAt(),
                 status,
                 clientMessageId,
+                replyTo,
                 reactions,
                 toEncryptedPayload(message, currentUserId)
         );
@@ -533,6 +710,20 @@ public class MessageService {
         return clientMessageId;
     }
 
+    private UUID validateReplyTarget(UUID chatId, UUID replyToMessageId) {
+        if (replyToMessageId == null) {
+            return null;
+        }
+
+        ChatMessage replyTarget = chatMessageRepository.findById(replyToMessageId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reply target not found"));
+        if (!replyTarget.getChatId().equals(chatId)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Reply target must belong to the same chat");
+        }
+
+        return replyTarget.getId();
+    }
+
     private String normalizeReactionKey(String reactionKey) {
         if (reactionKey == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Reaction key is required");
@@ -544,6 +735,18 @@ public class MessageService {
         }
 
         return normalized;
+    }
+
+    private DeleteScope parseDeleteScope(String rawScope) {
+        if (rawScope == null || rawScope.isBlank()) {
+            return DeleteScope.EVERYONE;
+        }
+
+        try {
+            return DeleteScope.valueOf(rawScope.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported delete scope");
+        }
     }
 
     private Map<String, String> validateEncryptedPayload(
@@ -619,9 +822,20 @@ public class MessageService {
         );
     }
 
+    private String summarizeMessagePreview(ChatMessage message) {
+        return message.getEncryptionScheme() != null && !message.getEncryptionScheme().isBlank()
+                ? "Encrypted message"
+                : message.getContent();
+    }
+
     private enum ReceiptUpdateMode {
         DELIVERED,
         READ
+    }
+
+    private enum DeleteScope {
+        SELF,
+        EVERYONE
     }
 
     private record MessageReceiptSummary(

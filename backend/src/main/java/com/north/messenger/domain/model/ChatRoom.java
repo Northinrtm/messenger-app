@@ -23,6 +23,12 @@ public class ChatRoom {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    @Column(name = "pinned_message_id")
+    private UUID pinnedMessageId;
+
+    @Column(name = "pinned_at")
+    private Instant pinnedAt;
+
     protected ChatRoom() {
     }
 
@@ -48,5 +54,22 @@ public class ChatRoom {
     public Instant getCreatedAt() {
         return createdAt;
     }
-}
 
+    public UUID getPinnedMessageId() {
+        return pinnedMessageId;
+    }
+
+    public Instant getPinnedAt() {
+        return pinnedAt;
+    }
+
+    public void pinMessage(UUID messageId, Instant pinnedAt) {
+        this.pinnedMessageId = messageId;
+        this.pinnedAt = pinnedAt;
+    }
+
+    public void clearPinnedMessage() {
+        this.pinnedMessageId = null;
+        this.pinnedAt = null;
+    }
+}

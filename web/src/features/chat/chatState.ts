@@ -1,6 +1,7 @@
 import type { InfiniteData } from "@tanstack/react-query";
 import type {
   ChatMessage,
+  MessageSnippet,
   ChatSummary,
   MessageReactionEvent,
   MessageStatusEvent,
@@ -157,6 +158,35 @@ export function clearChatUnreadCount(
   return changed ? next : current;
 }
 
+export function updateChatPinnedMessage(
+  current: ChatSummary[] | undefined,
+  chatId: string,
+  pinnedMessage: MessageSnippet | null
+) {
+  if (!current) {
+    return current;
+  }
+
+  let changed = false;
+  const next = current.map((chat) => {
+    if (chat.id !== chatId) {
+      return chat;
+    }
+
+    if (chat.pinnedMessage?.id === pinnedMessage?.id && chat.pinnedMessage?.preview === pinnedMessage?.preview) {
+      return chat;
+    }
+
+    changed = true;
+    return {
+      ...chat,
+      pinnedMessage,
+    };
+  });
+
+  return changed ? next : current;
+}
+
 export function mergeMessagePages(
   current: InfiniteData<ChatMessage[]> | undefined,
   incoming: ChatMessage
@@ -268,6 +298,36 @@ export function updateMessageStatusPages(
     : current;
 }
 
+export function updateMessageById(
+  current: InfiniteData<ChatMessage[]> | undefined,
+  messageId: string,
+  updater: (message: ChatMessage) => ChatMessage
+): InfiniteData<ChatMessage[]> | undefined {
+  if (!current) {
+    return current;
+  }
+
+  let changed = false;
+  const pages = current.pages.map((page) =>
+    page.map((message) => {
+      if (message.id !== messageId) {
+        return message;
+      }
+
+      const nextMessage = updater(message);
+      changed = changed || nextMessage !== message;
+      return nextMessage;
+    })
+  );
+
+  return changed
+    ? {
+        ...current,
+        pages,
+      }
+    : current;
+}
+
 export function updateMessageReactionsPages(
   current: InfiniteData<ChatMessage[]> | undefined,
   event: MessageReactionEvent
@@ -317,6 +377,13 @@ export function flattenMessagePages(pages: ChatMessage[][] | undefined) {
     });
 
   return [...deduped.values()].sort(compareMessages);
+}
+
+export function getLatestMessageFromPages(
+  current: InfiniteData<ChatMessage[]> | undefined
+) {
+  const flattened = flattenMessagePages(current?.pages);
+  return flattened[flattened.length - 1] ?? null;
 }
 
 export function initials(title: string) {
