@@ -560,7 +560,14 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     forwardingMessageId && activeChat
       ? messages.find((message) => message.id === forwardingMessageId) ?? null
       : null;
-  const activePinnedMessage = activeChat?.pinnedMessage ?? null;
+  const hydratedPinnedMessage =
+    activeChat?.pinnedMessage &&
+    messages.find((message) => message.id === activeChat.pinnedMessage?.id)
+      ? toMessageSnippet(
+          messages.find((message) => message.id === activeChat.pinnedMessage?.id)!
+        )
+      : null;
+  const activePinnedMessage = hydratedPinnedMessage ?? activeChat?.pinnedMessage ?? null;
   const forwardableChats = visibleChats.filter((chat) => chat.id !== activeChat?.id);
   const canDeleteContextMenuMessageForSelf = Boolean(
     contextMenuMessage && contextMenuMessage.id !== contextMenuMessage.clientMessageId
@@ -918,6 +925,48 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
         "keep"
       )
     );
+  });
+
+  const refreshChatPreviewFromServer = useEffectEvent(async (chatId: string) => {
+    try {
+      const messages = await getEncryptedMessages(session.token, session.user.id, chatId, {
+        limit: 1,
+      });
+      const latestMessage = messages[messages.length - 1] ?? null;
+
+      if (!latestMessage || !latestMessage.content.trim() || isUnavailableEncryptedMessage(latestMessage.content)) {
+        clearChatPreviewOverride(chatId);
+        queryClient.setQueryData<ChatSummary[]>(["chats", session.token], (current) =>
+          current?.map((chat) =>
+            chat.id !== chatId
+              ? chat
+              : {
+                  ...chat,
+                  lastMessage: null,
+                  lastMessageAt: null,
+                }
+          ) ?? []
+        );
+        return;
+      }
+
+      const previewText = buildChatListPreviewText(latestMessage);
+      applyChatPreviewMessage(latestMessage);
+      queryClient.setQueryData<ChatSummary[]>(["chats", session.token], (current) =>
+        applyChatMessageActivity(
+          current,
+          {
+            ...latestMessage,
+            content: previewText,
+          },
+          "keep"
+        )
+      );
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onSessionChange(null);
+      }
+    }
   });
 
   const syncChatPinnedSummary = useEffectEvent((chatId: string, pinnedMessage: MessageSnippet | null) => {
@@ -1841,6 +1890,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       clearComposerContext("forward");
     }
     syncChatPreviewFromCache(event.chatId);
+    void refreshChatPreviewFromServer(event.chatId);
     void queryClient.invalidateQueries({ queryKey: ["chats", session.token] });
   });
 
@@ -2032,6 +2082,23 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     lastMessage,
     queryClient,
     session.token,
+  ]);
+
+  useEffect(() => {
+    if (!activeChat?.id || !activeChat.pinnedMessage || !hydratedPinnedMessage) {
+      return;
+    }
+
+    if (activeChat.pinnedMessage.preview === hydratedPinnedMessage.preview) {
+      return;
+    }
+
+    syncChatPinnedSummary(activeChat.id, hydratedPinnedMessage);
+  }, [
+    activeChat?.id,
+    activeChat?.pinnedMessage,
+    hydratedPinnedMessage,
+    syncChatPinnedSummary,
   ]);
 
   useEffect(() => {
@@ -2403,6 +2470,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     },
     onSuccess: (_result, variables) => {
       syncChatPreviewFromCache(variables.chatId);
+      void refreshChatPreviewFromServer(variables.chatId);
       void queryClient.invalidateQueries({ queryKey: ["chats", session.token] });
     },
   });
