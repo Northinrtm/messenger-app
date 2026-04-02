@@ -34,6 +34,6 @@ git fetch origin main
 git checkout main
 git pull --ff-only origin main
 
-"${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build --no-cache $BUILD_SERVICES
+"${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build $BUILD_SERVICES
 "${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --no-deps --force-recreate $RUNTIME_SERVICES
 "${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps
