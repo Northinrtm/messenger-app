@@ -55,9 +55,6 @@
 
     handle {
         reverse_proxy web:80 {
-            health_uri /healthz
-            health_interval 30s
-            health_timeout 5s
             transport http {
                 dial_timeout 5s
             }
