@@ -43,7 +43,6 @@ import {
   removeContact as removeContactRequest,
   revokeSession,
   searchUsers,
-  sendTypingState,
   toggleMessageReaction as toggleMessageReactionRequest,
   updateArchivedChat,
   updateProfile,
@@ -778,16 +777,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   });
 
   const syncTypingState = useEffectEvent((chatId: string, typing: boolean) => {
-    if (publishTypingEvent(chatId, typing)) {
-      return true;
-    }
-
-    void sendTypingState(session.token, chatId, typing).catch((error) => {
-      if (error instanceof ApiError && error.status === 401) {
-        onSessionChange(null);
-      }
-    });
-    return true;
+    return publishTypingEvent(chatId, typing);
   });
 
   const sendTypingHeartbeat = useEffectEvent((chatId: string) => {
@@ -809,10 +799,19 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     }
 
     const sentHeartbeat = syncTypingState(chatId, true);
+    if (!sentHeartbeat) {
+      typingSignalRef.current = {
+        chatId,
+        active: false,
+        lastSentAt: 0,
+      };
+      return;
+    }
+
     typingSignalRef.current = {
       chatId,
       active: true,
-      lastSentAt: sentHeartbeat ? now : 0,
+      lastSentAt: now,
     };
   });
 
@@ -825,9 +824,9 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
 
     const sentStop = syncTypingState(targetChatId, false);
     typingSignalRef.current = {
-      chatId: targetChatId,
+      chatId: sentStop ? targetChatId : null,
       active: false,
-      lastSentAt: sentStop ? Date.now() : 0,
+      lastSentAt: 0,
     };
   });
 
