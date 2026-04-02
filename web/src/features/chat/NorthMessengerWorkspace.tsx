@@ -127,6 +127,7 @@ type SidebarSheet =
   | "conferenceMembers"
   | "profile"
   | "group"
+  | "groupInfo"
   | "groupMembers"
   | "contacts"
   | "sessions"
@@ -254,6 +255,8 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const [profileDisplayName, setProfileDisplayName] = useState(session.user.displayName);
   const [groupParticipantUsernames, setGroupParticipantUsernames] = useState<string[]>([]);
   const [groupInviteUsernames, setGroupInviteUsernames] = useState<string[]>([]);
+  const [isGroupCreatePickerOpen, setIsGroupCreatePickerOpen] = useState(false);
+  const [isGroupInvitePickerOpen, setIsGroupInvitePickerOpen] = useState(false);
   const [contactSearch, setContactSearch] = useState("");
   const [draftsByChatId, setDraftsByChatId] = useState<Record<string, string>>({});
   const [chatPreviewOverrides, setChatPreviewOverrides] = useState<
@@ -490,6 +493,12 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
           (contact) => !activeChat.members.some((member) => member.username === contact.username)
         )
       : [];
+  const selectedGroupContacts = groupContacts.filter((contact) =>
+    groupParticipantUsernames.includes(contact.username)
+  );
+  const selectedGroupInviteContacts = availableGroupInviteContacts.filter((contact) =>
+    groupInviteUsernames.includes(contact.username)
+  );
   const availableConferenceInviteContacts = activeConference
     ? groupContacts.filter(
         (contact) =>
@@ -1568,8 +1577,13 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   ]);
 
   useEffect(() => {
+    if (sidebarSheet !== "group") {
+      setIsGroupCreatePickerOpen(false);
+    }
+
     if (sidebarSheet !== "groupMembers") {
       setGroupInviteUsernames([]);
+      setIsGroupInvitePickerOpen(false);
     }
 
     if (sidebarSheet !== "conferenceMembers") {
@@ -2220,6 +2234,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       void queryClient.invalidateQueries({ queryKey: ["chats", session.token] });
       setGroupTitle("");
       setGroupParticipantUsernames([]);
+      setIsGroupCreatePickerOpen(false);
       setSidebarSheet(null);
       openChat(chat.id, "groups");
     },
@@ -2277,6 +2292,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
         upsertChat(current, chat)
       );
       setGroupInviteUsernames([]);
+      setIsGroupInvitePickerOpen(false);
       setSidebarSheet(null);
     },
   });
@@ -2759,12 +2775,21 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     addGroupParticipantsMutation.mutate(groupInviteUsernames);
   };
 
-  const openGroupMembersSheet = () => {
+  const openGroupMembersSheet = (options?: { openInvitePicker?: boolean }) => {
     if (!activeChat || activeChat.direct) {
       return;
     }
 
+    setIsGroupInvitePickerOpen(Boolean(options?.openInvitePicker));
     openSidebarSheet("groupMembers");
+  };
+
+  const openGroupInfoSheet = () => {
+    if (!activeChat || activeChat.direct) {
+      return;
+    }
+
+    openSidebarSheet("groupInfo");
   };
 
   const openConferenceMembersSheet = () => {
@@ -3726,6 +3751,281 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                 <div className="sheet-head">
                   <div>
                     <div className="section-title">Группы</div>
+                    <p className="sheet-copy">Создайте новую группу и добавляйте участников по кнопке.</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="ghost-button compact"
+                    onClick={() => setSidebarSheet(null)}
+                  >
+                    Закрыть
+                  </button>
+                </div>
+
+                <form
+                  className="sheet-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    submitCreateGroup();
+                  }}
+                >
+                  <input
+                    value={groupTitle}
+                    onChange={(event) => setGroupTitle(event.target.value)}
+                    placeholder="Название группы"
+                  />
+                  <div className="sheet-section">
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() => setIsGroupCreatePickerOpen((current) => !current)}
+                    >
+                      {isGroupCreatePickerOpen ? "Скрыть список контактов" : "Добавить участника"}
+                    </button>
+                    {selectedGroupContacts.length > 0 ? (
+                      <div className="sheet-chip-list">
+                        {selectedGroupContacts.map((contact) => (
+                          <span key={contact.username} className="sheet-chip">
+                            {contact.displayName}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                    {isGroupCreatePickerOpen ? (
+                      <div className="group-picker-list">
+                        {contactsLoading ? (
+                          <div className="empty-list">Загружаем контакты...</div>
+                        ) : groupContacts.length === 0 ? (
+                          <div className="empty-list">Добавь сначала контакты, чтобы собрать группу.</div>
+                        ) : (
+                          groupContacts.map((contact) => {
+                            const selected = groupParticipantUsernames.includes(contact.username);
+                            return (
+                              <button
+                                type="button"
+                                key={contact.username}
+                                className={
+                                  selected
+                                    ? "sheet-row sheet-row-with-avatar group-picker-row is-selected"
+                                    : "sheet-row sheet-row-with-avatar group-picker-row"
+                                }
+                                onClick={() => toggleGroupParticipant(contact.username)}
+                              >
+                                <AvatarCircle
+                                  className="menu-row-avatar sheet-contact-avatar"
+                                  name={contact.displayName}
+                                  avatarUrl={contact.avatarUrl}
+                                  online={contact.online}
+                                />
+                                <div className="sheet-row-copy">
+                                  <strong>{contact.displayName}</strong>
+                                  <span>@{contact.username}</span>
+                                </div>
+                                <span className="member-pill">{selected ? "Выбран" : "Выбрать"}</span>
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                  <button
+                    type="submit"
+                    className="secondary-button"
+                    disabled={
+                      createGroupMutation.isPending || !groupTitle.trim() || !groupParticipantUsernames.length
+                    }
+                  >
+                    {createGroupMutation.isPending ? "Создаем..." : "Создать"}
+                  </button>
+                </form>
+              </div>
+            ) : null}
+
+            {sidebarSheet === "groupInfo" && activeChat && !activeChat.direct ? (
+              <div className="sheet-card">
+                <div className="sheet-head">
+                  <div>
+                    <div className="section-title">Инфо</div>
+                    <p className="sheet-copy">Информация о группе и управление участниками.</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="ghost-button compact"
+                    onClick={() => setSidebarSheet(null)}
+                  >
+                    Закрыть
+                  </button>
+                </div>
+
+                <div className="profile-avatar-card">
+                  <AvatarCircle
+                    className="profile-sheet-avatar"
+                    name={activeChat.title}
+                    avatarUrl={null}
+                    badge="GR"
+                    online={false}
+                  />
+                  <div className="profile-avatar-copy">
+                    <strong>{activeChat.title}</strong>
+                    <span>{activeChat.members.length} участников</span>
+                  </div>
+                </div>
+
+                <div className="sheet-actions-stack">
+                  <button
+                    type="button"
+                    className="sheet-row sheet-row-button"
+                    onClick={() => openGroupMembersSheet()}
+                  >
+                    <div className="sheet-row-copy">
+                      <strong>Участники</strong>
+                      <span>Открыть список участников группы.</span>
+                    </div>
+                    <span className="member-pill">{activeChat.members.length}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="sheet-row sheet-row-button"
+                    onClick={() => openGroupMembersSheet({ openInvitePicker: true })}
+                  >
+                    <div className="sheet-row-copy">
+                      <strong>Добавить из контактов</strong>
+                      <span>
+                        {availableGroupInviteContacts.length > 0
+                          ? "Выбери людей из контактов и добавь их в группу."
+                          : "Все контакты уже добавлены в эту группу."}
+                      </span>
+                    </div>
+                    <span className="member-pill">
+                      {availableGroupInviteContacts.length > 0 ? "Добавить" : "Готово"}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {sidebarSheet === "groupMembers" && activeChat && !activeChat.direct ? (
+              <div className="sheet-card">
+                <div className="sheet-head">
+                  <div>
+                    <div className="section-title">Участники группы</div>
+                    <p className="sheet-copy">
+                      Посмотри кто уже в {activeChat.title} и добавь новых людей из контактов.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="ghost-button compact"
+                    onClick={() => setSidebarSheet(null)}
+                  >
+                    Закрыть
+                  </button>
+                </div>
+
+                <form
+                  className="sheet-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    submitAddGroupParticipants();
+                  }}
+                >
+                  <div className="sheet-section">
+                    <div className="section-title">В этой группе</div>
+                    <div className="sheet-list">
+                      {activeChat.members.map((member) => (
+                        <div key={member.id} className="sheet-row sheet-row-with-avatar">
+                          <AvatarCircle
+                            className="menu-row-avatar sheet-contact-avatar"
+                            name={member.displayName}
+                            avatarUrl={member.avatarUrl}
+                            online={member.online}
+                          />
+                          <div className="sheet-row-copy">
+                            <strong>
+                              {member.displayName}
+                              {isCurrentUserParticipant(member, session.user) ? " (Вы)" : ""}
+                            </strong>
+                            <span>@{member.username}</span>
+                          </div>
+                          <span className="member-pill">
+                            {isCurrentUserParticipant(member, session.user) ? "Вы" : "В группе"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="sheet-section">
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() => setIsGroupInvitePickerOpen((current) => !current)}
+                    >
+                      {isGroupInvitePickerOpen ? "Скрыть список контактов" : "Добавить участника"}
+                    </button>
+                    {selectedGroupInviteContacts.length > 0 ? (
+                      <div className="sheet-chip-list">
+                        {selectedGroupInviteContacts.map((contact) => (
+                          <span key={contact.username} className="sheet-chip">
+                            {contact.displayName}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                    {isGroupInvitePickerOpen ? (
+                      <>
+                        <div className="group-picker-list">
+                          {availableGroupInviteContacts.length === 0 ? (
+                            <div className="empty-list">Все контакты уже в этой группе или список пуст.</div>
+                          ) : (
+                            availableGroupInviteContacts.map((contact) => {
+                              const selected = groupInviteUsernames.includes(contact.username);
+                              return (
+                                <button
+                                  type="button"
+                                  key={contact.username}
+                                  className={
+                                    selected
+                                      ? "sheet-row sheet-row-with-avatar group-picker-row is-selected"
+                                      : "sheet-row sheet-row-with-avatar group-picker-row"
+                                  }
+                                  onClick={() => toggleGroupInviteParticipant(contact.username)}
+                                >
+                                  <AvatarCircle
+                                    className="menu-row-avatar sheet-contact-avatar"
+                                    name={contact.displayName}
+                                    avatarUrl={contact.avatarUrl}
+                                    online={contact.online}
+                                  />
+                                  <div className="sheet-row-copy">
+                                    <strong>{contact.displayName}</strong>
+                                    <span>@{contact.username}</span>
+                                  </div>
+                                  <span className="member-pill">{selected ? "Выбран" : "Выбрать"}</span>
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+                        <button
+                          type="submit"
+                          className="secondary-button"
+                          disabled={addGroupParticipantsMutation.isPending || !groupInviteUsernames.length}
+                        >
+                          {addGroupParticipantsMutation.isPending ? "Добавляем..." : "Добавить в группу"}
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
+                </form>
+              </div>
+            ) : null}
+
+            {false ? (
+              <div className="sheet-card">
+                <div className="sheet-head">
+                  <div>
+                    <div className="section-title">Группы</div>
                     <p className="sheet-copy">Создайте новую группу и сразу выберите участников.</p>
                   </div>
                   <button
@@ -3799,7 +4099,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
               </div>
             ) : null}
 
-            {sidebarSheet === "groupMembers" ? (
+            {false ? (
               <div className="sheet-card">
                 <div className="sheet-head">
                   <div>
@@ -4222,9 +4522,9 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                     <button
                       type="button"
                       className="ghost-button compact"
-                      onClick={openGroupMembersSheet}
+                      onClick={openGroupInfoSheet}
                     >
-                      Добавить людей
+                      Инфо
                     </button>
                   </div>
                 ) : null}

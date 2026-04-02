@@ -1510,6 +1510,38 @@ textarea {
   overflow: auto;
 }
 
+.sheet-section {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.sheet-actions-stack {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.sheet-row-button {
+  width: 100%;
+  text-align: left;
+}
+
+.sheet-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.sheet-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.45rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(82, 136, 193, 0.18);
+  border: 1px solid rgba(117, 177, 244, 0.25);
+  color: #d8ebfb;
+  font-size: 0.88rem;
+}
+
 .group-picker-row {
   width: 100%;
   text-align: left;
