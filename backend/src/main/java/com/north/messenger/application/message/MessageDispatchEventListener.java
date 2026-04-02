@@ -14,7 +14,7 @@ public class MessageDispatchEventListener {
         this.messageService = messageService;
     }
 
-    @Async
+    @Async("messageDispatchExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onMessageDispatch(MessageDispatchEvent event) {
         messageService.dispatchMessage(event);

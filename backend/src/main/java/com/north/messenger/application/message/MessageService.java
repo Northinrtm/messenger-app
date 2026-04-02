@@ -15,6 +15,7 @@ import com.north.messenger.api.dto.MessageResponse;
 import com.north.messenger.api.dto.MessageSnippetResponse;
 import com.north.messenger.api.dto.MessageStatusEventResponse;
 import com.north.messenger.api.dto.MessageStatusResponse;
+import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.api.dto.ToggleMessageReactionRequest;
 import com.north.messenger.api.dto.UpdateMessageRequest;
 import com.north.messenger.application.auth.AuthService;
@@ -383,30 +384,44 @@ public class MessageService {
                 List.of(message),
                 participants.stream().collect(Collectors.toMap(UserAccount::getId, Function.identity()))
         );
+        ParticipantResponse senderParticipant = authService.toParticipant(sender);
+        Map<String, String> encryptedKeysByUserId = deserializeEncryptedKeys(message);
+        Map<String, List<MessageReaction>> reactionsByKey = messageReactionRepository.findAllByMessageIdIn(
+                        List.of(message.getId())
+                ).stream()
+                .collect(Collectors.groupingBy(MessageReaction::getReactionKey));
+        MessageSnippetResponse replyTo = repliesByMessageId.get(message.getId());
 
         participants.forEach(participant -> {
-            List<MessageReactionSummaryResponse> reactions = loadReactionSummaries(
-                    List.of(message.getId()),
+            List<MessageReactionSummaryResponse> reactions = summarizeReactions(
+                    reactionsByKey,
                     participant.getId()
-            ).getOrDefault(message.getId(), List.of());
+            );
+            EncryptedMessagePayloadResponse encryptedPayload = toEncryptedPayload(
+                    message,
+                    participant.getId(),
+                    encryptedKeysByUserId
+            );
             MessageResponse response = participant.getId().equals(sender.getId())
                     ? toResponse(
                             message,
-                            sender,
+                            senderParticipant,
                             participant.getId(),
                             summary,
                             reactions,
                             senderClientMessageId,
-                            repliesByMessageId.get(message.getId())
+                            replyTo,
+                            encryptedPayload
                     )
                     : toResponse(
                             message,
-                            sender,
+                            senderParticipant,
                             participant.getId(),
                             summary,
                             reactions,
                             null,
-                            repliesByMessageId.get(message.getId())
+                            replyTo,
+                            encryptedPayload
                     );
             messagingTemplate.convertAndSendToUser(participant.getUsername(), "/queue/messages", response);
         });
@@ -558,6 +573,28 @@ public class MessageService {
             String clientMessageId,
             MessageSnippetResponse replyTo
     ) {
+        return toResponse(
+                message,
+                authService.toParticipant(sender),
+                currentUserId,
+                summary,
+                reactions,
+                clientMessageId,
+                replyTo,
+                toEncryptedPayload(message, currentUserId)
+        );
+    }
+
+    private MessageResponse toResponse(
+            ChatMessage message,
+            ParticipantResponse sender,
+            UUID currentUserId,
+            MessageReceiptSummary summary,
+            List<MessageReactionSummaryResponse> reactions,
+            String clientMessageId,
+            MessageSnippetResponse replyTo,
+            EncryptedMessagePayloadResponse encryptedPayload
+    ) {
         MessageStatusResponse status = message.getSenderId().equals(currentUserId)
                 ? summary.toResponse()
                 : null;
@@ -565,14 +602,14 @@ public class MessageService {
         return new MessageResponse(
                 message.getId(),
                 message.getChatId(),
-                authService.toParticipant(sender),
+                sender,
                 message.getCreatedAt(),
                 message.getEditedAt(),
                 status,
                 clientMessageId,
                 replyTo,
                 reactions,
-                toEncryptedPayload(message, currentUserId)
+                encryptedPayload
         );
     }
 
@@ -605,6 +642,17 @@ public class MessageService {
 
         Map<String, List<MessageReaction>> reactionsByKey = reactions.stream()
                 .collect(Collectors.groupingBy(MessageReaction::getReactionKey));
+
+        return summarizeReactions(reactionsByKey, currentUserId);
+    }
+
+    private List<MessageReactionSummaryResponse> summarizeReactions(
+            Map<String, List<MessageReaction>> reactionsByKey,
+            UUID currentUserId
+    ) {
+        if (reactionsByKey.isEmpty()) {
+            return List.of();
+        }
 
         return REACTION_KEYS.stream()
                 .map(key -> {
@@ -805,11 +853,19 @@ public class MessageService {
     }
 
     private EncryptedMessagePayloadResponse toEncryptedPayload(ChatMessage message, UUID currentUserId) {
+        return toEncryptedPayload(message, currentUserId, deserializeEncryptedKeys(message));
+    }
+
+    private EncryptedMessagePayloadResponse toEncryptedPayload(
+            ChatMessage message,
+            UUID currentUserId,
+            Map<String, String> encryptedKeysByUserId
+    ) {
         if (!message.isEncrypted()) {
             throw new IllegalStateException("Plaintext messages are not supported by the encrypted message API");
         }
 
-        String encryptedKey = deserializeEncryptedKeys(message).get(currentUserId.toString());
+        String encryptedKey = encryptedKeysByUserId.get(currentUserId.toString());
         if (encryptedKey == null || encryptedKey.isBlank()) {
             throw new IllegalStateException("Encrypted message key is missing for recipient " + currentUserId);
         }
