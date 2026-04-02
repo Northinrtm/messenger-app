@@ -1080,20 +1080,38 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     });
   });
 
+  const scrollMessageIntoStream = useEffectEvent((messageId: string) => {
+    const container = messageStreamRef.current;
+    if (!container) {
+      return false;
+    }
+
+    const messageNode = container.querySelector<HTMLElement>(`[data-message-id="${messageId}"]`);
+    if (!messageNode) {
+      return false;
+    }
+
+    const targetTop =
+      messageNode.offsetTop - container.clientHeight / 2 + messageNode.offsetHeight / 2;
+
+    container.scrollTo({
+      top: Math.max(0, targetTop),
+      behavior: "smooth",
+    });
+
+    return true;
+  });
+
   const scrollToMessage = useEffectEvent((chatId: string, messageId: string) => {
     if (activeChatId !== chatId) {
       openChat(chatId);
       window.setTimeout(() => {
-        document
-          .querySelector<HTMLElement>(`[data-message-id="${messageId}"]`)
-          ?.scrollIntoView({ block: "center", behavior: "smooth" });
+        scrollMessageIntoStream(messageId);
       }, 120);
       return;
     }
 
-    document
-      .querySelector<HTMLElement>(`[data-message-id="${messageId}"]`)
-      ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    scrollMessageIntoStream(messageId);
   });
 
   const finalizeDeletedChatArtifacts = useEffectEvent((chatId: string) => {
