@@ -30,6 +30,9 @@ The current repository state is focused on direct chats, group chats, E2EE text 
 - direct chats
 - group chats
 - add members to existing groups
+- group info sheet
+- separate group participants sheet
+- add members from contacts through info/member sheets
 - archive chat for self
 - delete chat for self
 - direct chat shows in the dialogs list after the first message
@@ -43,20 +46,28 @@ The current repository state is focused on direct chats, group chats, E2EE text 
 - optimistic send in the UI
 - delivered/read receipts
 - typing indicator
-- delete own message for everyone
+- websocket-only typing signals
+- reactions: `LIKE`, `DISLIKE`, `EYES`, `OK`
+- reply to message
+- edit own message
+- forward to another chat or group
+- pin and unpin message
+- delete for self
+- delete for everyone in direct chats
+- delete own message for everyone in groups
 - realtime delivery through `WebSocket/STOMP`
-- HTTP fallbacks for sensitive client flows where needed
+- HTTP fallback kept only for the remaining sensitive flows where needed
 
 ### Video conferences
 
+- instant conference
 - schedule conference
 - invite participants
 - conference becomes joinable 5 minutes before scheduled start
-- embedded Jitsi stage inside the app
+- embedded same-origin Jitsi stage inside the app
 - in-app join path with per-room access code
-- conference archive
-- server-side recording import flow for `Jibri`
-- recording download from the app after import
+- group-wide start/schedule actions
+- active list shows only ongoing and scheduled conferences you participate in
 
 ### UI
 
@@ -66,8 +77,13 @@ The current repository state is focused on direct chats, group chats, E2EE text 
 - contacts screen
 - sessions screen
 - right-click context menu for:
-  - deleting chat for self
-  - deleting own message for everyone
+  - reply
+  - edit
+  - forward
+  - pin / unpin
+  - copy
+  - delete for self
+  - delete for everyone / for both sides where allowed
 
 ## Security and E2EE
 
@@ -75,16 +91,16 @@ The current repository state is focused on direct chats, group chats, E2EE text 
 - backend stores encrypted payloads and wrapped per-user keys
 - refresh token is not stored in `localStorage`
 - access token is kept in client memory
-- unlocked private E2EE key is currently kept in `sessionStorage` for the current tab session:
-  - survives normal page refresh
-  - does not survive full browser/tab lifecycle reset
+- password-based E2EE unlock is available at any time
+- trusted-device unlock via `WebAuthn` / Windows Hello / Touch ID / passkey is supported
+- trusted-device flow stores only an encrypted local copy and still requires platform verification to unwrap
 - auth endpoints have extra protection against cross-site requests and brute-force bursts
 
 Important limitations:
 
 - this is not a hardened high-assurance messenger yet
 - metadata is still visible to the server: participants, timestamps, receipts, typing, chat membership
-- realtime and typing are currently designed for a single backend instance, not horizontal scale-out
+- realtime fan-out and typing are currently designed for a single backend instance, not horizontal scale-out
 
 ## Realtime Model
 
@@ -92,7 +108,7 @@ Important limitations:
 - message send path is realtime-first
 - message acknowledgement uses `clientMessageId`
 - chat list and message list still perform periodic sync to avoid stale UI state
-- typing is short-lived state with TTL
+- typing is short-lived state with TTL and WebSocket-only transport
 
 ## Observability
 
@@ -100,6 +116,12 @@ Important limitations:
 - health endpoint: `/actuator/health`
 - metrics endpoint: `/actuator/metrics`
 - Prometheus scrape endpoint: `/actuator/prometheus`
+- production observability stack includes:
+  - `Prometheus`
+  - `Grafana`
+  - `Tempo`
+  - `OpenTelemetry Collector`
+  - `postgres-exporter`
 - custom backend latency/counter metrics:
   - `messenger.message.send.duration`
   - `messenger.message.send.total`
@@ -113,6 +135,22 @@ Important limitations:
   - message persistence before dispatch
   - post-commit message fan-out
   - chat summary broadcast
+- provisioned Grafana dashboard tracks:
+  - message send p95
+  - message dispatch p95
+  - backend HTTP p95
+  - backend 5xx rate
+  - typing HTTP fallback traffic
+  - conference archive request rate
+  - JVM heap
+- Prometheus alert rules cover:
+  - backend down
+  - postgres exporter down
+  - high message send p95
+  - high dispatch p95
+  - backend 5xx rate
+  - unexpected HTTP typing traffic
+  - conference archive hot-path traffic
 
 Current note:
 
@@ -124,6 +162,7 @@ Production note:
 
 - Grafana is intended to be published through `https://<APP_DOMAIN>/observability/`
 - Prometheus, Tempo, Postgres exporter, and the OTLP collector stay internal to the Docker network
+- traces are viewed through `Grafana -> Explore -> Tempo`
 
 ## Video Conference Notes
 
@@ -131,6 +170,7 @@ Production note:
 - invited users join from inside the app
 - direct public share flow has been removed from the main UI
 - current protection is practical app-level access control plus room access code, not full Jitsi JWT auth
+- active conference list intentionally hides ended conferences
 
 For autonomous recording:
 
@@ -141,9 +181,6 @@ For autonomous recording:
 ## What Is Not Implemented
 
 - file attachments and media uploads
-- reactions
-- reply / forward
-- message editing
 - push notifications
 - distributed presence / last seen service
 - external message broker for horizontal realtime scale
@@ -304,11 +341,12 @@ Use:
 5. Verify the dialog appears in the dialogs list for both sides.
 6. Verify typing indicator.
 7. Verify delivered/read status.
-8. Verify right-click delete for message.
+8. Verify reactions, reply, edit, forward, pin, and delete actions on messages.
 9. Verify delete chat for self.
-10. Create a group and verify it appears in the groups tab.
-11. Schedule a conference and verify it becomes available 5 minutes before start.
-12. If `Jibri` profile is enabled, verify recording import after the conference ends.
+10. Create a group, open the group info sheet, and add a participant from contacts.
+11. Start or schedule a conference from the group.
+12. Verify the conference becomes available 5 minutes before start and ended conferences disappear from the active conference list.
+13. Reopen the browser and verify trusted-device unlock uses the platform prompt instead of password-first flow.
 
 ## Verification Used During Development
 

@@ -210,6 +210,9 @@ const TYPING_IDLE_MS = 8_000;
 const CHATS_POLL_INTERVAL_MS = 2_000;
 const ACTIVE_MESSAGE_POLL_INTERVAL_MS = 1_000;
 const ACTIVE_TYPING_POLL_INTERVAL_MS = 1_500;
+const CHATS_CONNECTED_SYNC_INTERVAL_MS = 30_000;
+const CONFERENCES_BACKGROUND_SYNC_INTERVAL_MS = 30_000;
+const ARCHIVED_CONFERENCES_SYNC_INTERVAL_MS = 60_000;
 const MESSAGE_QUERY_GC_TIME_MS = 60_000;
 const TYPING_QUERY_GC_TIME_MS = 15_000;
 const SEARCH_QUERY_GC_TIME_MS = 30_000;
@@ -256,6 +259,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const [groupInviteUsernames, setGroupInviteUsernames] = useState<string[]>([]);
   const [isGroupCreatePickerOpen, setIsGroupCreatePickerOpen] = useState(false);
   const [isGroupInvitePickerOpen, setIsGroupInvitePickerOpen] = useState(false);
+  const [pendingOutgoingCountByChatId, setPendingOutgoingCountByChatId] = useState<Record<string, number>>({});
   const [contactSearch, setContactSearch] = useState("");
   const [draftsByChatId, setDraftsByChatId] = useState<Record<string, string>>({});
   const [chatPreviewOverrides, setChatPreviewOverrides] = useState<
@@ -311,11 +315,16 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const menuPanelRef = useRef<HTMLDivElement | null>(null);
   const deferredSearch = useDeferredValue(search);
   const deferredContactSearch = useDeferredValue(contactSearch);
+  const shouldAggressivelyRefreshConferences =
+    activeListTab === "conferences" || Boolean(activeConferenceId);
+  const shouldFetchArchivedConferences = sidebarSheet === "archive" || Boolean(activeConferenceId);
 
   const chatsQuery = useQuery({
     queryKey: ["chats", session.token],
     queryFn: () => getChats(session.token),
-    refetchInterval: CHATS_POLL_INTERVAL_MS,
+    refetchInterval: isRealtimeConnected
+      ? CHATS_CONNECTED_SYNC_INTERVAL_MS
+      : CHATS_POLL_INTERVAL_MS,
     refetchIntervalInBackground: true,
   });
 
@@ -347,17 +356,22 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const conferencesQuery = useQuery({
     queryKey: ["video-conferences", session.token],
     queryFn: () => getVideoConferences(session.token),
-    refetchInterval: 5_000,
+    refetchInterval: shouldAggressivelyRefreshConferences
+      ? 5_000
+      : CONFERENCES_BACKGROUND_SYNC_INTERVAL_MS,
     refetchIntervalInBackground: true,
-    staleTime: 5_000,
+    staleTime: shouldAggressivelyRefreshConferences
+      ? 5_000
+      : CONFERENCES_BACKGROUND_SYNC_INTERVAL_MS,
   });
 
   const archivedConferencesQuery = useQuery({
     queryKey: ["video-conferences-archive", session.token],
     queryFn: () => getArchivedVideoConferences(session.token),
-    refetchInterval: 15_000,
-    refetchIntervalInBackground: true,
-    staleTime: 15_000,
+    enabled: shouldFetchArchivedConferences,
+    refetchInterval: sidebarSheet === "archive" ? ARCHIVED_CONFERENCES_SYNC_INTERVAL_MS : false,
+    refetchIntervalInBackground: sidebarSheet === "archive",
+    staleTime: ARCHIVED_CONFERENCES_SYNC_INTERVAL_MS,
   });
 
   const draftsQuery = useQuery({
@@ -422,6 +436,14 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const visibleDirectChats = visibleChats.filter((chat) => chat.direct);
   const visibleGroupChats = visibleChats.filter((chat) => !chat.direct);
   const archivedChats = listedChats.filter((chat) => archivedChatIdSet.has(chat.id));
+  const previewHydrationChats =
+    sidebarSheet === "archive"
+      ? archivedChats
+      : activeListTab === "groups"
+        ? visibleGroupChats
+        : activeListTab === "dialogs"
+          ? visibleDirectChats
+          : [];
   const groupContacts = contacts.filter((contact) => contact.username !== session.user.username);
   const directChatUsernames = new Set(
     chats
@@ -521,6 +543,9 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
           activeTypingQuery.data ?? []
         )
     : [];
+  const activePendingOutgoingCount = activeChat?.id
+    ? pendingOutgoingCountByChatId[activeChat.id] ?? 0
+    : 0;
   const conversationSubtitle = activeChat
     ? activeTypingParticipants.length > 0
       ? formatTypingParticipants(activeTypingParticipants)
@@ -542,7 +567,10 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     getNextPageParam: (lastPage) =>
       lastPage.length === MESSAGE_PAGE_SIZE ? lastPage[0]?.createdAt ?? undefined : undefined,
     maxPages: MAX_CACHED_MESSAGE_PAGES,
-    refetchInterval: !isRealtimeConnected && activeChat?.id ? ACTIVE_MESSAGE_POLL_INTERVAL_MS : false,
+    refetchInterval:
+      !isRealtimeConnected && activeChat?.id && activePendingOutgoingCount === 0
+        ? ACTIVE_MESSAGE_POLL_INTERVAL_MS
+        : false,
     refetchIntervalInBackground: true,
     refetchOnWindowFocus: false,
     gcTime: MESSAGE_QUERY_GC_TIME_MS,
@@ -652,6 +680,28 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
         handledRealtimeMessageIdsRef.current.delete(oldestMessageId);
       }
     }
+  };
+
+  const incrementPendingOutgoing = (chatId: string) => {
+    setPendingOutgoingCountByChatId((current) => ({
+      ...current,
+      [chatId]: (current[chatId] ?? 0) + 1,
+    }));
+  };
+
+  const decrementPendingOutgoing = (chatId: string) => {
+    setPendingOutgoingCountByChatId((current) => {
+      const nextCount = Math.max(0, (current[chatId] ?? 0) - 1);
+      if (nextCount === 0) {
+        const { [chatId]: _removed, ...rest } = current;
+        return rest;
+      }
+
+      return {
+        ...current,
+        [chatId]: nextCount,
+      };
+    });
   };
 
   const applyChatPreviewMessage = useEffectEvent(
@@ -939,6 +989,19 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
         "keep"
       )
     );
+  });
+
+  const shouldHydrateChatListPreview = useEffectEvent((chat: ChatSummary) => {
+    if (!chat.lastMessageAt) {
+      return false;
+    }
+
+    if (chatPreviewOverridesRef.current[chat.id]?.lastMessageAt === chat.lastMessageAt) {
+      return false;
+    }
+
+    const currentPreview = chat.lastMessage?.trim() ?? "";
+    return currentPreview.length === 0 || isUnavailableEncryptedMessage(currentPreview);
   });
 
   const refreshChatPreviewFromServer = useEffectEvent(async (chatId: string) => {
@@ -1915,7 +1978,6 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     }
     syncChatPreviewFromCache(event.chatId);
     void refreshChatPreviewFromServer(event.chatId);
-    void queryClient.invalidateQueries({ queryKey: ["chats", session.token] });
   });
 
   const handleRealtimeMessageReaction = useEffectEvent((event: MessageReactionEvent) => {
@@ -2026,14 +2088,11 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   }, [chatPreviewOverrides, session.user.id]);
 
   const hydrateChatListPreview = useEffectEvent(async (chat: ChatSummary) => {
-    const targetVersion = chat.lastMessageAt;
-    if (!targetVersion) {
+    if (!shouldHydrateChatListPreview(chat)) {
       return;
     }
 
-    if (chatPreviewOverridesRef.current[chat.id]?.lastMessageAt === targetVersion) {
-      return;
-    }
+    const targetVersion = chat.lastMessageAt!;
 
     if (chatPreviewHydrationRef.current.get(chat.id) === targetVersion) {
       return;
@@ -2064,7 +2123,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     const archivedChatIdsLookup = new Set(archivedChatIds);
 
     const hydrateVisibleChatPreviews = async () => {
-      for (const chat of serverChats) {
+      for (const chat of previewHydrationChats) {
         if (cancelled || archivedChatIdsLookup.has(chat.id) || !chat.lastMessageAt) {
           continue;
         }
@@ -2073,14 +2132,14 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       }
     };
 
-    if (serverChats.length > 0) {
+    if (previewHydrationChats.length > 0) {
       void hydrateVisibleChatPreviews();
     }
 
     return () => {
       cancelled = true;
     };
-  }, [archivedChatIds, hydrateChatListPreview, serverChats]);
+  }, [archivedChatIds, hydrateChatListPreview, previewHydrationChats]);
 
   useEffect(() => {
     return () => {
@@ -2310,6 +2369,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
         }
       ),
     onMutate: (input) => {
+      incrementPendingOutgoing(input.chatId);
       void queryClient.cancelQueries({ queryKey: ["messages", session.token, input.chatId] });
       const optimisticMessage = createOptimisticOutgoingMessage(session.user, input);
       applyChatPreviewMessage(optimisticMessage);
@@ -2361,6 +2421,9 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
         };
       });
       scheduleDraftSave(input.chatId, input.content);
+    },
+    onSettled: (_result, _error, input) => {
+      decrementPendingOutgoing(input.chatId);
     },
   });
 
@@ -2497,7 +2560,6 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     onSuccess: (_result, variables) => {
       syncChatPreviewFromCache(variables.chatId);
       void refreshChatPreviewFromServer(variables.chatId);
-      void queryClient.invalidateQueries({ queryKey: ["chats", session.token] });
     },
   });
 

@@ -1,0 +1,74 @@
+groups:
+  - name: messenger-health
+    rules:
+      - alert: MessengerBackendDown
+        expr: max(up{job="messenger-backend"}) < 1
+        for: 2m
+        labels:
+          severity: critical
+          service: messenger-backend
+        annotations:
+          summary: Messenger backend is down
+          description: The backend metrics endpoint has been unavailable for at least 2 minutes.
+
+      - alert: MessengerPostgresExporterDown
+        expr: max(up{job="postgres-exporter"}) < 1
+        for: 5m
+        labels:
+          severity: warning
+          service: postgres-exporter
+        annotations:
+          summary: Postgres exporter is down
+          description: Prometheus cannot scrape postgres-exporter for at least 5 minutes.
+
+  - name: messenger-latency
+    rules:
+      - alert: MessengerMessageSendLatencyP95High
+        expr: histogram_quantile(0.95, sum(rate(messenger_message_send_duration_seconds_bucket[10m])) by (le)) > 1
+        for: 10m
+        labels:
+          severity: warning
+          service: messenger-backend
+        annotations:
+          summary: Message send latency p95 is high
+          description: Persist-before-dispatch latency p95 has been above 1s for 10 minutes.
+
+      - alert: MessengerMessageDispatchLatencyP95High
+        expr: histogram_quantile(0.95, sum(rate(messenger_message_dispatch_duration_seconds_bucket[10m])) by (le)) > 1
+        for: 10m
+        labels:
+          severity: warning
+          service: messenger-backend
+        annotations:
+          summary: Message dispatch latency p95 is high
+          description: Post-commit fan-out latency p95 has been above 1s for 10 minutes.
+
+      - alert: MessengerBackendHttp5xxRateHigh
+        expr: sum(rate(http_server_requests_seconds_count{status=~"5.."}[10m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          service: messenger-backend
+        annotations:
+          summary: Backend 5xx rate is elevated
+          description: Backend is returning more than 0.1 5xx responses per second over the last 10 minutes.
+
+      - alert: MessengerTypingHttpFallbackDetected
+        expr: sum(rate(http_server_requests_seconds_count{uri="/api/chats/{chatId}/typing",method="POST"}[10m])) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          service: messenger-web
+        annotations:
+          summary: HTTP typing fallback traffic detected
+          description: POST /api/chats/{chatId}/typing traffic is still hitting the backend. Typing should stay on WebSocket-only flow.
+
+      - alert: MessengerConferenceArchiveHotPath
+        expr: sum(rate(http_server_requests_seconds_count{uri="/api/conferences/archive",method="GET"}[10m])) > 0.02
+        for: 15m
+        labels:
+          severity: warning
+          service: messenger-backend
+        annotations:
+          summary: Conference archive endpoint is hotter than expected
+          description: /api/conferences/archive is being fetched continuously outside normal archive usage patterns.

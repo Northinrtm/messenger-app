@@ -267,6 +267,7 @@ services:
         condition: service_started
     volumes:
       - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/observability/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus_data:/prometheus
 
   grafana:
