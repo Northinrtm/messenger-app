@@ -2,6 +2,12 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
 rule_files:
   - /etc/prometheus/alerts.yml
 
@@ -13,6 +19,9 @@ scrape_configs:
 
   - job_name: messenger-backend
     metrics_path: /actuator/prometheus
+    basic_auth:
+      username: __APP_ACTUATOR_SCRAPE_USERNAME__
+      password: __APP_ACTUATOR_SCRAPE_PASSWORD__
     static_configs:
       - targets:
           - backend:8080

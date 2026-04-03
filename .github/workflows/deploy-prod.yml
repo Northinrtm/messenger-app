@@ -48,6 +48,8 @@ jobs:
         run: |
           REMOTE_LOG="/tmp/messenger-remote-update.log"
           REMOTE_EXIT="/tmp/messenger-remote-update.exit"
+          WAIT_INTERVAL_SECONDS="${WAIT_INTERVAL_SECONDS:-10}"
+          WAIT_ATTEMPTS="${WAIT_ATTEMPTS:-330}"
 
           ssh \
             -p "${PROD_SSH_PORT:-22}" \
@@ -56,7 +58,7 @@ jobs:
             "$PROD_SSH_USER@$PROD_SSH_HOST" \
             "rm -f '$REMOTE_LOG' '$REMOTE_EXIT' && chmod +x /tmp/messenger-remote-update.sh && nohup env DEPLOY_STATUS_FILE='$REMOTE_EXIT' /tmp/messenger-remote-update.sh '${PROD_APP_DIR:-/opt/messenger-app}' > '$REMOTE_LOG' 2>&1 </dev/null &"
 
-          for attempt in $(seq 1 180); do
+          for attempt in $(seq 1 "$WAIT_ATTEMPTS"); do
             output="$(ssh \
               -p "${PROD_SSH_PORT:-22}" \
               -o ServerAliveInterval=30 \
@@ -72,7 +74,7 @@ jobs:
               exit 0
             fi
 
-            sleep 10
+            sleep "$WAIT_INTERVAL_SECONDS"
           done
 
           echo "Timed out waiting for remote deployment to finish." >&2

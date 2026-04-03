@@ -118,13 +118,15 @@ Important limitations:
 
 - `Spring Boot Actuator` is enabled
 - health endpoint: `/actuator/health`
-- metrics endpoint: `/actuator/metrics`
 - Prometheus scrape endpoint: `/actuator/prometheus`
 - production observability stack includes:
   - `Prometheus`
   - `Grafana`
   - `Tempo`
   - `OpenTelemetry Collector`
+  - `Alertmanager`
+  - `Loki`
+  - `Promtail`
   - `postgres-exporter`
 - custom backend latency/counter metrics:
   - `messenger.message.send.duration`
@@ -139,6 +141,8 @@ Important limitations:
   - message persistence before dispatch
   - post-commit message fan-out
   - chat summary broadcast
+- production backend logs run in structured JSON mode
+- Promtail ships Docker logs into Loki
 - provisioned Grafana dashboard tracks:
   - message send p95
   - message dispatch p95
@@ -154,19 +158,21 @@ Important limitations:
   - high dispatch p95
   - backend 5xx rate
   - unexpected HTTP typing traffic
-  - conference archive hot-path traffic
+- conference archive hot-path traffic
+- Alertmanager is included and can forward externally through `ALERTMANAGER_WEBHOOK_URL`
 
 Current note:
 
 - `/actuator/health` is public
-- scrape endpoints are exposed on the backend container for internal Prometheus access
+- `/actuator/prometheus` is protected with internal basic auth for Prometheus scrape
 - `edge` blocks external `/actuator/*` requests, so metrics stay off the public internet
 
 Production note:
 
 - Grafana is intended to be published through `https://<APP_DOMAIN>/observability/`
-- Prometheus, Tempo, Postgres exporter, and the OTLP collector stay internal to the Docker network
+- Prometheus, Tempo, Alertmanager, Loki, Promtail, Postgres exporter, and the OTLP collector stay internal to the Docker network
 - traces are viewed through `Grafana -> Explore -> Tempo`
+- logs are viewed through `Grafana -> Explore -> Loki`
 - production compose also includes Redis for shared realtime state and fan-out
 
 ## Video Conference Notes
@@ -301,6 +307,9 @@ Important variables:
 - `DB_PASSWORD`
 - `APP_CORS_ALLOWED_ORIGINS`
 - `APP_JWT_SECRET`
+- `APP_ACTUATOR_SCRAPE_USERNAME`
+- `APP_ACTUATOR_SCRAPE_PASSWORD`
+- `ALERTMANAGER_WEBHOOK_URL`
 - `APP_JWT_REFRESH_TOKEN_TTL`
 - `APP_AUTH_REFRESH_COOKIE_NAME`
 - `APP_AUTH_REFRESH_COOKIE_PATH`
@@ -321,6 +330,8 @@ Use:
 
 - set a stable `APP_JWT_SECRET`
 - in production it must be a valid Base64 secret with at least 32 bytes after decoding
+- set `APP_ACTUATOR_SCRAPE_USERNAME` and `APP_ACTUATOR_SCRAPE_PASSWORD` for internal Prometheus auth
+- set `ALERTMANAGER_WEBHOOK_URL` if you want Alertmanager notifications to leave the server
 - use `docker-compose.prod.yml` with `.env.prod`
 - refresh cookie secure mode is expected in production
 - keep `.env.prod` only on the server
@@ -332,8 +343,8 @@ Use:
 ## Current Constraints
 
 - realtime broker is the in-process Spring broker
-- typing state is held in backend memory with cleanup TTL
-- no multi-node realtime fan-out layer yet
+- Redis pub/sub is available for fan-out, but this is still not a full external broker architecture
+- typing can be shared through Redis, but presence/last-seen are still not separate distributed services
 - no distributed presence store yet
 - backend verification in this workspace is limited by environment availability; web checks are the easiest to run locally
 

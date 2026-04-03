@@ -199,7 +199,7 @@ services:
     cpus: 1.0
     mem_limit: 1024m
     environment:
-      SPRING_PROFILES_ACTIVE: prod
+      SPRING_PROFILES_ACTIVE: prod,json-logs
       SERVER_PORT: 8080
       DB_URL: ${DB_URL:-jdbc:postgresql://postgres:5432/messenger}
       DB_USERNAME: ${DB_USERNAME:-messenger}
@@ -211,7 +211,9 @@ services:
       APP_JWT_SECRET: ${APP_JWT_SECRET:?APP_JWT_SECRET must be set}
       APP_JWT_REFRESH_TOKEN_TTL: ${APP_JWT_REFRESH_TOKEN_TTL:-P30D}
       APP_AUTH_REFRESH_COOKIE_SECURE: ${APP_AUTH_REFRESH_COOKIE_SECURE:-true}
-      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: ${MANAGEMENT_TRACING_SAMPLING_PROBABILITY:-1.0}
+      APP_ACTUATOR_SCRAPE_USERNAME: ${APP_ACTUATOR_SCRAPE_USERNAME:?APP_ACTUATOR_SCRAPE_USERNAME must be set}
+      APP_ACTUATOR_SCRAPE_PASSWORD: ${APP_ACTUATOR_SCRAPE_PASSWORD:?APP_ACTUATOR_SCRAPE_PASSWORD must be set}
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: ${MANAGEMENT_TRACING_SAMPLING_PROBABILITY:-0.2}
       MANAGEMENT_OTLP_TRACING_ENDPOINT: ${MANAGEMENT_OTLP_TRACING_ENDPOINT:-http://otel-collector:4318/v1/traces}
       APP_MEDIA_CONFERENCE_RECORDINGS_DIRECTORY: /app/storage/conference-recordings
       APP_MEDIA_CONFERENCE_RECORDINGS_IMPORT_DIRECTORY: /jibri-recordings
@@ -276,19 +278,86 @@ services:
     restart: unless-stopped
     cpus: 0.5
     mem_limit: 256m
+    environment:
+      APP_ACTUATOR_SCRAPE_USERNAME: ${APP_ACTUATOR_SCRAPE_USERNAME:?APP_ACTUATOR_SCRAPE_USERNAME must be set}
+      APP_ACTUATOR_SCRAPE_PASSWORD: ${APP_ACTUATOR_SCRAPE_PASSWORD:?APP_ACTUATOR_SCRAPE_PASSWORD must be set}
     command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--storage.tsdb.path=/prometheus"
-      - "--web.enable-lifecycle"
+      - /bin/sh
+      - -ec
+      - |
+        escape_sed_replacement() {
+          printf '%s' "$$1" | sed -e 's/[&|\\]/\\&/g'
+        }
+        username_escaped="$$(escape_sed_replacement "$${APP_ACTUATOR_SCRAPE_USERNAME}")"
+        password_escaped="$$(escape_sed_replacement "$${APP_ACTUATOR_SCRAPE_PASSWORD}")"
+        sed \
+          -e "s|__APP_ACTUATOR_SCRAPE_USERNAME__|$${username_escaped}|g" \
+          -e "s|__APP_ACTUATOR_SCRAPE_PASSWORD__|$${password_escaped}|g" \
+          /etc/prometheus/prometheus.yml.tmpl > /tmp/prometheus.yml
+        exec /bin/prometheus \
+          --config.file=/tmp/prometheus.yml \
+          --storage.tsdb.path=/prometheus \
+          --web.enable-lifecycle
     depends_on:
       backend:
         condition: service_started
       postgres-exporter:
         condition: service_started
+      alertmanager:
+        condition: service_started
     volumes:
-      - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml.tmpl:ro
       - ./deploy/observability/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus_data:/prometheus
+
+  alertmanager:
+    image: mirror.gcr.io/prom/alertmanager:v0.28.1
+    container_name: messenger-alertmanager
+    restart: unless-stopped
+    cpus: 0.25
+    mem_limit: 128m
+    environment:
+      ALERTMANAGER_WEBHOOK_URL: ${ALERTMANAGER_WEBHOOK_URL:-}
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        /bin/sh /etc/alertmanager/render-config.sh /tmp/alertmanager.yml
+        exec /bin/alertmanager \
+          --config.file=/tmp/alertmanager.yml \
+          --storage.path=/alertmanager
+    volumes:
+      - ./deploy/observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./deploy/observability/render-alertmanager-config.sh:/etc/alertmanager/render-config.sh:ro
+      - alertmanager_data:/alertmanager
+
+  loki:
+    image: mirror.gcr.io/grafana/loki:3.1.1
+    container_name: messenger-loki
+    restart: unless-stopped
+    cpus: 0.5
+    mem_limit: 256m
+    command:
+      - "-config.file=/etc/loki/config.yml"
+    volumes:
+      - ./deploy/observability/loki-config.yml:/etc/loki/config.yml:ro
+      - loki_data:/loki
+
+  promtail:
+    image: mirror.gcr.io/grafana/promtail:3.1.1
+    container_name: messenger-promtail
+    restart: unless-stopped
+    cpus: 0.25
+    mem_limit: 128m
+    command:
+      - "-config.file=/etc/promtail/config.yml"
+    depends_on:
+      loki:
+        condition: service_started
+    volumes:
+      - ./deploy/observability/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - promtail_positions:/positions
 
   grafana:
     image: mirror.gcr.io/grafana/grafana:10.3.0
@@ -300,6 +369,8 @@ services:
       prometheus:
         condition: service_started
       tempo:
+        condition: service_started
+      loki:
         condition: service_started
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?GRAFANA_ADMIN_USER must be set}
@@ -367,6 +438,8 @@ volumes:
   postgres_data:
   redis_data:
   grafana_data:
+  alertmanager_data:
+  loki_data:
   jitsi_prosody_config:
   jitsi_jicofo_config:
   jitsi_jvb_config:
@@ -376,3 +449,4 @@ volumes:
   tempo_data:
   conference_recordings_raw:
   conference_recordings_archive:
+  promtail_positions:

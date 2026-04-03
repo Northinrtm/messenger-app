@@ -22,6 +22,7 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
+            ActuatorEndpointProtectionFilter actuatorEndpointProtectionFilter,
             AuthEndpointProtectionFilter authEndpointProtectionFilter,
             JwtAuthenticationFilter jwtAuthenticationFilter
     ) throws Exception {
@@ -37,8 +38,6 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/actuator/health",
                                 "/actuator/info",
-                                "/actuator/metrics",
-                                "/actuator/metrics/**",
                                 "/actuator/prometheus",
                                 "/ws",
                                 "/ws/**",
@@ -50,6 +49,7 @@ public class SecurityConfig {
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))
                 )
+                .addFilterBefore(actuatorEndpointProtectionFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(authEndpointProtectionFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 

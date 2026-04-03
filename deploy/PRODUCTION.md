@@ -61,6 +61,9 @@ Production observability runs on the same server with these internal services:
 - `grafana`
 - `tempo`
 - `otel-collector`
+- `alertmanager`
+- `loki`
+- `promtail`
 - `postgres-exporter`
 
 Only Grafana is exposed externally, through:
@@ -71,8 +74,14 @@ Required `.env.prod` values:
 
 - `GRAFANA_ADMIN_USER`
 - `GRAFANA_ADMIN_PASSWORD`
+- `APP_ACTUATOR_SCRAPE_USERNAME`
+- `APP_ACTUATOR_SCRAPE_PASSWORD`
 - `MANAGEMENT_TRACING_SAMPLING_PROBABILITY`
 - `MANAGEMENT_OTLP_TRACING_ENDPOINT`
+- `ALERTMANAGER_WEBHOOK_URL` if you want external alert delivery
+
+Production backend logs run in JSON mode and are shipped into Loki by Promtail.
+Alertmanager is part of the stack and can forward alerts through `ALERTMANAGER_WEBHOOK_URL`.
 
 ## Emergency manual deploy
 
