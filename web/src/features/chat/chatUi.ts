@@ -30,13 +30,13 @@ export type MenuAction = {
 };
 
 export const MENU_ACTIONS: MenuAction[] = [
-  { id: "profile", label: "РњРѕР№ РїСЂРѕС„РёР»СЊ", symbol: "ME" },
-  { id: "archive", label: "РђСЂС…РёРІ", symbol: "AR" },
-  { id: "group", label: "Р“СЂСѓРїРїС‹", symbol: "GR" },
-  { id: "conference", label: "Р’РёРґРµРѕРєРѕРЅС„РµСЂРµРЅС†РёРё", symbol: "VC" },
-  { id: "contacts", label: "РљРѕРЅС‚Р°РєС‚С‹", symbol: "CT" },
-  { id: "sessions", label: "РђРєС‚РёРІРЅС‹Рµ СѓСЃС‚СЂРѕР№СЃС‚РІР°", symbol: "DV" },
-  { id: "logout", label: "Р’С‹Р№С‚Рё", symbol: "EX" },
+  { id: "profile", label: "\u041C\u043E\u0439 \u043F\u0440\u043E\u0444\u0438\u043B\u044C", symbol: "ME" },
+  { id: "archive", label: "\u0410\u0440\u0445\u0438\u0432", symbol: "AR" },
+  { id: "group", label: "\u0413\u0440\u0443\u043F\u043F\u044B", symbol: "GR" },
+  { id: "conference", label: "\u0412\u0438\u0434\u0435\u043E\u043A\u043E\u043D\u0444\u0435\u0440\u0435\u043D\u0446\u0438\u0438", symbol: "VC" },
+  { id: "contacts", label: "\u041A\u043E\u043D\u0442\u0430\u043A\u0442\u044B", symbol: "CT" },
+  { id: "sessions", label: "\u0410\u043A\u0442\u0438\u0432\u043D\u044B\u0435 \u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u0430", symbol: "DV" },
+  { id: "logout", label: "\u0412\u044B\u0439\u0442\u0438", symbol: "EX" },
 ];
 
 export type ContextMenuState =

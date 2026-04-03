@@ -300,7 +300,7 @@ export function useWorkspaceMutations({
   const submitCreateConference = (formatClock: (value: string) => string) => {
     const parsedDate = new Date(conferenceScheduledAt);
     const scheduledAt = Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
-    const title = conferenceTitle.trim() || `Р’СЃС‚СЂРµС‡Р° ${formatClock(scheduledAt.toISOString())}`;
+    const title = conferenceTitle.trim() || `Встреча ${formatClock(scheduledAt.toISOString())}`;
     createConferenceMutation.mutate({
       title,
       scheduledAt: scheduledAt.toISOString(),
@@ -310,7 +310,7 @@ export function useWorkspaceMutations({
 
   const submitCreateConferenceNow = (formatClock: (value: string) => string) => {
     const now = new Date();
-    const title = conferenceTitle.trim() || `Р’СЃС‚СЂРµС‡Р° ${formatClock(now.toISOString())}`;
+    const title = conferenceTitle.trim() || `Встреча ${formatClock(now.toISOString())}`;
     createConferenceMutation.mutate({
       title,
       scheduledAt: now.toISOString(),

@@ -46,6 +46,13 @@ export function UnlockCard({
       return session;
     },
     onSuccess: async (nextSession) => {
+      if (canTrustThisDevice && !hasTrustedUnlock) {
+        try {
+          await trustCurrentDeviceUnlock(nextSession);
+        } catch {
+          // Keep password-based unlock as the fallback when device enrollment is skipped or canceled.
+        }
+      }
       await finalizeUnlock(nextSession);
     },
   });
@@ -88,8 +95,7 @@ export function UnlockCard({
   const isOverlay = variant === "overlay";
   const shouldShowDeviceFirst = hasTrustedUnlock;
   const shouldShowPasswordForm = !shouldShowDeviceFirst || showPasswordFallback;
-  const shouldRenderCompactTrustedUnlock =
-    shouldShowDeviceFirst && !showPasswordFallback && trustedUnlockMutation.isPending;
+  const shouldRenderCompactTrustedUnlock = shouldShowDeviceFirst && !showPasswordFallback;
   const containerClassName = isOverlay ? "unlock-overlay" : "auth-shell";
   const cardClassName = [
     "auth-card",
@@ -143,7 +149,11 @@ export function UnlockCard({
                   type="button"
                   className="ghost-button auth-secondary-button"
                   onClick={() => setShowPasswordFallback(true)}
-                  disabled={trustThisDeviceMutation.isPending || unlockMutation.isPending}
+                  disabled={
+                    trustThisDeviceMutation.isPending ||
+                    unlockMutation.isPending ||
+                    trustedUnlockMutation.isPending
+                  }
                 >
                   Use password instead
                 </button>

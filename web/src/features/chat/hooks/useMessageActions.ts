@@ -389,8 +389,8 @@ export function useMessageActions({
   const deleteChatForSelf = (chatId: string) => {
     setContextMenu(null);
     const chat = chats.find((item) => item.id === chatId);
-    const title = chat?.title ?? "СЌС‚РѕС‚ С‡Р°С‚";
-    if (!window.confirm(`РЈРґР°Р»РёС‚СЊ С‡Р°С‚ "${title}" С‚РѕР»СЊРєРѕ Сѓ РІР°СЃ?`)) {
+    const title = chat?.title ?? "этот чат";
+    if (!window.confirm(`Удалить чат "${title}" только у вас?`)) {
       return;
     }
 
@@ -399,7 +399,7 @@ export function useMessageActions({
 
   const deleteMessageForEveryone = (chatId: string, messageId: string) => {
     setContextMenu(null);
-    if (!window.confirm("РЈРґР°Р»РёС‚СЊ СЃРѕРѕР±С‰РµРЅРёРµ РґР»СЏ РІСЃРµС… СѓС‡Р°СЃС‚РЅРёРєРѕРІ С‡Р°С‚Р°?")) {
+    if (!window.confirm("Удалить сообщение для всех участников чата?")) {
       return;
     }
 
@@ -408,7 +408,7 @@ export function useMessageActions({
 
   const deleteMessageForSelf = (chatId: string, messageId: string) => {
     setContextMenu(null);
-    if (!window.confirm("РЈРґР°Р»РёС‚СЊ СЃРѕРѕР±С‰РµРЅРёРµ С‚РѕР»СЊРєРѕ Сѓ РІР°СЃ?")) {
+    if (!window.confirm("Удалить сообщение только у вас?")) {
       return;
     }
 
@@ -468,7 +468,7 @@ export function useMessageActions({
   const copyMessageText = (message: ChatMessage) => {
     setContextMenu(null);
     void navigator.clipboard.writeText(message.content).catch(() => {
-      window.alert("РќРµ РїРѕР»СѓС‡РёР»РѕСЃСЊ СЃРєРѕРїРёСЂРѕРІР°С‚СЊ С‚РµРєСЃС‚ СЃРѕРѕР±С‰РµРЅРёСЏ.");
+      window.alert("Не получилось скопировать текст сообщения.");
     });
   };
 

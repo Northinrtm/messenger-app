@@ -12,10 +12,10 @@ export const MESSAGE_REACTION_OPTIONS: Array<{
   emoji: string;
   label: string;
 }> = [
-  { key: "LIKE", emoji: "рџ‘Ќ", label: "Р›Р°Р№Рє" },
-  { key: "DISLIKE", emoji: "рџ‘Ћ", label: "Р”РёР·Р»Р°Р№Рє" },
-  { key: "EYES", emoji: "рџ‘Ђ", label: "Р“Р»Р°Р·Р°" },
-  { key: "OK", emoji: "рџ‘Њ", label: "РћРєРµР№" },
+  { key: "LIKE", emoji: "\uD83D\uDC4D", label: "\u041B\u0430\u0439\u043A" },
+  { key: "DISLIKE", emoji: "\uD83D\uDC4E", label: "\u0414\u0438\u0437\u043B\u0430\u0439\u043A" },
+  { key: "EYES", emoji: "\uD83D\uDC40", label: "\u0413\u043B\u0430\u0437\u0430" },
+  { key: "OK", emoji: "\uD83D\uDC4C", label: "\u041E\u043A\u0435\u0439" },
 ];
 
 type SendMessageInput = {
@@ -84,7 +84,7 @@ export function buildMessagePreview(content: string, maxLength = 96) {
 
 export function buildChatListPreviewText(message: Pick<ChatMessage, "content" | "replyTo">) {
   if (message.replyTo) {
-    return `в†Є ${message.replyTo.sender.displayName}: ${buildMessagePreview(message.replyTo.preview, 56)}`;
+    return `\u21AA ${message.replyTo.sender.displayName}: ${buildMessagePreview(message.replyTo.preview, 56)}`;
   }
 
   return buildMessagePreview(message.content, 88);
@@ -137,11 +137,11 @@ export function getMessageStatusLabel(status: MessageStatus | null) {
     case "SENDING":
       return "\u041E\u0442\u043F\u0440\u0430\u0432\u043B\u044F\u0435\u0442\u0441\u044F";
     case "READ":
-      return "РџСЂРѕС‡РёС‚Р°РЅРѕ";
+      return "\u041F\u0440\u043E\u0447\u0438\u0442\u0430\u043D\u043E";
     case "DELIVERED":
-      return "Р”РѕСЃС‚Р°РІР»РµРЅРѕ";
+      return "\u0414\u043E\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u043E";
     case "SENT":
     default:
-      return "РћС‚РїСЂР°РІР»РµРЅРѕ";
+      return "\u041E\u0442\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u043E";
   }
 }

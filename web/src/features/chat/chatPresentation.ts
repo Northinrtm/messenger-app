@@ -17,24 +17,24 @@ export function describeChat(chat: ChatSummary, currentUser: UserProfile) {
     const otherParticipant = chat.members.find(
       (member) => !isCurrentUserParticipant(member, currentUser),
     );
-    return otherParticipant ? `@${otherParticipant.username}` : "Р›РёС‡РЅС‹Р№ С‡Р°С‚";
+    return otherParticipant ? `@${otherParticipant.username}` : "\u041B\u0438\u0447\u043D\u044B\u0439 \u0447\u0430\u0442";
   }
 
-  return "Р“СЂСѓРїРїР°";
+  return "\u0413\u0440\u0443\u043F\u043F\u0430";
 }
 
 export function formatMemberCount(count: number) {
   const mod10 = count % 10;
   const mod100 = count % 100;
   if (mod10 === 1 && mod100 !== 11) {
-    return `${count} СѓС‡Р°СЃС‚РЅРёРє`;
+    return `${count} \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A`;
   }
 
   if ([2, 3, 4].includes(mod10) && ![12, 13, 14].includes(mod100)) {
-    return `${count} СѓС‡Р°СЃС‚РЅРёРєР°`;
+    return `${count} \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A\u0430`;
   }
 
-  return `${count} СѓС‡Р°СЃС‚РЅРёРєРѕРІ`;
+  return `${count} \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A\u043E\u0432`;
 }
 
 export function formatChatTimestamp(value: string) {
@@ -94,7 +94,7 @@ export function formatTimelineDay(value: string) {
     date.getMonth() === now.getMonth() &&
     date.getDate() === now.getDate();
   if (sameDay) {
-    return "РЎРµРіРѕРґРЅСЏ";
+    return "\u0421\u0435\u0433\u043E\u0434\u043D\u044F";
   }
 
   const yesterday = new Date(now);
@@ -104,7 +104,7 @@ export function formatTimelineDay(value: string) {
     date.getMonth() === yesterday.getMonth() &&
     date.getDate() === yesterday.getDate();
   if (isYesterday) {
-    return "Р’С‡РµСЂР°";
+    return "\u0412\u0447\u0435\u0440\u0430";
   }
 
   return new Intl.DateTimeFormat("ru-RU", {
@@ -185,18 +185,18 @@ export function removeVideoConference(
 
 export function formatConferenceStatusLabel(conference: VideoConference) {
   if (conference.endedAt) {
-    return `Р—Р°РІРµСЂС€РµРЅР° ${formatConferenceSchedule(conference.endedAt)}`;
+    return `\u0417\u0430\u0432\u0435\u0440\u0448\u0435\u043D\u0430 ${formatConferenceSchedule(conference.endedAt)}`;
   }
 
   if (conference.startedAt) {
-    return "Р’СЃС‚СЂРµС‡Р° РёРґРµС‚";
+    return "\u0412\u0441\u0442\u0440\u0435\u0447\u0430 \u0438\u0434\u0435\u0442";
   }
 
   if (conference.roomName || conference.activatedAt) {
-    return "РљРѕРјРЅР°С‚Р° РѕС‚РєСЂС‹С‚Р° РґР»СЏ РїСЂРёРіР»Р°С€РµРЅРЅС‹С…";
+    return "\u041A\u043E\u043C\u043D\u0430\u0442\u0430 \u043E\u0442\u043A\u0440\u044B\u0442\u0430 \u0434\u043B\u044F \u043F\u0440\u0438\u0433\u043B\u0430\u0448\u0435\u043D\u043D\u044B\u0445";
   }
 
-  return `РћС‚РєСЂРѕРµС‚СЃСЏ ${formatConferenceSchedule(
+  return `\u041E\u0442\u043A\u0440\u043E\u0435\u0442\u0441\u044F ${formatConferenceSchedule(
     getConferenceActivationTime(conference.scheduledAt).toISOString(),
   )}`;
 }
@@ -209,19 +209,19 @@ export function formatConferenceListPreview(
   const scheduledTime = new Date(conference.scheduledAt).getTime();
 
   if (conference.endedAt) {
-    return "Р’СЃС‚СЂРµС‡Р° Р·Р°РІРµСЂС€РµРЅР°.";
+    return "\u0412\u0441\u0442\u0440\u0435\u0447\u0430 \u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043D\u0430.";
   }
 
   if (!conference.roomName && !conference.activatedAt) {
-    return `РљРѕРјРЅР°С‚Р° РѕС‚РєСЂРѕРµС‚СЃСЏ ${formatConferenceSchedule(
+    return `\u041A\u043E\u043C\u043D\u0430\u0442\u0430 \u043E\u0442\u043A\u0440\u043E\u0435\u0442\u0441\u044F ${formatConferenceSchedule(
       getConferenceActivationTime(conference.scheduledAt).toISOString(),
     )}.`;
   }
 
   if (!conference.startedAt) {
     return scheduledTime <= now
-      ? "РљРѕРјРЅР°С‚Р° СѓР¶Рµ РѕС‚РєСЂС‹С‚Р° РґР»СЏ РїСЂРёРіР»Р°С€РµРЅРЅС‹С…. "
-      : `РџРѕРґРєР»СЋС‡РµРЅРёРµ РѕС‚РєСЂРѕРµС‚СЃСЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё ${formatConferenceSchedule(
+      ? "\u041A\u043E\u043C\u043D\u0430\u0442\u0430 \u0443\u0436\u0435 \u043E\u0442\u043A\u0440\u044B\u0442\u0430 \u0434\u043B\u044F \u043F\u0440\u0438\u0433\u043B\u0430\u0448\u0435\u043D\u043D\u044B\u0445."
+      : `\u041F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435 \u043E\u0442\u043A\u0440\u043E\u0435\u0442\u0441\u044F \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 ${formatConferenceSchedule(
           conference.scheduledAt,
         )}.`;
   }
@@ -231,7 +231,7 @@ export function formatConferenceListPreview(
     .map((participant) => participant.displayName)
     .join(", ");
 
-  return participantPreview || "Р’СЃС‚СЂРµС‡Р° СѓР¶Рµ РёРґРµС‚.";
+  return participantPreview || "\u0412\u0441\u0442\u0440\u0435\u0447\u0430 \u0443\u0436\u0435 \u0438\u0434\u0435\u0442.";
 }
 
 export function formatConferenceStageHint(
@@ -242,23 +242,23 @@ export function formatConferenceStageHint(
   const scheduledTime = new Date(conference.scheduledAt).getTime();
 
   if (conference.endedAt) {
-    return `Р’СЃС‚СЂРµС‡Р° Р·Р°РІРµСЂС€РµРЅР° ${formatConferenceSchedule(conference.endedAt)}.`;
+    return `\u0412\u0441\u0442\u0440\u0435\u0447\u0430 \u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043D\u0430 ${formatConferenceSchedule(conference.endedAt)}.`;
   }
 
   if (conference.startedAt) {
-    return "Р’СЃС‚СЂРµС‡Р° СѓР¶Рµ Р·Р°РїСѓС‰РµРЅР°.";
+    return "\u0412\u0441\u0442\u0440\u0435\u0447\u0430 \u0443\u0436\u0435 \u0437\u0430\u043F\u0443\u0449\u0435\u043D\u0430.";
   }
 
   if (conference.roomName || conference.activatedAt) {
     if (scheduledTime <= now) {
-      return "РљРѕРјРЅР°С‚Р° СѓР¶Рµ РѕС‚РєСЂС‹С‚Р°. Р’РѕР№С‚Рё РјРѕРіСѓС‚ С‚РѕР»СЊРєРѕ РїСЂРёРіР»Р°С€С‘РЅРЅС‹Рµ СѓС‡Р°СЃС‚РЅРёРєРё.";
+      return "\u041A\u043E\u043C\u043D\u0430\u0442\u0430 \u0443\u0436\u0435 \u043E\u0442\u043A\u0440\u044B\u0442\u0430. \u0412\u043E\u0439\u0442\u0438 \u043C\u043E\u0433\u0443\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u043F\u0440\u0438\u0433\u043B\u0430\u0448\u0451\u043D\u043D\u044B\u0435 \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A\u0438.";
     }
 
     return isOrganizer
-      ? `РљРѕРјРЅР°С‚Р° РїРѕРґРіРѕС‚РѕРІР»РµРЅР°. Р’С…РѕРґ РґР»СЏ РїСЂРёРіР»Р°С€С‘РЅРЅС‹С… РѕС‚РєСЂРѕРµС‚СЃСЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё ${formatConferenceSchedule(
+      ? `\u041A\u043E\u043C\u043D\u0430\u0442\u0430 \u043F\u043E\u0434\u0433\u043E\u0442\u043E\u0432\u043B\u0435\u043D\u0430. \u0412\u0445\u043E\u0434 \u0434\u043B\u044F \u043F\u0440\u0438\u0433\u043B\u0430\u0448\u0451\u043D\u043D\u044B\u0445 \u043E\u0442\u043A\u0440\u043E\u0435\u0442\u0441\u044F \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 ${formatConferenceSchedule(
           conference.scheduledAt,
         )}.`
-      : `РџРѕРґРєР»СЋС‡РµРЅРёРµ РѕС‚РєСЂРѕРµС‚СЃСЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё ${formatConferenceSchedule(
+      : `\u041F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435 \u043E\u0442\u043A\u0440\u043E\u0435\u0442\u0441\u044F \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 ${formatConferenceSchedule(
           conference.scheduledAt,
         )}.`;
   }
@@ -266,7 +266,7 @@ export function formatConferenceStageHint(
   const activationAt = formatConferenceSchedule(
     getConferenceActivationTime(conference.scheduledAt).toISOString(),
   );
-  return `РљРѕРјРЅР°С‚Р° СЃС‚Р°РЅРµС‚ РґРѕСЃС‚СѓРїРЅР° Р·Р° 5 РјРёРЅСѓС‚ РґРѕ СЃС‚Р°СЂС‚Р°: ${activationAt}.`;
+  return `\u041A\u043E\u043C\u043D\u0430\u0442\u0430 \u0441\u0442\u0430\u043D\u0435\u0442 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u0430 \u0437\u0430 5 \u043C\u0438\u043D\u0443\u0442 \u0434\u043E \u0441\u0442\u0430\u0440\u0442\u0430: ${activationAt}.`;
 }
 
 export function formatConferenceSchedule(value: string) {
@@ -314,12 +314,12 @@ export function formatConferenceOrganizerLabel(
   currentUser: UserProfile,
 ) {
   return organizer.id === currentUser.id
-    ? `${organizer.displayName} (РІС‹)`
+    ? `${organizer.displayName} (\u0432\u044B)`
     : organizer.displayName;
 }
 
 export function describeConferenceRole(isOrganizer: boolean) {
-  return isOrganizer ? "РћСЂРіР°РЅРёР·Р°С‚РѕСЂ" : "РЈС‡Р°СЃС‚РЅРёРє";
+  return isOrganizer ? "\u041E\u0440\u0433\u0430\u043D\u0438\u0437\u0430\u0442\u043E\u0440" : "\u0423\u0447\u0430\u0441\u0442\u043D\u0438\u043A";
 }
 
 function getConferenceActivationTime(value: string) {

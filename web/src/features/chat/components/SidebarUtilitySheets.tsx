@@ -84,13 +84,13 @@ export function SidebarUtilitySheets({
       <div className="sheet-card">
         <div className="sheet-head">
           <div>
-            <div className="section-title">Р’РёРґРµРѕРєРѕРЅС„РµСЂРµРЅС†РёРё</div>
+            <div className="section-title">Видеоконференции</div>
             <p className="sheet-copy">
-              Р—Р°РїСѓСЃС‚Рё РІСЃС‚СЂРµС‡Сѓ СЃСЂР°Р·Сѓ РёР»Рё Р·Р°РїР»Р°РЅРёСЂСѓР№ РµРµ РЅР° СѓРґРѕР±РЅРѕРµ РІСЂРµРјСЏ.
+              Запусти встречу сразу или запланируй ее на удобное время.
             </p>
           </div>
           <button type="button" className="ghost-button compact" onClick={onClose}>
-            Р—Р°РєСЂС‹С‚СЊ
+            Закрыть
           </button>
         </div>
 
@@ -104,7 +104,7 @@ export function SidebarUtilitySheets({
             }
             onClick={() => onOpenConferenceComposer("instant")}
           >
-            РќР°С‡Р°С‚СЊ СЃРµР№С‡Р°СЃ
+            Начать сейчас
           </button>
           <button
             type="button"
@@ -115,7 +115,7 @@ export function SidebarUtilitySheets({
             }
             onClick={() => onOpenConferenceComposer("scheduled")}
           >
-            Р—Р°РїР»Р°РЅРёСЂРѕРІР°С‚СЊ
+            Запланировать
           </button>
         </div>
 
@@ -134,7 +134,7 @@ export function SidebarUtilitySheets({
             <input
               value={conferenceTitle}
               onChange={(event) => onConferenceTitleChange(event.target.value)}
-              placeholder="РќР°Р·РІР°РЅРёРµ РІСЃС‚СЂРµС‡Рё РёР»Рё РѕСЃС‚Р°РІСЊ РїСѓСЃС‚С‹Рј"
+              placeholder="Название встречи или оставь пустым"
               maxLength={120}
             />
 
@@ -149,10 +149,10 @@ export function SidebarUtilitySheets({
 
             <div className="group-picker-list conference-picker-list">
               {contactsLoading && conferenceCandidates.length === 0 ? (
-                <div className="empty-list">Р—Р°РіСЂСѓР¶Р°РµРј РєРѕРЅС‚Р°РєС‚С‹...</div>
+                <div className="empty-list">Загружаем контакты...</div>
               ) : conferenceCandidates.length === 0 ? (
                 <div className="empty-list">
-                  РџРѕРєР° РЅРµРєРѕРіРѕ РґРѕР±Р°РІР»СЏС‚СЊ. РЎРѕР·РґР°Р№С‚Рµ РіСЂСѓРїРїСѓ РёР»Рё РґРѕР±Р°РІСЊС‚Рµ РєРѕРЅС‚Р°РєС‚С‹.
+                  Пока некого добавлять. Создайте группу или добавьте контакты.
                 </div>
               ) : (
                 conferenceCandidates.map((contact) => {
@@ -178,7 +178,7 @@ export function SidebarUtilitySheets({
                         <strong>{contact.displayName}</strong>
                         <span>@{contact.username}</span>
                       </div>
-                      <span className="member-pill">{selected ? "Р’С‹Р±СЂР°РЅ" : "Р’С‹Р±СЂР°С‚СЊ"}</span>
+                      <span className="member-pill">{selected ? "Выбран" : "Выбрать"}</span>
                     </button>
                   );
                 })
@@ -187,14 +187,14 @@ export function SidebarUtilitySheets({
 
             <div className="conference-browser-actions">
               <button type="button" className="ghost-button compact" onClick={onCloseConferenceComposer}>
-                Р—Р°РєСЂС‹С‚СЊ
+                Закрыть
               </button>
               <button type="submit" className="secondary-button" disabled={createConferencePending}>
                 {createConferencePending
-                  ? "РЎРѕР·РґР°РµРј..."
+                  ? "Создаем..."
                   : conferenceComposerMode === "instant"
-                    ? "РЎРѕР·РґР°С‚СЊ СЃРµР№С‡Р°СЃ"
-                    : "Р—Р°РїР»Р°РЅРёСЂРѕРІР°С‚СЊ"}
+                    ? "Создать сейчас"
+                    : "Запланировать"}
               </button>
             </div>
           </form>
@@ -208,22 +208,22 @@ export function SidebarUtilitySheets({
       <div className="sheet-card">
         <div className="sheet-head">
           <div>
-            <div className="section-title">РђСЂС…РёРІ</div>
-            <p className="sheet-copy">Р—РґРµСЃСЊ Р»РµР¶Р°С‚ Р°СЂС…РёРІРёСЂРѕРІР°РЅРЅС‹Рµ С‡Р°С‚С‹ Рё РіСЂСѓРїРїС‹.</p>
+            <div className="section-title">Архив</div>
+            <p className="sheet-copy">Здесь лежат архивированные чаты и группы.</p>
           </div>
           <button type="button" className="ghost-button compact" onClick={onCloseConferenceComposer}>
-            Р—Р°РєСЂС‹С‚СЊ
+            Закрыть
           </button>
         </div>
 
         <div className="sheet-list">
           {archivedChatsLoading ? (
-            <div className="empty-list">Р—Р°РіСЂСѓР¶Р°РµРј Р°СЂС…РёРІ...</div>
+            <div className="empty-list">Загружаем архив...</div>
           ) : archivedChats.length === 0 ? (
-            <div className="empty-list">РђСЂС…РёРІ РїРѕРєР° РїСѓСЃС‚.</div>
+            <div className="empty-list">Архив пока пуст.</div>
           ) : (
             <>
-              {archivedChats.length > 0 ? <div className="section-title">Р§Р°С‚С‹</div> : null}
+              {archivedChats.length > 0 ? <div className="section-title">Чаты</div> : null}
               {archivedChats.map((chat) => (
                 <div
                   key={chat.id}
@@ -244,14 +244,14 @@ export function SidebarUtilitySheets({
                       className="ghost-button compact"
                       onClick={() => onOpenChat(chat.id)}
                     >
-                      РћС‚РєСЂС‹С‚СЊ
+                      Открыть
                     </button>
                     <button
                       type="button"
                       className="ghost-button compact"
                       onClick={() => onToggleArchiveChat(chat.id)}
                     >
-                      Р’РµСЂРЅСѓС‚СЊ
+                      Вернуть
                     </button>
                   </div>
                 </div>
@@ -268,22 +268,22 @@ export function SidebarUtilitySheets({
       <div className="sheet-card">
         <div className="sheet-head">
           <div>
-            <div className="section-title">РџРµСЂРµСЃР»Р°С‚СЊ</div>
+            <div className="section-title">Переслать</div>
             <p className="sheet-copy">
-              Р’С‹Р±РµСЂРёС‚Рµ С‡Р°С‚, РіСЂСѓРїРїСѓ РёР»Рё РєРѕРЅС‚Р°РєС‚ РґР»СЏ РїРµСЂРµСЃС‹Р»РєРё СЃРѕРѕР±С‰РµРЅРёСЏ.
+              Выберите чат, группу или контакт для пересылки сообщения.
             </p>
           </div>
           <button type="button" className="ghost-button compact" onClick={onCloseForward}>
-            Р—Р°РєСЂС‹С‚СЊ
+            Закрыть
           </button>
         </div>
 
         {!forwardingMessage ? (
-          <div className="empty-list">РЎРѕРѕР±С‰РµРЅРёРµ РґР»СЏ РїРµСЂРµСЃС‹Р»РєРё РЅРµ РЅР°Р№РґРµРЅРѕ.</div>
+          <div className="empty-list">Сообщение для пересылки не найдено.</div>
         ) : (
           <div className="sheet-list">
             <div className="forward-preview-card">
-              <span className="forward-preview-label">РЎРѕРѕР±С‰РµРЅРёРµ</span>
+              <span className="forward-preview-label">Сообщение</span>
               {forwardingMessage.replyTo ? (
                 <button
                   type="button"
@@ -304,9 +304,9 @@ export function SidebarUtilitySheets({
             </div>
 
             <div className="forward-target-section">
-              <div className="section-title">Р§Р°С‚С‹ Рё РіСЂСѓРїРїС‹</div>
+              <div className="section-title">Чаты и группы</div>
               {forwardableChats.length === 0 ? (
-                <div className="empty-list">РќРµС‚ РґСЂСѓРіРёС… РѕС‚РєСЂС‹С‚С‹С… С‡Р°С‚РѕРІ РґР»СЏ РїРµСЂРµСЃС‹Р»РєРё.</div>
+                <div className="empty-list">Нет других открытых чатов для пересылки.</div>
               ) : (
                 forwardableChats.map((chat) => {
                   const directParticipant = getDirectParticipant(chat, sessionUser);
@@ -340,9 +340,9 @@ export function SidebarUtilitySheets({
             </div>
 
             <div className="forward-target-section">
-              <div className="section-title">РљРѕРЅС‚Р°РєС‚С‹</div>
+              <div className="section-title">Контакты</div>
               {forwardContactOptions.length === 0 ? (
-                <div className="empty-list">РќРµС‚ РєРѕРЅС‚Р°РєС‚РѕРІ Р±РµР· Р»РёС‡РЅРѕРіРѕ С‡Р°С‚Р°.</div>
+                <div className="empty-list">Нет контактов без личного чата.</div>
               ) : (
                 forwardContactOptions.map((contact) => (
                   <button

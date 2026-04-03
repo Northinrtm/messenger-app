@@ -1,4 +1,4 @@
-﻿import {
+import {
   type InfiniteData,
   useMutation,
   useQueryClient,
@@ -502,10 +502,10 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   );
   const isPinnedContextMenuMessage =
     Boolean(contextMenuMessage && activeChat?.pinnedMessage?.id === contextMenuMessage.id);
-  const deleteForEveryoneLabel = activeChat?.direct ? "РЈРґР°Р»РёС‚СЊ РґР»СЏ РѕР±РѕРёС…" : "РЈРґР°Р»РёС‚СЊ РґР»СЏ РІСЃРµС…";
+  const deleteForEveryoneLabel = activeChat?.direct ? "Удалить для обоих" : "Удалить для всех";
   const deleteForEveryoneHint = activeChat?.direct
-    ? "РЎРѕРѕР±С‰РµРЅРёРµ РёСЃС‡РµР·РЅРµС‚ Сѓ РІР°СЃ РѕР±РѕРёС…"
-    : "РЎРѕРѕР±С‰РµРЅРёРµ РёСЃС‡РµР·РЅРµС‚ Сѓ РІСЃРµС… СѓС‡Р°СЃС‚РЅРёРєРѕРІ";
+    ? "Сообщение исчезнет у вас обоих"
+    : "Сообщение исчезнет у всех участников";
 
   useEffect(() => {
     if (isRealtimeConnected || !activeChatId || activeTypingQuery.data === undefined) {
@@ -1038,7 +1038,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
             className={isMenuOpen ? "sidebar-menu-button is-active" : "sidebar-menu-button"}
             onClick={() => setIsMenuOpen((current) => !current)}
             aria-expanded={isMenuOpen}
-            aria-label="РћС‚РєСЂС‹С‚СЊ РјРµРЅСЋ"
+            aria-label="Открыть меню"
           >
             <span />
             <span />
@@ -1050,15 +1050,15 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
             className="north-search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="РџРѕРёСЃРє"
+            placeholder="Поиск"
           />
 
           {showTopSearchResults ? (
             <div className="search-dropdown top-search-dropdown">
               {userSearchQuery.isFetching ? (
-                <div className="search-result-empty">РС‰РµРј РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№...</div>
+                <div className="search-result-empty">Ищем пользователей...</div>
               ) : userSearchResults.length === 0 ? (
-                <div className="search-result-empty">РќРёС‡РµРіРѕ РЅРµ РЅР°Р№РґРµРЅРѕ.</div>
+                <div className="search-result-empty">Ничего не найдено.</div>
               ) : (
                 userSearchResults.map((user) => (
                   <button
@@ -1099,7 +1099,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
               }
               onClick={() => activateListTab("dialogs")}
             >
-              Р”РёР°Р»РѕРіРё
+              Диалоги
             </button>
             <button
               type="button"
@@ -1110,7 +1110,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
               }
               onClick={() => activateListTab("groups")}
             >
-              Р“СЂСѓРїРїС‹
+              Группы
             </button>
             <button
               type="button"
@@ -1121,7 +1121,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
               }
               onClick={() => activateListTab("conferences")}
             >
-              Р’РёРґРµРѕРєРѕРЅС„РµСЂРµРЅС†РёРё
+              Видеоконференции
             </button>
           </div>
         ) : null}
@@ -1266,7 +1266,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
         className="north-layout-divider"
         role="separator"
         aria-orientation="vertical"
-        aria-label="РР·РјРµРЅРёС‚СЊ С€РёСЂРёРЅСѓ СЃРїРёСЃРєР° РґРёР°Р»РѕРіРѕРІ"
+        aria-label="Изменить ширину списка диалогов"
         onPointerDown={startSidebarResize}
       />
 
@@ -1325,13 +1325,13 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
             buildMessagePreview={buildMessagePreview}
           />
         ) : chatsLoading || conferencesLoading ? (
-          <div className="empty-state large north-empty-state">Р—Р°РіСЂСѓР¶Р°РµРј РґР°РЅРЅС‹Рµ...</div>
+          <div className="empty-state large north-empty-state">Загружаем данные...</div>
         ) : (
           <div className="conversation-empty">
             <div className="conversation-empty-badge">
               {activeListTab === "conferences"
-                ? "Р’С‹Р±РµСЂРёС‚Рµ РІРёРґРµРѕРєРѕРЅС„РµСЂРµРЅС†РёСЋ СЃР»РµРІР°"
-                : "Р’С‹Р±РµСЂРёС‚Рµ, РєРѕРјСѓ С…РѕС‚РµР»Рё Р±С‹ РЅР°РїРёСЃР°С‚СЊ"}
+                ? "Выберите видеоконференцию слева"
+                : "Выберите, кому хотели бы написать"}
             </div>
           </div>
         )}
