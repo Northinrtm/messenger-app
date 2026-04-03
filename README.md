@@ -341,6 +341,7 @@ Use:
 - set a stable `APP_JWT_SECRET`
 - in production it must be a valid Base64 secret with at least 32 bytes after decoding
 - set `APP_ACTUATOR_SCRAPE_USERNAME` and `APP_ACTUATOR_SCRAPE_PASSWORD` for internal Prometheus auth
+- if they are omitted, production compose falls back to `prometheus/prometheus`; override them explicitly on any non-trivial deployment
 - set `ALERTMANAGER_WEBHOOK_URL` if you want Alertmanager notifications to leave the server
 - use `docker-compose.prod.yml` with `.env.prod`
 - refresh cookie secure mode is expected in production

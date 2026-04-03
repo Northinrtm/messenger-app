@@ -80,6 +80,9 @@ Required `.env.prod` values:
 - `MANAGEMENT_OTLP_TRACING_ENDPOINT`
 - `ALERTMANAGER_WEBHOOK_URL` if you want external alert delivery
 
+If the Prometheus scrape credentials are omitted, production compose falls back to `prometheus/prometheus`.
+That is acceptable only as a bootstrap/default; set explicit values in `.env.prod` for a real deployment.
+
 Production backend logs run in JSON mode and are shipped into Loki by Promtail.
 Alertmanager is part of the stack and can forward alerts through `ALERTMANAGER_WEBHOOK_URL`.
 
