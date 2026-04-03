@@ -1,4 +1,4 @@
-import {
+﻿import {
   type InfiniteData,
   useInfiniteQuery,
   useMutation,
@@ -91,7 +91,6 @@ import {
   clearChatUnreadCount,
   flattenMessagePages,
   getLatestMessageFromPages,
-  initials,
   mergeMessagePages,
   MESSAGE_PAGE_SIZE,
   removeChatById,
@@ -115,6 +114,10 @@ import {
   type ConferenceRecordingState,
   ManagedConferenceStage,
 } from "./ManagedConferenceStage";
+import { ActiveChatConversation } from "./components/ActiveChatConversation";
+import { AvatarCircle } from "./components/AvatarCircle";
+import { ChatListPanel } from "./components/ChatListPanel";
+import { MessageContextMenu } from "./components/MessageContextMenu";
 
 type Props = {
   session: AuthResponse;
@@ -196,13 +199,13 @@ type ContextMenuState =
     };
 
 const MENU_ACTIONS: MenuAction[] = [
-  { id: "profile", label: "Мой профиль", symbol: "ME" },
-  { id: "archive", label: "Архив", symbol: "AR" },
-  { id: "group", label: "Группы", symbol: "GR" },
-  { id: "conference", label: "Видеоконференции", symbol: "VC" },
-  { id: "contacts", label: "Контакты", symbol: "CT" },
-  { id: "sessions", label: "Активные устройства", symbol: "DV" },
-  { id: "logout", label: "Выйти", symbol: "EX" },
+  { id: "profile", label: "РњРѕР№ РїСЂРѕС„РёР»СЊ", symbol: "ME" },
+  { id: "archive", label: "РђСЂС…РёРІ", symbol: "AR" },
+  { id: "group", label: "Р“СЂСѓРїРїС‹", symbol: "GR" },
+  { id: "conference", label: "Р’РёРґРµРѕРєРѕРЅС„РµСЂРµРЅС†РёРё", symbol: "VC" },
+  { id: "contacts", label: "РљРѕРЅС‚Р°РєС‚С‹", symbol: "CT" },
+  { id: "sessions", label: "РђРєС‚РёРІРЅС‹Рµ СѓСЃС‚СЂРѕР№СЃС‚РІР°", symbol: "DV" },
+  { id: "logout", label: "Р’С‹Р№С‚Рё", symbol: "EX" },
 ];
 
 const TYPING_EVENT_TTL_MS = 8_000;
@@ -230,10 +233,10 @@ const MESSAGE_REACTION_OPTIONS: Array<{
   emoji: string;
   label: string;
 }> = [
-  { key: "LIKE", emoji: "👍", label: "Лайк" },
-  { key: "DISLIKE", emoji: "👎", label: "Дизлайк" },
-  { key: "EYES", emoji: "👀", label: "Глаза" },
-  { key: "OK", emoji: "👌", label: "Окей" },
+  { key: "LIKE", emoji: "рџ‘Ќ", label: "Р›Р°Р№Рє" },
+  { key: "DISLIKE", emoji: "рџ‘Ћ", label: "Р”РёР·Р»Р°Р№Рє" },
+  { key: "EYES", emoji: "рџ‘Ђ", label: "Р“Р»Р°Р·Р°" },
+  { key: "OK", emoji: "рџ‘Њ", label: "РћРєРµР№" },
 ];
 
 export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
@@ -639,10 +642,10 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   );
   const isPinnedContextMenuMessage =
     Boolean(contextMenuMessage && activeChat?.pinnedMessage?.id === contextMenuMessage.id);
-  const deleteForEveryoneLabel = activeChat?.direct ? "Удалить для обоих" : "Удалить для всех";
+  const deleteForEveryoneLabel = activeChat?.direct ? "РЈРґР°Р»РёС‚СЊ РґР»СЏ РѕР±РѕРёС…" : "РЈРґР°Р»РёС‚СЊ РґР»СЏ РІСЃРµС…";
   const deleteForEveryoneHint = activeChat?.direct
-    ? "Сообщение исчезнет у вас обоих"
-    : "Сообщение исчезнет у всех участников";
+    ? "РЎРѕРѕР±С‰РµРЅРёРµ РёСЃС‡РµР·РЅРµС‚ Сѓ РІР°СЃ РѕР±РѕРёС…"
+    : "РЎРѕРѕР±С‰РµРЅРёРµ РёСЃС‡РµР·РЅРµС‚ Сѓ РІСЃРµС… СѓС‡Р°СЃС‚РЅРёРєРѕРІ";
 
   useEffect(() => {
     if (isRealtimeConnected || !activeChatId || activeTypingQuery.data === undefined) {
@@ -1217,7 +1220,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
 
     openConferenceSheet();
     setConferenceComposerMode(mode);
-    setConferenceTitle(`Встреча ${activeChat.title}`);
+    setConferenceTitle(`Р’СЃС‚СЂРµС‡Р° ${activeChat.title}`);
     setConferenceParticipantUsernames(
       activeChat.members
         .filter((member) => member.username !== session.user.username)
@@ -1343,8 +1346,8 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const deleteChatForSelf = useEffectEvent((chatId: string) => {
     setContextMenu(null);
     const chat = chats.find((item) => item.id === chatId);
-    const title = chat?.title ?? "этот чат";
-    if (!window.confirm(`Удалить чат "${title}" только у вас?`)) {
+    const title = chat?.title ?? "СЌС‚РѕС‚ С‡Р°С‚";
+    if (!window.confirm(`РЈРґР°Р»РёС‚СЊ С‡Р°С‚ "${title}" С‚РѕР»СЊРєРѕ Сѓ РІР°СЃ?`)) {
       return;
     }
 
@@ -1353,7 +1356,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
 
   const deleteMessageForEveryone = useEffectEvent((chatId: string, messageId: string) => {
     setContextMenu(null);
-    if (!window.confirm("Удалить сообщение для всех участников чата?")) {
+    if (!window.confirm("РЈРґР°Р»РёС‚СЊ СЃРѕРѕР±С‰РµРЅРёРµ РґР»СЏ РІСЃРµС… СѓС‡Р°СЃС‚РЅРёРєРѕРІ С‡Р°С‚Р°?")) {
       return;
     }
 
@@ -1362,7 +1365,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
 
   const deleteMessageForSelf = useEffectEvent((chatId: string, messageId: string) => {
     setContextMenu(null);
-    if (!window.confirm("Удалить сообщение только у вас?")) {
+    if (!window.confirm("РЈРґР°Р»РёС‚СЊ СЃРѕРѕР±С‰РµРЅРёРµ С‚РѕР»СЊРєРѕ Сѓ РІР°СЃ?")) {
       return;
     }
 
@@ -1418,7 +1421,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const copyMessageText = useEffectEvent((message: ChatMessage) => {
     setContextMenu(null);
     void navigator.clipboard.writeText(message.content).catch(() => {
-      window.alert("Не получилось скопировать текст сообщения.");
+      window.alert("РќРµ РїРѕР»СѓС‡РёР»РѕСЃСЊ СЃРєРѕРїРёСЂРѕРІР°С‚СЊ С‚РµРєСЃС‚ СЃРѕРѕР±С‰РµРЅРёСЏ.");
     });
   });
 
@@ -1544,7 +1547,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     const nextToast: IncomingToast = {
       id: toastId,
       chatId: message.chatId,
-      title: chat?.title ?? "Новое сообщение",
+      title: chat?.title ?? "РќРѕРІРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ",
       senderName: message.sender.displayName,
       preview: formatToastPreview(buildChatListPreviewText(message)),
     };
@@ -2837,7 +2840,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const submitCreateConference = () => {
     const parsedDate = new Date(conferenceScheduledAt);
     const scheduledAt = Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
-    const title = conferenceTitle.trim() || `Встреча ${formatClock(scheduledAt.toISOString())}`;
+    const title = conferenceTitle.trim() || `Р’СЃС‚СЂРµС‡Р° ${formatClock(scheduledAt.toISOString())}`;
     createConferenceMutation.mutate({
       title,
       scheduledAt: scheduledAt.toISOString(),
@@ -2847,7 +2850,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
 
   const submitCreateConferenceNow = () => {
     const now = new Date();
-    const title = conferenceTitle.trim() || `Встреча ${formatClock(now.toISOString())}`;
+    const title = conferenceTitle.trim() || `Р’СЃС‚СЂРµС‡Р° ${formatClock(now.toISOString())}`;
     createConferenceMutation.mutate({
       title,
       scheduledAt: now.toISOString(),
@@ -2931,135 +2934,39 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const tabChatsEmptyText =
     activeListTab === "dialogs"
       ? normalizedSearch
-        ? "Ничего не найдено."
-        : "Пока нет активных диалогов."
+        ? "РќРёС‡РµРіРѕ РЅРµ РЅР°Р№РґРµРЅРѕ."
+        : "РџРѕРєР° РЅРµС‚ Р°РєС‚РёРІРЅС‹С… РґРёР°Р»РѕРіРѕРІ."
       : normalizedSearch
-        ? "Ничего не найдено."
-        : "Пока нет активных групп.";
-  const chatListContent =
-    activeListTab === "conferences" ? (
-      conferencesLoading ? (
-        <div className="empty-list">Загружаем видеоконференции...</div>
-      ) : visibleConferences.length === 0 ? (
-        <div className="empty-list">
-          {normalizedSearch ? "Ничего не найдено." : "Пока нет запланированных видеоконференций."}
-        </div>
-      ) : (
-        visibleConferences.map((conference) => {
-          const participantPreview = formatConferenceListPreviewV3(
-            conference,
-            session.user.username
-          );
-          return (
-            <button
-              type="button"
-              key={conference.id}
-              className={
-                conference.id === activeConference?.id
-                  ? "chat-tile north-chat-tile is-active"
-                  : "chat-tile north-chat-tile"
-              }
-              onClick={() => openConference(conference.id)}
-            >
-              <AvatarCircle className="avatar north-avatar" name={conference.title} badge="VC" />
-
-              <div className="chat-copy">
-                <div className="chat-line">
-                  <div className="chat-title-wrap">
-                    <span className="chat-type-mark is-conference">VC</span>
-                    <strong>{conference.title}</strong>
-                  </div>
-                  <span>{formatConferenceTileTime(conference.scheduledAt)}</span>
-                </div>
-
-                <div className="chat-detail-line">
-                  <span>{formatConferenceSchedule(conference.scheduledAt)}</span>
-                  <span className="chat-detail-dot">|</span>
-                  <span>{formatMemberCount(conference.participants.length)}</span>
-                </div>
-
-                <div className="chat-preview-line">
-                  <p className="chat-preview-copy">
-                    {trimPreview(
-                      participantPreview || "Участники будут видны после приглашения.",
-                      88
-                    )}
-                  </p>
-                </div>
-              </div>
-            </button>
-          );
-        })
-      )
-    ) : chatsLoading ? (
-      <div className="empty-list">
-        {activeListTab === "dialogs" ? "Загружаем диалоги..." : "Загружаем группы..."}
-      </div>
-    ) : tabChats.length === 0 ? (
-      <div className="empty-list">{tabChatsEmptyText}</div>
-    ) : (
-      tabChats.map((chat) => {
-        const directParticipant = getDirectParticipant(chat, session.user);
-        const unread = chat.unreadCount;
-        const chatTypingParticipants = typingByChatId[chat.id] ?? [];
-        const isChatTyping = chatTypingParticipants.length > 0;
-        const draftPreview = draftsByChatId[chat.id]?.trim() ?? "";
-        const preview = isChatTyping
-          ? formatTypingParticipants(chatTypingParticipants)
-          : draftPreview || chat.lastMessage || "Нет сообщений";
-        const previewTimestamp = chat.lastMessageAt ?? chat.updatedAt;
-
-        return (
-          <button
-            type="button"
-            key={chat.id}
-            className={
-              chat.id === activeChat?.id
-                ? "chat-tile north-chat-tile is-active"
-                : unread > 0
-                  ? "chat-tile north-chat-tile is-unread"
-                  : "chat-tile north-chat-tile"
-            }
-            onClick={() => openChat(chat.id)}
-            onContextMenu={(event) => openChatContextMenu(event, chat.id)}
-          >
-            <AvatarCircle
-              className="avatar north-avatar"
-              name={directParticipant?.displayName ?? chat.title}
-              avatarUrl={directParticipant?.avatarUrl ?? null}
-              badge={chat.direct ? undefined : "GR"}
-              online={chat.direct ? directParticipant?.online : false}
-            />
-
-            <div className="chat-copy">
-              <div className="chat-line">
-                <div className="chat-title-wrap">
-                  <span className={chat.direct ? "chat-type-mark is-direct" : "chat-type-mark is-group"}>
-                    {chat.direct ? "@" : "GR"}
-                  </span>
-                  <strong>{chat.title}</strong>
-                </div>
-                <span>{formatChatTimestamp(previewTimestamp)}</span>
-              </div>
-
-              <div className="chat-detail-line">
-                <span>{describeChat(chat, session.user)}</span>
-                {!chat.direct ? <span className="chat-detail-dot">|</span> : null}
-                {!chat.direct ? <span>{formatMemberCount(chat.members.length)}</span> : null}
-              </div>
-
-              <div className={isChatTyping ? "chat-preview-line is-typing" : "chat-preview-line"}>
-                <p className={isChatTyping ? "chat-preview-copy is-typing" : "chat-preview-copy"}>
-                  {draftPreview && !isChatTyping ? <span className="chat-draft">Черновик: </span> : null}
-                  {trimPreview(preview, 88)}
-                </p>
-                {unread > 0 ? <span className="chat-badge">{unread}</span> : null}
-              </div>
-            </div>
-          </button>
-        );
-      })
-    );
+        ? "РќРёС‡РµРіРѕ РЅРµ РЅР°Р№РґРµРЅРѕ."
+        : "РџРѕРєР° РЅРµС‚ Р°РєС‚РёРІРЅС‹С… РіСЂСѓРїРї.";
+  const chatListContent = (
+    <ChatListPanel
+      activeListTab={activeListTab}
+      normalizedSearch={normalizedSearch}
+      conferencesLoading={conferencesLoading}
+      visibleConferences={visibleConferences}
+      activeConferenceId={activeConference?.id ?? null}
+      sessionUser={session.user}
+      chatsLoading={chatsLoading}
+      tabChats={tabChats}
+      tabChatsEmptyText={tabChatsEmptyText}
+      activeChatId={activeChat?.id ?? null}
+      typingByChatId={typingByChatId}
+      draftsByChatId={draftsByChatId}
+      openConference={openConference}
+      openChat={openChat}
+      openChatContextMenu={openChatContextMenu}
+      formatConferenceListPreview={formatConferenceListPreviewV3}
+      formatConferenceTileTime={formatConferenceTileTime}
+      formatConferenceSchedule={formatConferenceSchedule}
+      trimPreview={trimPreview}
+      getDirectParticipant={getDirectParticipant}
+      formatTypingParticipants={formatTypingParticipants}
+      formatChatTimestamp={formatChatTimestamp}
+      describeChat={describeChat}
+      formatMemberCount={formatMemberCount}
+    />
+  );
   const conferenceConversation = activeConference ? (
     <>
       <header className="conversation-header north-conversation-header conference-header">
@@ -3069,7 +2976,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
             className="ghost-button compact mobile-back"
             onClick={() => setMobilePane("sidebar")}
           >
-            Назад
+            РќР°Р·Р°Рґ
           </button>
 
           <div className="conversation-identity">
@@ -3093,7 +3000,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                   aria-expanded={isConferenceInfoOpen}
                   aria-haspopup="dialog"
                 >
-                  Инфо
+                  РРЅС„Рѕ
                 </button>
               </div>
               <p className="conversation-subtitle">{formatConferenceSchedule(activeConference.scheduledAt)}</p>
@@ -3102,55 +3009,55 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                   ref={conferenceInfoPanelRef}
                   className="conference-summary"
                   role="dialog"
-                  aria-label="Информация о конференции"
+                  aria-label="РРЅС„РѕСЂРјР°С†РёСЏ Рѕ РєРѕРЅС„РµСЂРµРЅС†РёРё"
                 >
                   <div className="conference-summary-grid">
                     <div className="conference-summary-item">
-                      <span>Организатор</span>
+                      <span>РћСЂРіР°РЅРёР·Р°С‚РѕСЂ</span>
                       <strong>{activeConferenceOrganizerLabel}</strong>
                     </div>
                     <div className="conference-summary-item">
-                      <span>Ваша роль</span>
+                      <span>Р’Р°С€Р° СЂРѕР»СЊ</span>
                       <strong>{activeConferenceRoleLabel}</strong>
                     </div>
                     <div className="conference-summary-item">
-                      <span>Время</span>
+                      <span>Р’СЂРµРјСЏ</span>
                       <strong>{formatConferenceSchedule(activeConference.scheduledAt)}</strong>
                     </div>
                     <div className="conference-summary-item">
-                      <span>Участники</span>
+                      <span>РЈС‡Р°СЃС‚РЅРёРєРё</span>
                       <strong>{formatMemberCount(activeConference.participants.length)}</strong>
                     </div>
                   </div>
 
                   <div className="conference-summary-rows">
                     <div className="conference-summary-row">
-                      <span className="conference-summary-label">Доступ</span>
+                      <span className="conference-summary-label">Р”РѕСЃС‚СѓРї</span>
                       <span className="conference-summary-code">
-                        Комната доступна только приглашённым участникам внутри приложения.
+                        РљРѕРјРЅР°С‚Р° РґРѕСЃС‚СѓРїРЅР° С‚РѕР»СЊРєРѕ РїСЂРёРіР»Р°С€С‘РЅРЅС‹Рј СѓС‡Р°СЃС‚РЅРёРєР°Рј РІРЅСѓС‚СЂРё РїСЂРёР»РѕР¶РµРЅРёСЏ.
                       </span>
                     </div>
 
                     <div className="conference-summary-row participants">
-                      <span className="conference-summary-label">Участники</span>
+                      <span className="conference-summary-label">РЈС‡Р°СЃС‚РЅРёРєРё</span>
                       <div className="conference-participants">
                         {activeConference.participants.map((participant) => (
                           <span key={participant.id} className="member-pill">
                             {participant.displayName}
-                            {participant.id === activeConference.createdBy.id ? " · орг." : ""}
+                            {participant.id === activeConference.createdBy.id ? " В· РѕСЂРі." : ""}
                           </span>
                         ))}
                       </div>
                     </div>
                     {activeConferenceCanManageParticipants ? (
                       <div className="conference-summary-row">
-                        <span className="conference-summary-label">Управление</span>
+                        <span className="conference-summary-label">РЈРїСЂР°РІР»РµРЅРёРµ</span>
                         <button
                           type="button"
                           className="ghost-button compact"
                           onClick={openConferenceMembersSheet}
                         >
-                          Добавить участников
+                          Р”РѕР±Р°РІРёС‚СЊ СѓС‡Р°СЃС‚РЅРёРєРѕРІ
                         </button>
                       </div>
                     ) : null}
@@ -3170,11 +3077,11 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                 className="ghost-button compact"
                 onClick={openConferenceMembersSheet}
               >
-                Добавить участников
+                Р”РѕР±Р°РІРёС‚СЊ СѓС‡Р°СЃС‚РЅРёРєРѕРІ
               </button>
             ) : null}
             {activeConferenceLocalRecordingActive ? (
-              <span className="conference-recording-badge">Идет локальная запись</span>
+              <span className="conference-recording-badge">РРґРµС‚ Р»РѕРєР°Р»СЊРЅР°СЏ Р·Р°РїРёСЃСЊ</span>
             ) : null}
           </div>
         ) : null}
@@ -3182,38 +3089,38 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
         <div className="conference-summary">
         <div className="conference-summary-grid">
           <div className="conference-summary-item">
-            <span>Организатор</span>
+            <span>РћСЂРіР°РЅРёР·Р°С‚РѕСЂ</span>
             <strong>{activeConferenceOrganizerLabel}</strong>
           </div>
           <div className="conference-summary-item">
-            <span>Ваша роль</span>
+            <span>Р’Р°С€Р° СЂРѕР»СЊ</span>
             <strong>{activeConferenceRoleLabel}</strong>
           </div>
           <div className="conference-summary-item">
-            <span>Время</span>
+            <span>Р’СЂРµРјСЏ</span>
             <strong>{formatConferenceSchedule(activeConference.scheduledAt)}</strong>
           </div>
           <div className="conference-summary-item">
-            <span>Участники</span>
+            <span>РЈС‡Р°СЃС‚РЅРёРєРё</span>
             <strong>{formatMemberCount(activeConference.participants.length)}</strong>
           </div>
         </div>
 
         <div className="conference-summary-rows">
           <div className="conference-summary-row">
-            <span className="conference-summary-label">Доступ</span>
+            <span className="conference-summary-label">Р”РѕСЃС‚СѓРї</span>
             <span className="conference-summary-code">
-              Прямые ссылки и коды скрыты. Войти могут только приглашённые участники.
+              РџСЂСЏРјС‹Рµ СЃСЃС‹Р»РєРё Рё РєРѕРґС‹ СЃРєСЂС‹С‚С‹. Р’РѕР№С‚Рё РјРѕРіСѓС‚ С‚РѕР»СЊРєРѕ РїСЂРёРіР»Р°С€С‘РЅРЅС‹Рµ СѓС‡Р°СЃС‚РЅРёРєРё.
             </span>
           </div>
 
           <div className="conference-summary-row participants">
-            <span className="conference-summary-label">Участники</span>
+            <span className="conference-summary-label">РЈС‡Р°СЃС‚РЅРёРєРё</span>
             <div className="conference-participants">
               {activeConference.participants.map((participant) => (
                 <span key={participant.id} className="member-pill">
                   {participant.displayName}
-                  {participant.id === activeConference.createdBy.id ? " · орг." : ""}
+                  {participant.id === activeConference.createdBy.id ? " В· РѕСЂРі." : ""}
                 </span>
               ))}
             </div>
@@ -3226,39 +3133,39 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
         <div className="conference-meta-card">
           <div className="conference-meta-grid">
             <div className="conference-meta-line">
-              <strong>Организатор</strong>
+              <strong>РћСЂРіР°РЅРёР·Р°С‚РѕСЂ</strong>
               <span>{activeConferenceOrganizerLabel}</span>
             </div>
             <div className="conference-meta-line">
-              <strong>Р’Р°С€Р° СЂРѕР»СЊ</strong>
+              <strong>Р вЂ™Р В°РЎв‚¬Р В° РЎР‚Р С•Р В»РЎРЉ</strong>
               <span>{activeConferenceRoleLabel}</span>
             </div>
             <div className="conference-meta-line">
-              <strong>Время</strong>
+              <strong>Р’СЂРµРјСЏ</strong>
               <span>{formatConferenceSchedule(activeConference.scheduledAt)}</span>
             </div>
             <div className="conference-meta-line">
-              <strong>Статус</strong>
+              <strong>РЎС‚Р°С‚СѓСЃ</strong>
               <span>{activeConferenceStatusLabel}</span>
             </div>
             <div className="conference-meta-line">
-              <strong>Участники</strong>
+              <strong>РЈС‡Р°СЃС‚РЅРёРєРё</strong>
               <div className="conference-participants">
                 {activeConference.participants.map((participant) => (
                   <span key={participant.id} className="member-pill">
                     {participant.displayName}
-                    {participant.id === activeConference.createdBy.id ? " · орг." : ""}
+                    {participant.id === activeConference.createdBy.id ? " В· РѕСЂРі." : ""}
                   </span>
                 ))}
               </div>
             </div>
             <div className="conference-meta-line">
-              <strong>РљРѕРґ РєРѕРјРЅР°С‚С‹</strong>
+              <strong>Р С™Р С•Р Т‘ Р С”Р С•Р СР Р…Р В°РЎвЂљРЎвЂ№</strong>
               <div className="conference-link-row">
                 <input
                   className="conference-link-input"
                   readOnly
-                  value="Вход доступен только внутри приложения"
+                  value="Р’С…РѕРґ РґРѕСЃС‚СѓРїРµРЅ С‚РѕР»СЊРєРѕ РІРЅСѓС‚СЂРё РїСЂРёР»РѕР¶РµРЅРёСЏ"
                   onFocus={(event) => event.currentTarget.select()}
                 />
                 <button
@@ -3266,13 +3173,13 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                   className="ghost-button compact"
                   disabled
                 >
-                  РљРѕРїРёСЂРѕРІР°С‚СЊ
+                  Р С™Р С•Р С—Р С‘РЎР‚Р С•Р Р†Р В°РЎвЂљРЎРЉ
                 </button>
               </div>
             </div>
             {activeConferenceShareUrl ? (
               <div className="conference-meta-line">
-                <strong>Ссылка</strong>
+                <strong>РЎСЃС‹Р»РєР°</strong>
                 <div className="conference-link-row">
                   <input
                     className="conference-link-input"
@@ -3285,7 +3192,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                     className="ghost-button compact"
                     onClick={() => void navigator.clipboard.writeText(activeConferenceShareUrl)}
                   >
-                    Копировать
+                    РљРѕРїРёСЂРѕРІР°С‚СЊ
                   </button>
                 </div>
               </div>
@@ -3351,7 +3258,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
             className={isMenuOpen ? "sidebar-menu-button is-active" : "sidebar-menu-button"}
             onClick={() => setIsMenuOpen((current) => !current)}
             aria-expanded={isMenuOpen}
-            aria-label="Открыть меню"
+            aria-label="РћС‚РєСЂС‹С‚СЊ РјРµРЅСЋ"
           >
             <span />
             <span />
@@ -3363,15 +3270,15 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
             className="north-search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Поиск"
+            placeholder="РџРѕРёСЃРє"
           />
 
           {showTopSearchResults ? (
             <div className="search-dropdown top-search-dropdown">
               {userSearchQuery.isFetching ? (
-                <div className="search-result-empty">Ищем пользователей...</div>
+                <div className="search-result-empty">РС‰РµРј РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№...</div>
               ) : userSearchResults.length === 0 ? (
-                <div className="search-result-empty">Ничего не найдено.</div>
+                <div className="search-result-empty">РќРёС‡РµРіРѕ РЅРµ РЅР°Р№РґРµРЅРѕ.</div>
               ) : (
                 userSearchResults.map((user) => (
                   <button
@@ -3412,7 +3319,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
               }
               onClick={() => activateListTab("dialogs")}
             >
-              Диалоги
+              Р”РёР°Р»РѕРіРё
             </button>
             <button
               type="button"
@@ -3423,7 +3330,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
               }
               onClick={() => activateListTab("groups")}
             >
-              Группы
+              Р“СЂСѓРїРїС‹
             </button>
             <button
               type="button"
@@ -3434,7 +3341,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
               }
               onClick={() => activateListTab("conferences")}
             >
-              Видеоконференции
+              Р’РёРґРµРѕРєРѕРЅС„РµСЂРµРЅС†РёРё
             </button>
           </div>
         ) : null}
@@ -3445,9 +3352,9 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
               <div className="sheet-card">
                 <div className="sheet-head">
                   <div>
-                    <div className="section-title">Видеоконференции</div>
+                    <div className="section-title">Р’РёРґРµРѕРєРѕРЅС„РµСЂРµРЅС†РёРё</div>
                     <p className="sheet-copy">
-                      Запусти встречу сразу или запланируй ее на удобное время.
+                      Р—Р°РїСѓСЃС‚Рё РІСЃС‚СЂРµС‡Сѓ СЃСЂР°Р·Сѓ РёР»Рё Р·Р°РїР»Р°РЅРёСЂСѓР№ РµРµ РЅР° СѓРґРѕР±РЅРѕРµ РІСЂРµРјСЏ.
                     </p>
                   </div>
                   <button
@@ -3458,7 +3365,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                       setSidebarSheet(null);
                     }}
                   >
-                    Закрыть
+                    Р—Р°РєСЂС‹С‚СЊ
                   </button>
                 </div>
 
@@ -3472,7 +3379,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                     }
                     onClick={() => openConferenceComposer("instant")}
                   >
-                    Начать сейчас
+                    РќР°С‡Р°С‚СЊ СЃРµР№С‡Р°СЃ
                   </button>
                   <button
                     type="button"
@@ -3483,7 +3390,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                     }
                     onClick={() => openConferenceComposer("scheduled")}
                   >
-                    Запланировать
+                    Р—Р°РїР»Р°РЅРёСЂРѕРІР°С‚СЊ
                   </button>
                 </div>
 
@@ -3502,7 +3409,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                     <input
                       value={conferenceTitle}
                       onChange={(event) => setConferenceTitle(event.target.value)}
-                      placeholder="Название встречи или оставь пустым"
+                      placeholder="РќР°Р·РІР°РЅРёРµ РІСЃС‚СЂРµС‡Рё РёР»Рё РѕСЃС‚Р°РІСЊ РїСѓСЃС‚С‹Рј"
                       maxLength={120}
                     />
 
@@ -3517,10 +3424,10 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
 
                     <div className="group-picker-list conference-picker-list">
                       {contactsLoading && conferenceCandidates.length === 0 ? (
-                        <div className="empty-list">Загружаем контакты...</div>
+                        <div className="empty-list">Р—Р°РіСЂСѓР¶Р°РµРј РєРѕРЅС‚Р°РєС‚С‹...</div>
                       ) : conferenceCandidates.length === 0 ? (
                         <div className="empty-list">
-                          Пока некого добавлять. Создайте группу или добавьте контакты.
+                          РџРѕРєР° РЅРµРєРѕРіРѕ РґРѕР±Р°РІР»СЏС‚СЊ. РЎРѕР·РґР°Р№С‚Рµ РіСЂСѓРїРїСѓ РёР»Рё РґРѕР±Р°РІСЊС‚Рµ РєРѕРЅС‚Р°РєС‚С‹.
                         </div>
                       ) : (
                         conferenceCandidates.map((contact) => {
@@ -3547,7 +3454,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                                 <span>@{contact.username}</span>
                               </div>
                               <span className="member-pill">
-                                {selected ? "Выбран" : "Выбрать"}
+                                {selected ? "Р’С‹Р±СЂР°РЅ" : "Р’С‹Р±СЂР°С‚СЊ"}
                               </span>
                             </button>
                           );
@@ -3564,7 +3471,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                           setSidebarSheet(null);
                         }}
                       >
-                        Закрыть
+                        Р—Р°РєСЂС‹С‚СЊ
                       </button>
                       <button
                         type="submit"
@@ -3572,10 +3479,10 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                         disabled={createConferenceMutation.isPending}
                       >
                         {createConferenceMutation.isPending
-                          ? "Создаем..."
+                          ? "РЎРѕР·РґР°РµРј..."
                           : conferenceComposerMode === "instant"
-                            ? "Создать сейчас"
-                            : "Запланировать"}
+                            ? "РЎРѕР·РґР°С‚СЊ СЃРµР№С‡Р°СЃ"
+                            : "Р—Р°РїР»Р°РЅРёСЂРѕРІР°С‚СЊ"}
                       </button>
                     </div>
                   </form>
@@ -3587,26 +3494,26 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
               <div className="sheet-card">
                 <div className="sheet-head">
                   <div>
-                    <div className="section-title">Архив</div>
-                    <p className="sheet-copy">Здесь лежат архивированные чаты и группы.</p>
+                    <div className="section-title">РђСЂС…РёРІ</div>
+                    <p className="sheet-copy">Р—РґРµСЃСЊ Р»РµР¶Р°С‚ Р°СЂС…РёРІРёСЂРѕРІР°РЅРЅС‹Рµ С‡Р°С‚С‹ Рё РіСЂСѓРїРїС‹.</p>
                   </div>
                   <button
                     type="button"
                     className="ghost-button compact"
                     onClick={() => setSidebarSheet(null)}
                   >
-                    Закрыть
+                    Р—Р°РєСЂС‹С‚СЊ
                   </button>
                 </div>
 
                 <div className="sheet-list">
                   {archivedChatsLoading ? (
-                    <div className="empty-list">Загружаем архив...</div>
+                    <div className="empty-list">Р—Р°РіСЂСѓР¶Р°РµРј Р°СЂС…РёРІ...</div>
                   ) : archivedChats.length === 0 ? (
-                    <div className="empty-list">Архив пока пуст.</div>
+                    <div className="empty-list">РђСЂС…РёРІ РїРѕРєР° РїСѓСЃС‚.</div>
                   ) : (
                     <>
-                      {archivedChats.length > 0 ? <div className="section-title">Чаты</div> : null}
+                      {archivedChats.length > 0 ? <div className="section-title">Р§Р°С‚С‹</div> : null}
                       {archivedChats.map((chat) => (
                       <div
                         key={chat.id}
@@ -3627,14 +3534,14 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                             className="ghost-button compact"
                             onClick={() => openChat(chat.id)}
                           >
-                            Открыть
+                            РћС‚РєСЂС‹С‚СЊ
                           </button>
                           <button
                             type="button"
                             className="ghost-button compact"
                             onClick={() => toggleArchiveChat(chat.id)}
                           >
-                            Вернуть
+                            Р’РµСЂРЅСѓС‚СЊ
                           </button>
                         </div>
                       </div>
@@ -3649,24 +3556,24 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
               <div className="sheet-card">
                 <div className="sheet-head">
                   <div>
-                    <div className="section-title">Переслать</div>
-                    <p className="sheet-copy">Выберите чат, группу или контакт для пересылки сообщения.</p>
+                    <div className="section-title">РџРµСЂРµСЃР»Р°С‚СЊ</div>
+                    <p className="sheet-copy">Р’С‹Р±РµСЂРёС‚Рµ С‡Р°С‚, РіСЂСѓРїРїСѓ РёР»Рё РєРѕРЅС‚Р°РєС‚ РґР»СЏ РїРµСЂРµСЃС‹Р»РєРё СЃРѕРѕР±С‰РµРЅРёСЏ.</p>
                   </div>
                   <button
                     type="button"
                     className="ghost-button compact"
                     onClick={() => clearComposerContext("forward")}
                   >
-                    Закрыть
+                    Р—Р°РєСЂС‹С‚СЊ
                   </button>
                 </div>
 
                 {!forwardingMessage ? (
-                  <div className="empty-list">Сообщение для пересылки не найдено.</div>
+                  <div className="empty-list">РЎРѕРѕР±С‰РµРЅРёРµ РґР»СЏ РїРµСЂРµСЃС‹Р»РєРё РЅРµ РЅР°Р№РґРµРЅРѕ.</div>
                 ) : (
                   <div className="sheet-list">
                     <div className="forward-preview-card">
-                      <span className="forward-preview-label">Сообщение</span>
+                      <span className="forward-preview-label">РЎРѕРѕР±С‰РµРЅРёРµ</span>
                       {forwardingMessage.replyTo ? (
                         <button
                           type="button"
@@ -3689,9 +3596,9 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                     </div>
 
                     <div className="forward-target-section">
-                      <div className="section-title">Чаты и группы</div>
+                      <div className="section-title">Р§Р°С‚С‹ Рё РіСЂСѓРїРїС‹</div>
                       {forwardableChats.length === 0 ? (
-                        <div className="empty-list">Нет других открытых чатов для пересылки.</div>
+                        <div className="empty-list">РќРµС‚ РґСЂСѓРіРёС… РѕС‚РєСЂС‹С‚С‹С… С‡Р°С‚РѕРІ РґР»СЏ РїРµСЂРµСЃС‹Р»РєРё.</div>
                       ) : (
                         forwardableChats.map((chat) => {
                           const directParticipant = getDirectParticipant(chat, session.user);
@@ -3725,9 +3632,9 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                     </div>
 
                     <div className="forward-target-section">
-                      <div className="section-title">Контакты</div>
+                      <div className="section-title">РљРѕРЅС‚Р°РєС‚С‹</div>
                       {forwardContactOptions.length === 0 ? (
-                        <div className="empty-list">Нет контактов без личного чата.</div>
+                        <div className="empty-list">РќРµС‚ РєРѕРЅС‚Р°РєС‚РѕРІ Р±РµР· Р»РёС‡РЅРѕРіРѕ С‡Р°С‚Р°.</div>
                       ) : (
                         forwardContactOptions.map((contact) => (
                           <button
@@ -3760,15 +3667,15 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
               <div className="sheet-card">
                 <div className="sheet-head">
                   <div>
-                    <div className="section-title">Мой профиль</div>
-                    <p className="sheet-copy">Информация о текущем аккаунте.</p>
+                    <div className="section-title">РњРѕР№ РїСЂРѕС„РёР»СЊ</div>
+                    <p className="sheet-copy">РРЅС„РѕСЂРјР°С†РёСЏ Рѕ С‚РµРєСѓС‰РµРј Р°РєРєР°СѓРЅС‚Рµ.</p>
                   </div>
                   <button
                     type="button"
                     className="ghost-button compact"
                     onClick={() => setSidebarSheet(null)}
                   >
-                    Закрыть
+                    Р—Р°РєСЂС‹С‚СЊ
                   </button>
                 </div>
 
@@ -3785,7 +3692,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                       <span>@{profile.username}</span>
                     </div>
                     <p className="profile-avatar-hint">
-                      Вставь изображение из буфера обмена через Ctrl+V, когда открыт профиль.
+                      Р’СЃС‚Р°РІСЊ РёР·РѕР±СЂР°Р¶РµРЅРёРµ РёР· Р±СѓС„РµСЂР° РѕР±РјРµРЅР° С‡РµСЂРµР· Ctrl+V, РєРѕРіРґР° РѕС‚РєСЂС‹С‚ РїСЂРѕС„РёР»СЊ.
                     </p>
                     <div className="profile-avatar-actions">
                       {profile.avatarUrl ? (
@@ -3795,7 +3702,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                           disabled={avatarMutation.isPending}
                           onClick={() => avatarMutation.mutate(null)}
                         >
-                          Убрать фото
+                          РЈР±СЂР°С‚СЊ С„РѕС‚Рѕ
                         </button>
                       ) : null}
                     </div>
@@ -3807,11 +3714,11 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                       submitProfileDisplayName();
                     }}
                   >
-                    <span className="profile-label">Имя</span>
+                    <span className="profile-label">РРјСЏ</span>
                     <input
                       value={profileDisplayName}
                       onChange={(event) => setProfileDisplayName(event.target.value)}
-                      placeholder="Новое имя"
+                      placeholder="РќРѕРІРѕРµ РёРјСЏ"
                       maxLength={40}
                     />
                     <button
@@ -3823,7 +3730,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                         profileDisplayName.trim() === profile.displayName
                       }
                     >
-                      {updateProfileMutation.isPending ? "Сохраняем..." : "Сохранить имя"}
+                      {updateProfileMutation.isPending ? "РЎРѕС…СЂР°РЅСЏРµРј..." : "РЎРѕС…СЂР°РЅРёС‚СЊ РёРјСЏ"}
                     </button>
                   </form>
                   <div className="profile-line">
@@ -3831,20 +3738,20 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                     <strong>@{profile.username}</strong>
                   </div>
                   <div className="profile-line">
-                    <span className="profile-label">ID аккаунта</span>
+                    <span className="profile-label">ID Р°РєРєР°СѓРЅС‚Р°</span>
                     <span>{profile.id}</span>
                   </div>
                   <div className="profile-line">
-                    <span className="profile-label">Создан</span>
+                    <span className="profile-label">РЎРѕР·РґР°РЅ</span>
                     <span>{formatProfileDate(profile.createdAt)}</span>
                   </div>
                   <div className="profile-danger-card">
                     <div className="profile-danger-copy">
-                      <span className="profile-label">Удаление аккаунта</span>
-                      <strong>Это действие необратимо.</strong>
+                      <span className="profile-label">РЈРґР°Р»РµРЅРёРµ Р°РєРєР°СѓРЅС‚Р°</span>
+                      <strong>Р­С‚Рѕ РґРµР№СЃС‚РІРёРµ РЅРµРѕР±СЂР°С‚РёРјРѕ.</strong>
                       <p>
-                        Все сессии будут завершены, а профиль и связанные данные будут удалены.
-                        Введите @{profile.username}, чтобы подтвердить операцию.
+                        Р’СЃРµ СЃРµСЃСЃРёРё Р±СѓРґСѓС‚ Р·Р°РІРµСЂС€РµРЅС‹, Р° РїСЂРѕС„РёР»СЊ Рё СЃРІСЏР·Р°РЅРЅС‹Рµ РґР°РЅРЅС‹Рµ Р±СѓРґСѓС‚ СѓРґР°Р»РµРЅС‹.
+                        Р’РІРµРґРёС‚Рµ @{profile.username}, С‡С‚РѕР±С‹ РїРѕРґС‚РІРµСЂРґРёС‚СЊ РѕРїРµСЂР°С†РёСЋ.
                       </p>
                     </div>
                     <input
@@ -3861,7 +3768,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                       disabled={deleteAccountMutation.isPending || !deleteAccountRequiresMatch}
                       onClick={() => deleteAccountMutation.mutate()}
                     >
-                      {deleteAccountMutation.isPending ? "Удаляем аккаунт..." : "Удалить аккаунт"}
+                      {deleteAccountMutation.isPending ? "РЈРґР°Р»СЏРµРј Р°РєРєР°СѓРЅС‚..." : "РЈРґР°Р»РёС‚СЊ Р°РєРєР°СѓРЅС‚"}
                     </button>
                   </div>
                 </div>
@@ -3872,15 +3779,15 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
               <div className="sheet-card">
                 <div className="sheet-head">
                   <div>
-                    <div className="section-title">Группы</div>
-                    <p className="sheet-copy">Создайте новую группу и добавляйте участников по кнопке.</p>
+                    <div className="section-title">Р“СЂСѓРїРїС‹</div>
+                    <p className="sheet-copy">РЎРѕР·РґР°Р№С‚Рµ РЅРѕРІСѓСЋ РіСЂСѓРїРїСѓ Рё РґРѕР±Р°РІР»СЏР№С‚Рµ СѓС‡Р°СЃС‚РЅРёРєРѕРІ РїРѕ РєРЅРѕРїРєРµ.</p>
                   </div>
                   <button
                     type="button"
                     className="ghost-button compact"
                     onClick={() => setSidebarSheet(null)}
                   >
-                    Закрыть
+                    Р—Р°РєСЂС‹С‚СЊ
                   </button>
                 </div>
 
@@ -3894,7 +3801,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                   <input
                     value={groupTitle}
                     onChange={(event) => setGroupTitle(event.target.value)}
-                    placeholder="Название группы"
+                    placeholder="РќР°Р·РІР°РЅРёРµ РіСЂСѓРїРїС‹"
                   />
                   <div className="sheet-section">
                     <button
@@ -3902,7 +3809,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                       className="ghost-button"
                       onClick={() => setIsGroupCreatePickerOpen((current) => !current)}
                     >
-                      {isGroupCreatePickerOpen ? "Скрыть список контактов" : "Добавить участника"}
+                      {isGroupCreatePickerOpen ? "РЎРєСЂС‹С‚СЊ СЃРїРёСЃРѕРє РєРѕРЅС‚Р°РєС‚РѕРІ" : "Р”РѕР±Р°РІРёС‚СЊ СѓС‡Р°СЃС‚РЅРёРєР°"}
                     </button>
                     {selectedGroupContacts.length > 0 ? (
                       <div className="sheet-chip-list">
@@ -3916,9 +3823,9 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                     {isGroupCreatePickerOpen ? (
                       <div className="group-picker-list">
                         {contactsLoading ? (
-                          <div className="empty-list">Загружаем контакты...</div>
+                          <div className="empty-list">Р—Р°РіСЂСѓР¶Р°РµРј РєРѕРЅС‚Р°РєС‚С‹...</div>
                         ) : groupContacts.length === 0 ? (
-                          <div className="empty-list">Добавь сначала контакты, чтобы собрать группу.</div>
+                          <div className="empty-list">Р”РѕР±Р°РІСЊ СЃРЅР°С‡Р°Р»Р° РєРѕРЅС‚Р°РєС‚С‹, С‡С‚РѕР±С‹ СЃРѕР±СЂР°С‚СЊ РіСЂСѓРїРїСѓ.</div>
                         ) : (
                           groupContacts.map((contact) => {
                             const selected = groupParticipantUsernames.includes(contact.username);
@@ -3943,7 +3850,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                                   <strong>{contact.displayName}</strong>
                                   <span>@{contact.username}</span>
                                 </div>
-                                <span className="member-pill">{selected ? "Выбран" : "Выбрать"}</span>
+                                <span className="member-pill">{selected ? "Р’С‹Р±СЂР°РЅ" : "Р’С‹Р±СЂР°С‚СЊ"}</span>
                               </button>
                             );
                           })
@@ -3958,7 +3865,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                       createGroupMutation.isPending || !groupTitle.trim() || !groupParticipantUsernames.length
                     }
                   >
-                    {createGroupMutation.isPending ? "Создаем..." : "Создать"}
+                    {createGroupMutation.isPending ? "РЎРѕР·РґР°РµРј..." : "РЎРѕР·РґР°С‚СЊ"}
                   </button>
                 </form>
               </div>
@@ -3968,15 +3875,15 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
               <div className="sheet-card">
                 <div className="sheet-head">
                   <div>
-                    <div className="section-title">Инфо</div>
-                    <p className="sheet-copy">Информация о группе и управление участниками.</p>
+                    <div className="section-title">РРЅС„Рѕ</div>
+                    <p className="sheet-copy">РРЅС„РѕСЂРјР°С†РёСЏ Рѕ РіСЂСѓРїРїРµ Рё СѓРїСЂР°РІР»РµРЅРёРµ СѓС‡Р°СЃС‚РЅРёРєР°РјРё.</p>
                   </div>
                   <button
                     type="button"
                     className="ghost-button compact"
                     onClick={() => setSidebarSheet(null)}
                   >
-                    Закрыть
+                    Р—Р°РєСЂС‹С‚СЊ
                   </button>
                 </div>
 
@@ -3990,7 +3897,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                   />
                   <div className="profile-avatar-copy">
                     <strong>{activeChat.title}</strong>
-                    <span>{activeChat.members.length} участников</span>
+                    <span>{activeChat.members.length} СѓС‡Р°СЃС‚РЅРёРєРѕРІ</span>
                   </div>
                 </div>
 
@@ -4001,8 +3908,8 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                     onClick={() => openGroupMembersSheet()}
                   >
                     <div className="sheet-row-copy">
-                      <strong>Участники</strong>
-                      <span>Открыть список участников группы.</span>
+                      <strong>РЈС‡Р°СЃС‚РЅРёРєРё</strong>
+                      <span>РћС‚РєСЂС‹С‚СЊ СЃРїРёСЃРѕРє СѓС‡Р°СЃС‚РЅРёРєРѕРІ РіСЂСѓРїРїС‹.</span>
                     </div>
                     <span className="member-pill">{activeChat.members.length}</span>
                   </button>
@@ -4012,15 +3919,15 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                     onClick={() => openGroupMembersSheet({ openInvitePicker: true })}
                   >
                     <div className="sheet-row-copy">
-                      <strong>Добавить из контактов</strong>
+                      <strong>Р”РѕР±Р°РІРёС‚СЊ РёР· РєРѕРЅС‚Р°РєС‚РѕРІ</strong>
                       <span>
                         {availableGroupInviteContacts.length > 0
-                          ? "Выбери людей из контактов и добавь их в группу."
-                          : "Все контакты уже добавлены в эту группу."}
+                          ? "Р’С‹Р±РµСЂРё Р»СЋРґРµР№ РёР· РєРѕРЅС‚Р°РєС‚РѕРІ Рё РґРѕР±Р°РІСЊ РёС… РІ РіСЂСѓРїРїСѓ."
+                          : "Р’СЃРµ РєРѕРЅС‚Р°РєС‚С‹ СѓР¶Рµ РґРѕР±Р°РІР»РµРЅС‹ РІ СЌС‚Сѓ РіСЂСѓРїРїСѓ."}
                       </span>
                     </div>
                     <span className="member-pill">
-                      {availableGroupInviteContacts.length > 0 ? "Добавить" : "Готово"}
+                      {availableGroupInviteContacts.length > 0 ? "Р”РѕР±Р°РІРёС‚СЊ" : "Р“РѕС‚РѕРІРѕ"}
                     </span>
                   </button>
                 </div>
@@ -4031,9 +3938,9 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
               <div className="sheet-card">
                 <div className="sheet-head">
                   <div>
-                    <div className="section-title">Участники группы</div>
+                    <div className="section-title">РЈС‡Р°СЃС‚РЅРёРєРё РіСЂСѓРїРїС‹</div>
                     <p className="sheet-copy">
-                      Посмотри кто уже в {activeChat.title} и добавь новых людей из контактов.
+                      РџРѕСЃРјРѕС‚СЂРё РєС‚Рѕ СѓР¶Рµ РІ {activeChat.title} Рё РґРѕР±Р°РІСЊ РЅРѕРІС‹С… Р»СЋРґРµР№ РёР· РєРѕРЅС‚Р°РєС‚РѕРІ.
                     </p>
                   </div>
                   <button
@@ -4041,7 +3948,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                     className="ghost-button compact"
                     onClick={() => setSidebarSheet(null)}
                   >
-                    Закрыть
+                    Р—Р°РєСЂС‹С‚СЊ
                   </button>
                 </div>
 
@@ -4053,7 +3960,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                   }}
                 >
                   <div className="sheet-section">
-                    <div className="section-title">В этой группе</div>
+                    <div className="section-title">Р’ СЌС‚РѕР№ РіСЂСѓРїРїРµ</div>
                     <div className="sheet-list">
                       {activeChat.members.map((member) => (
                         <div key={member.id} className="sheet-row sheet-row-with-avatar">
@@ -4066,12 +3973,12 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                           <div className="sheet-row-copy">
                             <strong>
                               {member.displayName}
-                              {isCurrentUserParticipant(member, session.user) ? " (Вы)" : ""}
+                              {isCurrentUserParticipant(member, session.user) ? " (Р’С‹)" : ""}
                             </strong>
                             <span>@{member.username}</span>
                           </div>
                           <span className="member-pill">
-                            {isCurrentUserParticipant(member, session.user) ? "Вы" : "В группе"}
+                            {isCurrentUserParticipant(member, session.user) ? "Р’С‹" : "Р’ РіСЂСѓРїРїРµ"}
                           </span>
                         </div>
                       ))}
@@ -4083,7 +3990,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                       className="ghost-button"
                       onClick={() => setIsGroupInvitePickerOpen((current) => !current)}
                     >
-                      {isGroupInvitePickerOpen ? "Скрыть список контактов" : "Добавить участника"}
+                      {isGroupInvitePickerOpen ? "РЎРєСЂС‹С‚СЊ СЃРїРёСЃРѕРє РєРѕРЅС‚Р°РєС‚РѕРІ" : "Р”РѕР±Р°РІРёС‚СЊ СѓС‡Р°СЃС‚РЅРёРєР°"}
                     </button>
                     {selectedGroupInviteContacts.length > 0 ? (
                       <div className="sheet-chip-list">
@@ -4098,7 +4005,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                       <>
                         <div className="group-picker-list">
                           {availableGroupInviteContacts.length === 0 ? (
-                            <div className="empty-list">Все контакты уже в этой группе или список пуст.</div>
+                            <div className="empty-list">Р’СЃРµ РєРѕРЅС‚Р°РєС‚С‹ СѓР¶Рµ РІ СЌС‚РѕР№ РіСЂСѓРїРїРµ РёР»Рё СЃРїРёСЃРѕРє РїСѓСЃС‚.</div>
                           ) : (
                             availableGroupInviteContacts.map((contact) => {
                               const selected = groupInviteUsernames.includes(contact.username);
@@ -4123,7 +4030,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                                     <strong>{contact.displayName}</strong>
                                     <span>@{contact.username}</span>
                                   </div>
-                                  <span className="member-pill">{selected ? "Выбран" : "Выбрать"}</span>
+                                  <span className="member-pill">{selected ? "Р’С‹Р±СЂР°РЅ" : "Р’С‹Р±СЂР°С‚СЊ"}</span>
                                 </button>
                               );
                             })
@@ -4134,7 +4041,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                           className="secondary-button"
                           disabled={addGroupParticipantsMutation.isPending || !groupInviteUsernames.length}
                         >
-                          {addGroupParticipantsMutation.isPending ? "Добавляем..." : "Добавить в группу"}
+                          {addGroupParticipantsMutation.isPending ? "Р”РѕР±Р°РІР»СЏРµРј..." : "Р”РѕР±Р°РІРёС‚СЊ РІ РіСЂСѓРїРїСѓ"}
                         </button>
                       </>
                     ) : null}
@@ -4147,15 +4054,15 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
               <div className="sheet-card">
                 <div className="sheet-head">
                   <div>
-                    <div className="section-title">Группы</div>
-                    <p className="sheet-copy">Создайте новую группу и сразу выберите участников.</p>
+                    <div className="section-title">Р“СЂСѓРїРїС‹</div>
+                    <p className="sheet-copy">РЎРѕР·РґР°Р№С‚Рµ РЅРѕРІСѓСЋ РіСЂСѓРїРїСѓ Рё СЃСЂР°Р·Сѓ РІС‹Р±РµСЂРёС‚Рµ СѓС‡Р°СЃС‚РЅРёРєРѕРІ.</p>
                   </div>
                   <button
                     type="button"
                     className="ghost-button compact"
                     onClick={() => setSidebarSheet(null)}
                   >
-                    Закрыть
+                    Р—Р°РєСЂС‹С‚СЊ
                   </button>
                 </div>
 
@@ -4169,13 +4076,13 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                   <input
                     value={groupTitle}
                     onChange={(event) => setGroupTitle(event.target.value)}
-                    placeholder="Название группы"
+                    placeholder="РќР°Р·РІР°РЅРёРµ РіСЂСѓРїРїС‹"
                   />
                   <div className="group-picker-list">
                     {contactsLoading ? (
-                      <div className="empty-list">Загружаем контакты...</div>
+                      <div className="empty-list">Р—Р°РіСЂСѓР¶Р°РµРј РєРѕРЅС‚Р°РєС‚С‹...</div>
                     ) : groupContacts.length === 0 ? (
-                      <div className="empty-list">Добавь сначала контакты, чтобы собрать группу.</div>
+                      <div className="empty-list">Р”РѕР±Р°РІСЊ СЃРЅР°С‡Р°Р»Р° РєРѕРЅС‚Р°РєС‚С‹, С‡С‚РѕР±С‹ СЃРѕР±СЂР°С‚СЊ РіСЂСѓРїРїСѓ.</div>
                     ) : (
                       groupContacts.map((contact) => {
                         const selected = groupParticipantUsernames.includes(contact.username);
@@ -4201,7 +4108,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                               <span>@{contact.username}</span>
                             </div>
                             <span className="member-pill">
-                              {selected ? "Выбран" : "Выбрать"}
+                              {selected ? "Р’С‹Р±СЂР°РЅ" : "Р’С‹Р±СЂР°С‚СЊ"}
                             </span>
                           </button>
                         );
@@ -4215,7 +4122,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                       createGroupMutation.isPending || !groupTitle.trim() || !groupParticipantUsernames.length
                     }
                   >
-                    {createGroupMutation.isPending ? "Создаем..." : "Создать"}
+                    {createGroupMutation.isPending ? "РЎРѕР·РґР°РµРј..." : "РЎРѕР·РґР°С‚СЊ"}
                   </button>
                 </form>
               </div>
@@ -4225,15 +4132,15 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
               <div className="sheet-card">
                 <div className="sheet-head">
                   <div>
-                    <div className="section-title">Добавить в группу</div>
-                    <p className="sheet-copy">Выбери людей из контактов для {activeChat?.title ?? "группы"}.</p>
+                    <div className="section-title">Р”РѕР±Р°РІРёС‚СЊ РІ РіСЂСѓРїРїСѓ</div>
+                    <p className="sheet-copy">Р’С‹Р±РµСЂРё Р»СЋРґРµР№ РёР· РєРѕРЅС‚Р°РєС‚РѕРІ РґР»СЏ {activeChat?.title ?? "РіСЂСѓРїРїС‹"}.</p>
                   </div>
                   <button
                     type="button"
                     className="ghost-button compact"
                     onClick={() => setSidebarSheet(null)}
                   >
-                    Закрыть
+                    Р—Р°РєСЂС‹С‚СЊ
                   </button>
                 </div>
 
@@ -4246,7 +4153,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                 >
                   <div className="group-picker-list">
                     {availableGroupInviteContacts.length === 0 ? (
-                      <div className="empty-list">Все контакты уже в этой группе или список пуст.</div>
+                      <div className="empty-list">Р’СЃРµ РєРѕРЅС‚Р°РєС‚С‹ СѓР¶Рµ РІ СЌС‚РѕР№ РіСЂСѓРїРїРµ РёР»Рё СЃРїРёСЃРѕРє РїСѓСЃС‚.</div>
                     ) : (
                       availableGroupInviteContacts.map((contact) => {
                         const selected = groupInviteUsernames.includes(contact.username);
@@ -4272,7 +4179,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                               <span>@{contact.username}</span>
                             </div>
                             <span className="member-pill">
-                              {selected ? "Выбран" : "Выбрать"}
+                              {selected ? "Р’С‹Р±СЂР°РЅ" : "Р’С‹Р±СЂР°С‚СЊ"}
                             </span>
                           </button>
                         );
@@ -4284,7 +4191,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                     className="secondary-button"
                     disabled={addGroupParticipantsMutation.isPending || !groupInviteUsernames.length}
                   >
-                    {addGroupParticipantsMutation.isPending ? "Добавляем..." : "Добавить в группу"}
+                    {addGroupParticipantsMutation.isPending ? "Р”РѕР±Р°РІР»СЏРµРј..." : "Р”РѕР±Р°РІРёС‚СЊ РІ РіСЂСѓРїРїСѓ"}
                   </button>
                 </form>
               </div>
@@ -4294,9 +4201,9 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
               <div className="sheet-card">
                 <div className="sheet-head">
                   <div>
-                    <div className="section-title">Добавить в конференцию</div>
+                    <div className="section-title">Р”РѕР±Р°РІРёС‚СЊ РІ РєРѕРЅС„РµСЂРµРЅС†РёСЋ</div>
                     <p className="sheet-copy">
-                      Выбери людей из контактов для {activeConference?.title ?? "встречи"}.
+                      Р’С‹Р±РµСЂРё Р»СЋРґРµР№ РёР· РєРѕРЅС‚Р°РєС‚РѕРІ РґР»СЏ {activeConference?.title ?? "РІСЃС‚СЂРµС‡Рё"}.
                     </p>
                   </div>
                   <button
@@ -4304,7 +4211,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                     className="ghost-button compact"
                     onClick={() => setSidebarSheet(null)}
                   >
-                    Закрыть
+                    Р—Р°РєСЂС‹С‚СЊ
                   </button>
                 </div>
 
@@ -4318,7 +4225,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                   <div className="group-picker-list">
                     {availableConferenceInviteContacts.length === 0 ? (
                       <div className="empty-list">
-                        Все контакты уже приглашены в конференцию или список пуст.
+                        Р’СЃРµ РєРѕРЅС‚Р°РєС‚С‹ СѓР¶Рµ РїСЂРёРіР»Р°С€РµРЅС‹ РІ РєРѕРЅС„РµСЂРµРЅС†РёСЋ РёР»Рё СЃРїРёСЃРѕРє РїСѓСЃС‚.
                       </div>
                     ) : (
                       availableConferenceInviteContacts.map((contact) => {
@@ -4345,7 +4252,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                               <span>@{contact.username}</span>
                             </div>
                             <span className="member-pill">
-                              {selected ? "Выбран" : "Выбрать"}
+                              {selected ? "Р’С‹Р±СЂР°РЅ" : "Р’С‹Р±СЂР°С‚СЊ"}
                             </span>
                           </button>
                         );
@@ -4360,8 +4267,8 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                     }
                   >
                     {addConferenceParticipantsMutation.isPending
-                      ? "Добавляем..."
-                      : "Добавить в конференцию"}
+                      ? "Р”РѕР±Р°РІР»СЏРµРј..."
+                      : "Р”РѕР±Р°РІРёС‚СЊ РІ РєРѕРЅС„РµСЂРµРЅС†РёСЋ"}
                   </button>
                 </form>
               </div>
@@ -4371,15 +4278,15 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
               <div className="sheet-card">
                 <div className="sheet-head">
                   <div>
-                    <div className="section-title">Контакты</div>
-                    <p className="sheet-copy">Добавляй контакты и открывай с ними личные чаты.</p>
+                    <div className="section-title">РљРѕРЅС‚Р°РєС‚С‹</div>
+                    <p className="sheet-copy">Р”РѕР±Р°РІР»СЏР№ РєРѕРЅС‚Р°РєС‚С‹ Рё РѕС‚РєСЂС‹РІР°Р№ СЃ РЅРёРјРё Р»РёС‡РЅС‹Рµ С‡Р°С‚С‹.</p>
                   </div>
                   <button
                     type="button"
                     className="ghost-button compact"
                     onClick={() => setSidebarSheet(null)}
                   >
-                    Закрыть
+                    Р—Р°РєСЂС‹С‚СЊ
                   </button>
                 </div>
 
@@ -4388,7 +4295,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                   <input
                     value={contactSearch}
                     onChange={(event) => setContactSearch(event.target.value)}
-                    placeholder="Username или display name"
+                    placeholder="Username РёР»Рё display name"
                     autoComplete="off"
                     autoCapitalize="none"
                     autoCorrect="off"
@@ -4398,9 +4305,9 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                   {showContactSearchResults ? (
                     <div className="search-dropdown contact-search-dropdown">
                       {contactsSearchQuery.isFetching ? (
-                        <div className="search-result-empty">Ищем пользователей...</div>
+                        <div className="search-result-empty">РС‰РµРј РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№...</div>
                       ) : contactSearchResults.length === 0 ? (
-                        <div className="search-result-empty">Пользователи не найдены.</div>
+                        <div className="search-result-empty">РџРѕР»СЊР·РѕРІР°С‚РµР»Рё РЅРµ РЅР°Р№РґРµРЅС‹.</div>
                       ) : (
                         contactSearchResults.map((user) => (
                           <div key={user.id} className="search-result-row with-action">
@@ -4419,7 +4326,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                               className="ghost-button compact"
                               onClick={() => addContact(user)}
                             >
-                              Добавить
+                              Р”РѕР±Р°РІРёС‚СЊ
                             </button>
                           </div>
                         ))
@@ -4431,9 +4338,9 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
 
                 <div className="sheet-list">
                   {contactsLoading ? (
-                    <div className="empty-list">Загружаем контакты...</div>
+                    <div className="empty-list">Р—Р°РіСЂСѓР¶Р°РµРј РєРѕРЅС‚Р°РєС‚С‹...</div>
                   ) : contacts.length === 0 ? (
-                    <div className="empty-list">Контактов пока нет.</div>
+                    <div className="empty-list">РљРѕРЅС‚Р°РєС‚РѕРІ РїРѕРєР° РЅРµС‚.</div>
                   ) : (
                     contacts.map((contact) => (
                       <div key={contact.username} className="sheet-row sheet-row-with-avatar">
@@ -4454,14 +4361,14 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                             disabled={createChatMutation.isPending}
                             onClick={() => createChatMutation.mutate(contact.username)}
                           >
-                            Чат
+                            Р§Р°С‚
                           </button>
                           <button
                             type="button"
                             className="ghost-button compact"
                             onClick={() => removeContact(contact.username)}
                           >
-                            Удалить
+                            РЈРґР°Р»РёС‚СЊ
                           </button>
                         </div>
                       </div>
@@ -4475,23 +4382,23 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
               <div className="sheet-card">
                 <div className="sheet-head">
                   <div>
-                    <div className="section-title">Активные устройства</div>
-                    <p className="sheet-copy">Сессии и устройство, с которого выполнен вход.</p>
+                    <div className="section-title">РђРєС‚РёРІРЅС‹Рµ СѓСЃС‚СЂРѕР№СЃС‚РІР°</div>
+                    <p className="sheet-copy">РЎРµСЃСЃРёРё Рё СѓСЃС‚СЂРѕР№СЃС‚РІРѕ, СЃ РєРѕС‚РѕСЂРѕРіРѕ РІС‹РїРѕР»РЅРµРЅ РІС…РѕРґ.</p>
                   </div>
                   <button
                     type="button"
                     className="ghost-button compact"
                     onClick={() => setSidebarSheet(null)}
                   >
-                    Закрыть
+                    Р—Р°РєСЂС‹С‚СЊ
                   </button>
                 </div>
 
                 <div className="session-list menu-session-list">
                   {sessionsLoading ? (
-                    <div className="empty-list">Загружаем список устройств...</div>
+                    <div className="empty-list">Р—Р°РіСЂСѓР¶Р°РµРј СЃРїРёСЃРѕРє СѓСЃС‚СЂРѕР№СЃС‚РІ...</div>
                   ) : sessions.length === 0 ? (
-                    <div className="empty-list">Активна только текущая сессия.</div>
+                    <div className="empty-list">РђРєС‚РёРІРЅР° С‚РѕР»СЊРєРѕ С‚РµРєСѓС‰Р°СЏ СЃРµСЃСЃРёСЏ.</div>
                   ) : (
                     sessions.map((item) => {
                       const current = item.id === session.sessionId;
@@ -4499,11 +4406,11 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                         <div key={item.id} className="session-row">
                           <div className="session-copy">
                             <strong>{item.deviceName}</strong>
-                            <span>Последняя активность: {formatSessionTime(item.lastUsedAt)}</span>
-                            <span>Истекает: {formatSessionTime(item.expiresAt)}</span>
+                            <span>РџРѕСЃР»РµРґРЅСЏСЏ Р°РєС‚РёРІРЅРѕСЃС‚СЊ: {formatSessionTime(item.lastUsedAt)}</span>
+                            <span>РСЃС‚РµРєР°РµС‚: {formatSessionTime(item.expiresAt)}</span>
                           </div>
                           {current ? (
-                            <span className="member-pill">Текущее</span>
+                            <span className="member-pill">РўРµРєСѓС‰РµРµ</span>
                           ) : (
                             <button
                               type="button"
@@ -4511,7 +4418,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                               disabled={revokeSessionMutation.isPending}
                               onClick={() => revokeSessionMutation.mutate(item.id)}
                             >
-                              Отключить
+                              РћС‚РєР»СЋС‡РёС‚СЊ
                             </button>
                           )}
                         </div>
@@ -4542,7 +4449,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                 type="button"
                 className="sidebar-menu-collapse"
                 onClick={() => setIsMenuOpen(false)}
-                aria-label="Скрыть меню"
+                aria-label="РЎРєСЂС‹С‚СЊ РјРµРЅСЋ"
               >
                 ^
               </button>
@@ -4577,7 +4484,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                 >
                   <span className="menu-row-icon">{symbol}</span>
                   <span className="menu-row-label">
-                    {id === "logout" && signOutMutation.isPending ? "Выход..." : label}
+                    {id === "logout" && signOutMutation.isPending ? "Р’С‹С…РѕРґ..." : label}
                   </span>
                   {badge ? <span className="menu-badge-new">{badge}</span> : null}
                 </button>
@@ -4591,7 +4498,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
         className="north-layout-divider"
         role="separator"
         aria-orientation="vertical"
-        aria-label="Изменить ширину списка диалогов"
+        aria-label="РР·РјРµРЅРёС‚СЊ С€РёСЂРёРЅСѓ СЃРїРёСЃРєР° РґРёР°Р»РѕРіРѕРІ"
         onPointerDown={startSidebarResize}
       />
 
@@ -4599,518 +4506,97 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
         {activeConference ? (
           conferenceConversation
         ) : activeChat ? (
-          <>
-            <header className="conversation-header north-conversation-header">
-              <div className="conversation-heading">
-                <button
-                  type="button"
-                  className="ghost-button compact mobile-back"
-                  onClick={() => setMobilePane("sidebar")}
-                >
-                  Чаты
-                </button>
-
-                <div className="conversation-identity">
-                  <AvatarCircle
-                    className="avatar conversation-avatar north-avatar"
-                    name={activeDirectParticipant?.displayName ?? activeChat.title}
-                    avatarUrl={activeDirectParticipant?.avatarUrl ?? null}
-                    badge={activeChat.direct ? undefined : "GR"}
-                    online={activeChat.direct ? activeDirectParticipant?.online : false}
-                  />
-                  <div>
-                    <h3>{activeChat.title}</h3>
-                    <p className={showTypingIndicator ? "conversation-subtitle is-typing" : "conversation-subtitle"}>
-                      {conversationSubtitle}
-                    </p>
-                  </div>
-                </div>
-                {!activeChat.direct ? (
-                  <div className="member-strip">
-                    <button
-                      type="button"
-                      className="ghost-button compact"
-                      onClick={() => openGroupConferenceComposer("instant")}
-                    >
-                      Созвон
-                    </button>
-                    <button
-                      type="button"
-                      className="ghost-button compact"
-                      onClick={() => openGroupConferenceComposer("scheduled")}
-                    >
-                      Запланировать
-                    </button>
-                    <button
-                      type="button"
-                      className="ghost-button compact"
-                      onClick={openGroupInfoSheet}
-                    >
-                      Инфо
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-              <div className="conversation-actions">
-                {activeChat.direct && activeDirectParticipant ? (
-                  <button
-                    type="button"
-                    className="ghost-button compact archive-toggle-button"
-                    onClick={addActiveChatToContacts}
-                    disabled={activeDirectInContacts}
-                  >
-                    {activeDirectInContacts ? "В контактах" : "В контакты"}
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  className="ghost-button compact archive-toggle-button"
-                  onClick={() => toggleArchiveChat(activeChat.id)}
-                >
-                  {archivedChatIdSet.has(activeChat.id) ? "Вернуть" : "В архив"}
-                </button>
-                <button
-                  type="button"
-                  className="ghost-button compact archive-toggle-button close-chat-button"
-                  onClick={closeActiveChat}
-                >
-                  Закрыть
-                </button>
-              </div>
-            </header>
-
-            {activePinnedMessage ? (
-              <div className="pinned-message-banner">
-                <button
-                  type="button"
-                  className="pinned-message-main"
-                  onClick={() => scrollToMessage(activeChat.id, activePinnedMessage.id)}
-                >
-                  <span className="message-reply-accent pinned-message-accent" aria-hidden="true" />
-                  <span className="pinned-message-copy">
-                    <span className="pinned-message-label">Закреплённое сообщение</span>
-                    <strong className="pinned-message-sender">{activePinnedMessage.sender.displayName}</strong>
-                    <span className="pinned-message-preview">{activePinnedMessage.preview}</span>
-                  </span>
-                </button>
-                <div className="pinned-message-actions">
-                  <button
-                    type="button"
-                    className="ghost-button compact"
-                    onClick={() => scrollToMessage(activeChat.id, activePinnedMessage.id)}
-                  >
-                    Перейти
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost-button compact pinned-message-close"
-                    onClick={() =>
-                      pinMessageMutation.mutate({
-                        chatId: activeChat.id,
-                        messageId: null,
-                      })
-                    }
-                    disabled={pinMessageMutation.isPending}
-                    aria-label="Открепить сообщение"
-                  >
-                    ×
-                  </button>
-                </div>
-              </div>
-            ) : null}
-
-            <div className="message-stream north-message-stream" ref={messageStreamRef}>
-              {messagesQuery.hasNextPage ? (
-                <button
-                  type="button"
-                  className="ghost-button history-button"
-                  onClick={loadOlderMessages}
-                  disabled={messagesQuery.isFetchingNextPage}
-                >
-                  {messagesQuery.isFetchingNextPage ? "Загружаем..." : "Показать более ранние"}
-                </button>
-              ) : null}
-
-              {messagesLoading ? (
-                <div className="empty-state">Загружаем сообщения...</div>
-              ) : timelineItems.length === 0 ? (
-                <div className="empty-state">Начните переписку. Сообщения придут сюда.</div>
-              ) : (
-                timelineItems.map((item) =>
-                  item.type === "day" ? (
-                    <div key={item.key} className="timeline-day">
-                      <span>{item.label}</span>
-                    </div>
-                  ) : (
-                    <div
-                      key={item.key}
-                      className={
-                        isOwnMessage(item.message, session.user) ? "message-row is-mine" : "message-row"
-                      }
-                    >
-                      {!isOwnMessage(item.message, session.user) ? (
-                        <AvatarCircle
-                          className="avatar message-row-avatar north-avatar"
-                          name={item.message.sender.displayName}
-                          avatarUrl={item.message.sender.avatarUrl ?? null}
-                          online={item.message.sender.online}
-                        />
-                      ) : null}
-                      <article
-                        data-message-id={item.message.id}
-                        className={
-                          isOwnMessage(item.message, session.user)
-                            ? "message-bubble is-mine"
-                            : "message-bubble"
-                        }
-                        onContextMenu={(event) =>
-                          openMessageContextMenu(event, item.message.chatId, item.message.id)
-                        }
-                      >
-                      <div className="message-meta">
-                        <strong>
-                          {isOwnMessage(item.message, session.user)
-                            ? "Вы"
-                            : item.message.sender.displayName}
-                        </strong>
-                        <div className="message-meta-trailing">
-                          {item.message.editedAt ? (
-                            <span className="message-edited-label">изменено</span>
-                          ) : null}
-                          <span>{formatClock(item.message.createdAt)}</span>
-                          {isOwnMessage(item.message, session.user) ? (
-                            <span
-                              className={getMessageStatusClassName(item.message.status)}
-                              title={getMessageStatusLabel(item.message.status)}
-                              aria-label={getMessageStatusLabel(item.message.status)}
-                            >
-                              {getMessageStatusGlyph(item.message.status)}
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-                      {item.message.replyTo ? (
-                        <button
-                          type="button"
-                          className="message-reply-card"
-                          onClick={() => scrollToMessage(item.message.chatId, item.message.replyTo!.id)}
-                        >
-                          <span className="message-reply-accent" aria-hidden="true" />
-                          <span className="message-reply-copy">
-                            <strong>{item.message.replyTo.sender.displayName}</strong>
-                            <span>{item.message.replyTo.preview}</span>
-                          </span>
-                        </button>
-                      ) : null}
-                      <div className="message-body">{item.message.content}</div>
-                      {item.message.reactions.length > 0 ? (
-                        <div className="message-reactions" aria-label="Реакции на сообщение">
-                          {item.message.reactions.map((reaction) => {
-                            const reactionOption = getReactionOption(reaction.key);
-                            return (
-                              <button
-                                type="button"
-                                key={reaction.key}
-                                className={
-                                  reaction.reactedByCurrentUser
-                                    ? "message-reaction-button is-active"
-                                    : "message-reaction-button"
-                                }
-                                onClick={() =>
-                                  toggleReactionForMessage(
-                                    item.message.chatId,
-                                    item.message.id,
-                                    reaction.key
-                                  )
-                                }
-                                title={reactionOption?.label ?? reaction.key}
-                                aria-label={reactionOption?.label ?? reaction.key}
-                              >
-                                <span>{reactionOption?.emoji ?? reaction.key}</span>
-                                {reaction.count > 1 ? (
-                                  <span className="message-reaction-count">{reaction.count}</span>
-                                ) : null}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ) : null}
-                    </article>
-                    </div>
-                  )
-                )
-              )}
-
-              {showTypingIndicator ? (
-                <div className="typing-indicator" aria-live="polite">
-                  <div className="typing-indicator-bubble" aria-hidden="true">
-                    <span className="typing-indicator-dot" />
-                    <span className="typing-indicator-dot" />
-                    <span className="typing-indicator-dot" />
-                  </div>
-                  <span className="typing-indicator-copy">{conversationSubtitle}</span>
-                </div>
-              ) : null}
-            </div>
-
-            <form
-              className="composer north-composer"
-              onSubmit={(event) => {
-                event.preventDefault();
-                submitActiveDraft();
-              }}
-            >
-              {replyingToMessage ? (
-                <div className="composer-context">
-                  <button
-                    type="button"
-                    className="composer-reply-preview"
-                    onClick={() => scrollToMessage(replyingToMessage.chatId, replyingToMessage.id)}
-                  >
-                    <span className="message-reply-accent" aria-hidden="true" />
-                    <span className="composer-context-copy">
-                      <span className="composer-context-label">Ответ</span>
-                      <strong>{replyingToMessage.sender.displayName}</strong>
-                      <span>{buildMessagePreview(replyingToMessage.content, 120)}</span>
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className="composer-context-close"
-                    onClick={() => clearComposerContext("reply")}
-                    aria-label="Отменить ответ"
-                  >
-                    ×
-                  </button>
-                </div>
-              ) : null}
-              {editingMessage ? (
-                <div className="composer-context">
-                  <div className="composer-context-edit">
-                    <span className="message-reply-accent" aria-hidden="true" />
-                    <span className="composer-context-copy">
-                      <span className="composer-context-label">Редактирование</span>
-                      <strong>{editingMessage.sender.displayName}</strong>
-                      <span>{buildMessagePreview(editingMessage.content, 120)}</span>
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    className="composer-context-close"
-                    onClick={() => clearComposerContext("edit")}
-                    aria-label="Отменить редактирование"
-                  >
-                    ×
-                  </button>
-                </div>
-              ) : null}
-              <div className="north-composer-body">
-                <textarea
-                  ref={composerTextareaRef}
-                  value={activeDraft}
-                  onChange={(event) => handleComposerChange(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey) {
-                      event.preventDefault();
-                      submitActiveDraft();
-                    }
-                  }}
-                  placeholder={
-                    editingMessage
-                      ? "Измените сообщение"
-                      : replyingToMessage
-                        ? "Напишите ответ"
-                        : "Напишите сообщение"
-                  }
-                  rows={1}
-                />
-                <button
-                  type="submit"
-                  className="primary-button north-send-button"
-                  disabled={!activeDraft.trim()}
-                >
-                  {editingMessage ? "✓" : ">"}
-                </button>
-              </div>
-            </form>
-          </>
+          <ActiveChatConversation
+            activeChat={activeChat}
+            activeDirectParticipant={activeDirectParticipant}
+            activeDirectInContacts={activeDirectInContacts}
+            archivedChatIdSet={archivedChatIdSet}
+            sessionUser={session.user}
+            conversationSubtitle={conversationSubtitle}
+            showTypingIndicator={showTypingIndicator}
+            activePinnedMessage={activePinnedMessage}
+            timelineItems={timelineItems}
+            messagesLoading={messagesLoading}
+            hasNextPage={Boolean(messagesQuery.hasNextPage)}
+            isFetchingNextPage={messagesQuery.isFetchingNextPage}
+            replyingToMessage={replyingToMessage}
+            editingMessage={editingMessage}
+            activeDraft={activeDraft}
+            messageStreamRef={messageStreamRef}
+            composerTextareaRef={composerTextareaRef}
+            onBack={() => setMobilePane("sidebar")}
+            onOpenGroupConferenceComposer={openGroupConferenceComposer}
+            onOpenGroupInfo={openGroupInfoSheet}
+            onAddToContacts={addActiveChatToContacts}
+            onToggleArchive={() => toggleArchiveChat(activeChat.id)}
+            onCloseChat={closeActiveChat}
+            onJumpToPinned={() => {
+              if (activePinnedMessage) {
+                scrollToMessage(activeChat.id, activePinnedMessage.id);
+              }
+            }}
+            onUnpin={() =>
+              pinMessageMutation.mutate({
+                chatId: activeChat.id,
+                messageId: null,
+              })
+            }
+            onLoadOlderMessages={loadOlderMessages}
+            onOpenMessageContextMenu={openMessageContextMenu}
+            onToggleReaction={toggleReactionForMessage}
+            onJumpToMessage={scrollToMessage}
+            onClearReply={() => clearComposerContext("reply")}
+            onClearEdit={() => clearComposerContext("edit")}
+            onComposerChange={handleComposerChange}
+            onSubmit={submitActiveDraft}
+            formatClock={formatClock}
+            getMessageStatusClassName={getMessageStatusClassName}
+            getMessageStatusGlyph={getMessageStatusGlyph}
+            getMessageStatusLabel={getMessageStatusLabel}
+            getReactionOption={getReactionOption}
+            buildMessagePreview={buildMessagePreview}
+          />
         ) : chatsLoading || conferencesLoading ? (
-          <div className="empty-state large north-empty-state">Загружаем данные...</div>
+          <div className="empty-state large north-empty-state">Р—Р°РіСЂСѓР¶Р°РµРј РґР°РЅРЅС‹Рµ...</div>
         ) : (
           <div className="conversation-empty">
             <div className="conversation-empty-badge">
               {activeListTab === "conferences"
-                ? "Выберите видеоконференцию слева"
-                : "Выберите, кому хотели бы написать"}
+                ? "Р’С‹Р±РµСЂРёС‚Рµ РІРёРґРµРѕРєРѕРЅС„РµСЂРµРЅС†РёСЋ СЃР»РµРІР°"
+                : "Р’С‹Р±РµСЂРёС‚Рµ, РєРѕРјСѓ С…РѕС‚РµР»Рё Р±С‹ РЅР°РїРёСЃР°С‚СЊ"}
             </div>
           </div>
         )}
 
       {errorText ? <div className="floating-error">{errorText}</div> : null}
       </section>
-
       {contextMenu ? (
-        <div
-          ref={contextMenuRef}
-          className="context-menu-shell"
-          style={contextMenuStyle}
-        >
-          {contextMenu.kind === "message" && contextMenuMessage ? (
-            <div className="context-menu-reaction-bar" aria-label="Реакции на сообщение">
-              {MESSAGE_REACTION_OPTIONS.map((reactionOption) => {
-                const reaction = getMessageReaction(contextMenuMessage, reactionOption.key);
-                return (
-                  <button
-                    key={reactionOption.key}
-                    type="button"
-                    className={
-                      reaction?.reactedByCurrentUser
-                        ? "context-menu-reaction-button is-active"
-                        : "context-menu-reaction-button"
-                    }
-                    onClick={() =>
-                      toggleReactionFromContextMenu(
-                        contextMenu.chatId,
-                        contextMenu.messageId,
-                        reactionOption.key
-                      )
-                    }
-                    disabled={!canReactContextMenuMessage}
-                    title={reactionOption.label}
-                    aria-label={reactionOption.label}
-                  >
-                    {reactionOption.emoji}
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
-          <div
-            className="context-menu-surface"
-            role="menu"
-            aria-label={contextMenu.kind === "chat" ? "Chat actions" : "Message actions"}
-          >
-            {contextMenu.kind === "message" && contextMenuMessage ? (
-              <>
-                <button
-                  type="button"
-                  className="context-menu-item"
-                  role="menuitem"
-                  onClick={() => replyToMessage(contextMenuMessage)}
-                >
-                  <span className="context-menu-item-icon">↩</span>
-                  <span className="context-menu-item-copy">
-                    <span className="context-menu-item-label">Ответить</span>
-                    <span className="context-menu-item-hint">Показать цитату над полем ввода</span>
-                  </span>
-                </button>
-                {canEditContextMenuMessage ? (
-                  <button
-                    type="button"
-                    className="context-menu-item"
-                    role="menuitem"
-                    onClick={() => editMessage(contextMenuMessage)}
-                  >
-                    <span className="context-menu-item-icon">✎</span>
-                    <span className="context-menu-item-copy">
-                      <span className="context-menu-item-label">Редактировать</span>
-                      <span className="context-menu-item-hint">Изменить текст сообщения</span>
-                    </span>
-                  </button>
-                ) : null}
-                {canForwardContextMenuMessage ? (
-                  <button
-                    type="button"
-                    className="context-menu-item"
-                    role="menuitem"
-                    onClick={() => forwardMessage(contextMenuMessage)}
-                  >
-                    <span className="context-menu-item-icon">⇢</span>
-                    <span className="context-menu-item-copy">
-                      <span className="context-menu-item-label">Переслать</span>
-                      <span className="context-menu-item-hint">Отправить в другой чат или группу</span>
-                    </span>
-                  </button>
-                ) : null}
-                {canPinContextMenuMessage ? (
-                  <button
-                    type="button"
-                    className="context-menu-item"
-                    role="menuitem"
-                    onClick={() => togglePinnedMessage(contextMenuMessage)}
-                  >
-                    <span className="context-menu-item-icon">📌</span>
-                    <span className="context-menu-item-copy">
-                      <span className="context-menu-item-label">
-                        {isPinnedContextMenuMessage ? "Открепить" : "Закрепить"}
-                      </span>
-                      <span className="context-menu-item-hint">
-                        {isPinnedContextMenuMessage
-                          ? "Убрать сообщение из шапки чата"
-                          : "Показать сообщение сверху чата"}
-                      </span>
-                    </span>
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  className="context-menu-item"
-                  role="menuitem"
-                  onClick={() => copyMessageText(contextMenuMessage)}
-                >
-                  <span className="context-menu-item-icon">⧉</span>
-                  <span className="context-menu-item-copy">
-                    <span className="context-menu-item-label">Копировать текст</span>
-                    <span className="context-menu-item-hint">Скопировать сообщение в буфер</span>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="context-menu-item is-danger"
-                  role="menuitem"
-                  onClick={() => deleteMessageForSelf(contextMenu.chatId, contextMenu.messageId)}
-                  disabled={!canDeleteContextMenuMessageForSelf}
-                >
-                  <span className="context-menu-item-icon">🗑</span>
-                  <span className="context-menu-item-copy">
-                    <span className="context-menu-item-label">Удалить у себя</span>
-                    <span className="context-menu-item-hint">Сообщение исчезнет только у вас</span>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="context-menu-item is-danger"
-                  role="menuitem"
-                  onClick={() => deleteMessageForEveryone(contextMenu.chatId, contextMenu.messageId)}
-                  disabled={!canDeleteContextMenuMessageForEveryone}
-                >
-                  <span className="context-menu-item-icon">🗑</span>
-                  <span className="context-menu-item-copy">
-                    <span className="context-menu-item-label">{deleteForEveryoneLabel}</span>
-                    <span className="context-menu-item-hint">
-                      {canDeleteContextMenuMessageForEveryone
-                        ? deleteForEveryoneHint
-                        : "Удалить для всех можно только свои сообщения"}
-                    </span>
-                  </span>
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                className="context-menu-item is-danger"
-                role="menuitem"
-                onClick={() => deleteChatForSelf(contextMenu.chatId)}
-              >
-                <span className="context-menu-item-icon">🗑</span>
-                <span className="context-menu-item-copy">
-                  <span className="context-menu-item-label">Удалить чат у себя</span>
-                  <span className="context-menu-item-hint">Чат исчезнет только из вашего списка</span>
-                </span>
-              </button>
-            )}
-          </div>
-        </div>
+        <MessageContextMenu
+          contextMenu={contextMenu}
+          contextMenuRef={contextMenuRef}
+          contextMenuStyle={contextMenuStyle}
+          contextMenuMessage={contextMenuMessage}
+          reactionOptions={MESSAGE_REACTION_OPTIONS}
+          getMessageReaction={getMessageReaction}
+          onToggleReaction={toggleReactionFromContextMenu}
+          canReactContextMenuMessage={canReactContextMenuMessage}
+          canEditContextMenuMessage={canEditContextMenuMessage}
+          canForwardContextMenuMessage={canForwardContextMenuMessage}
+          canPinContextMenuMessage={canPinContextMenuMessage}
+          isPinnedContextMenuMessage={isPinnedContextMenuMessage}
+          canDeleteContextMenuMessageForSelf={canDeleteContextMenuMessageForSelf}
+          canDeleteContextMenuMessageForEveryone={canDeleteContextMenuMessageForEveryone}
+          deleteForEveryoneLabel={deleteForEveryoneLabel}
+          deleteForEveryoneHint={deleteForEveryoneHint}
+          onReply={replyToMessage}
+          onEdit={editMessage}
+          onForward={forwardMessage}
+          onTogglePinned={togglePinnedMessage}
+          onCopy={copyMessageText}
+          onDeleteForSelf={deleteMessageForSelf}
+          onDeleteForEveryone={deleteMessageForEveryone}
+          onDeleteChatForSelf={deleteChatForSelf}
+        />
       ) : null}
 
       {incomingToasts.length > 0 ? (
@@ -5132,30 +4618,6 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
         </aside>
       ) : null}
     </main>
-  );
-}
-
-type AvatarCircleProps = {
-  className: string;
-  name: string;
-  avatarUrl?: string | null;
-  badge?: string;
-  online?: boolean;
-};
-
-function AvatarCircle({ className, name, avatarUrl = null, badge, online = false }: AvatarCircleProps) {
-  return (
-    <div className={`${className} ${avatarUrl ? "has-image" : avatarTone(name)}`}>
-      {avatarUrl ? (
-        <span className="avatar-image-shell">
-          <img src={avatarUrl} alt={name} />
-        </span>
-      ) : (
-        initials(name)
-      )}
-      {badge ? <span className="avatar-badge">{badge}</span> : null}
-      {online ? <span className="avatar-presence" /> : null}
-    </div>
   );
 }
 
@@ -5200,24 +4662,24 @@ function describeChat(chat: ChatSummary, currentUser: UserProfile) {
     const otherParticipant = chat.members.find(
       (member) => !isCurrentUserParticipant(member, currentUser),
     );
-    return otherParticipant ? `@${otherParticipant.username}` : "Личный чат";
+    return otherParticipant ? `@${otherParticipant.username}` : "Р›РёС‡РЅС‹Р№ С‡Р°С‚";
   }
 
-  return "Группа";
+  return "Р“СЂСѓРїРїР°";
 }
 
 function formatMemberCount(count: number) {
   const mod10 = count % 10;
   const mod100 = count % 100;
   if (mod10 === 1 && mod100 !== 11) {
-    return `${count} участник`;
+    return `${count} СѓС‡Р°СЃС‚РЅРёРє`;
   }
 
   if ([2, 3, 4].includes(mod10) && ![12, 13, 14].includes(mod100)) {
-    return `${count} участника`;
+    return `${count} СѓС‡Р°СЃС‚РЅРёРєР°`;
   }
 
-  return `${count} участников`;
+  return `${count} СѓС‡Р°СЃС‚РЅРёРєРѕРІ`;
 }
 
 function formatChatTimestamp(value: string) {
@@ -5277,7 +4739,7 @@ function formatTimelineDay(value: string) {
     date.getMonth() === now.getMonth() &&
     date.getDate() === now.getDate();
   if (sameDay) {
-    return "Сегодня";
+    return "РЎРµРіРѕРґРЅСЏ";
   }
 
   const yesterday = new Date(now);
@@ -5287,7 +4749,7 @@ function formatTimelineDay(value: string) {
     date.getMonth() === yesterday.getMonth() &&
     date.getDate() === yesterday.getDate();
   if (isYesterday) {
-    return "Вчера";
+    return "Р’С‡РµСЂР°";
   }
 
   return new Intl.DateTimeFormat("ru-RU", {
@@ -5392,18 +4854,18 @@ function formatConferenceStatusLabelV2(conference: VideoConference) {
   const scheduledTime = new Date(conference.scheduledAt).getTime();
 
   if (conference.endedAt) {
-    return `Завершена ${formatConferenceSchedule(conference.endedAt)}`;
+    return `Р—Р°РІРµСЂС€РµРЅР° ${formatConferenceSchedule(conference.endedAt)}`;
   }
 
   if (conference.startedAt) {
-    return "Встреча идет";
+    return "Р’СЃС‚СЂРµС‡Р° РёРґРµС‚";
   }
 
   if (conference.roomName || conference.activatedAt) {
-    return scheduledTime <= now ? "Запускается автоматически" : "Ожидает автоматического старта";
+    return scheduledTime <= now ? "Р—Р°РїСѓСЃРєР°РµС‚СЃСЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё" : "РћР¶РёРґР°РµС‚ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРѕРіРѕ СЃС‚Р°СЂС‚Р°";
   }
 
-  return `Откроется ${formatConferenceSchedule(getConferenceActivationTime(conference.scheduledAt).toISOString())}`;
+  return `РћС‚РєСЂРѕРµС‚СЃСЏ ${formatConferenceSchedule(getConferenceActivationTime(conference.scheduledAt).toISOString())}`;
 }
 
 function formatConferenceListPreviewV2(conference: VideoConference, currentUsername: string) {
@@ -5411,19 +4873,19 @@ function formatConferenceListPreviewV2(conference: VideoConference, currentUsern
   const scheduledTime = new Date(conference.scheduledAt).getTime();
 
   if (conference.endedAt) {
-    return "Встреча завершена.";
+    return "Р’СЃС‚СЂРµС‡Р° Р·Р°РІРµСЂС€РµРЅР°.";
   }
 
   if (!conference.roomName && !conference.activatedAt) {
-    return `Комната откроется ${formatConferenceSchedule(
+    return `РљРѕРјРЅР°С‚Р° РѕС‚РєСЂРѕРµС‚СЃСЏ ${formatConferenceSchedule(
       getConferenceActivationTime(conference.scheduledAt).toISOString()
     )}.`;
   }
 
   if (!conference.startedAt) {
     return scheduledTime <= now
-      ? "Встреча запускается автоматически."
-      : `Подключение откроется автоматически ${formatConferenceSchedule(conference.scheduledAt)}.`;
+      ? "Р’СЃС‚СЂРµС‡Р° Р·Р°РїСѓСЃРєР°РµС‚СЃСЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё."
+      : `РџРѕРґРєР»СЋС‡РµРЅРёРµ РѕС‚РєСЂРѕРµС‚СЃСЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё ${formatConferenceSchedule(conference.scheduledAt)}.`;
   }
 
   const participantPreview = conference.participants
@@ -5431,7 +4893,7 @@ function formatConferenceListPreviewV2(conference: VideoConference, currentUsern
     .map((participant) => participant.displayName)
     .join(", ");
 
-  return participantPreview || "Встреча уже идет.";
+  return participantPreview || "Р’СЃС‚СЂРµС‡Р° СѓР¶Рµ РёРґРµС‚.";
 }
 
 function formatConferenceStageHint(conference: VideoConference, isOrganizer: boolean) {
@@ -5439,45 +4901,45 @@ function formatConferenceStageHint(conference: VideoConference, isOrganizer: boo
   const scheduledTime = new Date(conference.scheduledAt).getTime();
 
   if (conference.endedAt) {
-    return `Встреча завершена ${formatConferenceSchedule(conference.endedAt)}.`;
+    return `Р’СЃС‚СЂРµС‡Р° Р·Р°РІРµСЂС€РµРЅР° ${formatConferenceSchedule(conference.endedAt)}.`;
   }
 
   if (conference.startedAt) {
-    return "Встреча уже запущена.";
+    return "Р’СЃС‚СЂРµС‡Р° СѓР¶Рµ Р·Р°РїСѓС‰РµРЅР°.";
   }
 
   if (conference.roomName || conference.activatedAt) {
     if (scheduledTime <= now) {
-      return "Встреча запускается автоматически. Подключение появится через несколько секунд.";
+      return "Р’СЃС‚СЂРµС‡Р° Р·Р°РїСѓСЃРєР°РµС‚СЃСЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё. РџРѕРґРєР»СЋС‡РµРЅРёРµ РїРѕСЏРІРёС‚СЃСЏ С‡РµСЂРµР· РЅРµСЃРєРѕР»СЊРєРѕ СЃРµРєСѓРЅРґ.";
     }
 
     return isOrganizer
-      ? `Комната подготовлена. Встреча откроется автоматически ${formatConferenceSchedule(
+      ? `РљРѕРјРЅР°С‚Р° РїРѕРґРіРѕС‚РѕРІР»РµРЅР°. Р’СЃС‚СЂРµС‡Р° РѕС‚РєСЂРѕРµС‚СЃСЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё ${formatConferenceSchedule(
           conference.scheduledAt
         )}.`
-      : `Подключение откроется автоматически ${formatConferenceSchedule(conference.scheduledAt)}.`;
+      : `РџРѕРґРєР»СЋС‡РµРЅРёРµ РѕС‚РєСЂРѕРµС‚СЃСЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё ${formatConferenceSchedule(conference.scheduledAt)}.`;
   }
 
   const activationAt = formatConferenceSchedule(
     getConferenceActivationTime(conference.scheduledAt).toISOString()
   );
-  return `Комната станет доступна за 5 минут до старта: ${activationAt}.`;
+  return `РљРѕРјРЅР°С‚Р° СЃС‚Р°РЅРµС‚ РґРѕСЃС‚СѓРїРЅР° Р·Р° 5 РјРёРЅСѓС‚ РґРѕ СЃС‚Р°СЂС‚Р°: ${activationAt}.`;
 }
 
 function formatConferenceStatusLabelV3(conference: VideoConference) {
   if (conference.endedAt) {
-    return `Завершена ${formatConferenceSchedule(conference.endedAt)}`;
+    return `Р—Р°РІРµСЂС€РµРЅР° ${formatConferenceSchedule(conference.endedAt)}`;
   }
 
   if (conference.startedAt) {
-    return "Встреча идет";
+    return "Р’СЃС‚СЂРµС‡Р° РёРґРµС‚";
   }
 
   if (conference.roomName || conference.activatedAt) {
-    return "Комната открыта для приглашенных";
+    return "РљРѕРјРЅР°С‚Р° РѕС‚РєСЂС‹С‚Р° РґР»СЏ РїСЂРёРіР»Р°С€РµРЅРЅС‹С…";
   }
 
-  return `Откроется ${formatConferenceSchedule(getConferenceActivationTime(conference.scheduledAt).toISOString())}`;
+  return `РћС‚РєСЂРѕРµС‚СЃСЏ ${formatConferenceSchedule(getConferenceActivationTime(conference.scheduledAt).toISOString())}`;
 }
 
 function formatConferenceListPreviewV3(conference: VideoConference, currentUsername: string) {
@@ -5485,19 +4947,19 @@ function formatConferenceListPreviewV3(conference: VideoConference, currentUsern
   const scheduledTime = new Date(conference.scheduledAt).getTime();
 
   if (conference.endedAt) {
-    return "Встреча завершена.";
+    return "Р’СЃС‚СЂРµС‡Р° Р·Р°РІРµСЂС€РµРЅР°.";
   }
 
   if (!conference.roomName && !conference.activatedAt) {
-    return `Комната откроется ${formatConferenceSchedule(
+    return `РљРѕРјРЅР°С‚Р° РѕС‚РєСЂРѕРµС‚СЃСЏ ${formatConferenceSchedule(
       getConferenceActivationTime(conference.scheduledAt).toISOString()
     )}.`;
   }
 
   if (!conference.startedAt) {
     return scheduledTime <= now
-      ? "Комната уже открыта для приглашенных."
-      : `Подключение откроется автоматически ${formatConferenceSchedule(conference.scheduledAt)}.`;
+      ? "РљРѕРјРЅР°С‚Р° СѓР¶Рµ РѕС‚РєСЂС‹С‚Р° РґР»СЏ РїСЂРёРіР»Р°С€РµРЅРЅС‹С…."
+      : `РџРѕРґРєР»СЋС‡РµРЅРёРµ РѕС‚РєСЂРѕРµС‚СЃСЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё ${formatConferenceSchedule(conference.scheduledAt)}.`;
   }
 
   const participantPreview = conference.participants
@@ -5505,7 +4967,7 @@ function formatConferenceListPreviewV3(conference: VideoConference, currentUsern
     .map((participant) => participant.displayName)
     .join(", ");
 
-  return participantPreview || "Встреча уже идет.";
+  return participantPreview || "Р’СЃС‚СЂРµС‡Р° СѓР¶Рµ РёРґРµС‚.";
 }
 
 function formatConferenceStageHintV3(conference: VideoConference, isOrganizer: boolean) {
@@ -5513,29 +4975,29 @@ function formatConferenceStageHintV3(conference: VideoConference, isOrganizer: b
   const scheduledTime = new Date(conference.scheduledAt).getTime();
 
   if (conference.endedAt) {
-    return `Встреча завершена ${formatConferenceSchedule(conference.endedAt)}.`;
+    return `Р’СЃС‚СЂРµС‡Р° Р·Р°РІРµСЂС€РµРЅР° ${formatConferenceSchedule(conference.endedAt)}.`;
   }
 
   if (conference.startedAt) {
-    return "Встреча уже запущена.";
+    return "Р’СЃС‚СЂРµС‡Р° СѓР¶Рµ Р·Р°РїСѓС‰РµРЅР°.";
   }
 
   if (conference.roomName || conference.activatedAt) {
     if (scheduledTime <= now) {
-      return "Комната уже открыта. Войти могут только приглашённые участники.";
+      return "РљРѕРјРЅР°С‚Р° СѓР¶Рµ РѕС‚РєСЂС‹С‚Р°. Р’РѕР№С‚Рё РјРѕРіСѓС‚ С‚РѕР»СЊРєРѕ РїСЂРёРіР»Р°С€С‘РЅРЅС‹Рµ СѓС‡Р°СЃС‚РЅРёРєРё.";
     }
 
     return isOrganizer
-      ? `Комната подготовлена. Вход для приглашённых откроется автоматически ${formatConferenceSchedule(
+      ? `РљРѕРјРЅР°С‚Р° РїРѕРґРіРѕС‚РѕРІР»РµРЅР°. Р’С…РѕРґ РґР»СЏ РїСЂРёРіР»Р°С€С‘РЅРЅС‹С… РѕС‚РєСЂРѕРµС‚СЃСЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё ${formatConferenceSchedule(
           conference.scheduledAt
         )}.`
-      : `Подключение откроется автоматически ${formatConferenceSchedule(conference.scheduledAt)}.`;
+      : `РџРѕРґРєР»СЋС‡РµРЅРёРµ РѕС‚РєСЂРѕРµС‚СЃСЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё ${formatConferenceSchedule(conference.scheduledAt)}.`;
   }
 
   const activationAt = formatConferenceSchedule(
     getConferenceActivationTime(conference.scheduledAt).toISOString()
   );
-  return `Комната станет доступна за 5 минут до старта: ${activationAt}.`;
+  return `РљРѕРјРЅР°С‚Р° СЃС‚Р°РЅРµС‚ РґРѕСЃС‚СѓРїРЅР° Р·Р° 5 РјРёРЅСѓС‚ РґРѕ СЃС‚Р°СЂС‚Р°: ${activationAt}.`;
 }
 
 function formatConferenceSchedule(value: string) {
@@ -5579,15 +5041,15 @@ function formatDateTimeInputValue(date: Date) {
 }
 
 function formatConferenceOrganizerLabel(organizer: Participant, currentUser: UserProfile) {
-  return organizer.id === currentUser.id ? `${organizer.displayName} (вы)` : organizer.displayName;
+  return organizer.id === currentUser.id ? `${organizer.displayName} (РІС‹)` : organizer.displayName;
 }
 
 function describeConferenceRole(isOrganizer: boolean) {
   if (isOrganizer) {
-    return "Организатор";
+    return "РћСЂРіР°РЅРёР·Р°С‚РѕСЂ";
   }
 
-  return "Участник";
+  return "РЈС‡Р°СЃС‚РЅРёРє";
 }
 
 function readStoredSidebarWidth() {
@@ -5710,7 +5172,7 @@ function buildMessagePreview(content: string, maxLength = 96) {
 
 function buildChatListPreviewText(message: Pick<ChatMessage, "content" | "replyTo">) {
   if (message.replyTo) {
-    return `↪ ${message.replyTo.sender.displayName}: ${buildMessagePreview(message.replyTo.preview, 56)}`;
+    return `в†Є ${message.replyTo.sender.displayName}: ${buildMessagePreview(message.replyTo.preview, 56)}`;
   }
 
   return buildMessagePreview(message.content, 88);
@@ -5767,23 +5229,13 @@ function getMessageStatusLabel(status: MessageStatus | null) {
     case "SENDING":
       return "\u041E\u0442\u043F\u0440\u0430\u0432\u043B\u044F\u0435\u0442\u0441\u044F";
     case "READ":
-      return "Прочитано";
+      return "РџСЂРѕС‡РёС‚Р°РЅРѕ";
     case "DELIVERED":
-      return "Доставлено";
+      return "Р”РѕСЃС‚Р°РІР»РµРЅРѕ";
     case "SENT":
     default:
-      return "Отправлено";
+      return "РћС‚РїСЂР°РІР»РµРЅРѕ";
   }
-}
-
-function avatarTone(seed: string) {
-  const tones = ["tone-blue", "tone-violet", "tone-green", "tone-orange", "tone-rose"];
-  let hash = 0;
-  for (const char of seed) {
-    hash = (hash * 31 + char.charCodeAt(0)) | 0;
-  }
-
-  return tones[Math.abs(hash) % tones.length];
 }
 
 function readFileAsDataUrl(file: File) {
@@ -5827,4 +5279,5 @@ function normalizeAccountDeletionConfirmation(value: string) {
   const normalized = trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
   return normalized.trim().toLowerCase();
 }
+
 
