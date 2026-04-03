@@ -23,6 +23,7 @@ The current repository state is focused on direct chats, group chats, E2EE text 
 - revoke individual sessions
 - profile editing
 - avatar update
+- delete account from profile with explicit confirmation
 
 ### Chats and contacts
 
@@ -35,6 +36,7 @@ The current repository state is focused on direct chats, group chats, E2EE text 
 - add members from contacts through info/member sheets
 - archive chat for self
 - delete chat for self
+- archive contains only chats and groups explicitly archived by the user
 - direct chat shows in the dialogs list after the first message
 - group chat shows in the groups list immediately after creation
 - unread counters
@@ -55,6 +57,7 @@ The current repository state is focused on direct chats, group chats, E2EE text 
 - delete for self
 - delete for everyone in direct chats
 - delete own message for everyone in groups
+- pinned message banner with jump-to-message behavior inside the chat stream
 - realtime delivery through `WebSocket/STOMP`
 - HTTP fallback kept only for the remaining sensitive flows where needed
 - Redis-backed websocket fan-out is available for production scale-out
@@ -77,6 +80,9 @@ The current repository state is focused on direct chats, group chats, E2EE text 
 - archive screen
 - contacts screen
 - sessions screen
+- pinned message banner at the top of the chat
+- reply preview block inside messages
+- avatars for incoming messages
 - right-click context menu for:
   - reply
   - edit
@@ -95,6 +101,7 @@ The current repository state is focused on direct chats, group chats, E2EE text 
 - password-based E2EE unlock is available at any time
 - trusted-device unlock via `WebAuthn` / Windows Hello / Touch ID / passkey is supported
 - trusted-device flow stores only an encrypted local copy and still requires platform verification to unwrap
+- trusted-device unlock auto-starts on reopen and falls back to password only if the platform flow fails or the user chooses it
 - auth endpoints have extra protection against cross-site requests and brute-force bursts
 
 Important limitations:
@@ -148,7 +155,7 @@ Important limitations:
   - message dispatch p95
   - backend HTTP p95
   - backend 5xx rate
-  - typing HTTP fallback traffic
+  - unexpected typing HTTP traffic
   - conference archive request rate
   - JVM heap
 - Prometheus alert rules cover:
@@ -158,7 +165,7 @@ Important limitations:
   - high dispatch p95
   - backend 5xx rate
   - unexpected HTTP typing traffic
-- conference archive hot-path traffic
+  - conference archive hot-path traffic
 - Alertmanager is included and can forward externally through `ALERTMANAGER_WEBHOOK_URL`
 
 Current note:
@@ -166,6 +173,7 @@ Current note:
 - `/actuator/health` is public
 - `/actuator/prometheus` is protected with internal basic auth for Prometheus scrape
 - `edge` blocks external `/actuator/*` requests, so metrics stay off the public internet
+- backend logs include `traceId` / `spanId` correlation and run in structured JSON in production
 
 Production note:
 
@@ -182,6 +190,7 @@ Production note:
 - direct public share flow has been removed from the main UI
 - current protection is practical app-level access control plus room access code, not full Jitsi JWT auth
 - active conference list intentionally hides ended conferences
+- ended conferences are not auto-moved into archive
 
 For autonomous recording:
 
@@ -202,6 +211,7 @@ For autonomous recording:
 - `backend` - Spring Boot application
 - `web` - React/Vite frontend
 - `jitsi` - Jitsi config used by local compose
+- `deploy/observability` - Prometheus / Grafana / Tempo / Loki / Alertmanager / Collector config
 - `docs` - supplementary architecture notes
 
 Main backend areas:
@@ -337,8 +347,8 @@ Use:
 - keep `.env.prod` only on the server
 - prefer a dedicated `deploy` user with SSH key auth over `root + password`
 - use the manual GitHub Actions deploy workflow instead of long interactive SSH sessions
-- see [deploy/PRODUCTION.md](/d:/programs/coding/VSprojects/messenger-app/deploy/PRODUCTION.md) for the production runbook
-- server bootstrap helpers live in [deploy](/d:/programs/coding/VSprojects/messenger-app/deploy)
+- see [deploy/PRODUCTION.md](deploy/PRODUCTION.md) for the production runbook
+- server bootstrap helpers live in [deploy](deploy)
 
 ## Current Constraints
 
@@ -363,6 +373,7 @@ Use:
 11. Start or schedule a conference from the group.
 12. Verify the conference becomes available 5 minutes before start and ended conferences disappear from the active conference list.
 13. Reopen the browser and verify trusted-device unlock uses the platform prompt instead of password-first flow.
+14. Delete the test account from profile if you want to clean up test data without direct DB access.
 
 ## Verification Used During Development
 
