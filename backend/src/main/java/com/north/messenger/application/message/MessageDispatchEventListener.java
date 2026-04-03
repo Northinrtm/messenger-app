@@ -8,15 +8,15 @@ import org.springframework.transaction.event.TransactionalEventListener;
 @Component
 public class MessageDispatchEventListener {
 
-    private final MessageService messageService;
+    private final MessageDispatchService messageDispatchService;
 
-    public MessageDispatchEventListener(MessageService messageService) {
-        this.messageService = messageService;
+    public MessageDispatchEventListener(MessageDispatchService messageDispatchService) {
+        this.messageDispatchService = messageDispatchService;
     }
 
     @Async("messageDispatchExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onMessageDispatch(MessageDispatchEvent event) {
-        messageService.dispatchMessage(event);
+        messageDispatchService.dispatchMessage(event);
     }
 }

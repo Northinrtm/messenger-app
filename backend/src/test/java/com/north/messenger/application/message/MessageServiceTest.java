@@ -51,6 +51,7 @@ class MessageServiceTest {
     private ApplicationEventPublisher eventPublisher;
     private MessengerTelemetry telemetry;
     private MessageService messageService;
+    private ObjectMapper objectMapper;
 
     @BeforeEach
     void setUp() {
@@ -64,18 +65,69 @@ class MessageServiceTest {
         realtimeMessagingGateway = mock(RealtimeMessagingGateway.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
         telemetry = mock(MessengerTelemetry.class);
-        messageService = new MessageService(
+        objectMapper = new ObjectMapper();
+
+        MessageSupport messageSupport = new MessageSupport(
                 authService,
-                chatService,
                 chatMessageRepository,
                 messageReceiptRepository,
                 messageReactionRepository,
                 userAccountRepository,
+                objectMapper
+        );
+        MessageReceiptService messageReceiptService = new MessageReceiptService(
+                authService,
+                chatService,
+                messageReceiptRepository,
+                chatMessageRepository,
+                userAccountRepository,
+                realtimeMessagingGateway,
+                messageSupport
+        );
+        MessageReactionService messageReactionService = new MessageReactionService(
+                authService,
+                chatService,
+                chatMessageRepository,
+                messageReactionRepository,
+                realtimeMessagingGateway,
+                messageSupport
+        );
+        MessageDispatchService messageDispatchService = new MessageDispatchService(
+                chatService,
+                chatMessageRepository,
+                messageReactionRepository,
+                userAccountRepository,
+                realtimeMessagingGateway,
+                authService,
+                telemetry,
+                messageSupport
+        );
+        MessageQueryService messageQueryService = new MessageQueryService(
+                authService,
+                chatService,
+                chatMessageRepository,
+                userAccountRepository,
+                messageReceiptService,
+                messageSupport
+        );
+        MessageCommandService messageCommandService = new MessageCommandService(
+                authService,
+                chatService,
+                chatMessageRepository,
+                messageReceiptRepository,
+                userAccountRepository,
                 userDeletedMessageRepository,
                 realtimeMessagingGateway,
-                new ObjectMapper(),
                 eventPublisher,
-                telemetry
+                telemetry,
+                messageSupport,
+                messageDispatchService
+        );
+        messageService = new MessageService(
+                messageQueryService,
+                messageCommandService,
+                messageReactionService,
+                messageReceiptService
         );
 
         when(chatMessageRepository.saveAndFlush(any(ChatMessage.class))).thenAnswer(invocation -> invocation.getArgument(0));

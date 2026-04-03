@@ -1,21 +1,7 @@
 import type { CSSProperties, RefObject } from "react";
 
 import type { ChatMessage, MessageReaction } from "../../../lib/types";
-
-type ContextMenuState =
-  | {
-      kind: "chat";
-      chatId: string;
-      x: number;
-      y: number;
-    }
-  | {
-      kind: "message";
-      chatId: string;
-      messageId: string;
-      x: number;
-      y: number;
-    };
+import type { ContextMenuState } from "../chatUi";
 
 type ReactionOption = {
   key: MessageReaction["key"];

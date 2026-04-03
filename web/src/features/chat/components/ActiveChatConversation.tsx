@@ -8,20 +8,9 @@ import type {
   UserProfile,
 } from "../../../lib/types";
 import type { MouseEvent as ReactMouseEvent, RefObject } from "react";
+import type { TimelineItem } from "../chatWorkspaceUtils";
 
 import { AvatarCircle } from "./AvatarCircle";
-
-type TimelineItem =
-  | {
-      type: "day";
-      key: string;
-      label: string;
-    }
-  | {
-      type: "message";
-      key: string;
-      message: ChatMessage;
-    };
 
 type ReactionOption = {
   key: MessageReaction["key"];

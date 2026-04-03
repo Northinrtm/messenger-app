@@ -1,9 +1,8 @@
 import type { MouseEvent as ReactMouseEvent } from "react";
 
 import type { ChatSummary, Participant, UserProfile, VideoConference } from "../../../lib/types";
+import type { ConversationListTab } from "../chatUi";
 import { AvatarCircle } from "./AvatarCircle";
-
-type ConversationListTab = "dialogs" | "groups" | "conferences";
 
 type Props = {
   activeListTab: ConversationListTab;
