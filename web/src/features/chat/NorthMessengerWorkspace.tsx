@@ -211,8 +211,6 @@ const TYPING_IDLE_MS = 8_000;
 const CHATS_POLL_INTERVAL_MS = 2_000;
 const ACTIVE_MESSAGE_POLL_INTERVAL_MS = 1_000;
 const ACTIVE_TYPING_POLL_INTERVAL_MS = 1_500;
-const CHATS_CONNECTED_SYNC_INTERVAL_MS = 30_000;
-const CONFERENCES_BACKGROUND_SYNC_INTERVAL_MS = 30_000;
 const ARCHIVED_CONFERENCES_SYNC_INTERVAL_MS = 60_000;
 const MESSAGE_QUERY_GC_TIME_MS = 60_000;
 const TYPING_QUERY_GC_TIME_MS = 15_000;
@@ -317,24 +315,30 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const menuPanelRef = useRef<HTMLDivElement | null>(null);
   const deferredSearch = useDeferredValue(search);
   const deferredContactSearch = useDeferredValue(contactSearch);
+  const shouldFetchSessions = sidebarSheet === "sessions";
   const shouldAggressivelyRefreshConferences =
     activeListTab === "conferences" || Boolean(activeConferenceId);
+  const shouldFetchConferences =
+    shouldAggressivelyRefreshConferences ||
+    sidebarSheet === "conference" ||
+    sidebarSheet === "conferenceMembers";
   const shouldFetchArchivedConferences = sidebarSheet === "archive" || Boolean(activeConferenceId);
 
   const chatsQuery = useQuery({
     queryKey: ["chats", session.token],
     queryFn: () => getChats(session.token),
-    refetchInterval: isRealtimeConnected
-      ? CHATS_CONNECTED_SYNC_INTERVAL_MS
-      : CHATS_POLL_INTERVAL_MS,
-    refetchIntervalInBackground: true,
+    refetchInterval: isRealtimeConnected ? false : CHATS_POLL_INTERVAL_MS,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   });
 
   const sessionsQuery = useQuery({
     queryKey: ["sessions", session.token],
     queryFn: () => getSessions(session.token),
-    refetchInterval: 60_000,
-    refetchIntervalInBackground: true,
+    enabled: shouldFetchSessions,
+    refetchInterval: shouldFetchSessions ? 60_000 : false,
+    refetchIntervalInBackground: false,
+    staleTime: 60_000,
   });
 
   const profileQuery = useQuery({
@@ -358,13 +362,11 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const conferencesQuery = useQuery({
     queryKey: ["video-conferences", session.token],
     queryFn: () => getVideoConferences(session.token),
-    refetchInterval: shouldAggressivelyRefreshConferences
-      ? 5_000
-      : CONFERENCES_BACKGROUND_SYNC_INTERVAL_MS,
-    refetchIntervalInBackground: true,
-    staleTime: shouldAggressivelyRefreshConferences
-      ? 5_000
-      : CONFERENCES_BACKGROUND_SYNC_INTERVAL_MS,
+    enabled: shouldFetchConferences,
+    refetchInterval: shouldAggressivelyRefreshConferences ? 5_000 : false,
+    refetchIntervalInBackground: false,
+    staleTime: shouldAggressivelyRefreshConferences ? 5_000 : 60_000,
+    refetchOnWindowFocus: shouldFetchConferences,
   });
 
   const archivedConferencesQuery = useQuery({
@@ -536,7 +538,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     queryFn: () => getTypingParticipants(session.token, activeChatId!),
     enabled: Boolean(activeChatId) && !isRealtimeConnected,
     refetchInterval: !isRealtimeConnected && activeChatId ? ACTIVE_TYPING_POLL_INTERVAL_MS : false,
-    refetchIntervalInBackground: true,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
     gcTime: TYPING_QUERY_GC_TIME_MS,
   });
@@ -576,7 +578,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       !isRealtimeConnected && activeChat?.id && activePendingOutgoingCount === 0
         ? ACTIVE_MESSAGE_POLL_INTERVAL_MS
         : false,
-    refetchIntervalInBackground: true,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
     gcTime: MESSAGE_QUERY_GC_TIME_MS,
   });

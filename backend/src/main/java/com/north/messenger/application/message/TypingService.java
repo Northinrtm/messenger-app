@@ -8,11 +8,10 @@ import com.north.messenger.domain.model.UserAccount;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,21 +19,24 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class TypingService {
 
-    private static final long ACTIVE_TYPING_WINDOW_MILLIS = 10_000;
-
     private final AuthService authService;
     private final ChatService chatService;
-    private final SimpMessagingTemplate messagingTemplate;
-    private final ConcurrentMap<UUID, ConcurrentMap<UUID, Instant>> typingByChatId = new ConcurrentHashMap<>();
+    private final RealtimeMessagingGateway realtimeMessagingGateway;
+    private final TypingStateStore typingStateStore;
+    private final long activeTypingWindowMillis;
 
     public TypingService(
             AuthService authService,
             ChatService chatService,
-            SimpMessagingTemplate messagingTemplate
+            RealtimeMessagingGateway realtimeMessagingGateway,
+            TypingStateStore typingStateStore,
+            @Value("${app.realtime.typing-active-window-ms:10000}") long activeTypingWindowMillis
     ) {
         this.authService = authService;
         this.chatService = chatService;
-        this.messagingTemplate = messagingTemplate;
+        this.realtimeMessagingGateway = realtimeMessagingGateway;
+        this.typingStateStore = typingStateStore;
+        this.activeTypingWindowMillis = activeTypingWindowMillis;
     }
 
     public void publishTyping(UUID chatId, String username, boolean typing) {
@@ -43,10 +45,9 @@ public class TypingService {
         Instant now = Instant.now();
 
         if (typing) {
-            typingByChatId.computeIfAbsent(chatId, ignored -> new ConcurrentHashMap<>())
-                    .put(currentUser.getId(), now);
+            typingStateStore.markTyping(chatId, currentUser.getId(), now);
         } else {
-            removeTypingUser(chatId, currentUser.getId());
+            typingStateStore.clearTyping(chatId, currentUser.getId());
         }
 
         TypingEventResponse response = new TypingEventResponse(
@@ -55,24 +56,22 @@ public class TypingService {
                 typing,
                 now
         );
-        messagingTemplate.convertAndSend("/topic/chats." + chatId + ".typing", response);
+        realtimeMessagingGateway.sendToTopic("/topic/chats." + chatId + ".typing", response);
     }
 
     public List<ParticipantResponse> listTypingParticipants(UUID chatId, String username) {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
         chatService.requireChatMembership(chatId, currentUser);
 
-        Instant threshold = Instant.now().minusMillis(ACTIVE_TYPING_WINDOW_MILLIS);
-        cleanupExpiredTypingEntries(chatId, threshold);
-
-        ConcurrentMap<UUID, Instant> chatTyping = typingByChatId.get(chatId);
-        if (chatTyping == null || chatTyping.isEmpty()) {
+        Instant threshold = Instant.now().minusMillis(activeTypingWindowMillis);
+        Set<UUID> typingUserIds = typingStateStore.listTypingUserIds(chatId, threshold);
+        if (typingUserIds.isEmpty()) {
             return List.of();
         }
 
         return chatService.findParticipants(chatId).stream()
                 .filter(participant -> !participant.getId().equals(currentUser.getId()))
-                .filter(participant -> chatTyping.containsKey(participant.getId()))
+                .filter(participant -> typingUserIds.contains(participant.getId()))
                 .map(authService::toParticipant)
                 .sorted(Comparator.comparing(ParticipantResponse::displayName, String.CASE_INSENSITIVE_ORDER))
                 .toList();
@@ -81,34 +80,10 @@ public class TypingService {
     @Scheduled(fixedDelay = 30_000L)
     @Transactional
     public void purgeExpiredTypingEntries() {
-        purgeExpiredTypingEntries(Instant.now().minusMillis(ACTIVE_TYPING_WINDOW_MILLIS));
+        purgeExpiredTypingEntries(Instant.now().minusMillis(activeTypingWindowMillis));
     }
 
     void purgeExpiredTypingEntries(Instant threshold) {
-        typingByChatId.forEach((chatId, ignored) -> cleanupExpiredTypingEntries(chatId, threshold));
-    }
-
-    private void removeTypingUser(UUID chatId, UUID userId) {
-        ConcurrentMap<UUID, Instant> chatTyping = typingByChatId.get(chatId);
-        if (chatTyping == null) {
-            return;
-        }
-
-        chatTyping.remove(userId);
-        if (chatTyping.isEmpty()) {
-            typingByChatId.remove(chatId, chatTyping);
-        }
-    }
-
-    private void cleanupExpiredTypingEntries(UUID chatId, Instant threshold) {
-        ConcurrentMap<UUID, Instant> chatTyping = typingByChatId.get(chatId);
-        if (chatTyping == null || chatTyping.isEmpty()) {
-            return;
-        }
-
-        chatTyping.entrySet().removeIf(entry -> entry.getValue().isBefore(threshold));
-        if (chatTyping.isEmpty()) {
-            typingByChatId.remove(chatId, chatTyping);
-        }
+        typingStateStore.purgeExpiredEntries(threshold);
     }
 }

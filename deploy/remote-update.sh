@@ -5,7 +5,7 @@ APP_DIR="${1:-/opt/messenger-app}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 ENV_FILE="${ENV_FILE:-.env.prod}"
 BUILD_SERVICES="${BUILD_SERVICES:-web backend edge}"
-RUNTIME_SERVICES="${RUNTIME_SERVICES:-web backend edge postgres-exporter tempo otel-collector prometheus grafana}"
+RUNTIME_SERVICES="${RUNTIME_SERVICES:-web backend edge redis postgres-exporter tempo otel-collector prometheus grafana}"
 STATUS_FILE="${DEPLOY_STATUS_FILE:-}"
 
 if [[ -n "$STATUS_FILE" ]]; then

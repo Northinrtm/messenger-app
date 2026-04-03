@@ -1,6 +1,7 @@
 package com.north.messenger.application.chat;
 
 import com.north.messenger.application.auth.AuthService;
+import com.north.messenger.application.message.RealtimeMessagingGateway;
 import com.north.messenger.observability.MessengerTelemetry;
 import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.model.ChatParticipant;
@@ -24,7 +25,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.data.domain.Pageable;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -45,7 +45,7 @@ class ChatServiceTest {
     private UserArchivedChatRepository userArchivedChatRepository;
     private UserDeletedChatRepository userDeletedChatRepository;
     private UserDeletedMessageRepository userDeletedMessageRepository;
-    private SimpMessagingTemplate messagingTemplate;
+    private RealtimeMessagingGateway realtimeMessagingGateway;
     private MessengerTelemetry telemetry;
     private ChatService chatService;
 
@@ -60,7 +60,7 @@ class ChatServiceTest {
         userArchivedChatRepository = mock(UserArchivedChatRepository.class);
         userDeletedChatRepository = mock(UserDeletedChatRepository.class);
         userDeletedMessageRepository = mock(UserDeletedMessageRepository.class);
-        messagingTemplate = mock(SimpMessagingTemplate.class);
+        realtimeMessagingGateway = mock(RealtimeMessagingGateway.class);
         telemetry = mock(MessengerTelemetry.class);
         chatService = new ChatService(
                 authService,
@@ -72,7 +72,7 @@ class ChatServiceTest {
                 userArchivedChatRepository,
                 userDeletedChatRepository,
                 userDeletedMessageRepository,
-                messagingTemplate,
+                realtimeMessagingGateway,
                 telemetry
         );
         when(userArchivedChatRepository.save(any(UserArchivedChat.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -221,7 +221,7 @@ class ChatServiceTest {
                 ArgumentCaptor.forClass(com.north.messenger.api.dto.ChatRemovalEventResponse.class);
         verify(userDeletedChatRepository).save(any());
         verify(userArchivedChatRepository).deleteByUserIdAndChatId(user.getId(), chatId);
-        verify(messagingTemplate).convertAndSendToUser(
+        verify(realtimeMessagingGateway).sendToUser(
                 org.mockito.ArgumentMatchers.eq("north"),
                 org.mockito.ArgumentMatchers.eq("/queue/chat-removals"),
                 eventCaptor.capture()
@@ -269,8 +269,8 @@ class ChatServiceTest {
 
         chatService.notifyChatUpdated(chatId);
 
-        verify(messagingTemplate).convertAndSendToUser(eq("alice"), eq("/queue/chats"), any());
-        verify(messagingTemplate, never()).convertAndSendToUser(eq("north"), eq("/queue/chats"), any());
+        verify(realtimeMessagingGateway).sendToUser(eq("alice"), eq("/queue/chats"), any());
+        verify(realtimeMessagingGateway, never()).sendToUser(eq("north"), eq("/queue/chats"), any());
     }
 
     private MessageReceiptRepository.ChatUnreadCountView unreadCountView(UUID chatId, long unreadCount) {

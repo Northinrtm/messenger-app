@@ -8,6 +8,7 @@ import com.north.messenger.api.dto.MessageSnippetResponse;
 import com.north.messenger.api.dto.AddGroupParticipantsRequest;
 import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.application.auth.AuthService;
+import com.north.messenger.application.message.RealtimeMessagingGateway;
 import com.north.messenger.observability.MessengerTelemetry;
 import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.model.ChatParticipant;
@@ -39,7 +40,6 @@ import java.util.stream.Collectors;
 import io.micrometer.core.instrument.Timer;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -59,7 +59,7 @@ public class ChatService {
     private final UserArchivedChatRepository userArchivedChatRepository;
     private final UserDeletedChatRepository userDeletedChatRepository;
     private final UserDeletedMessageRepository userDeletedMessageRepository;
-    private final SimpMessagingTemplate messagingTemplate;
+    private final RealtimeMessagingGateway realtimeMessagingGateway;
     private final MessengerTelemetry telemetry;
 
     public ChatService(
@@ -72,7 +72,7 @@ public class ChatService {
             UserArchivedChatRepository userArchivedChatRepository,
             UserDeletedChatRepository userDeletedChatRepository,
             UserDeletedMessageRepository userDeletedMessageRepository,
-            SimpMessagingTemplate messagingTemplate,
+            RealtimeMessagingGateway realtimeMessagingGateway,
             MessengerTelemetry telemetry
     ) {
         this.authService = authService;
@@ -84,7 +84,7 @@ public class ChatService {
         this.userArchivedChatRepository = userArchivedChatRepository;
         this.userDeletedChatRepository = userDeletedChatRepository;
         this.userDeletedMessageRepository = userDeletedMessageRepository;
-        this.messagingTemplate = messagingTemplate;
+        this.realtimeMessagingGateway = realtimeMessagingGateway;
         this.telemetry = telemetry;
     }
 
@@ -162,7 +162,7 @@ public class ChatService {
                         new UserDeletedChat(UUID.randomUUID(), currentUser.getId(), chatId, Instant.now())
                 ));
         userArchivedChatRepository.deleteByUserIdAndChatId(currentUser.getId(), chatId);
-        messagingTemplate.convertAndSendToUser(
+        realtimeMessagingGateway.sendToUser(
                 currentUser.getUsername(),
                 "/queue/chat-removals",
                 new ChatRemovalEventResponse(chatId)
@@ -318,7 +318,7 @@ public class ChatService {
                 .toList();
 
         try {
-            audience.forEach(user -> messagingTemplate.convertAndSendToUser(
+            audience.forEach(user -> realtimeMessagingGateway.sendToUser(
                             user.getUsername(),
                             "/queue/chats",
                             toSummary(

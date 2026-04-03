@@ -21,6 +21,11 @@ spring:
         connectTimeout: ${APP_DB_CONNECT_TIMEOUT_SECONDS:5}
         socketTimeout: ${APP_DB_SOCKET_TIMEOUT_SECONDS:30}
         tcpKeepAlive: true
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      timeout: ${SPRING_DATA_REDIS_TIMEOUT:5s}
   jpa:
     open-in-view: false
     hibernate:
@@ -55,6 +60,10 @@ management:
 app:
   cors:
     allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:5173}
+  realtime:
+    redis:
+      enabled: ${APP_REALTIME_REDIS_ENABLED:false}
+    typing-active-window-ms: ${APP_TYPING_ACTIVE_WINDOW_MS:10000}
   auth:
     refresh-cookie:
       name: ${APP_AUTH_REFRESH_COOKIE_NAME:north_refresh_token}

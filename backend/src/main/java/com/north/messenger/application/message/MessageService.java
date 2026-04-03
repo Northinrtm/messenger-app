@@ -49,7 +49,6 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -67,7 +66,7 @@ public class MessageService {
     private final MessageReactionRepository messageReactionRepository;
     private final UserAccountRepository userAccountRepository;
     private final UserDeletedMessageRepository userDeletedMessageRepository;
-    private final SimpMessagingTemplate messagingTemplate;
+    private final RealtimeMessagingGateway realtimeMessagingGateway;
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
     private final MessengerTelemetry telemetry;
@@ -80,7 +79,7 @@ public class MessageService {
             MessageReactionRepository messageReactionRepository,
             UserAccountRepository userAccountRepository,
             UserDeletedMessageRepository userDeletedMessageRepository,
-            SimpMessagingTemplate messagingTemplate,
+            RealtimeMessagingGateway realtimeMessagingGateway,
             ObjectMapper objectMapper,
             ApplicationEventPublisher eventPublisher,
             MessengerTelemetry telemetry
@@ -92,7 +91,7 @@ public class MessageService {
         this.messageReactionRepository = messageReactionRepository;
         this.userAccountRepository = userAccountRepository;
         this.userDeletedMessageRepository = userDeletedMessageRepository;
-        this.messagingTemplate = messagingTemplate;
+        this.realtimeMessagingGateway = realtimeMessagingGateway;
         this.objectMapper = objectMapper;
         this.eventPublisher = eventPublisher;
         this.telemetry = telemetry;
@@ -295,7 +294,7 @@ public class MessageService {
                     .orElseGet(() -> userDeletedMessageRepository.save(
                             new UserDeletedMessage(UUID.randomUUID(), currentUser.getId(), messageId, Instant.now())
                     ));
-            messagingTemplate.convertAndSendToUser(
+            realtimeMessagingGateway.sendToUser(
                     currentUser.getUsername(),
                     "/queue/message-deletions",
                     new MessageDeletionEventResponse(messageId, chatId)
@@ -317,7 +316,7 @@ public class MessageService {
 
         List<UserAccount> participants = chatService.findParticipants(chatId);
         chatMessageRepository.delete(message);
-        participants.forEach(participant -> messagingTemplate.convertAndSendToUser(
+        participants.forEach(participant -> realtimeMessagingGateway.sendToUser(
                 participant.getUsername(),
                 "/queue/message-deletions",
                 new MessageDeletionEventResponse(messageId, chatId)
@@ -400,7 +399,7 @@ public class MessageService {
                         .getOrDefault(messageId, List.of())
         );
 
-        chatService.findParticipants(chatId).forEach(participant -> messagingTemplate.convertAndSendToUser(
+        chatService.findParticipants(chatId).forEach(participant -> realtimeMessagingGateway.sendToUser(
                 participant.getUsername(),
                 "/queue/message-reactions",
                 buildReactionEvent(messageId, chatId, participant.getId())
@@ -490,7 +489,7 @@ public class MessageService {
                                 replyTo,
                                 encryptedPayload
                 );
-                messagingTemplate.convertAndSendToUser(participant.getUsername(), "/queue/messages", response);
+                realtimeMessagingGateway.sendToUser(participant.getUsername(), "/queue/messages", response);
             });
             telemetry.recordMessageDispatch(
                     telemetrySample,
@@ -808,7 +807,7 @@ public class MessageService {
                 continue;
             }
 
-            messagingTemplate.convertAndSendToUser(
+            realtimeMessagingGateway.sendToUser(
                     sender.getUsername(),
                     "/queue/message-statuses",
                     new MessageStatusEventResponse(

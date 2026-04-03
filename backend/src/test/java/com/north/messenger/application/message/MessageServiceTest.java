@@ -29,7 +29,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -48,7 +47,7 @@ class MessageServiceTest {
     private MessageReactionRepository messageReactionRepository;
     private UserAccountRepository userAccountRepository;
     private UserDeletedMessageRepository userDeletedMessageRepository;
-    private SimpMessagingTemplate messagingTemplate;
+    private RealtimeMessagingGateway realtimeMessagingGateway;
     private ApplicationEventPublisher eventPublisher;
     private MessengerTelemetry telemetry;
     private MessageService messageService;
@@ -62,7 +61,7 @@ class MessageServiceTest {
         messageReactionRepository = mock(MessageReactionRepository.class);
         userAccountRepository = mock(UserAccountRepository.class);
         userDeletedMessageRepository = mock(UserDeletedMessageRepository.class);
-        messagingTemplate = mock(SimpMessagingTemplate.class);
+        realtimeMessagingGateway = mock(RealtimeMessagingGateway.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
         telemetry = mock(MessengerTelemetry.class);
         messageService = new MessageService(
@@ -73,7 +72,7 @@ class MessageServiceTest {
                 messageReactionRepository,
                 userAccountRepository,
                 userDeletedMessageRepository,
-                messagingTemplate,
+                realtimeMessagingGateway,
                 new ObjectMapper(),
                 eventPublisher,
                 telemetry
@@ -153,7 +152,7 @@ class MessageServiceTest {
         messageService.acknowledgeRead(chatId, "alice", new MessageReceiptRequest(List.of(message.getId())));
 
         ArgumentCaptor<MessageStatusEventResponse> eventCaptor = ArgumentCaptor.forClass(MessageStatusEventResponse.class);
-        verify(messagingTemplate).convertAndSendToUser(eq("north"), eq("/queue/message-statuses"), eventCaptor.capture());
+        verify(realtimeMessagingGateway).sendToUser(eq("north"), eq("/queue/message-statuses"), eventCaptor.capture());
         verify(chatService).notifyChatUpdated(chatId);
         assertThat(eventCaptor.getValue().status().state()).isEqualTo(MessageDeliveryState.READ);
     }
@@ -230,8 +229,8 @@ class MessageServiceTest {
         messageService.deleteMessage(chatId, messageId, "north", "EVERYONE");
 
         ArgumentCaptor<MessageDeletionEventResponse> eventCaptor = ArgumentCaptor.forClass(MessageDeletionEventResponse.class);
-        verify(messagingTemplate).convertAndSendToUser(eq("north"), eq("/queue/message-deletions"), eventCaptor.capture());
-        verify(messagingTemplate).convertAndSendToUser(eq("alice"), eq("/queue/message-deletions"), any(MessageDeletionEventResponse.class));
+        verify(realtimeMessagingGateway).sendToUser(eq("north"), eq("/queue/message-deletions"), eventCaptor.capture());
+        verify(realtimeMessagingGateway).sendToUser(eq("alice"), eq("/queue/message-deletions"), any(MessageDeletionEventResponse.class));
         verify(chatMessageRepository).delete(message);
         verify(chatService).notifyChatUpdated(chatId);
         assertThat(eventCaptor.getValue().messageId()).isEqualTo(messageId);

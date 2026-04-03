@@ -5,10 +5,10 @@ import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.chat.ChatService;
 import com.north.messenger.domain.model.UserAccount;
 import java.time.Instant;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -21,15 +21,23 @@ class TypingServiceTest {
 
     private AuthService authService;
     private ChatService chatService;
-    private SimpMessagingTemplate messagingTemplate;
+    private RealtimeMessagingGateway realtimeMessagingGateway;
+    private TypingStateStore typingStateStore;
     private TypingService typingService;
 
     @BeforeEach
     void setUp() {
         authService = mock(AuthService.class);
         chatService = mock(ChatService.class);
-        messagingTemplate = mock(SimpMessagingTemplate.class);
-        typingService = new TypingService(authService, chatService, messagingTemplate);
+        realtimeMessagingGateway = mock(RealtimeMessagingGateway.class);
+        typingStateStore = mock(TypingStateStore.class);
+        typingService = new TypingService(
+                authService,
+                chatService,
+                realtimeMessagingGateway,
+                typingStateStore,
+                10_000
+        );
     }
 
     @Test
@@ -54,7 +62,8 @@ class TypingServiceTest {
         typingService.publishTyping(chatId, "north", true);
 
         verify(chatService).requireChatMembership(chatId, user);
-        verify(messagingTemplate).convertAndSend(eq("/topic/chats." + chatId + ".typing"), any(Object.class));
+        verify(typingStateStore).markTyping(eq(chatId), eq(user.getId()), any(Instant.class));
+        verify(realtimeMessagingGateway).sendToTopic(eq("/topic/chats." + chatId + ".typing"), any(Object.class));
     }
 
     @Test
@@ -77,6 +86,7 @@ class TypingServiceTest {
         when(authService.requireAuthenticatedUser("north")).thenReturn(viewer);
         when(authService.requireAuthenticatedUser("user2")).thenReturn(otherUser);
         when(chatService.findParticipants(chatId)).thenReturn(java.util.List.of(viewer, otherUser));
+        when(typingStateStore.listTypingUserIds(eq(chatId), any(Instant.class))).thenReturn(Set.of(otherUser.getId()));
         when(authService.toParticipant(otherUser)).thenReturn(new ParticipantResponse(
                 otherUser.getId(),
                 otherUser.getUsername(),
@@ -84,8 +94,6 @@ class TypingServiceTest {
                 null,
                 true
         ));
-
-        typingService.publishTyping(chatId, "user2", true);
 
         assertThat(typingService.listTypingParticipants(chatId, "north"))
                 .extracting(ParticipantResponse::id)
@@ -112,6 +120,7 @@ class TypingServiceTest {
         when(authService.requireAuthenticatedUser("north")).thenReturn(viewer);
         when(authService.requireAuthenticatedUser("user2")).thenReturn(otherUser);
         when(chatService.findParticipants(chatId)).thenReturn(java.util.List.of(viewer, otherUser));
+        when(typingStateStore.listTypingUserIds(eq(chatId), any(Instant.class))).thenReturn(Set.of());
         when(authService.toParticipant(otherUser)).thenReturn(new ParticipantResponse(
                 otherUser.getId(),
                 otherUser.getUsername(),
@@ -120,9 +129,9 @@ class TypingServiceTest {
                 true
         ));
 
-        typingService.publishTyping(chatId, "user2", true);
         typingService.purgeExpiredTypingEntries(Instant.now().plusSeconds(30));
 
+        verify(typingStateStore).purgeExpiredEntries(any(Instant.class));
         assertThat(typingService.listTypingParticipants(chatId, "north")).isEmpty();
     }
 }

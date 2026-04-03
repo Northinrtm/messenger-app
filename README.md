@@ -57,6 +57,7 @@ The current repository state is focused on direct chats, group chats, E2EE text 
 - delete own message for everyone in groups
 - realtime delivery through `WebSocket/STOMP`
 - HTTP fallback kept only for the remaining sensitive flows where needed
+- Redis-backed websocket fan-out is available for production scale-out
 
 ### Video conferences
 
@@ -100,14 +101,17 @@ Important limitations:
 
 - this is not a hardened high-assurance messenger yet
 - metadata is still visible to the server: participants, timestamps, receipts, typing, chat membership
-- realtime fan-out and typing are currently designed for a single backend instance, not horizontal scale-out
+- message storage is still monolithic PostgreSQL on a single primary node
+- conference/media stack still shares the same host unless you split it operationally
 
 ## Realtime Model
 
 - one long-lived `WebSocket/STOMP` connection per client session
 - message send path is realtime-first
 - message acknowledgement uses `clientMessageId`
-- chat list and message list still perform periodic sync to avoid stale UI state
+- Redis pub/sub can fan-out outbound websocket events across backend instances
+- typing state uses short-lived TTL entries and can be shared through Redis
+- chat list and message list still perform recovery sync, but polling has been reduced when realtime is healthy
 - typing is short-lived state with TTL and WebSocket-only transport
 
 ## Observability
@@ -163,6 +167,7 @@ Production note:
 - Grafana is intended to be published through `https://<APP_DOMAIN>/observability/`
 - Prometheus, Tempo, Postgres exporter, and the OTLP collector stay internal to the Docker network
 - traces are viewed through `Grafana -> Explore -> Tempo`
+- production compose also includes Redis for shared realtime state and fan-out
 
 ## Video Conference Notes
 
@@ -183,7 +188,7 @@ For autonomous recording:
 - file attachments and media uploads
 - push notifications
 - distributed presence / last seen service
-- external message broker for horizontal realtime scale
+- external durable event bus such as Kafka for large-scale asynchronous pipelines
 - true server-side Jitsi JWT admission control
 
 ## Project Layout
@@ -224,7 +229,7 @@ Services:
 Optional Redis profile:
 
 ```bash
-docker compose --profile redis up --build
+APP_REALTIME_REDIS_ENABLED=true docker compose --profile redis up --build
 ```
 
 Autonomous recording profile:
@@ -263,7 +268,7 @@ docker compose up -d postgres
 Optional Redis:
 
 ```bash
-docker compose --profile redis up -d redis
+APP_REALTIME_REDIS_ENABLED=true docker compose --profile redis up -d redis
 ```
 
 Run backend:
