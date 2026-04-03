@@ -5,6 +5,7 @@ import com.north.messenger.api.dto.LoginRequest;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.UserContact;
 import com.north.messenger.domain.model.UserSession;
+import com.north.messenger.domain.repository.ChatRoomRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import com.north.messenger.domain.repository.UserContactRepository;
 import com.north.messenger.domain.repository.UserSessionRepository;
@@ -29,6 +30,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AuthServiceTest {
@@ -36,6 +39,7 @@ class AuthServiceTest {
     private UserAccountRepository userAccountRepository;
     private UserContactRepository userContactRepository;
     private UserSessionRepository userSessionRepository;
+    private ChatRoomRepository chatRoomRepository;
     private PasswordEncoder passwordEncoder;
     private PasswordPolicyService passwordPolicyService;
     private JwtService jwtService;
@@ -47,6 +51,7 @@ class AuthServiceTest {
         userAccountRepository = mock(UserAccountRepository.class);
         userContactRepository = mock(UserContactRepository.class);
         userSessionRepository = mock(UserSessionRepository.class);
+        chatRoomRepository = mock(ChatRoomRepository.class);
         passwordEncoder = mock(PasswordEncoder.class);
         passwordPolicyService = mock(PasswordPolicyService.class);
         jwtService = mock(JwtService.class);
@@ -55,6 +60,7 @@ class AuthServiceTest {
                 userAccountRepository,
                 userContactRepository,
                 userSessionRepository,
+                chatRoomRepository,
                 passwordEncoder,
                 passwordPolicyService,
                 jwtService,
@@ -154,6 +160,43 @@ class AuthServiceTest {
         authService.revokeSession("north", session.getId());
 
         assertThat(session.getRevokedAt()).isNotNull();
+    }
+
+    @Test
+    void deleteAccountShouldRemoveUserCleanupChatsAndRevokeSessions() {
+        UserAccount user = userAccount("north");
+        UserSession firstSession = new UserSession(
+                UUID.randomUUID(),
+                user.getId(),
+                sha256Hex("first-secret"),
+                Instant.now().minus(Duration.ofHours(2)),
+                Instant.now().minus(Duration.ofMinutes(10)),
+                Instant.now().plus(Duration.ofDays(1)),
+                "Desktop",
+                null
+        );
+        UserSession secondSession = new UserSession(
+                UUID.randomUUID(),
+                user.getId(),
+                sha256Hex("second-secret"),
+                Instant.now().minus(Duration.ofHours(1)),
+                Instant.now().minus(Duration.ofMinutes(5)),
+                Instant.now().plus(Duration.ofDays(1)),
+                "Mobile",
+                null
+        );
+
+        when(userAccountRepository.findByUsernameIgnoreCase("north")).thenReturn(Optional.of(user));
+        when(userSessionRepository.findAllByUserIdAndRevokedAtIsNullOrderByLastUsedAtDesc(user.getId()))
+                .thenReturn(java.util.List.of(firstSession, secondSession));
+
+        authService.deleteAccount("north");
+
+        verify(userAccountRepository).delete(user);
+        verify(userAccountRepository).flush();
+        verify(chatRoomRepository).deleteDirectRoomsWithFewerThanTwoParticipants();
+        verify(chatRoomRepository).deleteRoomsWithoutParticipants();
+        verify(eventPublisher, times(2)).publishEvent(any(SessionRevokedEvent.class));
     }
 
     @Test

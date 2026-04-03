@@ -233,6 +233,14 @@ export function updateProfileAvatar(token: string, avatarUrl: string | null) {
   });
 }
 
+export function deleteOwnAccount(token: string) {
+  return request<void>("/api/auth/me", {
+    method: "DELETE",
+    token,
+    timeoutMs: 10000,
+  });
+}
+
 export function revokeSession(token: string, sessionId: string) {
   return request<void>(`/api/auth/sessions/${sessionId}`, {
     method: "DELETE",

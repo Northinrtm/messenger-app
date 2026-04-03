@@ -24,6 +24,7 @@ import {
   addConferenceParticipants as addConferenceParticipantsRequest,
   addGroupParticipants,
   createVideoConference as createVideoConferenceRequest,
+  deleteOwnAccount as deleteOwnAccountRequest,
   deleteChat as deleteChatRequest,
   deleteMessage as deleteMessageRequest,
   endVideoConference as endVideoConferenceRequest,
@@ -255,6 +256,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const [conferenceParticipantUsernames, setConferenceParticipantUsernames] = useState<string[]>([]);
   const [conferenceInviteUsernames, setConferenceInviteUsernames] = useState<string[]>([]);
   const [profileDisplayName, setProfileDisplayName] = useState(session.user.displayName);
+  const [deleteAccountConfirmation, setDeleteAccountConfirmation] = useState("");
   const [groupParticipantUsernames, setGroupParticipantUsernames] = useState<string[]>([]);
   const [groupInviteUsernames, setGroupInviteUsernames] = useState<string[]>([]);
   const [isGroupCreatePickerOpen, setIsGroupCreatePickerOpen] = useState(false);
@@ -400,6 +402,9 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const chats = applyChatPreviewOverrides(serverChats, chatPreviewOverrides);
   const sessions = sessionsQuery.data ?? [];
   const profile = profileQuery.data ?? session.user;
+  const deleteAccountRequiresMatch =
+    normalizeAccountDeletionConfirmation(deleteAccountConfirmation) ===
+    profile.username.toLowerCase();
   const archivedChatIds = archivedChatsQuery.data ?? [];
   const contacts = contactsQuery.data ?? [];
   const conferences = conferencesQuery.data ?? [];
@@ -1176,6 +1181,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   );
 
   const openSidebarSheet = useEffectEvent((sheet: Exclude<SidebarSheet, null>) => {
+    setDeleteAccountConfirmation("");
     setSidebarSheet(sheet);
     setIsMenuOpen(false);
     setMobilePane("sidebar");
@@ -2475,6 +2481,14 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     },
   });
 
+  const deleteAccountMutation = useMutation({
+    mutationFn: () => deleteOwnAccountRequest(session.token),
+    onSuccess: () => {
+      queryClient.clear();
+      onSessionChange(null);
+    },
+  });
+
   const updateArchivedChatMutation = useMutation({
     mutationFn: ({ chatId, archived }: { chatId: string; archived: boolean }) =>
       updateArchivedChat(session.token, chatId, archived),
@@ -2725,6 +2739,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     revokeSessionMutation.error,
     updateProfileMutation.error,
     avatarMutation.error,
+    deleteAccountMutation.error,
     updateArchivedChatMutation.error,
     deleteChatMutation.error,
     deleteMessageMutation.error,
@@ -3820,6 +3835,32 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                   <div className="profile-line">
                     <span className="profile-label">Создан</span>
                     <span>{formatProfileDate(profile.createdAt)}</span>
+                  </div>
+                  <div className="profile-danger-card">
+                    <div className="profile-danger-copy">
+                      <span className="profile-label">Удаление аккаунта</span>
+                      <strong>Это действие необратимо.</strong>
+                      <p>
+                        Все сессии будут завершены, а профиль и связанные данные будут удалены.
+                        Введите @{profile.username}, чтобы подтвердить операцию.
+                      </p>
+                    </div>
+                    <input
+                      value={deleteAccountConfirmation}
+                      onChange={(event) => setDeleteAccountConfirmation(event.target.value)}
+                      placeholder={`@${profile.username}`}
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                    />
+                    <button
+                      type="button"
+                      className="secondary-button danger-button"
+                      disabled={deleteAccountMutation.isPending || !deleteAccountRequiresMatch}
+                      onClick={() => deleteAccountMutation.mutate()}
+                    >
+                      {deleteAccountMutation.isPending ? "Удаляем аккаунт..." : "Удалить аккаунт"}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -5777,5 +5818,11 @@ function toggleUsernameSelection(usernames: string[], username: string) {
   return usernames.includes(username)
     ? usernames.filter((item) => item !== username)
     : [...usernames, username];
+}
+
+function normalizeAccountDeletionConfirmation(value: string) {
+  const trimmed = value.trim();
+  const normalized = trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
+  return normalized.trim().toLowerCase();
 }
 

@@ -97,6 +97,13 @@ public class AuthController {
         return authService.updateAvatar(authentication.getName(), request.avatarUrl());
     }
 
+    @DeleteMapping("/me")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteAccount(Authentication authentication, HttpServletResponse httpResponse) {
+        authService.deleteAccount(authentication.getName());
+        refreshTokenCookieService.clear(httpResponse);
+    }
+
     @GetMapping("/sessions")
     public List<UserSessionResponse> listSessions(Authentication authentication) {
         return authService.listSessions(authentication.getName());

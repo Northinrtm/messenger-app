@@ -9,6 +9,7 @@ import com.north.messenger.api.dto.UserProfileResponse;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.UserContact;
 import com.north.messenger.domain.model.UserSession;
+import com.north.messenger.domain.repository.ChatRoomRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import com.north.messenger.domain.repository.UserContactRepository;
 import com.north.messenger.domain.repository.UserSessionRepository;
@@ -50,6 +51,7 @@ public class AuthService {
     private final UserAccountRepository userAccountRepository;
     private final UserContactRepository userContactRepository;
     private final UserSessionRepository userSessionRepository;
+    private final ChatRoomRepository chatRoomRepository;
     private final PasswordEncoder passwordEncoder;
     private final PasswordPolicyService passwordPolicyService;
     private final JwtService jwtService;
@@ -59,6 +61,7 @@ public class AuthService {
             UserAccountRepository userAccountRepository,
             UserContactRepository userContactRepository,
             UserSessionRepository userSessionRepository,
+            ChatRoomRepository chatRoomRepository,
             PasswordEncoder passwordEncoder,
             PasswordPolicyService passwordPolicyService,
             JwtService jwtService,
@@ -67,6 +70,7 @@ public class AuthService {
         this.userAccountRepository = userAccountRepository;
         this.userContactRepository = userContactRepository;
         this.userSessionRepository = userSessionRepository;
+        this.chatRoomRepository = chatRoomRepository;
         this.passwordEncoder = passwordEncoder;
         this.passwordPolicyService = passwordPolicyService;
         this.jwtService = jwtService;
@@ -135,6 +139,23 @@ public class AuthService {
                         notifySessionRevoked(user.getUsername(), session.getId());
                     }
                 });
+    }
+
+    @Transactional
+    public void deleteAccount(String username) {
+        UserAccount currentUser = requireAuthenticatedUser(username);
+        List<UUID> activeSessionIds = userSessionRepository
+                .findAllByUserIdAndRevokedAtIsNullOrderByLastUsedAtDesc(currentUser.getId())
+                .stream()
+                .map(UserSession::getId)
+                .toList();
+
+        userAccountRepository.delete(currentUser);
+        userAccountRepository.flush();
+        chatRoomRepository.deleteDirectRoomsWithFewerThanTwoParticipants();
+        chatRoomRepository.deleteRoomsWithoutParticipants();
+
+        activeSessionIds.forEach(sessionId -> notifySessionRevoked(currentUser.getUsername(), sessionId));
     }
 
     public UserProfileResponse me(String username) {
