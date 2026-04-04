@@ -251,7 +251,7 @@ services:
     container_name: messenger-tempo
     restart: unless-stopped
     cpus: 0.5
-    mem_limit: 256m
+    mem_limit: 512m
     command:
       - "-config.file=/etc/tempo/tempo.yml"
     volumes:
@@ -281,10 +281,10 @@ services:
     environment:
       APP_ACTUATOR_SCRAPE_USERNAME: ${APP_ACTUATOR_SCRAPE_USERNAME:-prometheus}
       APP_ACTUATOR_SCRAPE_PASSWORD: ${APP_ACTUATOR_SCRAPE_PASSWORD:-prometheus}
-    command:
+    entrypoint:
       - /bin/sh
       - -ec
-      - |
+    command: |
         escape_sed_replacement() {
           printf '%s' "$$1" | sed -e 's/[&|\\]/\\&/g'
         }
@@ -318,10 +318,10 @@ services:
     mem_limit: 128m
     environment:
       ALERTMANAGER_WEBHOOK_URL: ${ALERTMANAGER_WEBHOOK_URL:-}
-    command:
+    entrypoint:
       - /bin/sh
       - -ec
-      - |
+    command: |
         /bin/sh /etc/alertmanager/render-config.sh /tmp/alertmanager.yml
         exec /bin/alertmanager \
           --config.file=/tmp/alertmanager.yml \
