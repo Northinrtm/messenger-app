@@ -126,7 +126,7 @@ Important limitations:
 - `Spring Boot Actuator` is enabled
 - health endpoint: `/actuator/health`
 - Prometheus scrape endpoint: `/actuator/prometheus`
-- production observability stack includes:
+- optional production observability profile includes:
   - `Prometheus`
   - `Grafana`
   - `Tempo`
@@ -174,6 +174,7 @@ Current note:
 - `/actuator/prometheus` is protected with internal basic auth for Prometheus scrape
 - `edge` blocks external `/actuator/*` requests, so metrics stay off the public internet
 - backend logs include `traceId` / `spanId` correlation and run in structured JSON in production
+- on small hosts, observability should stay disabled by default and be enabled only for short diagnostic windows
 
 Production note:
 
@@ -181,7 +182,9 @@ Production note:
 - Prometheus, Tempo, Alertmanager, Loki, Promtail, Postgres exporter, and the OTLP collector stay internal to the Docker network
 - traces are viewed through `Grafana -> Explore -> Tempo`
 - logs are viewed through `Grafana -> Explore -> Loki`
-- production compose also includes Redis for shared realtime state and fan-out
+- production compose always includes Redis for shared realtime state and fan-out
+- on `2 GB RAM` servers, keep `ENABLE_OBSERVABILITY_STACK=false` and `MANAGEMENT_TRACING_ENABLED=false`
+- the default core production memory budget is intentionally kept around `1.5 GB` to leave headroom for the OS and Docker daemon
 
 ## Video Conference Notes
 
@@ -342,6 +345,8 @@ Use:
 - in production it must be a valid Base64 secret with at least 32 bytes after decoding
 - set `APP_ACTUATOR_SCRAPE_USERNAME` and `APP_ACTUATOR_SCRAPE_PASSWORD` for internal Prometheus auth
 - if they are omitted, production compose falls back to `prometheus/prometheus`; override them explicitly on any non-trivial deployment
+- leave `ENABLE_OBSERVABILITY_STACK=false` on small servers unless you intentionally want to spend RAM on Grafana/Prometheus/Tempo/Loki
+- leave `MANAGEMENT_TRACING_ENABLED=false` on small servers unless the observability stack is enabled
 - set `ALERTMANAGER_WEBHOOK_URL` if you want Alertmanager notifications to leave the server
 - use `docker-compose.prod.yml` with `.env.prod`
 - refresh cookie secure mode is expected in production

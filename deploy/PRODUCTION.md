@@ -50,12 +50,16 @@ The workflow uploads `deploy/remote-update.sh` and runs it on the server.
 1. verify the server checkout is clean
 2. fast-forward `main`
 3. rebuild `web`, `backend`, and `edge`
-4. recreate those services plus observability services
-5. print `docker compose ps`
+4. recreate the default lightweight runtime stack: `web`, `backend`, `edge`, and `redis`
+5. stop and remove observability containers unless `ENABLE_OBSERVABILITY_STACK=true`
+6. print `docker compose ps`
+
+This default deploy path is intentional for small hosts such as `2 vCPU / 2 GB RAM`.
+It keeps the core app running and avoids spending scarce memory on Grafana/Prometheus/Tempo/Loki by default.
 
 ## Observability
 
-Production observability runs on the same server with these internal services:
+Optional production observability can run on the same server with these internal services:
 
 - `prometheus`
 - `grafana`
@@ -76,6 +80,8 @@ Required `.env.prod` values:
 - `GRAFANA_ADMIN_PASSWORD`
 - `APP_ACTUATOR_SCRAPE_USERNAME`
 - `APP_ACTUATOR_SCRAPE_PASSWORD`
+- `ENABLE_OBSERVABILITY_STACK=true`
+- `MANAGEMENT_TRACING_ENABLED=true`
 - `MANAGEMENT_TRACING_SAMPLING_PROBABILITY`
 - `MANAGEMENT_OTLP_TRACING_ENDPOINT`
 - `ALERTMANAGER_WEBHOOK_URL` if you want external alert delivery
@@ -85,6 +91,13 @@ That is acceptable only as a bootstrap/default; set explicit values in `.env.pro
 
 Production backend logs run in JSON mode and are shipped into Loki by Promtail.
 Alertmanager is part of the stack and can forward alerts through `ALERTMANAGER_WEBHOOK_URL`.
+
+Recommended memory policy on a `2 GB RAM` VPS:
+
+- keep `ENABLE_OBSERVABILITY_STACK=false`
+- keep `MANAGEMENT_TRACING_ENABLED=false`
+- use observability only temporarily during diagnostics
+- plan a bigger host before keeping Grafana, Prometheus, Tempo, Loki, and Jitsi active together
 
 ## Emergency manual deploy
 

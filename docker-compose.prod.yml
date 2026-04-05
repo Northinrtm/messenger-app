@@ -3,8 +3,18 @@ services:
     image: postgres:17
     container_name: messenger-postgres
     restart: unless-stopped
-    cpus: 1.0
-    mem_limit: 768m
+    cpus: 0.5
+    mem_limit: 256m
+    command:
+      - postgres
+      - -c
+      - shared_buffers=64MB
+      - -c
+      - work_mem=4MB
+      - -c
+      - maintenance_work_mem=32MB
+      - -c
+      - effective_cache_size=128MB
     environment:
       POSTGRES_DB: messenger
       POSTGRES_USER: messenger
@@ -22,8 +32,19 @@ services:
     container_name: messenger-redis
     restart: unless-stopped
     cpus: 0.25
-    mem_limit: 128m
-    command: redis-server --save 60 1 --loglevel warning
+    mem_limit: 64m
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - 48mb
+      - --maxmemory-policy
+      - allkeys-lru
+      - --loglevel
+      - warning
     volumes:
       - redis_data:/data
     healthcheck:
@@ -36,6 +57,8 @@ services:
     image: jitsi/prosody:stable
     container_name: messenger-jitsi-prosody
     restart: unless-stopped
+    cpus: 0.25
+    mem_limit: 96m
     hostname: xmpp.meet.jitsi
     environment:
       ENABLE_AUTH: "0"
@@ -71,6 +94,8 @@ services:
     image: jitsi/jicofo:stable
     container_name: messenger-jitsi-jicofo
     restart: unless-stopped
+    cpus: 0.25
+    mem_limit: 128m
     depends_on:
       - jitsi-prosody
     environment:
@@ -100,6 +125,8 @@ services:
     image: jitsi/jvb:stable
     container_name: messenger-jitsi-jvb
     restart: unless-stopped
+    cpus: 0.5
+    mem_limit: 256m
     depends_on:
       - jitsi-prosody
     environment:
@@ -127,6 +154,8 @@ services:
     image: jitsi/web:stable
     container_name: messenger-jitsi-web
     restart: unless-stopped
+    cpus: 0.25
+    mem_limit: 96m
     depends_on:
       - jitsi-prosody
       - jitsi-jicofo
@@ -196,10 +225,11 @@ services:
       context: ./backend
     container_name: messenger-backend
     restart: unless-stopped
-    cpus: 1.0
-    mem_limit: 1024m
+    cpus: 0.75
+    mem_limit: 384m
     environment:
       SPRING_PROFILES_ACTIVE: prod,json-logs
+      JAVA_TOOL_OPTIONS: -XX:InitialRAMPercentage=20 -XX:MaxRAMPercentage=55 -XX:MaxMetaspaceSize=96m -XX:ReservedCodeCacheSize=48m -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError
       SERVER_PORT: 8080
       DB_URL: ${DB_URL:-jdbc:postgresql://postgres:5432/messenger}
       DB_USERNAME: ${DB_USERNAME:-messenger}
@@ -213,7 +243,8 @@ services:
       APP_AUTH_REFRESH_COOKIE_SECURE: ${APP_AUTH_REFRESH_COOKIE_SECURE:-true}
       APP_ACTUATOR_SCRAPE_USERNAME: ${APP_ACTUATOR_SCRAPE_USERNAME:-prometheus}
       APP_ACTUATOR_SCRAPE_PASSWORD: ${APP_ACTUATOR_SCRAPE_PASSWORD:-prometheus}
-      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: ${MANAGEMENT_TRACING_SAMPLING_PROBABILITY:-0.2}
+      MANAGEMENT_TRACING_ENABLED: ${MANAGEMENT_TRACING_ENABLED:-false}
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: ${MANAGEMENT_TRACING_SAMPLING_PROBABILITY:-0.05}
       MANAGEMENT_OTLP_TRACING_ENDPOINT: ${MANAGEMENT_OTLP_TRACING_ENDPOINT:-http://otel-collector:4318/v1/traces}
       APP_MEDIA_CONFERENCE_RECORDINGS_DIRECTORY: /app/storage/conference-recordings
       APP_MEDIA_CONFERENCE_RECORDINGS_IMPORT_DIRECTORY: /jibri-recordings
@@ -234,10 +265,12 @@ services:
 
   postgres-exporter:
     image: quay.io/prometheuscommunity/postgres-exporter:latest
+    profiles:
+      - observability
     container_name: messenger-postgres-exporter
     restart: unless-stopped
     cpus: 0.25
-    mem_limit: 128m
+    mem_limit: 64m
     depends_on:
       postgres:
         condition: service_healthy
@@ -248,10 +281,12 @@ services:
 
   tempo:
     image: mirror.gcr.io/grafana/tempo:2.9.0
+    profiles:
+      - observability
     container_name: messenger-tempo
     restart: unless-stopped
-    cpus: 0.5
-    mem_limit: 512m
+    cpus: 0.25
+    mem_limit: 192m
     command:
       - "-config.file=/etc/tempo/tempo.yml"
     volumes:
@@ -260,10 +295,12 @@ services:
 
   otel-collector:
     image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.139.0
+    profiles:
+      - observability
     container_name: messenger-otel-collector
     restart: unless-stopped
-    cpus: 0.5
-    mem_limit: 256m
+    cpus: 0.25
+    mem_limit: 128m
     command:
       - "--config=/etc/otelcol-contrib/config.yaml"
     depends_on:
@@ -274,10 +311,12 @@ services:
 
   prometheus:
     image: mirror.gcr.io/prom/prometheus:v3.5.0
+    profiles:
+      - observability
     container_name: messenger-prometheus
     restart: unless-stopped
-    cpus: 0.5
-    mem_limit: 256m
+    cpus: 0.25
+    mem_limit: 192m
     environment:
       APP_ACTUATOR_SCRAPE_USERNAME: ${APP_ACTUATOR_SCRAPE_USERNAME:-prometheus}
       APP_ACTUATOR_SCRAPE_PASSWORD: ${APP_ACTUATOR_SCRAPE_PASSWORD:-prometheus}
@@ -299,10 +338,12 @@ services:
 
   alertmanager:
     image: mirror.gcr.io/prom/alertmanager:v0.28.1
+    profiles:
+      - observability
     container_name: messenger-alertmanager
     restart: unless-stopped
     cpus: 0.25
-    mem_limit: 128m
+    mem_limit: 64m
     environment:
       ALERTMANAGER_WEBHOOK_URL: ${ALERTMANAGER_WEBHOOK_URL:-}
     entrypoint:
@@ -316,10 +357,12 @@ services:
 
   loki:
     image: mirror.gcr.io/grafana/loki:3.1.1
+    profiles:
+      - observability
     container_name: messenger-loki
     restart: unless-stopped
-    cpus: 0.5
-    mem_limit: 256m
+    cpus: 0.25
+    mem_limit: 192m
     command:
       - "-config.file=/etc/loki/config.yml"
     volumes:
@@ -328,10 +371,12 @@ services:
 
   promtail:
     image: mirror.gcr.io/grafana/promtail:3.1.1
+    profiles:
+      - observability
     container_name: messenger-promtail
     restart: unless-stopped
     cpus: 0.25
-    mem_limit: 128m
+    mem_limit: 64m
     command:
       - "-config.file=/etc/promtail/config.yml"
     depends_on:
@@ -344,10 +389,12 @@ services:
 
   grafana:
     image: mirror.gcr.io/grafana/grafana:10.3.0
+    profiles:
+      - observability
     container_name: messenger-grafana
     restart: unless-stopped
-    cpus: 0.5
-    mem_limit: 256m
+    cpus: 0.25
+    mem_limit: 128m
     depends_on:
       prometheus:
         condition: service_started
@@ -378,8 +425,8 @@ services:
         VITE_JITSI_BASE_URL: ${JITSI_PUBLIC_URL:?JITSI_PUBLIC_URL must be set}
     container_name: messenger-web
     restart: unless-stopped
-    cpus: 0.5
-    mem_limit: 256m
+    cpus: 0.25
+    mem_limit: 128m
     depends_on:
       backend:
         condition: service_healthy
@@ -396,14 +443,12 @@ services:
     image: caddy:2.9-alpine
     container_name: messenger-edge
     restart: unless-stopped
-    cpus: 0.5
-    mem_limit: 128m
+    cpus: 0.25
+    mem_limit: 96m
     depends_on:
       web:
         condition: service_healthy
       jitsi-web:
-        condition: service_started
-      grafana:
         condition: service_started
     environment:
       APP_DOMAIN: ${APP_DOMAIN:?APP_DOMAIN must be set}

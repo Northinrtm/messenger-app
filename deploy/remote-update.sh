@@ -5,7 +5,9 @@ APP_DIR="${1:-/opt/messenger-app}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 ENV_FILE="${ENV_FILE:-.env.prod}"
 BUILD_SERVICES="${BUILD_SERVICES:-web backend edge}"
-RUNTIME_SERVICES="${RUNTIME_SERVICES:-web backend edge redis postgres-exporter tempo otel-collector alertmanager loki promtail prometheus grafana}"
+RUNTIME_SERVICES="${RUNTIME_SERVICES:-web backend edge redis}"
+OBSERVABILITY_SERVICES="${OBSERVABILITY_SERVICES:-postgres-exporter tempo otel-collector alertmanager loki promtail prometheus grafana}"
+ENABLE_OBSERVABILITY_STACK="${ENABLE_OBSERVABILITY_STACK:-false}"
 STATUS_FILE="${DEPLOY_STATUS_FILE:-}"
 
 if [[ -n "$STATUS_FILE" ]]; then
@@ -36,4 +38,12 @@ git pull --ff-only origin main
 
 "${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build $BUILD_SERVICES
 "${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --no-deps --force-recreate $RUNTIME_SERVICES
+
+if [[ "$ENABLE_OBSERVABILITY_STACK" == "true" ]]; then
+  "${compose_cmd[@]}" --profile observability -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --no-deps --force-recreate $OBSERVABILITY_SERVICES
+else
+  "${compose_cmd[@]}" --profile observability -f "$COMPOSE_FILE" --env-file "$ENV_FILE" stop $OBSERVABILITY_SERVICES >/dev/null 2>&1 || true
+  "${compose_cmd[@]}" --profile observability -f "$COMPOSE_FILE" --env-file "$ENV_FILE" rm -f $OBSERVABILITY_SERVICES >/dev/null 2>&1 || true
+fi
+
 "${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps
