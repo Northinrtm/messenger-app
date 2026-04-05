@@ -302,10 +302,13 @@ public class ChatService {
         ChatRoom room = chatRoomRepository.findById(chatId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Chat not found"));
         List<ChatParticipant> memberships = chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId);
+        List<UUID> participantUserIds = memberships.stream()
+                .map(ChatParticipant::getUserId)
+                .toList();
         Map<UUID, UserAccount> usersById = findUsersById(
-                memberships.stream().map(ChatParticipant::getUserId).toList()
+                participantUserIds
         );
-        Map<UUID, Boolean> onlineByUserId = authService.resolveOnlineByUserIds(usersById.keySet());
+        Map<UUID, Boolean> onlineByUserId = authService.resolveOnlineByUserIds(participantUserIds);
         List<ParticipantResponse> members = buildParticipantResponses(memberships, usersById, onlineByUserId);
         Map<UUID, Integer> unreadCountsByUserId = loadUnreadCountsForUsers(chatId);
         List<UserDeletedChat> deletedChatEntries = userDeletedChatRepository.findAllByChatId(chatId);
@@ -382,10 +385,13 @@ public class ChatService {
 
     private ChatSummaryResponse toSummary(ChatRoom room, UUID currentUserId, int unreadCount) {
         List<ChatParticipant> memberships = chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(room.getId());
+        List<UUID> participantUserIds = memberships.stream()
+                .map(ChatParticipant::getUserId)
+                .toList();
         Map<UUID, UserAccount> usersById = findUsersById(
-                memberships.stream().map(ChatParticipant::getUserId).toList()
+                participantUserIds
         );
-        Map<UUID, Boolean> onlineByUserId = authService.resolveOnlineByUserIds(usersById.keySet());
+        Map<UUID, Boolean> onlineByUserId = authService.resolveOnlineByUserIds(participantUserIds);
         return toSummary(
                 room,
                 currentUserId,
