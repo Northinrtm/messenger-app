@@ -24,6 +24,8 @@ import org.springframework.stereotype.Component;
 public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
 
     private static final String CHAT_TOPIC_PREFIX = "/topic/chats.";
+    private static final String SESSION_AUTHENTICATION_ATTRIBUTE =
+            WebSocketAuthChannelInterceptor.class.getName() + ".AUTHENTICATION";
     private static final Logger log = LoggerFactory.getLogger(WebSocketAuthChannelInterceptor.class);
 
     private final AuthService authService;
@@ -72,19 +74,28 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
         );
 
         accessor.setUser(authentication);
+        storeAuthentication(accessor, authentication);
         return MessageBuilder.createMessage(message.getPayload(), accessor.getMessageHeaders());
     }
 
     private Message<?> authorizeSubscription(Message<?> message, StompHeaderAccessor accessor) {
         Principal principal = accessor.getUser();
+        boolean principalRestored = false;
+        if (principal == null) {
+            principal = restorePrincipal(accessor);
+            principalRestored = principal != null;
+        }
         if (principal == null) {
             log.warn("Dropping websocket subscription without principal destination={}", accessor.getDestination());
             return null;
         }
 
+        Message<?> authorizedMessage = principalRestored
+                ? MessageBuilder.createMessage(message.getPayload(), accessor.getMessageHeaders())
+                : message;
         String destination = accessor.getDestination();
         if (destination == null || !destination.startsWith(CHAT_TOPIC_PREFIX)) {
-            return message;
+            return authorizedMessage;
         }
 
         UUID chatId;
@@ -110,7 +121,27 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
             return null;
         }
 
-        return message;
+        return authorizedMessage;
+    }
+
+    private void storeAuthentication(StompHeaderAccessor accessor, Principal principal) {
+        if (accessor.getSessionAttributes() != null) {
+            accessor.getSessionAttributes().put(SESSION_AUTHENTICATION_ATTRIBUTE, principal);
+        }
+    }
+
+    private Principal restorePrincipal(StompHeaderAccessor accessor) {
+        if (accessor.getSessionAttributes() == null) {
+            return null;
+        }
+
+        Object sessionAuthentication = accessor.getSessionAttributes().get(SESSION_AUTHENTICATION_ATTRIBUTE);
+        if (!(sessionAuthentication instanceof Principal restoredPrincipal)) {
+            return null;
+        }
+
+        accessor.setUser(restoredPrincipal);
+        return restoredPrincipal;
     }
 
     private UUID extractChatId(String destination) {
