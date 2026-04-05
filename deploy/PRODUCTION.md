@@ -49,10 +49,12 @@ The workflow uploads `deploy/remote-update.sh` and runs it on the server.
 
 1. verify the server checkout is clean
 2. fast-forward `main`
-3. rebuild `web`, `backend`, and `edge`
-4. recreate the default lightweight runtime stack: `web`, `backend`, `edge`, and `redis`
-5. stop and remove observability containers unless `ENABLE_OBSERVABILITY_STACK=true`
-6. print `docker compose ps`
+3. validate the production compose config against `.env.prod`
+4. rebuild `web`, `backend`, and `edge`
+5. ensure the required support services are running: `postgres`, `redis`, `jitsi-prosody`, `jitsi-jicofo`, `jitsi-jvb`, and `jitsi-web`
+6. recreate the deploy-time application runtime: `web`, `backend`, and `edge`
+7. stop and remove observability containers unless `ENABLE_OBSERVABILITY_STACK=true`
+8. print `docker compose ps`
 
 This default deploy path is intentional for small hosts such as `2 vCPU / 2 GB RAM`.
 It keeps the core app running and avoids spending scarce memory on Grafana/Prometheus/Tempo/Loki by default.
@@ -90,6 +92,7 @@ If the Prometheus scrape credentials are omitted, production compose falls back 
 That is acceptable only as a bootstrap/default; set explicit values in `.env.prod` for a real deployment.
 
 Production backend logs run in JSON mode and are shipped into Loki by Promtail.
+Production Docker logs use bounded `json-file` rotation controlled by `DOCKER_LOG_MAX_SIZE` and `DOCKER_LOG_MAX_FILE`.
 Alertmanager is part of the stack and can forward alerts through `ALERTMANAGER_WEBHOOK_URL`.
 
 Recommended memory policy on a `2 GB RAM` VPS:

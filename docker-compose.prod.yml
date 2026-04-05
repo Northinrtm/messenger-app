@@ -1,8 +1,15 @@
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "${DOCKER_LOG_MAX_SIZE:-10m}"
+    max-file: "${DOCKER_LOG_MAX_FILE:-5}"
+
 services:
   postgres:
     image: postgres:17
     container_name: messenger-postgres
     restart: unless-stopped
+    logging: *default-logging
     cpus: 0.5
     mem_limit: 256m
     command:
@@ -31,6 +38,7 @@ services:
     image: public.ecr.aws/docker/library/redis:7.2.11-alpine
     container_name: messenger-redis
     restart: unless-stopped
+    logging: *default-logging
     cpus: 0.25
     mem_limit: 64m
     command:
@@ -57,6 +65,7 @@ services:
     image: jitsi/prosody:stable
     container_name: messenger-jitsi-prosody
     restart: unless-stopped
+    logging: *default-logging
     cpus: 0.25
     mem_limit: 96m
     hostname: xmpp.meet.jitsi
@@ -94,6 +103,7 @@ services:
     image: jitsi/jicofo:stable
     container_name: messenger-jitsi-jicofo
     restart: unless-stopped
+    logging: *default-logging
     cpus: 0.25
     mem_limit: 128m
     depends_on:
@@ -125,6 +135,7 @@ services:
     image: jitsi/jvb:stable
     container_name: messenger-jitsi-jvb
     restart: unless-stopped
+    logging: *default-logging
     cpus: 0.5
     mem_limit: 256m
     depends_on:
@@ -154,6 +165,7 @@ services:
     image: jitsi/web:stable
     container_name: messenger-jitsi-web
     restart: unless-stopped
+    logging: *default-logging
     cpus: 0.25
     mem_limit: 96m
     depends_on:
@@ -188,6 +200,7 @@ services:
       - autonomous-recording
     container_name: messenger-jitsi-jibri
     restart: unless-stopped
+    logging: *default-logging
     cpus: 2.0
     mem_limit: 2048m
     depends_on:
@@ -225,6 +238,7 @@ services:
       context: ./backend
     container_name: messenger-backend
     restart: unless-stopped
+    logging: *default-logging
     cpus: 0.75
     mem_limit: 512m
     environment:
@@ -271,6 +285,7 @@ services:
       - observability
     container_name: messenger-postgres-exporter
     restart: unless-stopped
+    logging: *default-logging
     cpus: 0.25
     mem_limit: 64m
     depends_on:
@@ -287,6 +302,7 @@ services:
       - observability
     container_name: messenger-tempo
     restart: unless-stopped
+    logging: *default-logging
     cpus: 0.25
     mem_limit: 192m
     command:
@@ -301,6 +317,7 @@ services:
       - observability
     container_name: messenger-otel-collector
     restart: unless-stopped
+    logging: *default-logging
     cpus: 0.25
     mem_limit: 128m
     command:
@@ -317,6 +334,7 @@ services:
       - observability
     container_name: messenger-prometheus
     restart: unless-stopped
+    logging: *default-logging
     cpus: 0.25
     mem_limit: 192m
     environment:
@@ -344,6 +362,7 @@ services:
       - observability
     container_name: messenger-alertmanager
     restart: unless-stopped
+    logging: *default-logging
     cpus: 0.25
     mem_limit: 64m
     environment:
@@ -363,6 +382,7 @@ services:
       - observability
     container_name: messenger-loki
     restart: unless-stopped
+    logging: *default-logging
     cpus: 0.25
     mem_limit: 192m
     command:
@@ -377,6 +397,7 @@ services:
       - observability
     container_name: messenger-promtail
     restart: unless-stopped
+    logging: *default-logging
     cpus: 0.25
     mem_limit: 64m
     command:
@@ -395,6 +416,7 @@ services:
       - observability
     container_name: messenger-grafana
     restart: unless-stopped
+    logging: *default-logging
     cpus: 0.25
     mem_limit: 128m
     depends_on:
@@ -427,6 +449,7 @@ services:
         VITE_JITSI_BASE_URL: ${JITSI_PUBLIC_URL:?JITSI_PUBLIC_URL must be set}
     container_name: messenger-web
     restart: unless-stopped
+    logging: *default-logging
     cpus: 0.25
     mem_limit: 128m
     depends_on:
@@ -445,6 +468,7 @@ services:
     image: caddy:2.9-alpine
     container_name: messenger-edge
     restart: unless-stopped
+    logging: *default-logging
     cpus: 0.25
     mem_limit: 96m
     depends_on:

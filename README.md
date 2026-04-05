@@ -183,6 +183,8 @@ Production note:
 - traces are viewed through `Grafana -> Explore -> Tempo`
 - logs are viewed through `Grafana -> Explore -> Loki`
 - production compose always includes Redis for shared realtime state and fan-out
+- production deploy ensures `postgres`, `redis`, and the core Jitsi containers are running before recreating `web`, `backend`, and `edge`
+- production Docker logs use bounded `json-file` rotation through `DOCKER_LOG_MAX_SIZE` and `DOCKER_LOG_MAX_FILE`
 - on `2 GB RAM` servers, keep `ENABLE_OBSERVABILITY_STACK=false` and `MANAGEMENT_TRACING_ENABLED=false`
 - the default core production memory budget is intentionally kept around `1.5 GB` to leave headroom for the OS and Docker daemon
 
@@ -323,6 +325,8 @@ Important variables:
 - `APP_ACTUATOR_SCRAPE_USERNAME`
 - `APP_ACTUATOR_SCRAPE_PASSWORD`
 - `ALERTMANAGER_WEBHOOK_URL`
+- `DOCKER_LOG_MAX_SIZE`
+- `DOCKER_LOG_MAX_FILE`
 - `APP_JWT_REFRESH_TOKEN_TTL`
 - `APP_AUTH_REFRESH_COOKIE_NAME`
 - `APP_AUTH_REFRESH_COOKIE_PATH`

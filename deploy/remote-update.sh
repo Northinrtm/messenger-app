@@ -5,7 +5,8 @@ APP_DIR="${1:-/opt/messenger-app}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 ENV_FILE="${ENV_FILE:-.env.prod}"
 BUILD_SERVICES="${BUILD_SERVICES:-web backend edge}"
-RUNTIME_SERVICES="${RUNTIME_SERVICES:-web backend edge redis}"
+SUPPORT_SERVICES="${SUPPORT_SERVICES:-postgres redis jitsi-prosody jitsi-jicofo jitsi-jvb jitsi-web}"
+RUNTIME_SERVICES="${RUNTIME_SERVICES:-web backend edge}"
 OBSERVABILITY_SERVICES="${OBSERVABILITY_SERVICES:-postgres-exporter tempo otel-collector alertmanager loki promtail prometheus grafana}"
 ENABLE_OBSERVABILITY_STACK="${ENABLE_OBSERVABILITY_STACK:-false}"
 STATUS_FILE="${DEPLOY_STATUS_FILE:-}"
@@ -36,7 +37,9 @@ git fetch origin main
 git checkout main
 git pull --ff-only origin main
 
+"${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" config >/dev/null
 "${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build $BUILD_SERVICES
+"${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d $SUPPORT_SERVICES
 "${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --no-deps --force-recreate $RUNTIME_SERVICES
 
 if [[ "$ENABLE_OBSERVABILITY_STACK" == "true" ]]; then
