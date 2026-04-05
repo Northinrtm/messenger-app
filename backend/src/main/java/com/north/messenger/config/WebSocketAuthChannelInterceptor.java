@@ -6,6 +6,8 @@ import com.north.messenger.domain.repository.ChatParticipantRepository;
 import java.security.Principal;
 import java.util.List;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
@@ -22,6 +24,7 @@ import org.springframework.stereotype.Component;
 public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
 
     private static final String CHAT_TOPIC_PREFIX = "/topic/chats.";
+    private static final Logger log = LoggerFactory.getLogger(WebSocketAuthChannelInterceptor.class);
 
     private final AuthService authService;
     private final ChatParticipantRepository chatParticipantRepository;
@@ -47,7 +50,7 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
         }
 
         if (StompCommand.SUBSCRIBE.equals(command)) {
-            authorizeSubscription(accessor);
+            return authorizeSubscription(message, accessor);
         }
 
         return message;
@@ -72,22 +75,42 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
         return MessageBuilder.createMessage(message.getPayload(), accessor.getMessageHeaders());
     }
 
-    private void authorizeSubscription(StompHeaderAccessor accessor) {
+    private Message<?> authorizeSubscription(Message<?> message, StompHeaderAccessor accessor) {
         Principal principal = accessor.getUser();
         if (principal == null) {
-            throw new MessagingException("WebSocket authentication required");
+            log.warn("Dropping websocket subscription without principal destination={}", accessor.getDestination());
+            return null;
         }
 
         String destination = accessor.getDestination();
         if (destination == null || !destination.startsWith(CHAT_TOPIC_PREFIX)) {
-            return;
+            return message;
         }
 
-        UUID chatId = extractChatId(destination);
+        UUID chatId;
+        try {
+            chatId = extractChatId(destination);
+        } catch (MessagingException exception) {
+            log.warn(
+                    "Dropping websocket subscription with invalid destination user={} destination={}",
+                    principal.getName(),
+                    destination
+            );
+            return null;
+        }
+
         UserAccount user = authService.requireAuthenticatedUser(principal.getName());
         if (!chatParticipantRepository.existsByChatIdAndUserId(chatId, user.getId())) {
-            throw new MessagingException("Access denied for this subscription");
+            log.warn(
+                    "Dropping unauthorized websocket subscription user={} chatId={} destination={}",
+                    principal.getName(),
+                    chatId,
+                    destination
+            );
+            return null;
         }
+
+        return message;
     }
 
     private UUID extractChatId(String destination) {

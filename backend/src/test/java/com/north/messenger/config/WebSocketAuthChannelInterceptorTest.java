@@ -54,4 +54,28 @@ class WebSocketAuthChannelInterceptorTest {
 
         assertThat(result).isSameAs(message);
     }
+
+    @Test
+    void shouldDropTypingTopicSubscriptionForNonMemberWithoutThrowing() {
+        UUID userId = UUID.randomUUID();
+        UUID chatId = UUID.randomUUID();
+        UserAccount user = new UserAccount(
+                userId,
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        when(authService.requireAuthenticatedUser("north")).thenReturn(user);
+        when(chatParticipantRepository.existsByChatIdAndUserId(chatId, userId)).thenReturn(false);
+
+        StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
+        accessor.setDestination("/topic/chats." + chatId + ".typing");
+        accessor.setUser(new UsernamePasswordAuthenticationToken("north", null));
+        Message<byte[]> message = MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
+
+        Message<?> result = interceptor.preSend(message, mock(MessageChannel.class));
+
+        assertThat(result).isNull();
+    }
 }
