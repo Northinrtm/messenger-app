@@ -305,6 +305,8 @@ public class ChatService {
         Map<UUID, UserAccount> usersById = findUsersById(
                 memberships.stream().map(ChatParticipant::getUserId).toList()
         );
+        Map<UUID, Boolean> onlineByUserId = authService.resolveOnlineByUserIds(usersById.keySet());
+        List<ParticipantResponse> members = buildParticipantResponses(memberships, usersById, onlineByUserId);
         Map<UUID, Integer> unreadCountsByUserId = loadUnreadCountsForUsers(chatId);
         List<UserDeletedChat> deletedChatEntries = userDeletedChatRepository.findAllByChatId(chatId);
         Set<UUID> deletedUserIds = (deletedChatEntries == null ? List.<UserDeletedChat>of() : deletedChatEntries).stream()
@@ -324,9 +326,9 @@ public class ChatService {
                             toSummary(
                                     room,
                                     user.getId(),
-                                    memberships,
                                     usersById,
-                                    unreadCountsByUserId.getOrDefault(user.getId(), 0)
+                                    unreadCountsByUserId.getOrDefault(user.getId(), 0),
+                                    members
                             )
                     ));
             telemetry.recordChatSummaryBroadcast(telemetrySample, room, audience.size(), "sent", chatId);
@@ -383,25 +385,23 @@ public class ChatService {
         Map<UUID, UserAccount> usersById = findUsersById(
                 memberships.stream().map(ChatParticipant::getUserId).toList()
         );
-        return toSummary(room, currentUserId, memberships, usersById, unreadCount);
+        Map<UUID, Boolean> onlineByUserId = authService.resolveOnlineByUserIds(usersById.keySet());
+        return toSummary(
+                room,
+                currentUserId,
+                usersById,
+                unreadCount,
+                buildParticipantResponses(memberships, usersById, onlineByUserId)
+        );
     }
 
     private ChatSummaryResponse toSummary(
             ChatRoom room,
             UUID currentUserId,
-            List<ChatParticipant> memberships,
             Map<UUID, UserAccount> usersById,
-            int unreadCount
+            int unreadCount,
+            List<ParticipantResponse> members
     ) {
-        Map<UUID, Boolean> onlineByUserId = authService.resolveOnlineByUserIds(
-                memberships.stream().map(ChatParticipant::getUserId).toList()
-        );
-        List<ParticipantResponse> members = memberships.stream()
-                .map(membership -> usersById.get(membership.getUserId()))
-                .filter(Objects::nonNull)
-                .map(user -> authService.toParticipant(user, onlineByUserId.getOrDefault(user.getId(), false)))
-                .toList();
-
         ChatMessage lastMessage = findLatestVisibleMessage(room.getId(), currentUserId);
         MessageSnippetResponse pinnedMessage = buildPinnedSnippet(room, currentUserId, usersById);
         Instant updatedAt = lastMessage != null ? lastMessage.getCreatedAt() : room.getCreatedAt();
@@ -428,6 +428,18 @@ public class ChatService {
                 unreadCount,
                 pinnedMessage
         );
+    }
+
+    private List<ParticipantResponse> buildParticipantResponses(
+            List<ChatParticipant> memberships,
+            Map<UUID, UserAccount> usersById,
+            Map<UUID, Boolean> onlineByUserId
+    ) {
+        return memberships.stream()
+                .map(membership -> usersById.get(membership.getUserId()))
+                .filter(Objects::nonNull)
+                .map(user -> authService.toParticipant(user, onlineByUserId.getOrDefault(user.getId(), false)))
+                .toList();
     }
 
     private int loadUnreadCount(UUID chatId, UUID userId) {
