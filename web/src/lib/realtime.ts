@@ -97,6 +97,11 @@ export function subscribeToChats({
   onConnect,
   onConnectionChange,
 }: SubscriptionOptions) {
+  if (activeConnection) {
+    retireConnection(activeConnection);
+    activeConnection = null;
+  }
+
   const connection: RealtimeConnection = {
     chatIds: normalizeChatIds(chatIds),
     client: null as unknown as Client,
@@ -135,12 +140,18 @@ export function subscribeToChats({
     debug: () => undefined,
   });
   connection.client = client;
+  activeConnection = connection;
 
   client.onConnect = () => {
+    if (!isActiveConnection(connection)) {
+      void client.deactivate();
+      return;
+    }
+
     connection.failedReconnectAt = [];
     connection.lastRecordedFailureAt = 0;
     setConnectionState(connection, true);
-    clearSubscriptions(connection);
+    clearSubscriptions(connection, true);
 
     connection.userSubscriptions.push(
       client.subscribe("/user/queue/chats", (frame) => {
@@ -214,15 +225,15 @@ export function subscribeToChats({
     handleConnectionFailure(connection);
   };
 
-  activeConnection = connection;
   client.activate();
 
   return () => {
+    const shouldNotifyDisconnected = isActiveConnection(connection);
     connection.destroyed = true;
     clearReconnectCooldown(connection);
-    clearSubscriptions(connection);
-    setConnectionState(connection, false);
-    if (activeConnection === connection) {
+    clearSubscriptions(connection, shouldNotifyDisconnected);
+    if (shouldNotifyDisconnected) {
+      setConnectionState(connection, false);
       activeConnection = null;
     }
     void client.deactivate();
@@ -323,7 +334,7 @@ function syncTypingSubscriptions(connection: RealtimeConnection) {
   });
 }
 
-function clearSubscriptions(connection: RealtimeConnection) {
+function clearSubscriptions(connection: RealtimeConnection, rejectPendingMessages: boolean) {
   connection.userSubscriptions.forEach((subscription) => {
     try {
       subscription.unsubscribe();
@@ -342,16 +353,18 @@ function clearSubscriptions(connection: RealtimeConnection) {
   });
   connection.typingSubscriptions.clear();
 
-  rejectPendingOutgoingMessages();
+  if (rejectPendingMessages) {
+    rejectPendingOutgoingMessages();
+  }
 }
 
 function handleConnectionFailure(connection: RealtimeConnection) {
-  clearSubscriptions(connection);
-  setConnectionState(connection, false);
-
-  if (connection.destroyed) {
+  if (!isActiveConnection(connection)) {
     return;
   }
+
+  clearSubscriptions(connection, true);
+  setConnectionState(connection, false);
 
   const now = Date.now();
   if (now - connection.lastRecordedFailureAt < REALTIME_RECONNECT_FAILURE_DEDUP_MS) {
@@ -391,6 +404,18 @@ function clearReconnectCooldown(connection: RealtimeConnection) {
 
   window.clearTimeout(connection.reconnectCooldownTimerId);
   connection.reconnectCooldownTimerId = null;
+}
+
+function isActiveConnection(connection: RealtimeConnection) {
+  return activeConnection === connection && !connection.destroyed;
+}
+
+function retireConnection(connection: RealtimeConnection) {
+  connection.destroyed = true;
+  clearReconnectCooldown(connection);
+  clearSubscriptions(connection, false);
+  connection.connected = false;
+  void connection.client.deactivate();
 }
 
 function setConnectionState(connection: RealtimeConnection, connected: boolean) {

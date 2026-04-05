@@ -233,6 +233,8 @@ export function useRealtimeChatSubscription({
   });
 
   useEffect(() => {
+    // Effect Events always read the latest render state and should not be treated as
+    // reactive dependencies, otherwise ordinary rerenders churn the websocket client.
     return subscribeToChats({
       chatIds: [],
       token: sessionToken,
@@ -248,20 +250,7 @@ export function useRealtimeChatSubscription({
       onSessionEvent: handleRealtimeSession,
       onTyping: handleRealtimeTyping,
     });
-  }, [
-    currentUser.id,
-    handleRealtimeChat,
-    handleRealtimeChatRemoval,
-    handleRealtimeConnect,
-    handleRealtimeMessage,
-    handleRealtimeMessageDeletion,
-    handleRealtimeMessageReaction,
-    handleRealtimeMessageStatus,
-    handleRealtimeSession,
-    handleRealtimeTyping,
-    onConnectionChange,
-    sessionToken,
-  ]);
+  }, [currentUser.id, onConnectionChange, sessionToken]);
 
   useEffect(() => {
     replaceSubscribedChatIds(chatIdsKey ? chatIdsKey.split(",") : []);

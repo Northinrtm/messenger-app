@@ -69,7 +69,9 @@ type MockClient = {
   deactivate: () => Promise<void>;
 };
 
-function createSubscription() {
+function createSubscription(options?: {
+  onConnectionChange?: (connected: boolean) => void;
+}) {
   return subscribeToChats({
     chatIds: [],
     token: "test-token",
@@ -77,6 +79,7 @@ function createSubscription() {
     onChat: () => undefined,
     onMessage: () => undefined,
     onSessionEvent: () => undefined,
+    onConnectionChange: options?.onConnectionChange,
   });
 }
 
@@ -134,5 +137,34 @@ describe("realtime reconnect protection", () => {
     vi.advanceTimersByTime(60_000);
 
     expect(client.activateCalls).toBe(1);
+  });
+
+  it("retires an older websocket client when a new subscription starts", () => {
+    const firstConnectionChange = vi.fn();
+    const secondConnectionChange = vi.fn();
+
+    const disposeFirst = createSubscription({
+      onConnectionChange: firstConnectionChange,
+    });
+    const firstClient = stompClients[0];
+
+    firstClient.onConnect();
+    expect(firstConnectionChange).toHaveBeenCalledWith(true);
+
+    const disposeSecond = createSubscription({
+      onConnectionChange: secondConnectionChange,
+    });
+    const secondClient = stompClients[1];
+
+    expect(firstClient.deactivateCalls).toBe(1);
+
+    firstClient.onWebSocketClose();
+    expect(firstConnectionChange).toHaveBeenCalledTimes(1);
+
+    secondClient.onConnect();
+    expect(secondConnectionChange).toHaveBeenCalledWith(true);
+
+    disposeSecond();
+    disposeFirst();
   });
 });
