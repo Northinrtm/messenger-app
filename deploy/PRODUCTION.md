@@ -104,6 +104,9 @@ Recommended memory policy on a `2 GB RAM` VPS:
 - keep `MANAGEMENT_TRACING_ENABLED=false`
 - use observability only temporarily during diagnostics
 - plan a bigger host before keeping Grafana, Prometheus, Tempo, Loki, and Jitsi active together
+- use the `Production WebSocket Guard` GitHub Actions workflow as the lightweight default alert path for websocket storms on small hosts
+- that workflow reads recent `ws_access` logs from `messenger-web` over SSH and fails if `/ws` or `429` volume crosses the configured thresholds
+- without `ALERTMANAGER_WEBHOOK_URL`, alerts stay inside GitHub Actions and GitHub notifications rather than being pushed to Telegram, Slack, or another external destination
 
 ## Backups
 

@@ -175,6 +175,9 @@ Current note:
 - `edge` blocks external `/actuator/*` requests, so metrics stay off the public internet
 - backend logs include `traceId` / `spanId` correlation and run in structured JSON in production
 - on small hosts, observability should stay disabled by default and be enabled only for short diagnostic windows
+- when observability is disabled, the `Production WebSocket Guard` GitHub Actions workflow serves as a lightweight websocket anomaly alert
+- that workflow checks recent `/ws` access logs over SSH and fails if reconnect or `429` rates cross configured thresholds
+- these alerts show up in GitHub Actions; delivery outside GitHub requires either GitHub notifications/email settings or a separate Alertmanager webhook on a larger observability-enabled host
 
 Production note:
 
