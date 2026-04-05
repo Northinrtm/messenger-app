@@ -51,6 +51,10 @@ type RealtimeConnection = {
   userSubscriptions: StompSubscription[];
   onConnectionChange?: (connected: boolean) => void;
   connected: boolean;
+  destroyed: boolean;
+  failedReconnectAt: number[];
+  reconnectCooldownTimerId: number | null;
+  lastRecordedFailureAt: number;
 };
 
 type OutgoingEncryptedMessagePayload = {
@@ -71,6 +75,10 @@ const REALTIME_CONNECTION_TIMEOUT_MS = 10_000;
 const REALTIME_HEARTBEAT_INTERVAL_MS = 10_000;
 const REALTIME_RECONNECT_INITIAL_DELAY_MS = 2_000;
 const REALTIME_RECONNECT_MAX_DELAY_MS = 30_000;
+const REALTIME_RECONNECT_FAILURE_WINDOW_MS = 30_000;
+const REALTIME_RECONNECT_FAILURE_DEDUP_MS = 250;
+const REALTIME_RECONNECT_FAILURE_THRESHOLD = 5;
+const REALTIME_RECONNECT_COOLDOWN_MS = 60_000;
 let activeConnection: RealtimeConnection | null = null;
 const pendingOutgoingMessages = new Map<string, PendingOutgoingMessage>();
 
@@ -106,6 +114,10 @@ export function subscribeToChats({
     userSubscriptions: [],
     onConnectionChange,
     connected: false,
+    destroyed: false,
+    failedReconnectAt: [],
+    reconnectCooldownTimerId: null,
+    lastRecordedFailureAt: 0,
   };
 
   const client = new Client({
@@ -125,6 +137,8 @@ export function subscribeToChats({
   connection.client = client;
 
   client.onConnect = () => {
+    connection.failedReconnectAt = [];
+    connection.lastRecordedFailureAt = 0;
     setConnectionState(connection, true);
     clearSubscriptions(connection);
 
@@ -189,23 +203,23 @@ export function subscribeToChats({
   };
 
   client.onStompError = () => {
-    clearSubscriptions(connection);
-    setConnectionState(connection, false);
+    handleConnectionFailure(connection);
   };
 
   client.onWebSocketError = () => {
-    setConnectionState(connection, false);
+    handleConnectionFailure(connection);
   };
 
   client.onWebSocketClose = () => {
-    clearSubscriptions(connection);
-    setConnectionState(connection, false);
+    handleConnectionFailure(connection);
   };
 
   activeConnection = connection;
   client.activate();
 
   return () => {
+    connection.destroyed = true;
+    clearReconnectCooldown(connection);
     clearSubscriptions(connection);
     setConnectionState(connection, false);
     if (activeConnection === connection) {
@@ -329,6 +343,54 @@ function clearSubscriptions(connection: RealtimeConnection) {
   connection.typingSubscriptions.clear();
 
   rejectPendingOutgoingMessages();
+}
+
+function handleConnectionFailure(connection: RealtimeConnection) {
+  clearSubscriptions(connection);
+  setConnectionState(connection, false);
+
+  if (connection.destroyed) {
+    return;
+  }
+
+  const now = Date.now();
+  if (now - connection.lastRecordedFailureAt < REALTIME_RECONNECT_FAILURE_DEDUP_MS) {
+    return;
+  }
+
+  connection.lastRecordedFailureAt = now;
+  connection.failedReconnectAt = connection.failedReconnectAt.filter(
+    (timestamp) => now - timestamp <= REALTIME_RECONNECT_FAILURE_WINDOW_MS
+  );
+  connection.failedReconnectAt.push(now);
+
+  if (
+    connection.reconnectCooldownTimerId !== null ||
+    connection.failedReconnectAt.length < REALTIME_RECONNECT_FAILURE_THRESHOLD
+  ) {
+    return;
+  }
+
+  connection.failedReconnectAt = [];
+  connection.reconnectCooldownTimerId = window.setTimeout(() => {
+    connection.reconnectCooldownTimerId = null;
+    if (connection.destroyed) {
+      return;
+    }
+
+    connection.client.activate();
+  }, REALTIME_RECONNECT_COOLDOWN_MS);
+
+  void connection.client.deactivate();
+}
+
+function clearReconnectCooldown(connection: RealtimeConnection) {
+  if (connection.reconnectCooldownTimerId === null) {
+    return;
+  }
+
+  window.clearTimeout(connection.reconnectCooldownTimerId);
+  connection.reconnectCooldownTimerId = null;
 }
 
 function setConnectionState(connection: RealtimeConnection, connected: boolean) {
