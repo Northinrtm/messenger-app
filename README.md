@@ -185,6 +185,7 @@ Production note:
 - production compose always includes Redis for shared realtime state and fan-out
 - production deploy ensures `postgres`, `redis`, and the core Jitsi containers are running before recreating `web`, `backend`, and `edge`
 - production Docker logs use bounded `json-file` rotation through `DOCKER_LOG_MAX_SIZE` and `DOCKER_LOG_MAX_FILE`
+- repository helpers are included for local-on-server production backups with PostgreSQL dumps, config snapshots, and small volume archives
 - on `2 GB RAM` servers, keep `ENABLE_OBSERVABILITY_STACK=false` and `MANAGEMENT_TRACING_ENABLED=false`
 - the default core production memory budget is intentionally kept around `1.5 GB` to leave headroom for the OS and Docker daemon
 
@@ -356,6 +357,7 @@ Use:
 - refresh cookie secure mode is expected in production
 - keep `.env.prod` only on the server
 - prefer a dedicated `deploy` user with SSH key auth over `root + password`
+- install the included backup timer and review [deploy/BACKUPS.md](deploy/BACKUPS.md)
 - use the manual GitHub Actions deploy workflow instead of long interactive SSH sessions
 - see [deploy/PRODUCTION.md](deploy/PRODUCTION.md) for the production runbook
 - server bootstrap helpers live in [deploy](deploy)

@@ -1,0 +1,20 @@
+[Unit]
+Description=Backup Messenger production data
+Wants=docker.service
+After=docker.service network-online.target
+ConditionPathExists=/opt/messenger-app/deploy/backup.sh
+
+[Service]
+Type=oneshot
+User=deploy
+Group=deploy
+SupplementaryGroups=docker
+WorkingDirectory=/opt/messenger-app
+EnvironmentFile=-/etc/messenger-backup.env
+ExecStart=/bin/bash /opt/messenger-app/deploy/backup.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=multi-user.target

@@ -18,6 +18,9 @@ Repository helpers:
 
 - [server-bootstrap.sh](/d:/programs/coding/VSprojects/messenger-app/deploy/server-bootstrap.sh)
 - [disable-ssh-passwords.sh](/d:/programs/coding/VSprojects/messenger-app/deploy/disable-ssh-passwords.sh)
+- [backup.sh](/d:/programs/coding/VSprojects/messenger-app/deploy/backup.sh)
+- [install-backup-timer.sh](/d:/programs/coding/VSprojects/messenger-app/deploy/install-backup-timer.sh)
+- [BACKUPS.md](/d:/programs/coding/VSprojects/messenger-app/deploy/BACKUPS.md)
 - [10-messenger-hardening.conf](/d:/programs/coding/VSprojects/messenger-app/deploy/sshd_config.d/10-messenger-hardening.conf)
 - [20-disable-password-auth.conf](/d:/programs/coding/VSprojects/messenger-app/deploy/sshd_config.d/20-disable-password-auth.conf)
 - [messenger-sshd.local](/d:/programs/coding/VSprojects/messenger-app/deploy/fail2ban/jail.d/messenger-sshd.local)
@@ -102,6 +105,35 @@ Recommended memory policy on a `2 GB RAM` VPS:
 - use observability only temporarily during diagnostics
 - plan a bigger host before keeping Grafana, Prometheus, Tempo, Loki, and Jitsi active together
 
+## Backups
+
+The repository includes a local production backup path:
+
+- [backup.sh](/d:/programs/coding/VSprojects/messenger-app/deploy/backup.sh)
+- [install-backup-timer.sh](/d:/programs/coding/VSprojects/messenger-app/deploy/install-backup-timer.sh)
+- [backup.env.example](/d:/programs/coding/VSprojects/messenger-app/deploy/backup.env.example)
+- [BACKUPS.md](/d:/programs/coding/VSprojects/messenger-app/deploy/BACKUPS.md)
+
+Default coverage:
+
+- PostgreSQL dump
+- PostgreSQL globals
+- `.env.prod`, `docker-compose.prod.yml`, `deploy/Caddyfile`
+- `caddy_data`
+- `conference_recordings_archive`
+- `conference_recordings_raw`
+
+Default schedule:
+
+- daily systemd timer at `03:35` with a small randomized delay
+
+Default retention:
+
+- `14` days
+
+This is intentionally a local-on-server backup setup.
+It is much better than having no backups, but it is not a substitute for off-site replication.
+
 ## Emergency manual deploy
 
 ```bash
@@ -127,4 +159,5 @@ If that is not enough, reboot the server from the provider panel.
 4. Verify key-based login as `deploy`.
 5. Run `bash deploy/disable-ssh-passwords.sh`.
 6. Configure GitHub `production` environment secret `PROD_SSH_KEY`.
-7. Use the `Deploy Production` workflow for future deploys.
+7. Install backups with `bash deploy/install-backup-timer.sh`.
+8. Use the `Deploy Production` workflow for future deploys.
