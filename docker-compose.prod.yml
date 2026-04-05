@@ -226,14 +226,16 @@ services:
     container_name: messenger-backend
     restart: unless-stopped
     cpus: 0.75
-    mem_limit: 384m
+    mem_limit: 512m
     environment:
       SPRING_PROFILES_ACTIVE: prod,json-logs
-      JAVA_TOOL_OPTIONS: -XX:InitialRAMPercentage=20 -XX:MaxRAMPercentage=55 -XX:MaxMetaspaceSize=96m -XX:ReservedCodeCacheSize=48m -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError
+      JAVA_TOOL_OPTIONS: -XX:InitialRAMPercentage=20 -XX:MaxRAMPercentage=60 -XX:MaxMetaspaceSize=96m -XX:ReservedCodeCacheSize=48m -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError
       SERVER_PORT: 8080
       DB_URL: ${DB_URL:-jdbc:postgresql://postgres:5432/messenger}
       DB_USERNAME: ${DB_USERNAME:-messenger}
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
+      APP_DB_MIN_IDLE: ${APP_DB_MIN_IDLE:-1}
+      APP_DB_MAX_POOL_SIZE: ${APP_DB_MAX_POOL_SIZE:-4}
       SPRING_DATA_REDIS_HOST: ${SPRING_DATA_REDIS_HOST:-redis}
       SPRING_DATA_REDIS_PORT: ${SPRING_DATA_REDIS_PORT:-6379}
       APP_REALTIME_REDIS_ENABLED: ${APP_REALTIME_REDIS_ENABLED:-true}
@@ -257,8 +259,8 @@ services:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/actuator/health"]
       interval: 15s
       timeout: 5s
-      retries: 5
-      start_period: 40s
+      retries: 6
+      start_period: 90s
     volumes:
       - conference_recordings_archive:/app/storage/conference-recordings
       - conference_recordings_raw:/jibri-recordings:ro
