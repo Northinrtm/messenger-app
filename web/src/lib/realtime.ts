@@ -1,4 +1,9 @@
-import { Client, type StompSubscription } from "@stomp/stompjs";
+import {
+  Client,
+  ReconnectionTimeMode,
+  TickerStrategy,
+  type StompSubscription,
+} from "@stomp/stompjs";
 import { WS_URL } from "./config";
 import { hydrateChatMessage } from "./e2ee";
 import type {
@@ -62,6 +67,10 @@ type PendingOutgoingMessage = {
 };
 
 const OUTGOING_MESSAGE_ACK_TIMEOUT_MS = 1_500;
+const REALTIME_CONNECTION_TIMEOUT_MS = 10_000;
+const REALTIME_HEARTBEAT_INTERVAL_MS = 10_000;
+const REALTIME_RECONNECT_INITIAL_DELAY_MS = 2_000;
+const REALTIME_RECONNECT_MAX_DELAY_MS = 30_000;
 let activeConnection: RealtimeConnection | null = null;
 const pendingOutgoingMessages = new Map<string, PendingOutgoingMessage>();
 
@@ -104,9 +113,13 @@ export function subscribeToChats({
     connectHeaders: {
       Authorization: `Bearer ${token}`,
     },
-    heartbeatIncoming: 10000,
-    heartbeatOutgoing: 10000,
-    reconnectDelay: 1000,
+    connectionTimeout: REALTIME_CONNECTION_TIMEOUT_MS,
+    heartbeatIncoming: REALTIME_HEARTBEAT_INTERVAL_MS,
+    heartbeatOutgoing: REALTIME_HEARTBEAT_INTERVAL_MS,
+    heartbeatStrategy: TickerStrategy.Worker,
+    reconnectDelay: REALTIME_RECONNECT_INITIAL_DELAY_MS,
+    maxReconnectDelay: REALTIME_RECONNECT_MAX_DELAY_MS,
+    reconnectTimeMode: ReconnectionTimeMode.EXPONENTIAL,
     debug: () => undefined,
   });
   connection.client = client;
