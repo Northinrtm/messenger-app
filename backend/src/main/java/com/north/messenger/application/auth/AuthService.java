@@ -56,6 +56,7 @@ public class AuthService {
     private final PasswordPolicyService passwordPolicyService;
     private final JwtService jwtService;
     private final ApplicationEventPublisher eventPublisher;
+    private final AvatarService avatarService;
 
     public AuthService(
             UserAccountRepository userAccountRepository,
@@ -65,7 +66,8 @@ public class AuthService {
             PasswordEncoder passwordEncoder,
             PasswordPolicyService passwordPolicyService,
             JwtService jwtService,
-            ApplicationEventPublisher eventPublisher
+            ApplicationEventPublisher eventPublisher,
+            AvatarService avatarService
     ) {
         this.userAccountRepository = userAccountRepository;
         this.userContactRepository = userContactRepository;
@@ -75,6 +77,7 @@ public class AuthService {
         this.passwordPolicyService = passwordPolicyService;
         this.jwtService = jwtService;
         this.eventPublisher = eventPublisher;
+        this.avatarService = avatarService;
     }
 
     @Transactional
@@ -318,7 +321,7 @@ public class AuthService {
                 user.getId(),
                 user.getUsername(),
                 user.getDisplayName(),
-                user.getAvatarUrl(),
+                avatarService.resolveAvatarUrl(user),
                 online
         );
     }
@@ -356,7 +359,7 @@ public class AuthService {
                 user.getUsername(),
                 user.getDisplayName(),
                 user.getCreatedAt(),
-                user.getAvatarUrl(),
+                avatarService.resolveAvatarUrl(user),
                 online
         );
     }

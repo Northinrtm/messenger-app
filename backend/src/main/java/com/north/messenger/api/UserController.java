@@ -1,11 +1,16 @@
 package com.north.messenger.api;
 
 import com.north.messenger.api.dto.ContactRequest;
+import com.north.messenger.application.auth.AvatarService;
 import com.north.messenger.api.dto.UserProfileResponse;
 import com.north.messenger.application.auth.AuthService;
 import jakarta.validation.Valid;
+import java.time.Duration;
 import java.util.List;
+import java.util.UUID;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,20 +21,34 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/users")
 public class UserController {
 
     private final AuthService authService;
+    private final AvatarService avatarService;
 
-    public UserController(AuthService authService) {
+    public UserController(AuthService authService, AvatarService avatarService) {
         this.authService = authService;
+        this.avatarService = avatarService;
     }
 
     @GetMapping("/search")
     public List<UserProfileResponse> search(Authentication authentication, @RequestParam String query) {
         return authService.searchUsers(authentication.getName(), query);
+    }
+
+    @GetMapping("/{userId}/avatar")
+    public ResponseEntity<byte[]> avatar(@PathVariable UUID userId) {
+        AvatarService.AvatarResource avatar = avatarService.loadAvatar(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Avatar not found"));
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.maxAge(Duration.ofDays(30)).cachePublic().immutable())
+                .eTag(avatar.version())
+                .contentType(avatar.mediaType())
+                .body(avatar.bytes());
     }
 
     @GetMapping("/contacts")

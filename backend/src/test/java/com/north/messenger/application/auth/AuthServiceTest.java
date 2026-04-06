@@ -44,6 +44,7 @@ class AuthServiceTest {
     private PasswordPolicyService passwordPolicyService;
     private JwtService jwtService;
     private ApplicationEventPublisher eventPublisher;
+    private AvatarService avatarService;
     private AuthService authService;
 
     @BeforeEach
@@ -56,6 +57,7 @@ class AuthServiceTest {
         passwordPolicyService = mock(PasswordPolicyService.class);
         jwtService = mock(JwtService.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
+        avatarService = mock(AvatarService.class);
         authService = new AuthService(
                 userAccountRepository,
                 userContactRepository,
@@ -64,11 +66,13 @@ class AuthServiceTest {
                 passwordEncoder,
                 passwordPolicyService,
                 jwtService,
-                eventPublisher
+                eventPublisher,
+                avatarService
         );
 
         when(userSessionRepository.save(any(UserSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(userContactRepository.save(any(UserContact.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(avatarService.resolveAvatarUrl(any(UserAccount.class))).thenReturn(null);
         when(jwtService.refreshTokenExpiresAt(any(Instant.class))).thenAnswer(invocation ->
                 ((Instant) invocation.getArgument(0)).plus(Duration.ofDays(30))
         );
