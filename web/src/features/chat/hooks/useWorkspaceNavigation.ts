@@ -4,9 +4,12 @@ import type { ChatSummary } from "../../../lib/types";
 import { createInitialConferenceDateTime } from "../chatPresentation";
 import type { ConversationListTab, SidebarSheet } from "../chatUi";
 
+type ConferenceViewportMode = "full" | "mini";
+
 type UseWorkspaceNavigationParams = {
   activeChat: ChatSummary | null;
   activeChatId: string | null;
+  activeConferenceId: string | null;
   chats: ChatSummary[];
   clearChatAttention: (chatId: string) => void;
   clearChatUnreadIndicator: (chatId: string) => void;
@@ -19,6 +22,7 @@ type UseWorkspaceNavigationParams = {
   setConferenceParticipantUsernames: Dispatch<SetStateAction<string[]>>;
   setConferenceScheduledAt: Dispatch<SetStateAction<string>>;
   setConferenceTitle: Dispatch<SetStateAction<string>>;
+  setConferenceViewportMode: Dispatch<SetStateAction<ConferenceViewportMode>>;
   setDeleteAccountConfirmation: Dispatch<SetStateAction<string>>;
   setIsConferenceInfoOpen: Dispatch<SetStateAction<boolean>>;
   setIsMenuOpen: Dispatch<SetStateAction<boolean>>;
@@ -38,11 +42,13 @@ type UseWorkspaceNavigationResult = {
   openGroupConferenceComposer: (mode: "instant" | "scheduled") => void;
   openSidebarSheet: (sheet: Exclude<SidebarSheet, null>) => void;
   resetConferenceComposer: () => void;
+  restoreActiveConference: () => void;
 };
 
 export function useWorkspaceNavigation({
   activeChat,
   activeChatId,
+  activeConferenceId,
   chats,
   clearChatAttention,
   clearChatUnreadIndicator,
@@ -55,6 +61,7 @@ export function useWorkspaceNavigation({
   setConferenceParticipantUsernames,
   setConferenceScheduledAt,
   setConferenceTitle,
+  setConferenceViewportMode,
   setDeleteAccountConfirmation,
   setIsConferenceInfoOpen,
   setIsMenuOpen,
@@ -78,7 +85,10 @@ export function useWorkspaceNavigation({
 
   const openConferenceSheet = useEffectEvent(() => {
     setActiveListTab("conferences");
-    setActiveConferenceId(null);
+    if (activeConferenceId) {
+      setConferenceViewportMode("mini");
+      setIsConferenceInfoOpen(false);
+    }
     openSidebarSheet("conference");
   });
 
@@ -114,7 +124,10 @@ export function useWorkspaceNavigation({
     setIsMenuOpen(false);
     if (tab !== "conferences") {
       setConferenceComposerMode(null);
-      setActiveConferenceId(null);
+      if (activeConferenceId) {
+        setConferenceViewportMode("mini");
+        setIsConferenceInfoOpen(false);
+      }
     }
   });
 
@@ -134,7 +147,10 @@ export function useWorkspaceNavigation({
     setSidebarSheet(null);
     setConferenceComposerMode(null);
     setMobilePane("conversation");
-    setActiveConferenceId(null);
+    if (activeConferenceId) {
+      setConferenceViewportMode("mini");
+      setIsConferenceInfoOpen(false);
+    }
     setActiveChatId(chatId);
   });
 
@@ -153,7 +169,8 @@ export function useWorkspaceNavigation({
     setIsConferenceInfoOpen(false);
     clearComposerContext();
     setSidebarSheet(null);
-    setMobilePane("sidebar");
+    setMobilePane(activeChatId ? "conversation" : "sidebar");
+    setConferenceViewportMode("full");
     setActiveConferenceId(null);
   });
 
@@ -168,9 +185,30 @@ export function useWorkspaceNavigation({
     setIsConferenceInfoOpen(false);
     setSidebarSheet(null);
     setConferenceComposerMode(null);
+    setConferenceViewportMode("full");
     setMobilePane("conversation");
     setActiveChatId(null);
     setActiveConferenceId(conferenceId);
+  });
+
+  const restoreActiveConference = useEffectEvent(() => {
+    if (!activeConferenceId) {
+      return;
+    }
+
+    clearComposerContext();
+    if (activeChatId) {
+      stopTyping(activeChatId);
+    }
+
+    setActiveListTab("conferences");
+    setIsMenuOpen(false);
+    setIsConferenceInfoOpen(false);
+    setSidebarSheet(null);
+    setConferenceComposerMode(null);
+    setConferenceViewportMode("full");
+    setMobilePane("conversation");
+    setActiveChatId(null);
   });
 
   return {
@@ -184,5 +222,6 @@ export function useWorkspaceNavigation({
     openGroupConferenceComposer,
     openSidebarSheet,
     resetConferenceComposer,
+    restoreActiveConference,
   };
 }

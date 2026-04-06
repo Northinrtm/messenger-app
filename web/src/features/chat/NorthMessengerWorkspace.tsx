@@ -143,6 +143,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const queryClient = useQueryClient();
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [activeConferenceId, setActiveConferenceId] = useState<string | null>(null);
+  const [conferenceViewportMode, setConferenceViewportMode] = useState<"full" | "mini">("full");
   const [activeListTab, setActiveListTab] = useState<ConversationListTab>("dialogs");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [sidebarSheet, setSidebarSheet] = useState<SidebarSheet>(null);
@@ -168,6 +169,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const [isConferenceInfoOpen, setIsConferenceInfoOpen] = useState(false);
   const [conferenceRecordingState, setConferenceRecordingState] =
     useState<ConferenceRecordingState>("idle");
+  const [conferenceExitRequestToken, setConferenceExitRequestToken] = useState(0);
   const [replyingToMessageId, setReplyingToMessageId] = useState<string | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [forwardingMessageId, setForwardingMessageId] = useState<string | null>(null);
@@ -618,9 +620,11 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     openGroupConferenceComposer,
     openSidebarSheet,
     resetConferenceComposer,
+    restoreActiveConference,
   } = useWorkspaceNavigation({
     activeChat,
     activeChatId,
+    activeConferenceId,
     chats,
     clearChatAttention,
     clearChatUnreadIndicator,
@@ -633,6 +637,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     setConferenceParticipantUsernames,
     setConferenceScheduledAt,
     setConferenceTitle,
+    setConferenceViewportMode,
     setDeleteAccountConfirmation,
     setIsConferenceInfoOpen,
     setIsMenuOpen,
@@ -806,6 +811,20 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     setIsGroupInvitePickerOpen,
     setIsMenuOpen,
     signOut: () => signOutMutation.mutate(),
+  });
+
+  useEffect(() => {
+    if (activeConferenceId === null) {
+      setConferenceViewportMode("full");
+    }
+  }, [activeConferenceId]);
+
+  const requestConferenceExit = useEffectEvent(() => {
+    if (!activeConference) {
+      return;
+    }
+
+    setConferenceExitRequestToken((current) => current + 1);
   });
 
   const {
@@ -1015,11 +1034,13 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       onOpenMembers={openConferenceMembersSheet}
       onCopyShareUrl={(value) => void navigator.clipboard.writeText(value)}
       onRecordingStateChange={setConferenceRecordingState}
+      exitRequestToken={conferenceExitRequestToken}
       onConferenceExit={handleConferenceStageExit}
       formatConferenceSchedule={formatConferenceSchedule}
       formatMemberCount={formatMemberCount}
     />
   ) : null;
+  const isConferenceMinimized = activeConference !== null && conferenceViewportMode === "mini";
   const workspaceStyle: CSSProperties = {
     ["--north-sidebar-width" as string]: `${sidebarWidth}px`,
   };
@@ -1272,8 +1293,42 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
 
       <section className="conversation north-conversation">
         {activeConference ? (
-          conferenceConversation
-        ) : activeChat ? (
+          <div
+            className={
+              isConferenceMinimized
+                ? "conference-surface is-mini"
+                : "conference-surface is-full"
+            }
+          >
+            {isConferenceMinimized ? (
+              <div className="conference-mini-toolbar">
+                <div className="conference-mini-copy">
+                  <strong>{activeConference.title}</strong>
+                  <span>{activeConferenceStatusLabel ?? "Конференция активна"}</span>
+                </div>
+                <div className="conference-mini-actions">
+                  <button
+                    type="button"
+                    className="ghost-button compact"
+                    onClick={restoreActiveConference}
+                  >
+                    Развернуть
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost-button compact conference-end-button"
+                    onClick={requestConferenceExit}
+                  >
+                    Выйти
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            {conferenceConversation}
+          </div>
+        ) : null}
+
+        {(!activeConference || isConferenceMinimized) && activeChat ? (
           <ActiveChatConversation
             activeChat={activeChat}
             activeDirectParticipant={activeDirectParticipant}
@@ -1324,7 +1379,8 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
             getReactionOption={getReactionOption}
             buildMessagePreview={buildMessagePreview}
           />
-        ) : chatsLoading || conferencesLoading ? (
+        ) : !activeConference || isConferenceMinimized ? (
+          chatsLoading || conferencesLoading ? (
           <div className="empty-state large north-empty-state">Загружаем данные...</div>
         ) : (
           <div className="conversation-empty">
@@ -1334,7 +1390,8 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                 : "Выберите, кому хотели бы написать"}
             </div>
           </div>
-        )}
+          )
+        ) : null}
 
       {errorText ? <div className="floating-error">{errorText}</div> : null}
       </section>

@@ -27,6 +27,7 @@ type Props = {
   onOpenMembers: () => void;
   onCopyShareUrl: (value: string) => void;
   onRecordingStateChange: (state: ConferenceRecordingState) => void;
+  exitRequestToken?: number;
   onConferenceExit: () => void;
   formatConferenceSchedule: (scheduledAt: string) => string;
   formatMemberCount: (count: number) => string;
@@ -52,6 +53,7 @@ export function ActiveConferenceConversation({
   onOpenMembers,
   onCopyShareUrl,
   onRecordingStateChange,
+  exitRequestToken = 0,
   onConferenceExit,
   formatConferenceSchedule,
   formatMemberCount,
@@ -282,6 +284,7 @@ export function ActiveConferenceConversation({
               accessCode={conference.roomAccessCode ?? ""}
               displayName={profileDisplayName}
               title={conference.title}
+              exitRequestToken={exitRequestToken}
               onRecordingStateChange={onRecordingStateChange}
               onConferenceExit={onConferenceExit}
             />
