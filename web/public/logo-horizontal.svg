@@ -1,38 +1,62 @@
 <svg width="512" height="160" viewBox="0 0 512 160" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="northMessengerLockupBg" x1="18" y1="14" x2="110" y2="118" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#617D9E" />
-      <stop offset="1" stop-color="#364B66" />
+    <linearGradient id="lockupBubbleFill" x1="20" y1="14" x2="108" y2="116" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#79AEFF" />
+      <stop offset="0.55" stop-color="#4E76EE" />
+      <stop offset="1" stop-color="#355CD0" />
     </linearGradient>
-    <linearGradient id="northMessengerLockupAccent" x1="34" y1="92" x2="96" y2="28" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#4F88FF" />
-      <stop offset="1" stop-color="#7DBBFF" />
+    <linearGradient id="lockupBubbleGloss" x1="30" y1="16" x2="84" y2="60" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.48" />
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0" />
     </linearGradient>
-    <linearGradient id="northMessengerLockupWarm" x1="80" y1="30" x2="98" y2="48" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#F7B36C" />
-      <stop offset="1" stop-color="#F36E42" />
+    <linearGradient id="lockupAccentWarm" x1="84" y1="20" x2="102" y2="44" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFB24D" />
+      <stop offset="1" stop-color="#FF7A2F" />
     </linearGradient>
+    <filter id="lockupShadow" x="0" y="4" width="128" height="124" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="8" stdDeviation="7" flood-color="#0F1F5D" flood-opacity="0.32" />
+    </filter>
   </defs>
-  <path
-    d="M36 18H78C96.7787 18 112 33.2213 112 52V72C112 90.7787 96.7787 106 78 106H55.334L35.0857 118.961C31.0956 121.515 26 118.65 26 113.912V106C14.9543 106 6 97.0457 6 86V48C6 31.4315 19.4315 18 36 18Z"
-    fill="url(#northMessengerLockupBg)"
-  />
-  <path
-    d="M36 18H78C96.7787 18 112 33.2213 112 52V72C112 90.7787 96.7787 106 78 106H55.334L35.0857 118.961C31.0956 121.515 26 118.65 26 113.912V106C14.9543 106 6 97.0457 6 86V48C6 31.4315 19.4315 18 36 18Z"
-    stroke="#98B3CE"
-    stroke-width="4"
-  />
-  <path d="M42 86V46" stroke="url(#northMessengerLockupAccent)" stroke-width="10" stroke-linecap="round" />
-  <path d="M42 46L72 82" stroke="url(#northMessengerLockupAccent)" stroke-width="10" stroke-linecap="round" />
-  <path d="M72 82V54" stroke="url(#northMessengerLockupAccent)" stroke-width="10" stroke-linecap="round" />
-  <path d="M70 56L88 38" stroke="url(#northMessengerLockupAccent)" stroke-width="10" stroke-linecap="round" />
-  <path
-    d="M78 38H92V52"
-    stroke="url(#northMessengerLockupWarm)"
-    stroke-width="8"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-  />
+  <g filter="url(#lockupShadow)">
+    <path
+      d="M46 86L30 116C29 118 31 120 34 119L58 101"
+      fill="url(#lockupBubbleFill)"
+      stroke="#AAC7FF"
+      stroke-width="3"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <rect x="12" y="12" width="104" height="94" rx="28" fill="url(#lockupBubbleFill)" />
+    <rect x="12" y="12" width="104" height="94" rx="28" stroke="#AAC7FF" stroke-width="3" />
+    <path
+      d="M20 18H108V52C98 58 77 62 58 58C39 54 26 47 20 36V18Z"
+      fill="url(#lockupBubbleGloss)"
+      opacity="0.5"
+    />
+    <path
+      d="M44 89V36L82 88V36"
+      stroke="#2148BC"
+      stroke-opacity="0.28"
+      stroke-width="22"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      transform="translate(3 3)"
+    />
+    <path
+      d="M44 89V36L82 88V36"
+      stroke="#FFFFFF"
+      stroke-width="18"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <path
+      d="M87 23C95 20 102 24 103 31C104 37 99 45 91 49"
+      stroke="url(#lockupAccentWarm)"
+      stroke-width="8"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  </g>
   <text
     x="146"
     y="69"
@@ -47,7 +71,7 @@
   <text
     x="146"
     y="104"
-    fill="#8FB3D9"
+    fill="#B4CFFF"
     font-size="28"
     font-weight="500"
     letter-spacing="-0.02em"

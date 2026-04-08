@@ -1,23 +1,55 @@
 <svg width="64" height="64" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="favBg" x1="18" y1="16" x2="106" y2="112" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#617D9E" />
-      <stop offset="1" stop-color="#364B66" />
+    <linearGradient id="favBubbleFill" x1="20" y1="14" x2="108" y2="116" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#79AEFF" />
+      <stop offset="0.55" stop-color="#4E76EE" />
+      <stop offset="1" stop-color="#355CD0" />
     </linearGradient>
-    <linearGradient id="favAccent" x1="36" y1="88" x2="92" y2="30" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#4F88FF" />
-      <stop offset="1" stop-color="#7DBBFF" />
+    <linearGradient id="favBubbleGloss" x1="30" y1="16" x2="84" y2="60" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.48" />
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0" />
     </linearGradient>
-    <linearGradient id="favWarm" x1="76" y1="32" x2="96" y2="52" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#F7B36C" />
-      <stop offset="1" stop-color="#F36E42" />
+    <linearGradient id="favAccentWarm" x1="84" y1="20" x2="102" y2="44" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFB24D" />
+      <stop offset="1" stop-color="#FF7A2F" />
     </linearGradient>
   </defs>
-  <rect x="8" y="8" width="112" height="112" rx="30" fill="url(#favBg)" />
-  <rect x="8" y="8" width="112" height="112" rx="30" stroke="#98B3CE" stroke-width="4" />
-  <path d="M40 86V42" stroke="url(#favAccent)" stroke-width="10" stroke-linecap="round" />
-  <path d="M40 42L72 82" stroke="url(#favAccent)" stroke-width="10" stroke-linecap="round" />
-  <path d="M72 82V50" stroke="url(#favAccent)" stroke-width="10" stroke-linecap="round" />
-  <path d="M70 52L88 34" stroke="url(#favAccent)" stroke-width="10" stroke-linecap="round" />
-  <path d="M78 34H92V48" stroke="url(#favWarm)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" />
+  <path
+    d="M46 86L30 116C29 118 31 120 34 119L58 101"
+    fill="url(#favBubbleFill)"
+    stroke="#AAC7FF"
+    stroke-width="3"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <rect x="12" y="12" width="104" height="94" rx="28" fill="url(#favBubbleFill)" />
+  <rect x="12" y="12" width="104" height="94" rx="28" stroke="#AAC7FF" stroke-width="3" />
+  <path
+    d="M20 18H108V52C98 58 77 62 58 58C39 54 26 47 20 36V18Z"
+    fill="url(#favBubbleGloss)"
+    opacity="0.5"
+  />
+  <path
+    d="M44 89V36L82 88V36"
+    stroke="#2148BC"
+    stroke-opacity="0.26"
+    stroke-width="22"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    transform="translate(3 3)"
+  />
+  <path
+    d="M44 89V36L82 88V36"
+    stroke="#FFFFFF"
+    stroke-width="18"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M87 23C95 20 102 24 103 31C104 37 99 45 91 49"
+    stroke="url(#favAccentWarm)"
+    stroke-width="8"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
 </svg>
