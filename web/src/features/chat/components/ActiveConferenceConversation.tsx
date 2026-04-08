@@ -18,7 +18,6 @@ type Props = {
   canJoin: boolean;
   canEditSchedule: boolean;
   canCancelSchedule: boolean;
-  canEndConference: boolean;
   canManageParticipants: boolean;
   conferenceActionPending: boolean;
   localRecordingActive: boolean;
@@ -29,7 +28,6 @@ type Props = {
   onBack: () => void;
   onEditConference: () => void;
   onCancelConference: () => void;
-  onEndConference: () => void;
   onConferencePresenceTouch: (conferenceId: string) => void;
   onConferencePresenceLeave: (conferenceId: string, options?: { keepalive?: boolean }) => void;
   onToggleInfo: () => void;
@@ -53,7 +51,6 @@ export function ActiveConferenceConversation({
   canJoin,
   canEditSchedule,
   canCancelSchedule,
-  canEndConference,
   canManageParticipants,
   conferenceActionPending,
   localRecordingActive,
@@ -64,7 +61,6 @@ export function ActiveConferenceConversation({
   onBack,
   onEditConference,
   onCancelConference,
-  onEndConference,
   onConferencePresenceTouch,
   onConferencePresenceLeave,
   onToggleInfo,
@@ -156,7 +152,7 @@ export function ActiveConferenceConversation({
                         ))}
                       </div>
                     </div>
-                    {canEditSchedule || canManageParticipants || canCancelSchedule || canEndConference ? (
+                    {canEditSchedule || canManageParticipants || canCancelSchedule ? (
                       <div className="conference-summary-row">
                         <span className="conference-summary-label">Управление</span>
                         <div className="conference-browser-actions">
@@ -188,16 +184,6 @@ export function ActiveConferenceConversation({
                               onClick={onCancelConference}
                             >
                               Отменить
-                            </button>
-                          ) : null}
-                          {canEndConference ? (
-                            <button
-                              type="button"
-                              className="ghost-button compact conference-end-button"
-                              disabled={conferenceActionPending}
-                              onClick={onEndConference}
-                            >
-                              Завершить
                             </button>
                           ) : null}
                         </div>

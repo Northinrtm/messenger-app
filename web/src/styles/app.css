@@ -521,6 +521,181 @@ textarea {
   padding-right: 0.15rem;
 }
 
+.conference-calendar {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.conference-calendar-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.95rem 1rem;
+  border-radius: 1.2rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.conference-calendar-summary-copy {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.conference-calendar-summary-copy strong {
+  font-size: 0.95rem;
+}
+
+.conference-calendar-summary-copy span,
+.conference-calendar-count,
+.conference-calendar-day-count {
+  color: rgba(245, 239, 231, 0.58);
+  font-size: 0.8rem;
+}
+
+.conference-calendar-count,
+.conference-calendar-day-count {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.conference-calendar-hint,
+.conference-calendar-load-more,
+.conference-calendar-day-empty {
+  border-radius: 1rem;
+  padding: 0.85rem 0.95rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  color: rgba(245, 239, 231, 0.62);
+  font-size: 0.83rem;
+}
+
+.conference-calendar-day {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.conference-calendar-day-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0 0.2rem;
+}
+
+.conference-calendar-day-copy {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.conference-calendar-day-copy strong {
+  text-transform: capitalize;
+  font-size: 0.96rem;
+}
+
+.conference-calendar-day-copy span {
+  color: rgba(245, 239, 231, 0.58);
+  font-size: 0.8rem;
+}
+
+.conference-calendar-day-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.conference-calendar-event {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.7rem;
+  padding: 0.9rem 0.95rem;
+  border-radius: 1.2rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  color: inherit;
+  text-align: left;
+}
+
+.conference-calendar-event.is-active {
+  background: linear-gradient(135deg, rgba(64, 113, 214, 0.34), rgba(36, 74, 152, 0.28));
+  border-color: rgba(116, 163, 255, 0.32);
+}
+
+.conference-calendar-event-time {
+  min-width: 2.9rem;
+  padding-top: 0.15rem;
+  color: #8aa0b6;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.conference-calendar-event-avatar {
+  width: 2.35rem;
+  height: 2.35rem;
+  border-radius: 0.85rem;
+  font-size: 0.8rem;
+}
+
+.conference-calendar-event-copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.28rem;
+}
+
+.conference-calendar-event-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 0.6rem;
+}
+
+.conference-calendar-event-head strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.95rem;
+}
+
+.conference-calendar-event-status {
+  flex: 0 0 auto;
+  padding: 0.16rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(80, 136, 255, 0.14);
+  color: #89bbff;
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.conference-calendar-event-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  color: rgba(245, 239, 231, 0.58);
+  font-size: 0.79rem;
+}
+
+.conference-calendar-event-separator {
+  width: 0.22rem;
+  height: 0.22rem;
+  border-radius: 999px;
+  background: rgba(245, 239, 231, 0.32);
+}
+
+.conference-calendar-event-copy p {
+  margin: 0;
+  color: rgba(245, 239, 231, 0.7);
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.conference-calendar-empty {
+  margin: 0;
+}
+
 .sidebar::-webkit-scrollbar,
 .session-list::-webkit-scrollbar,
 .chat-list::-webkit-scrollbar,
@@ -1285,6 +1460,30 @@ textarea {
 .conversation-list-tab.is-active {
   background: #2b5278;
   color: #f4fbff;
+}
+
+.conference-list-toolbar {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0 1rem 0.8rem;
+  background: #17212b;
+}
+
+.conference-list-toggle {
+  width: fit-content;
+  max-width: 100%;
+}
+
+.conference-list-toggle.is-active {
+  background: linear-gradient(135deg, rgba(80, 136, 255, 0.95), rgba(56, 108, 222, 0.92));
+  border-color: rgba(116, 163, 255, 0.5);
+  color: #ffffff;
+}
+
+.conference-list-toolbar-hint {
+  color: #8aa0b6;
+  font-size: 0.82rem;
+  line-height: 1.45;
 }
 
 .conference-browser-panel {
@@ -2438,6 +2637,7 @@ textarea {
   background: rgba(14, 22, 33, 0.96);
   box-shadow: 0 30px 60px rgba(5, 10, 16, 0.42);
   backdrop-filter: blur(18px);
+  cursor: pointer;
 }
 
 .conference-mini-toolbar {
@@ -2492,6 +2692,7 @@ textarea {
   min-height: 0;
   height: 100%;
   padding: 0;
+  pointer-events: none;
 }
 
 .conference-surface.is-mini .conference-stage,
@@ -2849,6 +3050,11 @@ textarea {
     padding-right: 0.85rem;
   }
 
+  .conference-list-toolbar {
+    padding-left: 0.85rem;
+    padding-right: 0.85rem;
+  }
+
   .conference-browser-panel {
     padding-left: 0.85rem;
     padding-right: 0.85rem;
@@ -2889,6 +3095,34 @@ body.is-resizing-chat-layout {
   .conference-browser-actions {
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .conference-list-toggle {
+    width: 100%;
+  }
+
+  .conference-calendar-summary,
+  .conference-calendar-day-header,
+  .conference-calendar-event-head {
+    grid-template-columns: 1fr;
+  }
+
+  .conference-calendar-summary,
+  .conference-calendar-day-header,
+  .conference-calendar-event-head {
+    display: grid;
+  }
+
+  .conference-calendar-event {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .conference-calendar-event-avatar {
+    display: none;
+  }
+
+  .conference-calendar-event-time {
+    min-width: 2.6rem;
   }
 
   .north-composer {

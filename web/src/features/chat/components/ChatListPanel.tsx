@@ -1,15 +1,18 @@
-import type { MouseEvent as ReactMouseEvent } from "react";
+import type { MouseEvent as ReactMouseEvent, RefObject } from "react";
 
 import type { ChatSummary, Participant, UserProfile, VideoConference } from "../../../lib/types";
 import type { ConversationListTab } from "../chatUi";
 import { AvatarCircle } from "./AvatarCircle";
+import { ConferenceCalendarPanel } from "./ConferenceCalendarPanel";
 
 type Props = {
   activeListTab: ConversationListTab;
+  conferenceViewMode: "list" | "calendar";
   normalizedSearch: string;
   conferencesLoading: boolean;
   visibleConferences: VideoConference[];
   activeConferenceId: string | null;
+  conferenceListScrollRef: RefObject<HTMLDivElement | null>;
   sessionUser: UserProfile;
   chatsLoading: boolean;
   tabChats: ChatSummary[];
@@ -33,10 +36,12 @@ type Props = {
 
 export function ChatListPanel({
   activeListTab,
+  conferenceViewMode,
   normalizedSearch,
   conferencesLoading,
   visibleConferences,
   activeConferenceId,
+  conferenceListScrollRef,
   sessionUser,
   chatsLoading,
   tabChats,
@@ -60,6 +65,24 @@ export function ChatListPanel({
   if (activeListTab === "conferences") {
     if (conferencesLoading) {
       return <div className="empty-list">Загружаем видеоконференции...</div>;
+    }
+
+    if (conferenceViewMode === "calendar") {
+      return (
+        <ConferenceCalendarPanel
+          key={normalizedSearch || "conference-calendar"}
+          conferences={visibleConferences}
+          activeConferenceId={activeConferenceId}
+          currentUsername={sessionUser.username}
+          normalizedSearch={normalizedSearch}
+          scrollContainerRef={conferenceListScrollRef}
+          onOpenConference={openConference}
+          formatConferenceListPreview={formatConferenceListPreview}
+          formatConferenceTileTime={formatConferenceTileTime}
+          formatConferenceSchedule={formatConferenceSchedule}
+          formatMemberCount={formatMemberCount}
+        />
+      );
     }
 
     if (visibleConferences.length === 0) {

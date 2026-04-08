@@ -8,6 +8,7 @@ import {
   useEffect,
   useEffectEvent,
   type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   useRef,
   useState,
@@ -171,6 +172,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const [activeConferenceId, setActiveConferenceId] = useState<string | null>(null);
   const [conferenceViewportMode, setConferenceViewportMode] = useState<"full" | "mini">("full");
   const [activeListTab, setActiveListTab] = useState<ConversationListTab>("dialogs");
+  const [conferenceBrowserMode, setConferenceBrowserMode] = useState<"list" | "calendar">("list");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [sidebarSheet, setSidebarSheet] = useState<SidebarSheet>(null);
   const [search, setSearch] = useState("");
@@ -203,6 +205,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [forwardingMessageId, setForwardingMessageId] = useState<string | null>(null);
   const handledRealtimeMessageIdsRef = useRef(new Map<string, true>());
+  const conferenceListScrollRef = useRef<HTMLDivElement | null>(null);
   const conferenceSurfaceRef = useRef<HTMLDivElement | null>(null);
   const conferenceMiniDragCleanupRef = useRef<(() => void) | null>(null);
   const deferredSearch = useDeferredValue(search);
@@ -925,6 +928,19 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     setConferenceExitRequestToken((current) => current + 1);
   });
 
+  const handleConferenceMiniSurfaceClick = useEffectEvent((event: ReactMouseEvent<HTMLDivElement>) => {
+    if (conferenceViewportMode !== "mini") {
+      return;
+    }
+
+    const target = event.target;
+    if (target instanceof HTMLElement && target.closest(".conference-mini-toolbar")) {
+      return;
+    }
+
+    restoreActiveConference();
+  });
+
   const handleConferencePresenceTouch = useEffectEvent((conferenceId: string) => {
     void touchConferencePresenceRequest(session.token, conferenceId).catch(() => {
       return;
@@ -1162,10 +1178,12 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const chatListContent = (
     <ChatListPanel
       activeListTab={activeListTab}
+      conferenceViewMode={conferenceBrowserMode}
       normalizedSearch={normalizedSearch}
       conferencesLoading={conferencesLoading}
       visibleConferences={visibleConferences}
       activeConferenceId={activeConference?.id ?? null}
+      conferenceListScrollRef={conferenceListScrollRef}
       sessionUser={session.user}
       chatsLoading={chatsLoading}
       tabChats={tabChats}
@@ -1199,7 +1217,6 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       canJoin={activeConferenceCanJoin}
       canEditSchedule={activeConferenceCanEditSchedule}
       canCancelSchedule={activeConferenceCanCancelSchedule}
-      canEndConference={activeConferenceCanEnd}
       canManageParticipants={activeConferenceCanManageParticipants}
       conferenceActionPending={
         updateConferenceMutation.isPending ||
@@ -1214,7 +1231,6 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       onBack={() => setMobilePane("sidebar")}
       onEditConference={openConferenceEditorSheet}
       onCancelConference={handleCancelScheduledConference}
-      onEndConference={handleEndConference}
       onConferencePresenceTouch={handleConferencePresenceTouch}
       onConferencePresenceLeave={handleConferencePresenceLeave}
       onToggleInfo={() => setIsConferenceInfoOpen((current) => !current)}
@@ -1343,6 +1359,29 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
           </div>
         ) : null}
 
+        {!sidebarSheet && activeListTab === "conferences" ? (
+          <div className="conference-list-toolbar">
+            <button
+              type="button"
+              className={
+                conferenceBrowserMode === "calendar"
+                  ? "ghost-button compact conference-list-toggle is-active"
+                  : "ghost-button compact conference-list-toggle"
+              }
+              onClick={() =>
+                setConferenceBrowserMode((current) => (current === "calendar" ? "list" : "calendar"))
+              }
+            >
+              {conferenceBrowserMode === "calendar" ? "Показать списком" : "Календарь встреч"}
+            </button>
+            <span className="conference-list-toolbar-hint">
+              {conferenceBrowserMode === "calendar"
+                ? "Сначала видны 14 дней, следующие недели открываются при прокрутке."
+                : "Открывает расписание видеоконференций по дням."}
+            </span>
+          </div>
+        ) : null}
+
         {sidebarSheet ? (
           <section className="north-sidebar-sheet">
             <SidebarUtilitySheets
@@ -1468,7 +1507,11 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
           </section>
         ) : null}
 
-        {!sidebarSheet ? <div className="chat-list north-chat-list">{chatListContent}</div> : null}
+        {!sidebarSheet ? (
+          <div ref={conferenceListScrollRef} className="chat-list north-chat-list">
+            {chatListContent}
+          </div>
+        ) : null}
 
         {isMenuOpen ? (
           <SidebarMenuOverlay
@@ -1500,6 +1543,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                 : "conference-surface is-full"
             }
             style={conferenceSurfaceStyle}
+            onClick={isConferenceMinimized ? handleConferenceMiniSurfaceClick : undefined}
           >
             {isConferenceMinimized ? (
               <div
@@ -1513,22 +1557,6 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                 <div className="conference-mini-copy">
                   <strong>{activeConference.title}</strong>
                   <span>{activeConferenceStatusLabel ?? "Конференция активна"}</span>
-                </div>
-                <div className="conference-mini-actions">
-                  <button
-                    type="button"
-                    className="ghost-button compact"
-                    onClick={restoreActiveConference}
-                  >
-                    Развернуть
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost-button compact"
-                    onClick={requestConferenceExit}
-                  >
-                    Выйти
-                  </button>
                 </div>
               </div>
             ) : null}

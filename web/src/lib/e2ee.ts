@@ -19,6 +19,7 @@ const MESSAGE_SCHEME = "RSA-OAEP-256/AES-GCM";
 const KDF_ITERATIONS = 250_000;
 const ENCRYPTED_MESSAGE_UNAVAILABLE = "[Encrypted message unavailable]";
 const UNLOCKED_IDENTITY_STORAGE_PREFIX = "north-messenger:unlocked-e2ee:";
+const REMEMBERED_UNLOCKED_IDENTITY_STORAGE_PREFIX = "north-messenger:remembered-e2ee:";
 const TRUSTED_DEVICE_STORAGE_PREFIX = "north-messenger:trusted-device-e2ee:";
 const TRUSTED_DEVICE_RP_NAME = "North Messenger";
 const textEncoder = new TextEncoder();
@@ -77,6 +78,7 @@ export function clearUnlockedEncryptionState(userId?: string) {
       unlockedIdentityByUserId.delete(userId);
     }
     removeUnlockedIdentityFromSession(userId);
+    removeUnlockedIdentityFromPersistentStorage(userId);
     return;
   }
 
@@ -84,6 +86,7 @@ export function clearUnlockedEncryptionState(userId?: string) {
     importedPrivateKeyCache.delete(identity.privateKey);
     publicKeyCache.delete(currentUserId);
     removeUnlockedIdentityFromSession(currentUserId);
+    removeUnlockedIdentityFromPersistentStorage(currentUserId);
   });
   unlockedIdentityByUserId.clear();
 }
@@ -106,10 +109,12 @@ export async function ensureEncryptionReady(session: AuthResponse, password: str
 
   if (bundle) {
     const privateKey = await unwrapPrivateKey(bundle, password);
-    writeUnlockedIdentity(session.user.id, {
+    const identity = {
       publicKey: bundle.publicKey,
       privateKey,
-    });
+    };
+    writeUnlockedIdentity(session.user.id, identity);
+    rememberUnlockedIdentityIfTrusted(session.user.id, identity);
     publicKeyCache.set(session.user.id, bundle.publicKey);
     return;
   }
@@ -125,6 +130,7 @@ export async function ensureEncryptionReady(session: AuthResponse, password: str
   });
 
   writeUnlockedIdentity(session.user.id, generatedIdentity);
+  rememberUnlockedIdentityIfTrusted(session.user.id, generatedIdentity);
   publicKeyCache.set(session.user.id, generatedIdentity.publicKey);
 }
 
@@ -161,6 +167,7 @@ export async function trustCurrentDeviceUnlock(session: AuthResponse) {
     ciphertext: bytesToBase64(ciphertext),
     createdAt: new Date().toISOString(),
   });
+  writeUnlockedIdentityToPersistentStorage(session.user.id, identity);
 }
 
 export async function unlockWithTrustedDevice(userId: string) {
@@ -197,10 +204,12 @@ export async function unlockWithTrustedDevice(userId: string) {
       throw new Error("Invalid trusted identity");
     }
 
-    writeUnlockedIdentity(userId, {
+    const identity = {
       publicKey: parsedIdentity.publicKey,
       privateKey: parsedIdentity.privateKey,
-    });
+    };
+    writeUnlockedIdentity(userId, identity);
+    writeUnlockedIdentityToPersistentStorage(userId, identity);
     publicKeyCache.set(userId, parsedIdentity.publicKey);
   } catch (error) {
     if (error instanceof ApiError) {
@@ -634,7 +643,14 @@ function readUnlockedIdentity(userId: string): LocalIdentity | null {
 
   const sessionIdentity = readUnlockedIdentityFromSession(userId);
   if (!sessionIdentity) {
-    return null;
+    const rememberedIdentity = readUnlockedIdentityFromPersistentStorage(userId);
+    if (!rememberedIdentity) {
+      return null;
+    }
+
+    unlockedIdentityByUserId.set(userId, rememberedIdentity);
+    writeUnlockedIdentityToSession(userId, rememberedIdentity);
+    return rememberedIdentity;
   }
 
   unlockedIdentityByUserId.set(userId, sessionIdentity);
@@ -644,6 +660,14 @@ function readUnlockedIdentity(userId: string): LocalIdentity | null {
 function writeUnlockedIdentity(userId: string, identity: LocalIdentity) {
   unlockedIdentityByUserId.set(userId, identity);
   writeUnlockedIdentityToSession(userId, identity);
+}
+
+function rememberUnlockedIdentityIfTrusted(userId: string, identity: LocalIdentity) {
+  if (!hasTrustedDeviceUnlock(userId)) {
+    return;
+  }
+
+  writeUnlockedIdentityToPersistentStorage(userId, identity);
 }
 
 function readTrustedDeviceUnlockRecord(userId: string): TrustedDeviceUnlockRecord | null {
@@ -705,6 +729,38 @@ function removeTrustedDeviceUnlockRecord(userId: string) {
   }
 }
 
+function readUnlockedIdentityFromPersistentStorage(userId: string): LocalIdentity | null {
+  if (typeof window === "undefined" || !hasTrustedDeviceUnlock(userId)) {
+    return null;
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(getRememberedUnlockedIdentityStorageKey(userId));
+    if (!rawValue) {
+      return null;
+    }
+
+    const parsedIdentity = JSON.parse(rawValue) as Partial<LocalIdentity>;
+    if (
+      typeof parsedIdentity.publicKey !== "string" ||
+      parsedIdentity.publicKey.length === 0 ||
+      typeof parsedIdentity.privateKey !== "string" ||
+      parsedIdentity.privateKey.length === 0
+    ) {
+      removeUnlockedIdentityFromPersistentStorage(userId);
+      return null;
+    }
+
+    return {
+      publicKey: parsedIdentity.publicKey,
+      privateKey: parsedIdentity.privateKey,
+    };
+  } catch {
+    removeUnlockedIdentityFromPersistentStorage(userId);
+    return null;
+  }
+}
+
 function readUnlockedIdentityFromSession(userId: string): LocalIdentity | null {
   if (typeof window === "undefined") {
     return null;
@@ -761,8 +817,36 @@ function removeUnlockedIdentityFromSession(userId: string) {
   }
 }
 
+function writeUnlockedIdentityToPersistentStorage(userId: string, identity: LocalIdentity) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(getRememberedUnlockedIdentityStorageKey(userId), JSON.stringify(identity));
+  } catch {
+    return;
+  }
+}
+
+function removeUnlockedIdentityFromPersistentStorage(userId: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.removeItem(getRememberedUnlockedIdentityStorageKey(userId));
+  } catch {
+    return;
+  }
+}
+
 function getUnlockedIdentityStorageKey(userId: string) {
   return `${UNLOCKED_IDENTITY_STORAGE_PREFIX}${userId}`;
+}
+
+function getRememberedUnlockedIdentityStorageKey(userId: string) {
+  return `${REMEMBERED_UNLOCKED_IDENTITY_STORAGE_PREFIX}${userId}`;
 }
 
 function getTrustedDeviceStorageKey(userId: string) {
