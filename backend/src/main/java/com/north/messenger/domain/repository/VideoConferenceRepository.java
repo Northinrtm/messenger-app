@@ -16,4 +16,6 @@ public interface VideoConferenceRepository extends JpaRepository<VideoConference
     List<VideoConference> findAllByEndedAtIsNullAndRoomNameIsNullAndScheduledAtLessThanEqual(Instant scheduledAt);
 
     List<VideoConference> findAllByEndedAtIsNullAndStartedAtIsNullAndScheduledAtLessThanEqual(Instant scheduledAt);
+
+    List<VideoConference> findAllByEndedAtIsNullAndStartedAtIsNotNull();
 }

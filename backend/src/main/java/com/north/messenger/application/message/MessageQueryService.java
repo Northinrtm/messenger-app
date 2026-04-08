@@ -13,9 +13,12 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +26,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @Transactional(readOnly = true)
 class MessageQueryService {
+
+    private static final Logger log = LoggerFactory.getLogger(MessageQueryService.class);
 
     private final AuthService authService;
     private final ChatService chatService;
@@ -70,13 +75,6 @@ class MessageQueryService {
         );
         recentMessages.sort((left, right) -> left.getCreatedAt().compareTo(right.getCreatedAt()));
 
-        messageReceiptService.acknowledgeReceipts(
-                chatId,
-                currentUser,
-                messageSupport.extractIncomingMessageIds(recentMessages, currentUser.getId()),
-                MessageSupport.ReceiptUpdateMode.DELIVERED
-        );
-
         Map<UUID, UserAccount> usersById = userAccountRepository.findAllByIdIn(
                         recentMessages.stream().map(ChatMessage::getSenderId).toList()
                 ).stream()
@@ -93,16 +91,82 @@ class MessageQueryService {
                 usersById
         );
 
-        return recentMessages.stream()
-                .map(message -> messageSupport.toResponse(
+        List<RenderedMessage> renderedMessages = recentMessages.stream()
+                .map(message -> tryRenderMessage(
+                        chatId,
+                        currentUser,
                         message,
-                        usersById.get(message.getSenderId()),
-                        currentUser.getId(),
-                        summariesByMessageId.getOrDefault(message.getId(), MessageSupport.MessageReceiptSummary.empty()),
-                        reactionsByMessageId.getOrDefault(message.getId(), List.of()),
-                        null,
-                        repliesByMessageId.get(message.getId())
+                        usersById,
+                        summariesByMessageId,
+                        reactionsByMessageId,
+                        repliesByMessageId
                 ))
+                .flatMap(Optional::stream)
                 .toList();
+
+        messageReceiptService.acknowledgeReceipts(
+                chatId,
+                currentUser,
+                messageSupport.extractIncomingMessageIds(
+                        renderedMessages.stream().map(RenderedMessage::message).toList(),
+                        currentUser.getId()
+                ),
+                MessageSupport.ReceiptUpdateMode.DELIVERED
+        );
+
+        return renderedMessages.stream().map(RenderedMessage::response).toList();
+    }
+
+    private Optional<RenderedMessage> tryRenderMessage(
+            UUID chatId,
+            UserAccount currentUser,
+            ChatMessage message,
+            Map<UUID, UserAccount> usersById,
+            Map<UUID, MessageSupport.MessageReceiptSummary> summariesByMessageId,
+            Map<UUID, List<MessageReactionSummaryResponse>> reactionsByMessageId,
+            Map<UUID, MessageSnippetResponse> repliesByMessageId
+    ) {
+        UserAccount sender = usersById.get(message.getSenderId());
+        if (sender == null) {
+            log.warn(
+                    "Skipping chat message with missing sender chatId={} messageId={} senderId={} currentUserId={}",
+                    chatId,
+                    message.getId(),
+                    message.getSenderId(),
+                    currentUser.getId()
+            );
+            return Optional.empty();
+        }
+
+        try {
+            return Optional.of(new RenderedMessage(
+                    message,
+                    messageSupport.toResponse(
+                            message,
+                            sender,
+                            currentUser.getId(),
+                            summariesByMessageId.getOrDefault(message.getId(), MessageSupport.MessageReceiptSummary.empty()),
+                            reactionsByMessageId.getOrDefault(message.getId(), List.of()),
+                            null,
+                            repliesByMessageId.get(message.getId())
+                    )
+            ));
+        } catch (IllegalStateException exception) {
+            log.warn(
+                    "Skipping malformed chat message chatId={} messageId={} senderId={} currentUserId={} reason={}",
+                    chatId,
+                    message.getId(),
+                    message.getSenderId(),
+                    currentUser.getId(),
+                    exception.getMessage()
+            );
+            return Optional.empty();
+        }
+    }
+
+    private record RenderedMessage(
+            ChatMessage message,
+            MessageResponse response
+    ) {
     }
 }

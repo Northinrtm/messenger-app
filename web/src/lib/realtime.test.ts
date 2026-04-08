@@ -69,6 +69,13 @@ type MockClient = {
   deactivate: () => Promise<void>;
 };
 
+function setDocumentVisibilityState(state: DocumentVisibilityState) {
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    value: state,
+  });
+}
+
 function createSubscription(options?: {
   onConnectionChange?: (connected: boolean) => void;
 }) {
@@ -87,6 +94,7 @@ describe("realtime reconnect protection", () => {
   beforeEach(() => {
     stompClients.length = 0;
     vi.useFakeTimers();
+    setDocumentVisibilityState("visible");
   });
 
   afterEach(() => {
@@ -166,5 +174,52 @@ describe("realtime reconnect protection", () => {
 
     disposeSecond();
     disposeFirst();
+  });
+
+  it("pauses realtime after the tab stays hidden and resumes when visible again", () => {
+    const connectionChange = vi.fn();
+    const dispose = createSubscription({
+      onConnectionChange: connectionChange,
+    });
+    const client = stompClients[0];
+
+    client.connected = true;
+    client.onConnect();
+    expect(connectionChange).toHaveBeenCalledWith(true);
+
+    setDocumentVisibilityState("hidden");
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    vi.advanceTimersByTime(14_999);
+    expect(client.deactivateCalls).toBe(0);
+
+    vi.advanceTimersByTime(1);
+    expect(client.deactivateCalls).toBe(1);
+    expect(connectionChange).toHaveBeenLastCalledWith(false);
+
+    setDocumentVisibilityState("visible");
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    expect(client.activateCalls).toBe(2);
+
+    dispose();
+  });
+
+  it("does not treat pagehide shutdown as a reconnect failure", () => {
+    const dispose = createSubscription();
+    const client = stompClients[0];
+
+    client.connected = true;
+    client.onConnect();
+
+    window.dispatchEvent(new Event("pagehide"));
+    expect(client.deactivateCalls).toBe(1);
+
+    client.onWebSocketClose();
+    vi.advanceTimersByTime(60_000);
+
+    expect(client.activateCalls).toBe(1);
+
+    dispose();
   });
 });

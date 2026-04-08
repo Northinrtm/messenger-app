@@ -97,6 +97,10 @@ public class VideoConference {
         return startedAt;
     }
 
+    public boolean isStarted() {
+        return startedAt != null;
+    }
+
     public boolean isEnded() {
         return endedAt != null;
     }
@@ -105,10 +109,30 @@ public class VideoConference {
         return roomName != null && !roomName.isBlank() && endedAt == null;
     }
 
+    public void updateDetails(String title, Instant scheduledAt) {
+        if (!isEnded() && !isStarted()) {
+            this.title = title;
+            this.scheduledAt = scheduledAt;
+        }
+    }
+
     public void activate(String roomName, Instant activatedAt) {
-        if (this.roomName == null && !isEnded()) {
+        if (isEnded() || isStarted()) {
+            return;
+        }
+
+        if (this.roomName == null) {
             this.roomName = roomName;
+        }
+        if (this.roomName != null && this.activatedAt == null) {
             this.activatedAt = activatedAt;
+        }
+    }
+
+    public void clearActivation() {
+        if (!isEnded() && !isStarted()) {
+            this.roomName = null;
+            this.activatedAt = null;
         }
     }
 

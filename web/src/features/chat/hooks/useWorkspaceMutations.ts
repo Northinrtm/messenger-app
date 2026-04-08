@@ -3,6 +3,7 @@ import {
   addContact as addContactRequest,
   addConferenceParticipants as addConferenceParticipantsRequest,
   addGroupParticipants,
+  cancelVideoConference as cancelVideoConferenceRequest,
   createVideoConference as createVideoConferenceRequest,
   deleteOwnAccount as deleteOwnAccountRequest,
   createDirectChat,
@@ -14,6 +15,7 @@ import {
   updateArchivedChat,
   updateProfile,
   updateProfileAvatar,
+  updateVideoConference as updateVideoConferenceRequest,
 } from "../../../lib/api";
 import type {
   AuthResponse,
@@ -32,6 +34,7 @@ type UseWorkspaceMutationsOptions = {
   activeConference: VideoConference | null;
   activeConferenceId: string | null;
   activeConferenceIsArchived: boolean;
+  conferenceEditingId: string | null;
   conferenceInviteUsernames: string[];
   conferenceParticipantUsernames: string[];
   conferenceScheduledAt: string;
@@ -63,6 +66,7 @@ export function useWorkspaceMutations({
   activeConference,
   activeConferenceId,
   activeConferenceIsArchived,
+  conferenceEditingId,
   conferenceInviteUsernames,
   conferenceParticipantUsernames,
   conferenceScheduledAt,
@@ -137,6 +141,24 @@ export function useWorkspaceMutations({
     },
   });
 
+  const updateConferenceMutation = useMutation({
+    mutationFn: (input: { conferenceId: string; title: string; scheduledAt: string }) =>
+      updateVideoConferenceRequest(token, input.conferenceId, {
+        title: input.title,
+        scheduledAt: input.scheduledAt,
+      }),
+    onSuccess: (conference) => {
+      queryClient.setQueryData<VideoConference[]>(["video-conferences", token], (current) =>
+        upsertVideoConferences(current, conference),
+      );
+      queryClient.setQueryData<VideoConference[]>(["video-conferences-archive", token], (current) =>
+        removeVideoConference(current, conference.id),
+      );
+      resetConferenceComposer();
+      openConference(conference.id);
+    },
+  });
+
   const endConferenceMutation = useMutation({
     mutationFn: (conferenceId: string) => endVideoConferenceRequest(token, conferenceId),
     onSuccess: (conference) => {
@@ -149,6 +171,20 @@ export function useWorkspaceMutations({
       if (activeConferenceId === conference.id) {
         setSidebarSheet(null);
       }
+    },
+  });
+
+  const cancelConferenceMutation = useMutation({
+    mutationFn: (conferenceId: string) => cancelVideoConferenceRequest(token, conferenceId),
+    onSuccess: (_result, conferenceId) => {
+      queryClient.setQueryData<VideoConference[]>(["video-conferences", token], (current) =>
+        removeVideoConference(current, conferenceId),
+      );
+      queryClient.setQueryData<VideoConference[]>(["video-conferences-archive", token], (current) =>
+        removeVideoConference(current, conferenceId),
+      );
+      resetConferenceComposer();
+      setSidebarSheet(null);
     },
   });
 
@@ -301,6 +337,15 @@ export function useWorkspaceMutations({
     const parsedDate = new Date(conferenceScheduledAt);
     const scheduledAt = Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
     const title = conferenceTitle.trim() || `Встреча ${formatClock(scheduledAt.toISOString())}`;
+    if (conferenceEditingId) {
+      updateConferenceMutation.mutate({
+        conferenceId: conferenceEditingId,
+        title,
+        scheduledAt: scheduledAt.toISOString(),
+      });
+      return;
+    }
+
     createConferenceMutation.mutate({
       title,
       scheduledAt: scheduledAt.toISOString(),
@@ -340,6 +385,7 @@ export function useWorkspaceMutations({
     addContactMutation,
     addGroupParticipantsMutation,
     avatarMutation,
+    cancelConferenceMutation,
     createChatMutation,
     createConferenceMutation,
     createGroupMutation,
@@ -357,6 +403,7 @@ export function useWorkspaceMutations({
     submitProfileDisplayName,
     toggleArchiveChat,
     updateArchivedChatMutation,
+    updateConferenceMutation,
     updateProfileMutation,
   };
 }

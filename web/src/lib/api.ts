@@ -42,6 +42,7 @@ type RequestOptions = {
   token?: string;
   body?: unknown;
   query?: Record<string, string | number | undefined | null>;
+  keepalive?: boolean;
   timeoutMs?: number;
 };
 
@@ -80,6 +81,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       method: options.method ?? "GET",
       cache: "no-store",
       credentials: "include",
+      keepalive: options.keepalive,
       signal: controller?.signal,
       headers: {
         ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
@@ -275,6 +277,18 @@ export function createVideoConference(
   });
 }
 
+export function updateVideoConference(
+  token: string,
+  conferenceId: string,
+  input: { title: string; scheduledAt: string }
+) {
+  return request<VideoConference>(`/api/conferences/${conferenceId}`, {
+    method: "PUT",
+    token,
+    body: input,
+  });
+}
+
 export function startVideoConference(token: string, conferenceId: string) {
   return request<VideoConference>(`/api/conferences/${conferenceId}/start`, {
     method: "POST",
@@ -328,6 +342,32 @@ export function endVideoConference(token: string, conferenceId: string) {
   return request<VideoConference>(`/api/conferences/${conferenceId}`, {
     method: "DELETE",
     token,
+  });
+}
+
+export function cancelVideoConference(token: string, conferenceId: string) {
+  return request<void>(`/api/conferences/${conferenceId}/schedule`, {
+    method: "DELETE",
+    token,
+  });
+}
+
+export function touchConferencePresence(token: string, conferenceId: string) {
+  return request<void>(`/api/conferences/${conferenceId}/presence`, {
+    method: "POST",
+    token,
+  });
+}
+
+export function clearConferencePresence(
+  token: string,
+  conferenceId: string,
+  options?: { keepalive?: boolean }
+) {
+  return request<void>(`/api/conferences/${conferenceId}/presence`, {
+    method: "DELETE",
+    token,
+    keepalive: options?.keepalive,
   });
 }
 

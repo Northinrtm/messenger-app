@@ -9,6 +9,10 @@ type EndConferenceMutationLike = {
   mutate: (conferenceId: string, options?: { onError?: () => void }) => void;
 };
 
+type CancelConferenceMutationLike = {
+  mutate: (conferenceId: string) => void;
+};
+
 type UseWorkspacePanelActionsOptions = {
   activeChat: ChatSummary | null;
   activeConference: VideoConference | null;
@@ -16,8 +20,10 @@ type UseWorkspacePanelActionsOptions = {
   activeConferenceIsOwnedByCurrentUser: boolean;
   activeDirectParticipant: Participant | null;
   addContact: (user: UserProfile) => void;
+  cancelConferenceMutation: CancelConferenceMutationLike;
   closeActiveConference: () => void;
   endConferenceMutation: EndConferenceMutationLike;
+  openConferenceEditor: (conference: VideoConference) => void;
   openConferenceSheet: () => void;
   openSidebarSheet: (sheet: "archive" | "profile" | "group" | "contacts" | "sessions" | "groupInfo" | "groupMembers" | "conferenceMembers") => void;
   queryClient: QueryClient;
@@ -34,8 +40,10 @@ export function useWorkspacePanelActions({
   activeConferenceIsOwnedByCurrentUser,
   activeDirectParticipant,
   addContact,
+  cancelConferenceMutation,
   closeActiveConference,
   endConferenceMutation,
+  openConferenceEditor,
   openConferenceSheet,
   openSidebarSheet,
   queryClient,
@@ -45,23 +53,31 @@ export function useWorkspacePanelActions({
   signOut,
 }: UseWorkspacePanelActionsOptions) {
   const handleConferenceStageExit = useEffectEvent(() => {
-    if (!activeConference) {
-      closeActiveConference();
+    closeActiveConference();
+  });
+
+  const handleEndConference = useEffectEvent(() => {
+    if (
+      !activeConference ||
+      !activeConferenceIsOwnedByCurrentUser ||
+      activeConferenceIsArchived ||
+      !activeConference.startedAt
+    ) {
       return;
     }
 
-    const conference = activeConference;
-    if (activeConferenceIsOwnedByCurrentUser) {
-      queryClient.setQueryData<VideoConference[]>(["video-conferences", sessionToken], (current) =>
-        removeVideoConference(current, conference.id)
-      );
-      endConferenceMutation.mutate(conference.id, {
-        onError: () => {
-          void queryClient.invalidateQueries({ queryKey: ["video-conferences", sessionToken] });
-        },
-      });
+    if (!window.confirm(`Завершить встречу "${activeConference.title}" для всех участников?`)) {
+      return;
     }
 
+    queryClient.setQueryData<VideoConference[]>(["video-conferences", sessionToken], (current) =>
+      removeVideoConference(current, activeConference.id)
+    );
+    endConferenceMutation.mutate(activeConference.id, {
+      onError: () => {
+        void queryClient.invalidateQueries({ queryKey: ["video-conferences", sessionToken] });
+      },
+    });
     closeActiveConference();
   });
 
@@ -105,6 +121,36 @@ export function useWorkspacePanelActions({
     openSidebarSheet("conferenceMembers");
   });
 
+  const openConferenceEditorSheet = useEffectEvent(() => {
+    if (
+      !activeConference ||
+      !activeConferenceIsOwnedByCurrentUser ||
+      activeConferenceIsArchived ||
+      activeConference.startedAt
+    ) {
+      return;
+    }
+
+    openConferenceEditor(activeConference);
+  });
+
+  const handleCancelScheduledConference = useEffectEvent(() => {
+    if (
+      !activeConference ||
+      !activeConferenceIsOwnedByCurrentUser ||
+      activeConferenceIsArchived ||
+      activeConference.startedAt
+    ) {
+      return;
+    }
+
+    if (!window.confirm(`Отменить встречу "${activeConference.title}"?`)) {
+      return;
+    }
+
+    cancelConferenceMutation.mutate(activeConference.id);
+  });
+
   const handleMenuAction = useEffectEvent((actionId: MenuActionId) => {
     switch (actionId) {
       case "conference":
@@ -136,8 +182,11 @@ export function useWorkspacePanelActions({
 
   return {
     addActiveChatToContacts,
+    handleCancelScheduledConference,
+    handleEndConference,
     handleConferenceStageExit,
     handleMenuAction,
+    openConferenceEditorSheet,
     openConferenceMembersSheet,
     openGroupInfoSheet,
     openGroupMembersSheet,

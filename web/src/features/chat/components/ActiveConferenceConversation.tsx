@@ -16,13 +16,22 @@ type Props = {
   statusLabel: string | null;
   stageHint: string | null;
   canJoin: boolean;
+  canEditSchedule: boolean;
+  canCancelSchedule: boolean;
+  canEndConference: boolean;
   canManageParticipants: boolean;
+  conferenceActionPending: boolean;
   localRecordingActive: boolean;
   shareUrl: string | null;
   isInfoOpen: boolean;
   infoButtonRef: RefObject<HTMLButtonElement | null>;
   infoPanelRef: RefObject<HTMLDivElement | null>;
   onBack: () => void;
+  onEditConference: () => void;
+  onCancelConference: () => void;
+  onEndConference: () => void;
+  onConferencePresenceTouch: (conferenceId: string) => void;
+  onConferencePresenceLeave: (conferenceId: string, options?: { keepalive?: boolean }) => void;
   onToggleInfo: () => void;
   onOpenMembers: () => void;
   onCopyShareUrl: (value: string) => void;
@@ -42,13 +51,22 @@ export function ActiveConferenceConversation({
   statusLabel,
   stageHint,
   canJoin,
+  canEditSchedule,
+  canCancelSchedule,
+  canEndConference,
   canManageParticipants,
+  conferenceActionPending,
   localRecordingActive,
   shareUrl,
   isInfoOpen,
   infoButtonRef,
   infoPanelRef,
   onBack,
+  onEditConference,
+  onCancelConference,
+  onEndConference,
+  onConferencePresenceTouch,
+  onConferencePresenceLeave,
   onToggleInfo,
   onOpenMembers,
   onCopyShareUrl,
@@ -138,12 +156,51 @@ export function ActiveConferenceConversation({
                         ))}
                       </div>
                     </div>
-                    {canManageParticipants ? (
+                    {canEditSchedule || canManageParticipants || canCancelSchedule || canEndConference ? (
                       <div className="conference-summary-row">
                         <span className="conference-summary-label">Управление</span>
-                        <button type="button" className="ghost-button compact" onClick={onOpenMembers}>
-                          Добавить участников
-                        </button>
+                        <div className="conference-browser-actions">
+                          {canEditSchedule ? (
+                            <button
+                              type="button"
+                              className="ghost-button compact"
+                              disabled={conferenceActionPending}
+                              onClick={onEditConference}
+                            >
+                              Изменить
+                            </button>
+                          ) : null}
+                          {canManageParticipants ? (
+                            <button
+                              type="button"
+                              className="ghost-button compact"
+                              disabled={conferenceActionPending}
+                              onClick={onOpenMembers}
+                            >
+                              Добавить участников
+                            </button>
+                          ) : null}
+                          {canCancelSchedule ? (
+                            <button
+                              type="button"
+                              className="ghost-button compact"
+                              disabled={conferenceActionPending}
+                              onClick={onCancelConference}
+                            >
+                              Отменить
+                            </button>
+                          ) : null}
+                          {canEndConference ? (
+                            <button
+                              type="button"
+                              className="ghost-button compact conference-end-button"
+                              disabled={conferenceActionPending}
+                              onClick={onEndConference}
+                            >
+                              Р—Р°РІРµСЂС€РёС‚СЊ
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
                     ) : null}
                   </div>
@@ -152,11 +209,51 @@ export function ActiveConferenceConversation({
             </div>
           </div>
         </div>
-        {canJoin || canManageParticipants || localRecordingActive ? (
+        {canJoin ||
+        canEditSchedule ||
+        canManageParticipants ||
+        canCancelSchedule ||
+        canEndConference ||
+        localRecordingActive ? (
           <div className="conversation-actions conference-actions">
+            {canEditSchedule ? (
+              <button
+                type="button"
+                className="ghost-button compact"
+                disabled={conferenceActionPending}
+                onClick={onEditConference}
+              >
+                Изменить
+              </button>
+            ) : null}
             {canManageParticipants ? (
-              <button type="button" className="ghost-button compact" onClick={onOpenMembers}>
+              <button
+                type="button"
+                className="ghost-button compact"
+                disabled={conferenceActionPending}
+                onClick={onOpenMembers}
+              >
                 Добавить участников
+              </button>
+            ) : null}
+            {canCancelSchedule ? (
+              <button
+                type="button"
+                className="ghost-button compact"
+                disabled={conferenceActionPending}
+                onClick={onCancelConference}
+              >
+                Отменить
+              </button>
+            ) : null}
+            {canEndConference ? (
+              <button
+                type="button"
+                className="ghost-button compact conference-end-button"
+                disabled={conferenceActionPending}
+                onClick={onEndConference}
+              >
+                Р—Р°РІРµСЂС€РёС‚СЊ
               </button>
             ) : null}
             {localRecordingActive ? (
@@ -278,12 +375,15 @@ export function ActiveConferenceConversation({
         {canJoin && conference.roomName ? (
           <div className="conference-stage">
             <ManagedConferenceStage
+              conferenceId={conference.id}
               key={`${conference.id}:${conference.roomName}:${conference.roomAccessCode}`}
               baseUrl={jitsiBaseUrl}
               roomName={conference.roomName}
               accessCode={conference.roomAccessCode ?? ""}
               displayName={profileDisplayName}
               title={conference.title}
+              onConferencePresenceTouch={onConferencePresenceTouch}
+              onConferencePresenceLeave={onConferencePresenceLeave}
               exitRequestToken={exitRequestToken}
               onRecordingStateChange={onRecordingStateChange}
               onConferenceExit={onConferenceExit}

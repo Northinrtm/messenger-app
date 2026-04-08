@@ -260,6 +260,59 @@ class MessageServiceTest {
     }
 
     @Test
+    void listMessagesShouldSkipMalformedEncryptedMessages() throws Exception {
+        UUID chatId = UUID.randomUUID();
+        UserAccount currentUser = user("alice");
+        UserAccount sender = user("north");
+        ChatMessage malformedMessage = new ChatMessage(
+                UUID.randomUUID(),
+                chatId,
+                sender.getId(),
+                "ciphertext-malformed",
+                "RSA-OAEP-256/AES-GCM",
+                "iv-malformed",
+                objectMapper.writeValueAsString(Map.of(sender.getId().toString(), "sender-only-key")),
+                Instant.parse("2026-03-24T12:00:00Z")
+        );
+        ChatMessage validMessage = new ChatMessage(
+                UUID.randomUUID(),
+                chatId,
+                sender.getId(),
+                "ciphertext-valid",
+                "RSA-OAEP-256/AES-GCM",
+                "iv-valid",
+                objectMapper.writeValueAsString(Map.of(
+                        sender.getId().toString(), "sender-key",
+                        currentUser.getId().toString(), "recipient-key"
+                )),
+                Instant.parse("2026-03-24T12:01:00Z")
+        );
+
+        when(authService.requireAuthenticatedUser("alice")).thenReturn(currentUser);
+        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
+                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
+        );
+        when(chatMessageRepository.findVisibleEncryptedByChatIdOrderByCreatedAtDesc(eq(chatId), eq(currentUser.getId()), any()))
+                .thenReturn(List.of(validMessage, malformedMessage));
+        when(userAccountRepository.findAllByIdIn(any())).thenReturn(List.of(sender));
+        when(messageReceiptRepository.findAllByMessageIdIn(any())).thenReturn(List.of());
+        when(messageReactionRepository.findAllByMessageIdIn(any())).thenReturn(List.of());
+        when(messageReceiptRepository.findAllByUserIdAndChatIdAndMessageIdIn(eq(currentUser.getId()), eq(chatId), any()))
+                .thenReturn(List.of());
+        when(authService.toParticipant(sender)).thenReturn(participant(sender));
+
+        List<MessageResponse> response = messageService.listMessages(chatId, "alice", null, 50);
+
+        assertThat(response).hasSize(1);
+        assertThat(response.get(0).id()).isEqualTo(validMessage.getId());
+        verify(messageReceiptRepository).findAllByUserIdAndChatIdAndMessageIdIn(
+                currentUser.getId(),
+                chatId,
+                List.of(validMessage.getId())
+        );
+    }
+
+    @Test
     void deleteMessageShouldNotifyAllParticipants() {
         UUID chatId = UUID.randomUUID();
         UUID messageId = UUID.randomUUID();

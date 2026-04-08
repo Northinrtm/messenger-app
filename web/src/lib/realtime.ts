@@ -55,6 +55,9 @@ type RealtimeConnection = {
   failedReconnectAt: number[];
   reconnectCooldownTimerId: number | null;
   lastRecordedFailureAt: number;
+  pausedByLifecycle: boolean;
+  visibilityPauseTimerId: number | null;
+  disposeLifecycleHandlers: (() => void) | null;
 };
 
 type OutgoingEncryptedMessagePayload = {
@@ -79,6 +82,7 @@ const REALTIME_RECONNECT_FAILURE_WINDOW_MS = 30_000;
 const REALTIME_RECONNECT_FAILURE_DEDUP_MS = 250;
 const REALTIME_RECONNECT_FAILURE_THRESHOLD = 5;
 const REALTIME_RECONNECT_COOLDOWN_MS = 60_000;
+const REALTIME_VISIBILITY_PAUSE_DELAY_MS = 15_000;
 let activeConnection: RealtimeConnection | null = null;
 const pendingOutgoingMessages = new Map<string, PendingOutgoingMessage>();
 
@@ -123,6 +127,9 @@ export function subscribeToChats({
     failedReconnectAt: [],
     reconnectCooldownTimerId: null,
     lastRecordedFailureAt: 0,
+    pausedByLifecycle: false,
+    visibilityPauseTimerId: null,
+    disposeLifecycleHandlers: null,
   };
 
   const client = new Client({
@@ -141,13 +148,15 @@ export function subscribeToChats({
   });
   connection.client = client;
   activeConnection = connection;
+  connection.disposeLifecycleHandlers = registerLifecycleHandlers(connection);
 
   client.onConnect = () => {
-    if (!isActiveConnection(connection)) {
+    if (!isActiveConnection(connection) || connection.pausedByLifecycle) {
       void client.deactivate();
       return;
     }
 
+    clearVisibilityPause(connection);
     connection.failedReconnectAt = [];
     connection.lastRecordedFailureAt = 0;
     setConnectionState(connection, true);
@@ -230,7 +239,10 @@ export function subscribeToChats({
   return () => {
     const shouldNotifyDisconnected = isActiveConnection(connection);
     connection.destroyed = true;
+    connection.disposeLifecycleHandlers?.();
+    connection.disposeLifecycleHandlers = null;
     clearReconnectCooldown(connection);
+    clearVisibilityPause(connection);
     clearSubscriptions(connection, shouldNotifyDisconnected);
     if (shouldNotifyDisconnected) {
       setConnectionState(connection, false);
@@ -366,6 +378,10 @@ function handleConnectionFailure(connection: RealtimeConnection) {
   clearSubscriptions(connection, true);
   setConnectionState(connection, false);
 
+  if (connection.pausedByLifecycle) {
+    return;
+  }
+
   const now = Date.now();
   if (now - connection.lastRecordedFailureAt < REALTIME_RECONNECT_FAILURE_DEDUP_MS) {
     return;
@@ -406,13 +422,25 @@ function clearReconnectCooldown(connection: RealtimeConnection) {
   connection.reconnectCooldownTimerId = null;
 }
 
+function clearVisibilityPause(connection: RealtimeConnection) {
+  if (connection.visibilityPauseTimerId === null) {
+    return;
+  }
+
+  window.clearTimeout(connection.visibilityPauseTimerId);
+  connection.visibilityPauseTimerId = null;
+}
+
 function isActiveConnection(connection: RealtimeConnection) {
   return activeConnection === connection && !connection.destroyed;
 }
 
 function retireConnection(connection: RealtimeConnection) {
   connection.destroyed = true;
+  connection.disposeLifecycleHandlers?.();
+  connection.disposeLifecycleHandlers = null;
   clearReconnectCooldown(connection);
+  clearVisibilityPause(connection);
   clearSubscriptions(connection, false);
   connection.connected = false;
   void connection.client.deactivate();
@@ -453,6 +481,83 @@ function rejectPendingOutgoingMessages() {
 
 function normalizeChatIds(chatIds: string[]) {
   return Array.from(new Set(chatIds)).sort();
+}
+
+function registerLifecycleHandlers(connection: RealtimeConnection) {
+  const handleVisibilityChange = () => {
+    if (!isActiveConnection(connection)) {
+      return;
+    }
+
+    if (document.visibilityState === "hidden") {
+      scheduleVisibilityPause(connection);
+      return;
+    }
+
+    clearVisibilityPause(connection);
+    resumeConnectionFromLifecyclePause(connection);
+  };
+
+  const handlePageHide = () => {
+    if (!isActiveConnection(connection)) {
+      return;
+    }
+
+    clearVisibilityPause(connection);
+    pauseConnectionForLifecycle(connection);
+  };
+
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  window.addEventListener("pagehide", handlePageHide);
+  window.addEventListener("beforeunload", handlePageHide);
+
+  return () => {
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+    window.removeEventListener("pagehide", handlePageHide);
+    window.removeEventListener("beforeunload", handlePageHide);
+  };
+}
+
+function scheduleVisibilityPause(connection: RealtimeConnection) {
+  if (
+    connection.pausedByLifecycle ||
+    connection.visibilityPauseTimerId !== null ||
+    (!connection.client.active && !connection.connected)
+  ) {
+    return;
+  }
+
+  connection.visibilityPauseTimerId = window.setTimeout(() => {
+    connection.visibilityPauseTimerId = null;
+    if (!isActiveConnection(connection) || document.visibilityState !== "hidden") {
+      return;
+    }
+
+    pauseConnectionForLifecycle(connection);
+  }, REALTIME_VISIBILITY_PAUSE_DELAY_MS);
+}
+
+function pauseConnectionForLifecycle(connection: RealtimeConnection) {
+  if (!isActiveConnection(connection) || connection.destroyed || connection.pausedByLifecycle) {
+    return;
+  }
+
+  connection.pausedByLifecycle = true;
+  clearReconnectCooldown(connection);
+  clearSubscriptions(connection, true);
+  setConnectionState(connection, false);
+  void connection.client.deactivate();
+}
+
+function resumeConnectionFromLifecyclePause(connection: RealtimeConnection) {
+  if (!isActiveConnection(connection) || connection.destroyed || !connection.pausedByLifecycle) {
+    return;
+  }
+
+  connection.pausedByLifecycle = false;
+  connection.failedReconnectAt = [];
+  connection.lastRecordedFailureAt = 0;
+  connection.client.activate();
 }
 
 function resolveWebSocketBaseUrl() {

@@ -1,7 +1,10 @@
 import { useEffectEvent, type Dispatch, type SetStateAction } from "react";
 
-import type { ChatSummary } from "../../../lib/types";
-import { createInitialConferenceDateTime } from "../chatPresentation";
+import type { ChatSummary, VideoConference } from "../../../lib/types";
+import {
+  createInitialConferenceDateTime,
+  formatDateTimeInputValue,
+} from "../chatPresentation";
 import type { ConversationListTab, SidebarSheet } from "../chatUi";
 
 type ConferenceViewportMode = "full" | "mini";
@@ -19,6 +22,7 @@ type UseWorkspaceNavigationParams = {
   setActiveConferenceId: Dispatch<SetStateAction<string | null>>;
   setActiveListTab: Dispatch<SetStateAction<ConversationListTab>>;
   setConferenceComposerMode: Dispatch<SetStateAction<"instant" | "scheduled" | null>>;
+  setConferenceEditingId: Dispatch<SetStateAction<string | null>>;
   setConferenceParticipantUsernames: Dispatch<SetStateAction<string[]>>;
   setConferenceScheduledAt: Dispatch<SetStateAction<string>>;
   setConferenceTitle: Dispatch<SetStateAction<string>>;
@@ -38,6 +42,7 @@ type UseWorkspaceNavigationResult = {
   openChat: (chatId: string, tabHint?: ConversationListTab) => void;
   openConference: (conferenceId: string) => void;
   openConferenceComposer: (mode: "instant" | "scheduled") => void;
+  openConferenceEditor: (conference: VideoConference) => void;
   openConferenceSheet: () => void;
   openGroupConferenceComposer: (mode: "instant" | "scheduled") => void;
   openSidebarSheet: (sheet: Exclude<SidebarSheet, null>) => void;
@@ -58,6 +63,7 @@ export function useWorkspaceNavigation({
   setActiveConferenceId,
   setActiveListTab,
   setConferenceComposerMode,
+  setConferenceEditingId,
   setConferenceParticipantUsernames,
   setConferenceScheduledAt,
   setConferenceTitle,
@@ -81,6 +87,7 @@ export function useWorkspaceNavigation({
     setConferenceScheduledAt(createInitialConferenceDateTime());
     setConferenceParticipantUsernames([]);
     setConferenceComposerMode(null);
+    setConferenceEditingId(null);
   });
 
   const openConferenceSheet = useEffectEvent(() => {
@@ -94,10 +101,20 @@ export function useWorkspaceNavigation({
 
   const openConferenceComposer = useEffectEvent((mode: "instant" | "scheduled") => {
     openConferenceSheet();
+    setConferenceEditingId(null);
     setConferenceComposerMode(mode);
     if (mode === "scheduled") {
       setConferenceScheduledAt(createInitialConferenceDateTime());
     }
+  });
+
+  const openConferenceEditor = useEffectEvent((conference: VideoConference) => {
+    openConferenceSheet();
+    setConferenceEditingId(conference.id);
+    setConferenceComposerMode("scheduled");
+    setConferenceTitle(conference.title);
+    setConferenceScheduledAt(formatDateTimeInputValue(new Date(conference.scheduledAt)));
+    setConferenceParticipantUsernames([]);
   });
 
   const openGroupConferenceComposer = useEffectEvent((mode: "instant" | "scheduled") => {
@@ -106,6 +123,7 @@ export function useWorkspaceNavigation({
     }
 
     openConferenceSheet();
+    setConferenceEditingId(null);
     setConferenceComposerMode(mode);
     setConferenceTitle(`Встреча ${activeChat.title}`);
     setConferenceParticipantUsernames(
@@ -124,6 +142,7 @@ export function useWorkspaceNavigation({
     setIsMenuOpen(false);
     if (tab !== "conferences") {
       setConferenceComposerMode(null);
+      setConferenceEditingId(null);
       if (activeConferenceId) {
         setConferenceViewportMode("mini");
         setIsConferenceInfoOpen(false);
@@ -146,6 +165,7 @@ export function useWorkspaceNavigation({
     setIsMenuOpen(false);
     setSidebarSheet(null);
     setConferenceComposerMode(null);
+    setConferenceEditingId(null);
     setMobilePane("conversation");
     if (activeConferenceId) {
       setConferenceViewportMode("mini");
@@ -169,6 +189,7 @@ export function useWorkspaceNavigation({
     setIsConferenceInfoOpen(false);
     clearComposerContext();
     setSidebarSheet(null);
+    setConferenceEditingId(null);
     setMobilePane(activeChatId ? "conversation" : "sidebar");
     setConferenceViewportMode("full");
     setActiveConferenceId(null);
@@ -185,6 +206,7 @@ export function useWorkspaceNavigation({
     setIsConferenceInfoOpen(false);
     setSidebarSheet(null);
     setConferenceComposerMode(null);
+    setConferenceEditingId(null);
     setConferenceViewportMode("full");
     setMobilePane("conversation");
     setActiveChatId(null);
@@ -206,6 +228,7 @@ export function useWorkspaceNavigation({
     setIsConferenceInfoOpen(false);
     setSidebarSheet(null);
     setConferenceComposerMode(null);
+    setConferenceEditingId(null);
     setConferenceViewportMode("full");
     setMobilePane("conversation");
     setActiveChatId(null);
@@ -218,6 +241,7 @@ export function useWorkspaceNavigation({
     openChat,
     openConference,
     openConferenceComposer,
+    openConferenceEditor,
     openConferenceSheet,
     openGroupConferenceComposer,
     openSidebarSheet,

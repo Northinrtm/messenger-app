@@ -3,13 +3,16 @@ package com.north.messenger.application.chat;
 import com.north.messenger.api.dto.AddConferenceParticipantsRequest;
 import com.north.messenger.api.dto.CreateVideoConferenceRequest;
 import com.north.messenger.api.dto.ParticipantResponse;
+import com.north.messenger.api.dto.UpdateVideoConferenceRequest;
 import com.north.messenger.api.dto.VideoConferenceResponse;
 import com.north.messenger.application.auth.AuthService;
+import com.north.messenger.domain.model.VideoConferenceAttendance;
 import com.north.messenger.domain.repository.ConferenceRecordingRepository;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.VideoConference;
 import com.north.messenger.domain.model.VideoConferenceParticipant;
 import com.north.messenger.domain.repository.UserAccountRepository;
+import com.north.messenger.domain.repository.VideoConferenceAttendanceRepository;
 import com.north.messenger.domain.repository.VideoConferenceParticipantRepository;
 import com.north.messenger.domain.repository.VideoConferenceRepository;
 import com.north.messenger.security.JwtProperties;
@@ -29,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -40,6 +44,7 @@ class VideoConferenceServiceTest {
     private UserAccountRepository userAccountRepository;
     private VideoConferenceRepository videoConferenceRepository;
     private VideoConferenceParticipantRepository videoConferenceParticipantRepository;
+    private VideoConferenceAttendanceRepository videoConferenceAttendanceRepository;
     private ConferenceRecordingRepository conferenceRecordingRepository;
     private ConferenceRecordingStorage conferenceRecordingStorage;
     private ConferenceRecordingImportService conferenceRecordingImportService;
@@ -51,6 +56,7 @@ class VideoConferenceServiceTest {
         userAccountRepository = mock(UserAccountRepository.class);
         videoConferenceRepository = mock(VideoConferenceRepository.class);
         videoConferenceParticipantRepository = mock(VideoConferenceParticipantRepository.class);
+        videoConferenceAttendanceRepository = mock(VideoConferenceAttendanceRepository.class);
         conferenceRecordingRepository = mock(ConferenceRecordingRepository.class);
         conferenceRecordingStorage = mock(ConferenceRecordingStorage.class);
         conferenceRecordingImportService = mock(ConferenceRecordingImportService.class);
@@ -59,6 +65,7 @@ class VideoConferenceServiceTest {
                 userAccountRepository,
                 videoConferenceRepository,
                 videoConferenceParticipantRepository,
+                videoConferenceAttendanceRepository,
                 conferenceRecordingRepository,
                 conferenceRecordingStorage,
                 conferenceRecordingImportService,
@@ -74,6 +81,8 @@ class VideoConferenceServiceTest {
         when(videoConferenceRepository.save(any(VideoConference.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(videoConferenceRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(videoConferenceParticipantRepository.save(any(VideoConferenceParticipant.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(videoConferenceAttendanceRepository.save(any(VideoConferenceAttendance.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         when(conferenceRecordingRepository.findByConferenceId(any(UUID.class))).thenReturn(Optional.empty());
         when(conferenceRecordingRepository.findAllByConferenceIdIn(anyCollection())).thenReturn(List.of());
@@ -213,6 +222,213 @@ class VideoConferenceServiceTest {
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("Only the organizer can end the conference");
         assertThat(conference.isEnded()).isFalse();
+    }
+
+    @Test
+    void updateConferenceShouldRenameAndReschedulePlannedConference() {
+        UserAccount organizer = new UserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        Instant updatedScheduledAt = Instant.now().plusSeconds(7_200);
+        VideoConference conference = new VideoConference(
+                UUID.randomUUID(),
+                "Initial title",
+                "vc-room",
+                organizer.getId(),
+                Instant.now().plusSeconds(90),
+                Instant.parse("2026-03-25T11:55:00Z"),
+                Instant.parse("2026-03-25T11:55:00Z"),
+                null
+        );
+        ParticipantResponse organizerResponse = new ParticipantResponse(
+                organizer.getId(),
+                organizer.getUsername(),
+                organizer.getDisplayName(),
+                organizer.getAvatarUrl(),
+                true
+        );
+        VideoConferenceParticipant membership = new VideoConferenceParticipant(
+                UUID.randomUUID(),
+                conference.getId(),
+                organizer.getId(),
+                Instant.parse("2026-03-25T11:55:00Z")
+        );
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(organizer);
+        when(videoConferenceRepository.findById(conference.getId())).thenReturn(Optional.of(conference));
+        when(videoConferenceParticipantRepository.findAllByConferenceIdOrderByInvitedAtAsc(conference.getId()))
+                .thenReturn(List.of(membership));
+        when(userAccountRepository.findAllByIdIn(anyCollection())).thenReturn(List.of(organizer));
+        when(authService.resolveOnlineByUserIds(anyCollection())).thenReturn(Map.of(organizer.getId(), true));
+        when(authService.toParticipant(organizer, true)).thenReturn(organizerResponse);
+
+        VideoConferenceResponse response = videoConferenceService.updateConference(
+                "north",
+                conference.getId(),
+                new UpdateVideoConferenceRequest("Updated title", updatedScheduledAt)
+        );
+
+        assertThat(response.title()).isEqualTo("Updated title");
+        assertThat(response.scheduledAt()).isEqualTo(updatedScheduledAt);
+        assertThat(response.roomName()).isNull();
+        assertThat(response.activatedAt()).isNull();
+    }
+
+    @Test
+    void cancelConferenceShouldDeletePlannedConferenceForOrganizer() {
+        UserAccount organizer = new UserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        VideoConference conference = new VideoConference(
+                UUID.randomUUID(),
+                "Team sync",
+                null,
+                organizer.getId(),
+                Instant.parse("2026-03-25T12:00:00Z"),
+                Instant.parse("2026-03-25T11:55:00Z"),
+                null,
+                null
+        );
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(organizer);
+        when(videoConferenceRepository.findById(conference.getId())).thenReturn(Optional.of(conference));
+
+        videoConferenceService.cancelConference("north", conference.getId());
+
+        verify(videoConferenceRepository).delete(conference);
+    }
+
+    @Test
+    void cancelConferenceShouldRejectStartedConference() {
+        UserAccount organizer = new UserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        VideoConference conference = new VideoConference(
+                UUID.randomUUID(),
+                "Team sync",
+                "vc-room",
+                organizer.getId(),
+                Instant.parse("2026-03-25T12:00:00Z"),
+                Instant.parse("2026-03-25T11:55:00Z"),
+                Instant.parse("2026-03-25T11:55:00Z"),
+                Instant.parse("2026-03-25T11:56:00Z")
+        );
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(organizer);
+        when(videoConferenceRepository.findById(conference.getId())).thenReturn(Optional.of(conference));
+
+        assertThatThrownBy(() -> videoConferenceService.cancelConference("north", conference.getId()))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Started conference can no longer be cancelled");
+        verify(videoConferenceRepository, never()).delete(any(VideoConference.class));
+    }
+
+    @Test
+    void touchConferencePresenceShouldTrackActiveSession() {
+        UserAccount organizer = new UserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UUID sessionId = UUID.randomUUID();
+        VideoConference conference = new VideoConference(
+                UUID.randomUUID(),
+                "Team sync",
+                "vc-room",
+                organizer.getId(),
+                Instant.now().plusSeconds(90),
+                Instant.parse("2026-03-25T11:55:00Z"),
+                Instant.parse("2026-03-25T11:55:00Z"),
+                null
+        );
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(organizer);
+        when(videoConferenceRepository.findById(conference.getId())).thenReturn(Optional.of(conference));
+        when(videoConferenceParticipantRepository.existsByConferenceIdAndUserId(conference.getId(), organizer.getId()))
+                .thenReturn(true);
+        when(videoConferenceAttendanceRepository.findByConferenceIdAndSessionId(conference.getId(), sessionId))
+                .thenReturn(Optional.empty());
+
+        videoConferenceService.touchConferencePresence("north", sessionId, conference.getId());
+
+        verify(videoConferenceAttendanceRepository).save(any(VideoConferenceAttendance.class));
+    }
+
+    @Test
+    void clearConferencePresenceShouldMarkSessionAsLeft() {
+        UserAccount organizer = new UserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UUID sessionId = UUID.randomUUID();
+        VideoConferenceAttendance attendance = new VideoConferenceAttendance(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                organizer.getId(),
+                sessionId,
+                Instant.parse("2026-03-25T11:55:00Z"),
+                Instant.parse("2026-03-25T11:57:00Z"),
+                null
+        );
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(organizer);
+        when(videoConferenceAttendanceRepository.findByConferenceIdAndSessionId(attendance.getConferenceId(), sessionId))
+                .thenReturn(Optional.of(attendance));
+
+        videoConferenceService.clearConferencePresence("north", sessionId, attendance.getConferenceId());
+
+        assertThat(attendance.getLeftAt()).isNotNull();
+    }
+
+    @Test
+    void activateScheduledConferencesShouldEndStartedConferenceWithoutParticipantsForTenMinutes() {
+        UserAccount organizer = new UserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        VideoConference conference = new VideoConference(
+                UUID.randomUUID(),
+                "Team sync",
+                "vc-room",
+                organizer.getId(),
+                Instant.now().minusSeconds(900),
+                Instant.parse("2026-03-25T11:55:00Z"),
+                Instant.parse("2026-03-25T11:55:00Z"),
+                Instant.now().minusSeconds(900)
+        );
+
+        when(videoConferenceRepository.findAllByEndedAtIsNullAndRoomNameIsNullAndScheduledAtLessThanEqual(any(Instant.class)))
+                .thenReturn(List.of());
+        when(videoConferenceRepository.findAllByEndedAtIsNullAndStartedAtIsNullAndScheduledAtLessThanEqual(any(Instant.class)))
+                .thenReturn(List.of());
+        when(videoConferenceRepository.findAllByEndedAtIsNullAndStartedAtIsNotNull()).thenReturn(List.of(conference));
+        when(videoConferenceAttendanceRepository.countActiveSessions(any(UUID.class), any(Instant.class))).thenReturn(0L);
+        when(videoConferenceAttendanceRepository.findLatestSeenAt(conference.getId())).thenReturn(null);
+
+        videoConferenceService.activateScheduledConferences();
+
+        assertThat(conference.getEndedAt()).isNotNull();
+        verify(videoConferenceRepository).saveAll(anyCollection());
     }
 
     @Test

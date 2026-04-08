@@ -4,12 +4,15 @@ export type ConferenceParticipantRole = "moderator" | "participant";
 export type ConferenceRecordingState = "idle" | "starting" | "recording" | "stopping" | "failed";
 
 type Props = {
+  conferenceId: string;
   baseUrl: string;
   roomName: string;
   accessCode: string;
   displayName: string;
   title: string;
   exitRequestToken?: number;
+  onConferencePresenceTouch?: (conferenceId: string) => void;
+  onConferencePresenceLeave?: (conferenceId: string, options?: { keepalive?: boolean }) => void;
   onRecordingStateChange?: (state: ConferenceRecordingState) => void;
   onRoleChange?: (role: ConferenceParticipantRole | null) => void;
   onConferenceExit?: () => void;
@@ -59,6 +62,7 @@ type ScopedMessageBridgeOptions = {
 const BRIDGE_MESSAGE_METHOD = "message";
 const BRIDGE_READY_METHOD = "__ready__";
 const JITSI_HIDDEN_DOMAIN = "recorder.meet.jitsi";
+const CONFERENCE_PRESENCE_HEARTBEAT_MS = 30_000;
 const MINIMAL_TOOLBAR_BUTTONS = [
   "microphone",
   "camera",
@@ -73,22 +77,35 @@ const MINIMAL_TOOLBAR_BUTTONS = [
 let jitsiExternalApiId = 0;
 
 export function ManagedConferenceStage({
+  conferenceId,
   baseUrl,
   roomName,
   accessCode,
   displayName,
   title,
   exitRequestToken = 0,
+  onConferencePresenceTouch,
+  onConferencePresenceLeave,
   onRecordingStateChange,
   onRoleChange,
   onConferenceExit,
 }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const conferencePresenceTouchRef = useRef(onConferencePresenceTouch);
+  const conferencePresenceLeaveRef = useRef(onConferencePresenceLeave);
   const roleChangeRef = useRef(onRoleChange);
   const recordingStateChangeRef = useRef(onRecordingStateChange);
   const conferenceExitRef = useRef(onConferenceExit);
   const requestConferenceExitRef = useRef<(() => void) | null>(null);
   const [retryToken, setRetryToken] = useState(0);
+
+  useEffect(() => {
+    conferencePresenceTouchRef.current = onConferencePresenceTouch;
+  }, [onConferencePresenceTouch]);
+
+  useEffect(() => {
+    conferencePresenceLeaveRef.current = onConferencePresenceLeave;
+  }, [onConferencePresenceLeave]);
 
   useEffect(() => {
     roleChangeRef.current = onRoleChange;
@@ -119,7 +136,9 @@ export function ManagedConferenceStage({
     let bridge: ScopedMessageBridge | null = null;
     let exitRequested = false;
     let hangupTimerId: number | null = null;
+    let presenceHeartbeatId: number | null = null;
     let localRecordingActive = false;
+    let localParticipantJoined = false;
     let roomAccessCodeApplied = false;
 
     const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
@@ -148,6 +167,39 @@ export function ManagedConferenceStage({
         window.clearTimeout(hangupTimerId);
         hangupTimerId = null;
       }
+    };
+
+    const clearPresenceHeartbeat = () => {
+      if (presenceHeartbeatId !== null) {
+        window.clearInterval(presenceHeartbeatId);
+        presenceHeartbeatId = null;
+      }
+    };
+
+    const touchConferencePresence = () => {
+      conferencePresenceTouchRef.current?.(conferenceId);
+    };
+
+    const leaveConferencePresence = (keepalive = false) => {
+      if (!localParticipantJoined) {
+        return;
+      }
+
+      localParticipantJoined = false;
+      clearPresenceHeartbeat();
+      conferencePresenceLeaveRef.current?.(conferenceId, { keepalive });
+    };
+
+    const startPresenceHeartbeat = () => {
+      localParticipantJoined = true;
+      clearPresenceHeartbeat();
+      touchConferencePresence();
+      presenceHeartbeatId = window.setInterval(() => {
+        if (!localParticipantJoined || isConferenceClosed) {
+          return;
+        }
+        touchConferencePresence();
+      }, CONFERENCE_PRESENCE_HEARTBEAT_MS);
     };
 
     const requestConferenceExit = () => {
@@ -195,6 +247,7 @@ export function ManagedConferenceStage({
 
       isConferenceClosed = true;
       clearHangupTimer();
+      leaveConferencePresence();
       roleChangeRef.current?.(null);
       updateRecordingState("idle");
       bridge?.destroy();
@@ -278,6 +331,7 @@ export function ManagedConferenceStage({
           roleChangeRef.current?.(null);
           syncConferenceIdentity();
           applyRoomAccessCode();
+          startPresenceHeartbeat();
           return;
         case "participant-role-changed":
           if (eventPayload.role === "moderator") {
@@ -303,12 +357,19 @@ export function ManagedConferenceStage({
           return;
         case "video-conference-left":
         case "video-ready-to-close":
+          leaveConferencePresence();
           handleConferenceExit();
           return;
         default:
           return;
       }
     };
+
+    const handleBeforeUnload = () => {
+      leaveConferencePresence(true);
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
 
     try {
       host.replaceChildren();
@@ -351,13 +412,16 @@ export function ManagedConferenceStage({
     return () => {
       cancelled = true;
       clearHangupTimer();
+      leaveConferencePresence();
+      clearPresenceHeartbeat();
+      window.removeEventListener("beforeunload", handleBeforeUnload);
       requestConferenceExitRef.current = null;
       roleChangeRef.current?.(null);
       updateRecordingState("idle");
       bridge?.destroy();
       host.replaceChildren();
     };
-  }, [accessCode, baseUrl, displayName, retryToken, roomName, title]);
+  }, [accessCode, baseUrl, conferenceId, displayName, retryToken, roomName, title]);
 
   return <div ref={hostRef} className="conference-embed-host" />;
 }

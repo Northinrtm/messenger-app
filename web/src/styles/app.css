@@ -2450,6 +2450,16 @@ textarea {
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
+.conference-mini-toolbar.is-draggable {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.conference-mini-toolbar.is-draggable.is-dragging {
+  cursor: grabbing;
+}
+
 .conference-mini-copy {
   min-width: 0;
   display: grid;

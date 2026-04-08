@@ -3,14 +3,17 @@ package com.north.messenger.application.chat;
 import com.north.messenger.api.dto.AddConferenceParticipantsRequest;
 import com.north.messenger.api.dto.CreateVideoConferenceRequest;
 import com.north.messenger.api.dto.ParticipantResponse;
+import com.north.messenger.api.dto.UpdateVideoConferenceRequest;
 import com.north.messenger.api.dto.VideoConferenceResponse;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.domain.model.ConferenceRecording;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.VideoConference;
+import com.north.messenger.domain.model.VideoConferenceAttendance;
 import com.north.messenger.domain.model.VideoConferenceParticipant;
 import com.north.messenger.domain.repository.ConferenceRecordingRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
+import com.north.messenger.domain.repository.VideoConferenceAttendanceRepository;
 import com.north.messenger.domain.repository.VideoConferenceParticipantRepository;
 import com.north.messenger.domain.repository.VideoConferenceRepository;
 import com.north.messenger.security.JwtProperties;
@@ -46,11 +49,14 @@ import org.springframework.web.server.ResponseStatusException;
 public class VideoConferenceService {
 
     private static final long ROOM_ACTIVATION_LEAD_MINUTES = 5;
+    private static final long CONFERENCE_PRESENCE_STALE_MINUTES = 2;
+    private static final long CONFERENCE_AUTO_END_EMPTY_MINUTES = 10;
 
     private final AuthService authService;
     private final UserAccountRepository userAccountRepository;
     private final VideoConferenceRepository videoConferenceRepository;
     private final VideoConferenceParticipantRepository videoConferenceParticipantRepository;
+    private final VideoConferenceAttendanceRepository videoConferenceAttendanceRepository;
     private final ConferenceRecordingRepository conferenceRecordingRepository;
     private final ConferenceRecordingStorage conferenceRecordingStorage;
     private final ConferenceRecordingImportService conferenceRecordingImportService;
@@ -61,6 +67,7 @@ public class VideoConferenceService {
             UserAccountRepository userAccountRepository,
             VideoConferenceRepository videoConferenceRepository,
             VideoConferenceParticipantRepository videoConferenceParticipantRepository,
+            VideoConferenceAttendanceRepository videoConferenceAttendanceRepository,
             ConferenceRecordingRepository conferenceRecordingRepository,
             ConferenceRecordingStorage conferenceRecordingStorage,
             ConferenceRecordingImportService conferenceRecordingImportService,
@@ -70,6 +77,7 @@ public class VideoConferenceService {
         this.userAccountRepository = userAccountRepository;
         this.videoConferenceRepository = videoConferenceRepository;
         this.videoConferenceParticipantRepository = videoConferenceParticipantRepository;
+        this.videoConferenceAttendanceRepository = videoConferenceAttendanceRepository;
         this.conferenceRecordingRepository = conferenceRecordingRepository;
         this.conferenceRecordingStorage = conferenceRecordingStorage;
         this.conferenceRecordingImportService = conferenceRecordingImportService;
@@ -185,6 +193,48 @@ public class VideoConferenceService {
     }
 
     @Transactional
+    public VideoConferenceResponse updateConference(String username, UUID conferenceId, UpdateVideoConferenceRequest request) {
+        UserAccount currentUser = authService.requireAuthenticatedUser(username);
+        VideoConference conference = videoConferenceRepository.findById(conferenceId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Conference not found"));
+
+        if (!conference.getCreatedByUserId().equals(currentUser.getId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the organizer can update the conference");
+        }
+        if (conference.isEnded()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Conference has already ended");
+        }
+        if (conference.isStarted()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Started conference can no longer be changed");
+        }
+
+        Instant now = Instant.now();
+        if (request.scheduledAt().isBefore(now.minusSeconds(60))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Conference must be scheduled in the present or future");
+        }
+
+        conference.updateDetails(request.title().trim(), request.scheduledAt());
+        if (shouldStartConference(request.scheduledAt(), now)) {
+            conference.activate(createRoomName(conference.getId()), now);
+            conference.start(now);
+        } else if (shouldActivateConference(request.scheduledAt(), now)) {
+            conference.activate(createRoomName(conference.getId()), now);
+        } else {
+            conference.clearActivation();
+        }
+
+        List<VideoConferenceParticipant> memberships =
+                videoConferenceParticipantRepository.findAllByConferenceIdOrderByInvitedAtAsc(conferenceId);
+        Map<UUID, UserAccount> usersById = findUsersById(
+                memberships.stream()
+                        .map(VideoConferenceParticipant::getUserId)
+                        .collect(Collectors.toCollection(LinkedHashSet::new))
+        );
+        usersById.putIfAbsent(currentUser.getId(), currentUser);
+        return toResponse(conference, memberships, usersById, currentUser.getId(), findRecording(conferenceId));
+    }
+
+    @Transactional
     public VideoConferenceResponse startConference(String username, UUID conferenceId) {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
         VideoConference conference = videoConferenceRepository.findById(conferenceId)
@@ -271,6 +321,48 @@ public class VideoConferenceService {
     }
 
     @Transactional
+    public void touchConferencePresence(String username, UUID sessionId, UUID conferenceId) {
+        UserAccount currentUser = authService.requireAuthenticatedUser(username);
+        VideoConference conference = videoConferenceRepository.findById(conferenceId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Conference not found"));
+        if (conference.isEnded()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Conference has already ended");
+        }
+        if (!conference.isJoinAvailable()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Conference room is not available yet");
+        }
+        if (!videoConferenceParticipantRepository.existsByConferenceIdAndUserId(conferenceId, currentUser.getId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Conference is not available");
+        }
+
+        Instant now = Instant.now();
+        VideoConferenceAttendance attendance = videoConferenceAttendanceRepository
+                .findByConferenceIdAndSessionId(conferenceId, sessionId)
+                .orElseGet(() -> new VideoConferenceAttendance(
+                        UUID.randomUUID(),
+                        conferenceId,
+                        currentUser.getId(),
+                        sessionId,
+                        now,
+                        now,
+                        null
+                ));
+        if (!attendance.getUserId().equals(currentUser.getId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Conference is not available");
+        }
+        attendance.touch(now);
+        videoConferenceAttendanceRepository.save(attendance);
+    }
+
+    @Transactional
+    public void clearConferencePresence(String username, UUID sessionId, UUID conferenceId) {
+        UserAccount currentUser = authService.requireAuthenticatedUser(username);
+        videoConferenceAttendanceRepository.findByConferenceIdAndSessionId(conferenceId, sessionId)
+                .filter(attendance -> attendance.getUserId().equals(currentUser.getId()))
+                .ifPresent(attendance -> attendance.leave(Instant.now()));
+    }
+
+    @Transactional
     public VideoConferenceResponse endConference(String username, UUID conferenceId) {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
         VideoConference conference = videoConferenceRepository.findById(conferenceId)
@@ -290,6 +382,25 @@ public class VideoConferenceService {
         );
         usersById.putIfAbsent(currentUser.getId(), currentUser);
         return toResponse(conference, memberships, usersById, currentUser.getId(), findRecording(conferenceId));
+    }
+
+    @Transactional
+    public void cancelConference(String username, UUID conferenceId) {
+        UserAccount currentUser = authService.requireAuthenticatedUser(username);
+        VideoConference conference = videoConferenceRepository.findById(conferenceId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Conference not found"));
+
+        if (!conference.getCreatedByUserId().equals(currentUser.getId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the organizer can cancel the conference");
+        }
+        if (conference.isEnded()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Conference has already ended");
+        }
+        if (conference.isStarted()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Started conference can no longer be cancelled");
+        }
+
+        videoConferenceRepository.delete(conference);
     }
 
     @Transactional
@@ -369,6 +480,7 @@ public class VideoConferenceService {
         Instant now = Instant.now();
         activateDueConferences(now);
         startDueConferences(now);
+        endInactiveStartedConferences(now);
     }
 
     @Scheduled(fixedDelay = 15_000L)
@@ -509,6 +621,32 @@ public class VideoConferenceService {
             conference.start(now);
         });
         videoConferenceRepository.saveAll(conferencesToStart);
+    }
+
+    @Transactional
+    protected void endInactiveStartedConferences(Instant now) {
+        List<VideoConference> startedConferences = videoConferenceRepository.findAllByEndedAtIsNullAndStartedAtIsNotNull();
+        if (startedConferences.isEmpty()) {
+            return;
+        }
+
+        Instant activeAfter = now.minus(CONFERENCE_PRESENCE_STALE_MINUTES, ChronoUnit.MINUTES);
+        Instant emptySinceThreshold = now.minus(CONFERENCE_AUTO_END_EMPTY_MINUTES, ChronoUnit.MINUTES);
+        List<VideoConference> conferencesToEnd = startedConferences.stream()
+                .filter(conference -> videoConferenceAttendanceRepository.countActiveSessions(
+                        conference.getId(),
+                        activeAfter
+                ) == 0L)
+                .filter(conference -> {
+                    Instant lastSeenAt = videoConferenceAttendanceRepository.findLatestSeenAt(conference.getId());
+                    Instant emptySince = lastSeenAt != null ? lastSeenAt : conference.getStartedAt();
+                    return emptySince != null && !emptySince.isAfter(emptySinceThreshold);
+                })
+                .peek(conference -> conference.end(now))
+                .toList();
+        if (!conferencesToEnd.isEmpty()) {
+            videoConferenceRepository.saveAll(conferencesToEnd);
+        }
     }
 
     @Transactional

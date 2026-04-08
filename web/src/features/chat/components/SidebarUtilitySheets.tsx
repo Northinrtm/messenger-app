@@ -8,12 +8,14 @@ type Props = {
   sheet: UtilitySheet;
   sessionUser: UserProfile;
   conferenceComposerMode: "instant" | "scheduled" | null;
+  conferenceEditingId: string | null;
   conferenceTitle: string;
   conferenceScheduledAt: string;
   conferenceCandidates: Array<Participant | UserProfile>;
   conferenceParticipantUsernames: string[];
   contactsLoading: boolean;
   createConferencePending: boolean;
+  updateConferencePending: boolean;
   archivedChatsLoading: boolean;
   archivedChats: ChatSummary[];
   forwardingMessage: ChatMessage | null;
@@ -28,6 +30,7 @@ type Props = {
   onToggleConferenceParticipant: (username: string) => void;
   onSubmitCreateConferenceNow: () => void;
   onSubmitCreateConference: () => void;
+  onSubmitUpdateConference: () => void;
   onOpenChatContextMenu: (event: ReactMouseEvent<HTMLDivElement>, chatId: string) => void;
   onOpenChat: (chatId: string) => void;
   onToggleArchiveChat: (chatId: string) => void;
@@ -46,12 +49,14 @@ export function SidebarUtilitySheets({
   sheet,
   sessionUser,
   conferenceComposerMode,
+  conferenceEditingId,
   conferenceTitle,
   conferenceScheduledAt,
   conferenceCandidates,
   conferenceParticipantUsernames,
   contactsLoading,
   createConferencePending,
+  updateConferencePending,
   archivedChatsLoading,
   archivedChats,
   forwardingMessage,
@@ -66,6 +71,7 @@ export function SidebarUtilitySheets({
   onToggleConferenceParticipant,
   onSubmitCreateConferenceNow,
   onSubmitCreateConference,
+  onSubmitUpdateConference,
   onOpenChatContextMenu,
   onOpenChat,
   onToggleArchiveChat,
@@ -80,50 +86,67 @@ export function SidebarUtilitySheets({
   getDirectParticipant,
 }: Props) {
   if (sheet === "conference") {
+    const isEditingConference = Boolean(conferenceEditingId);
+    const conferenceSubmitPending = createConferencePending || updateConferencePending;
+
     return (
       <div className="sheet-card">
         <div className="sheet-head">
           <div>
-            <div className="section-title">Видеоконференции</div>
-            <p className="sheet-copy">
-              Запусти встречу сразу или запланируй ее на удобное время.
-            </p>
+            {isEditingConference ? (
+              <>
+                <div className="section-title">Редактирование встречи</div>
+                <p className="sheet-copy">Измени название или время запланированной встречи.</p>
+              </>
+            ) : null}
+            {!isEditingConference ? <div className="section-title">Видеоконференции</div> : null}
+            {!isEditingConference ? (
+              <p className="sheet-copy">
+                Запусти встречу сразу или запланируй ее на удобное время.
+              </p>
+            ) : null}
           </div>
           <button type="button" className="ghost-button compact" onClick={onClose}>
             Закрыть
           </button>
         </div>
 
-        <div className="conference-browser-actions">
-          <button
-            type="button"
-            className={
-              conferenceComposerMode === "instant"
-                ? "ghost-button compact is-active"
-                : "ghost-button compact"
-            }
-            onClick={() => onOpenConferenceComposer("instant")}
-          >
-            Начать сейчас
-          </button>
-          <button
-            type="button"
-            className={
-              conferenceComposerMode === "scheduled"
-                ? "ghost-button compact is-active"
-                : "ghost-button compact"
-            }
-            onClick={() => onOpenConferenceComposer("scheduled")}
-          >
-            Запланировать
-          </button>
-        </div>
+        {!isEditingConference ? (
+          <div className="conference-browser-actions">
+            <button
+              type="button"
+              className={
+                conferenceComposerMode === "instant"
+                  ? "ghost-button compact is-active"
+                  : "ghost-button compact"
+              }
+              onClick={() => onOpenConferenceComposer("instant")}
+            >
+              Начать сейчас
+            </button>
+            <button
+              type="button"
+              className={
+                conferenceComposerMode === "scheduled"
+                  ? "ghost-button compact is-active"
+                  : "ghost-button compact"
+              }
+              onClick={() => onOpenConferenceComposer("scheduled")}
+            >
+              Запланировать
+            </button>
+          </div>
+        ) : null}
 
-        {conferenceComposerMode ? (
+        {conferenceComposerMode || isEditingConference ? (
           <form
             className="conference-browser-form"
             onSubmit={(event) => {
               event.preventDefault();
+              if (isEditingConference) {
+                onSubmitUpdateConference();
+                return;
+              }
               if (conferenceComposerMode === "instant") {
                 onSubmitCreateConferenceNow();
                 return;
@@ -134,11 +157,11 @@ export function SidebarUtilitySheets({
             <input
               value={conferenceTitle}
               onChange={(event) => onConferenceTitleChange(event.target.value)}
-              placeholder="Название встречи или оставь пустым"
+              placeholder="Название встречи"
               maxLength={120}
             />
 
-            {conferenceComposerMode === "scheduled" ? (
+            {conferenceComposerMode === "scheduled" || isEditingConference ? (
               <input
                 type="datetime-local"
                 value={conferenceScheduledAt}
@@ -147,54 +170,60 @@ export function SidebarUtilitySheets({
               />
             ) : null}
 
-            <div className="group-picker-list conference-picker-list">
-              {contactsLoading && conferenceCandidates.length === 0 ? (
-                <div className="empty-list">Загружаем контакты...</div>
-              ) : conferenceCandidates.length === 0 ? (
-                <div className="empty-list">
-                  Пока некого добавлять. Создайте группу или добавьте контакты.
-                </div>
-              ) : (
-                conferenceCandidates.map((contact) => {
-                  const selected = conferenceParticipantUsernames.includes(contact.username);
-                  return (
-                    <button
-                      type="button"
-                      key={contact.username}
-                      className={
-                        selected
-                          ? "sheet-row sheet-row-with-avatar group-picker-row is-selected"
-                          : "sheet-row sheet-row-with-avatar group-picker-row"
-                      }
-                      onClick={() => onToggleConferenceParticipant(contact.username)}
-                    >
-                      <AvatarCircle
-                        className="menu-row-avatar sheet-contact-avatar"
-                        name={contact.displayName}
-                        avatarUrl={contact.avatarUrl}
-                        online={contact.online}
-                      />
-                      <div className="sheet-row-copy">
-                        <strong>{contact.displayName}</strong>
-                        <span>@{contact.username}</span>
-                      </div>
-                      <span className="member-pill">{selected ? "Выбран" : "Выбрать"}</span>
-                    </button>
-                  );
-                })
-              )}
-            </div>
+            {!isEditingConference ? (
+              <div className="group-picker-list conference-picker-list">
+                {contactsLoading && conferenceCandidates.length === 0 ? (
+                  <div className="empty-list">Загружаем контакты...</div>
+                ) : conferenceCandidates.length === 0 ? (
+                  <div className="empty-list">
+                    Пока некого добавлять. Создайте группу или добавьте контакты.
+                  </div>
+                ) : (
+                  conferenceCandidates.map((contact) => {
+                    const selected = conferenceParticipantUsernames.includes(contact.username);
+                    return (
+                      <button
+                        type="button"
+                        key={contact.username}
+                        className={
+                          selected
+                            ? "sheet-row sheet-row-with-avatar group-picker-row is-selected"
+                            : "sheet-row sheet-row-with-avatar group-picker-row"
+                        }
+                        onClick={() => onToggleConferenceParticipant(contact.username)}
+                      >
+                        <AvatarCircle
+                          className="menu-row-avatar sheet-contact-avatar"
+                          name={contact.displayName}
+                          avatarUrl={contact.avatarUrl}
+                          online={contact.online}
+                        />
+                        <div className="sheet-row-copy">
+                          <strong>{contact.displayName}</strong>
+                          <span>@{contact.username}</span>
+                        </div>
+                        <span className="member-pill">{selected ? "Выбран" : "Выбрать"}</span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            ) : null}
 
             <div className="conference-browser-actions">
               <button type="button" className="ghost-button compact" onClick={onCloseConferenceComposer}>
                 Закрыть
               </button>
-              <button type="submit" className="secondary-button" disabled={createConferencePending}>
-                {createConferencePending
-                  ? "Создаем..."
-                  : conferenceComposerMode === "instant"
-                    ? "Создать сейчас"
-                    : "Запланировать"}
+              <button type="submit" className="secondary-button" disabled={conferenceSubmitPending}>
+                {conferenceSubmitPending
+                  ? isEditingConference
+                    ? "Сохраняем..."
+                    : "Создаем..."
+                  : isEditingConference
+                    ? "Сохранить изменения"
+                    : conferenceComposerMode === "instant"
+                      ? "Создать сейчас"
+                      : "Запланировать"}
               </button>
             </div>
           </form>
