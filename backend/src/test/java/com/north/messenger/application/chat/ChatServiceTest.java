@@ -13,6 +13,7 @@ import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.UserArchivedChat;
 import com.north.messenger.domain.model.UserDeletedChat;
 import com.north.messenger.domain.repository.ChatMessageRepository;
+import com.north.messenger.domain.repository.ChatRoomBanRepository;
 import com.north.messenger.domain.repository.ChatParticipantRepository;
 import com.north.messenger.domain.repository.ChatRoomRepository;
 import com.north.messenger.domain.repository.MessageReceiptRepository;
@@ -42,6 +43,7 @@ class ChatServiceTest {
 
     private AuthService authService;
     private ChatRoomRepository chatRoomRepository;
+    private ChatRoomBanRepository chatRoomBanRepository;
     private ChatParticipantRepository chatParticipantRepository;
     private ChatMessageRepository chatMessageRepository;
     private MessageReceiptRepository messageReceiptRepository;
@@ -57,6 +59,7 @@ class ChatServiceTest {
     void setUp() {
         authService = mock(AuthService.class);
         chatRoomRepository = mock(ChatRoomRepository.class);
+        chatRoomBanRepository = mock(ChatRoomBanRepository.class);
         chatParticipantRepository = mock(ChatParticipantRepository.class);
         chatMessageRepository = mock(ChatMessageRepository.class);
         messageReceiptRepository = mock(MessageReceiptRepository.class);
@@ -69,6 +72,7 @@ class ChatServiceTest {
         chatService = new ChatService(
                 authService,
                 chatRoomRepository,
+                chatRoomBanRepository,
                 chatParticipantRepository,
                 chatMessageRepository,
                 messageReceiptRepository,

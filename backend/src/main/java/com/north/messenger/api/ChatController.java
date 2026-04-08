@@ -4,6 +4,7 @@ import com.north.messenger.api.dto.AddGroupParticipantsRequest;
 import com.north.messenger.api.dto.ChatSummaryResponse;
 import com.north.messenger.api.dto.CreateDirectChatRequest;
 import com.north.messenger.api.dto.CreateGroupChatRequest;
+import com.north.messenger.api.dto.GroupParticipantActionRequest;
 import com.north.messenger.api.dto.UpdateGroupChatRequest;
 import com.north.messenger.api.dto.UpdateArchivedChatRequest;
 import com.north.messenger.api.dto.UpdatePinnedMessageRequest;
@@ -75,6 +76,28 @@ public class ChatController {
             @Valid @RequestBody UpdateGroupChatRequest request
     ) {
         return chatService.updateGroupChat(authentication.getName(), chatId, request);
+    }
+
+    @PostMapping("/{chatId}/leave")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void leaveGroup(Authentication authentication, @PathVariable UUID chatId) {
+        chatService.leaveGroup(authentication.getName(), chatId);
+    }
+
+    @DeleteMapping("/{chatId}/group")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteGroup(Authentication authentication, @PathVariable UUID chatId) {
+        chatService.deleteGroup(authentication.getName(), chatId);
+    }
+
+    @PostMapping("/{chatId}/bans")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void banGroupParticipant(
+            Authentication authentication,
+            @PathVariable UUID chatId,
+            @Valid @RequestBody GroupParticipantActionRequest request
+    ) {
+        chatService.banGroupParticipant(authentication.getName(), chatId, request.username());
     }
 
     @PutMapping("/{chatId}/archive")

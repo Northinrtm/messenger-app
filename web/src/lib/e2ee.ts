@@ -134,6 +134,50 @@ export async function ensureEncryptionReady(session: AuthResponse, password: str
   publicKeyCache.set(session.user.id, generatedIdentity.publicKey);
 }
 
+export async function prepareOwnEncryptionKeyBundleForPasswordChange(
+  token: string,
+  userId: string,
+  currentPassword: string,
+  newPassword: string
+) {
+  const unlockedIdentity = readUnlockedIdentity(userId);
+  if (unlockedIdentity) {
+    const wrappedPrivateKey = await wrapPrivateKey(unlockedIdentity.privateKey, newPassword);
+    return {
+      publicKey: unlockedIdentity.publicKey,
+      encryptedPrivateKey: wrappedPrivateKey.ciphertext,
+      kdfSalt: wrappedPrivateKey.salt,
+      kdfIv: wrappedPrivateKey.iv,
+      kdfIterations: wrappedPrivateKey.iterations,
+    };
+  }
+
+  let bundle: UserEncryptionKeyBundle | null = null;
+  try {
+    bundle = await getOwnEncryptionKeyBundle(token);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      return null;
+    }
+    throw error;
+  }
+
+  let privateKey: string;
+  try {
+    privateKey = await unwrapPrivateKey(bundle, currentPassword);
+  } catch {
+    throw new ApiError("Current password could not unlock encrypted chats", 400);
+  }
+  const wrappedPrivateKey = await wrapPrivateKey(privateKey, newPassword);
+  return {
+    publicKey: bundle.publicKey,
+    encryptedPrivateKey: wrappedPrivateKey.ciphertext,
+    kdfSalt: wrappedPrivateKey.salt,
+    kdfIv: wrappedPrivateKey.iv,
+    kdfIterations: wrappedPrivateKey.iterations,
+  };
+}
+
 export async function trustCurrentDeviceUnlock(session: AuthResponse) {
   if (!isTrustedDeviceUnlockSupported()) {
     throw new ApiError("This browser does not support secure device unlock for encrypted chats yet", 400);

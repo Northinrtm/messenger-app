@@ -39,16 +39,8 @@ export function useContextMenu(): UseContextMenuResult {
     setContextMenu(null);
   };
 
-  const openChatContextMenu = (event: MouseEvent | ReactMouseEvent, chatId: string) => {
-    const x = event.clientX;
-    const y = event.clientY;
+  const openChatContextMenu = (event: MouseEvent | ReactMouseEvent, _chatId: string) => {
     event.preventDefault();
-    setContextMenu({
-      kind: "chat",
-      chatId,
-      x,
-      y,
-    });
   };
 
   const openMessageContextMenu = (

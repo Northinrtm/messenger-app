@@ -1,6 +1,7 @@
 package com.north.messenger.api;
 
 import com.north.messenger.api.dto.AuthResponse;
+import com.north.messenger.api.dto.ChangePasswordRequest;
 import com.north.messenger.api.dto.LoginRequest;
 import com.north.messenger.api.dto.RegisterRequest;
 import com.north.messenger.api.dto.UpdateAvatarRequest;
@@ -87,6 +88,15 @@ public class AuthController {
             @Valid @RequestBody UpdateProfileRequest request
     ) {
         return authService.updateProfile(authentication.getName(), request.displayName());
+    }
+
+    @PutMapping("/password")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void changePassword(
+            Authentication authentication,
+            @Valid @RequestBody ChangePasswordRequest request
+    ) {
+        authService.changePassword(authentication.getName(), request);
     }
 
     @PutMapping("/me/avatar")

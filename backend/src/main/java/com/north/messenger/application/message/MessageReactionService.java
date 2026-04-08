@@ -52,7 +52,8 @@ class MessageReactionService {
             ToggleMessageReactionRequest request
     ) {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
-        chatService.requireChatMembership(chatId, currentUser);
+        var room = chatService.requireChatMembership(chatId, currentUser);
+        chatService.assertChatInteractionAllowed(room, currentUser);
 
         ChatMessage message = chatMessageRepository.findById(messageId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found"));

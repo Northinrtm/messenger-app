@@ -100,11 +100,16 @@ export function AuthCard({ onAuthenticated }: Props) {
             <input
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="Minimum 10 characters"
+              placeholder="At least 8 characters"
               type="password"
               autoComplete={mode === "register" ? "new-password" : "current-password"}
               required
             />
+            {mode === "register" ? (
+              <small className="field-help">
+                8+ characters. Avoid your name, common passwords, and simple patterns like 1234.
+              </small>
+            ) : null}
           </label>
 
           {error ? <div className="form-error">{error}</div> : null}

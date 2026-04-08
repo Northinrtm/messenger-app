@@ -1,13 +1,18 @@
 package com.north.messenger.application.auth;
 
 import com.north.messenger.api.dto.AuthResponse;
+import com.north.messenger.api.dto.ChangePasswordRequest;
 import com.north.messenger.api.dto.LoginRequest;
+import com.north.messenger.api.dto.UserEncryptionKeyBundleRequest;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.UserContact;
+import com.north.messenger.domain.model.UserEncryptionKey;
 import com.north.messenger.domain.model.UserSession;
 import com.north.messenger.domain.repository.ChatRoomRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
+import com.north.messenger.domain.repository.UserBlockRepository;
 import com.north.messenger.domain.repository.UserContactRepository;
+import com.north.messenger.domain.repository.UserEncryptionKeyRepository;
 import com.north.messenger.domain.repository.UserSessionRepository;
 import com.north.messenger.security.JwtService;
 import java.nio.charset.StandardCharsets;
@@ -38,8 +43,10 @@ class AuthServiceTest {
 
     private UserAccountRepository userAccountRepository;
     private UserContactRepository userContactRepository;
+    private UserBlockRepository userBlockRepository;
     private UserSessionRepository userSessionRepository;
     private ChatRoomRepository chatRoomRepository;
+    private UserEncryptionKeyRepository userEncryptionKeyRepository;
     private PasswordEncoder passwordEncoder;
     private PasswordPolicyService passwordPolicyService;
     private JwtService jwtService;
@@ -51,8 +58,10 @@ class AuthServiceTest {
     void setUp() {
         userAccountRepository = mock(UserAccountRepository.class);
         userContactRepository = mock(UserContactRepository.class);
+        userBlockRepository = mock(UserBlockRepository.class);
         userSessionRepository = mock(UserSessionRepository.class);
         chatRoomRepository = mock(ChatRoomRepository.class);
+        userEncryptionKeyRepository = mock(UserEncryptionKeyRepository.class);
         passwordEncoder = mock(PasswordEncoder.class);
         passwordPolicyService = mock(PasswordPolicyService.class);
         jwtService = mock(JwtService.class);
@@ -61,8 +70,10 @@ class AuthServiceTest {
         authService = new AuthService(
                 userAccountRepository,
                 userContactRepository,
+                userBlockRepository,
                 userSessionRepository,
                 chatRoomRepository,
+                userEncryptionKeyRepository,
                 passwordEncoder,
                 passwordPolicyService,
                 jwtService,
@@ -72,6 +83,7 @@ class AuthServiceTest {
 
         when(userSessionRepository.save(any(UserSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(userContactRepository.save(any(UserContact.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(userEncryptionKeyRepository.save(any(UserEncryptionKey.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(avatarService.resolveAvatarUrl(any(UserAccount.class))).thenReturn(null);
         when(jwtService.refreshTokenExpiresAt(any(Instant.class))).thenAnswer(invocation ->
                 ((Instant) invocation.getArgument(0)).plus(Duration.ofDays(30))
@@ -297,6 +309,94 @@ class AuthServiceTest {
         var response = authService.addContact("north", "alice");
 
         assertThat(response.username()).isEqualTo("alice");
+    }
+
+    @Test
+    void changePasswordShouldUpdateHashAndEncryptionBundle() {
+        UserAccount user = userAccount("north");
+        UserEncryptionKey encryptionKey = new UserEncryptionKey(
+                user.getId(),
+                "public-key",
+                "old-encrypted-private-key",
+                "old-salt",
+                "old-iv",
+                250_000,
+                Instant.now().minus(Duration.ofDays(2)),
+                Instant.now().minus(Duration.ofDays(1))
+        );
+        ChangePasswordRequest request = new ChangePasswordRequest(
+                "current-password",
+                "betterpass",
+                new UserEncryptionKeyBundleRequest(
+                        "public-key",
+                        "new-encrypted-private-key",
+                        "new-salt",
+                        "new-iv",
+                        250_000
+                )
+        );
+
+        when(userAccountRepository.findByUsernameIgnoreCase("north")).thenReturn(Optional.of(user));
+        when(userEncryptionKeyRepository.findById(user.getId())).thenReturn(Optional.of(encryptionKey));
+        when(passwordEncoder.matches("current-password", user.getPasswordHash())).thenReturn(true);
+        when(passwordEncoder.matches("betterpass", user.getPasswordHash())).thenReturn(false);
+        when(passwordEncoder.encode("betterpass")).thenReturn("new-password-hash");
+
+        authService.changePassword("north", request);
+
+        assertThat(user.getPasswordHash()).isEqualTo("new-password-hash");
+        assertThat(encryptionKey.getEncryptedPrivateKey()).isEqualTo("new-encrypted-private-key");
+        assertThat(encryptionKey.getKdfSalt()).isEqualTo("new-salt");
+        assertThat(encryptionKey.getKdfIv()).isEqualTo("new-iv");
+        assertThat(encryptionKey.getKdfIterations()).isEqualTo(250_000);
+        verify(passwordPolicyService).validatePassword("north", "North", "betterpass");
+    }
+
+    @Test
+    void changePasswordShouldRejectInvalidCurrentPassword() {
+        UserAccount user = userAccount("north");
+        ChangePasswordRequest request = new ChangePasswordRequest("wrong-password", "betterpass", null);
+
+        when(userAccountRepository.findByUsernameIgnoreCase("north")).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("wrong-password", user.getPasswordHash())).thenReturn(false);
+
+        assertThatThrownBy(() -> authService.changePassword("north", request))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(exception -> {
+                    ResponseStatusException responseStatusException = (ResponseStatusException) exception;
+                    assertThat(responseStatusException.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+                    assertThat(responseStatusException.getReason()).isEqualTo("Current password is invalid");
+                });
+    }
+
+    @Test
+    void changePasswordShouldRequireEncryptionBundleForEncryptedChats() {
+        UserAccount user = userAccount("north");
+        UserEncryptionKey encryptionKey = new UserEncryptionKey(
+                user.getId(),
+                "public-key",
+                "old-encrypted-private-key",
+                "old-salt",
+                "old-iv",
+                250_000,
+                Instant.now().minus(Duration.ofDays(2)),
+                Instant.now().minus(Duration.ofDays(1))
+        );
+        ChangePasswordRequest request = new ChangePasswordRequest("current-password", "betterpass", null);
+
+        when(userAccountRepository.findByUsernameIgnoreCase("north")).thenReturn(Optional.of(user));
+        when(userEncryptionKeyRepository.findById(user.getId())).thenReturn(Optional.of(encryptionKey));
+        when(passwordEncoder.matches("current-password", user.getPasswordHash())).thenReturn(true);
+        when(passwordEncoder.matches("betterpass", user.getPasswordHash())).thenReturn(false);
+
+        assertThatThrownBy(() -> authService.changePassword("north", request))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(exception -> {
+                    ResponseStatusException responseStatusException = (ResponseStatusException) exception;
+                    assertThat(responseStatusException.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+                    assertThat(responseStatusException.getReason())
+                            .isEqualTo("Encrypted chats must be re-secured when changing password");
+                });
     }
 
     private UserAccount userAccount(String username) {

@@ -2,6 +2,7 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import {
   getArchivedChats,
   getArchivedVideoConferences,
+  getBlockedUsers,
   getChats,
   getContacts,
   getProfile,
@@ -90,6 +91,12 @@ export function useWorkspaceQueries({
     staleTime: 60_000,
   });
 
+  const blockedUsersQuery = useQuery({
+    queryKey: ["blocked-users", sessionToken],
+    queryFn: () => getBlockedUsers(sessionToken),
+    staleTime: 60_000,
+  });
+
   const conferencesQuery = useQuery({
     queryKey: ["video-conferences", sessionToken],
     queryFn: () => getVideoConferences(sessionToken),
@@ -163,6 +170,7 @@ export function useWorkspaceQueries({
     archivedChatsQuery,
     archivedConferencesQuery,
     chatsQuery,
+    blockedUsersQuery,
     conferencesQuery,
     contactsQuery,
     contactsSearchQuery,

@@ -219,9 +219,7 @@ export function ChatListPanel({
             <div className="chat-copy">
               <div className="chat-line">
                 <div className="chat-title-wrap">
-                  <span className={chat.direct ? "chat-type-mark is-direct" : "chat-type-mark is-group"}>
-                    {chat.direct ? "@" : "GR"}
-                  </span>
+                  {!chat.direct ? <span className="chat-type-mark is-group">GR</span> : null}
                   <strong>{chat.title}</strong>
                 </div>
                 <span>{formatChatTimestamp(previewTimestamp)}</span>

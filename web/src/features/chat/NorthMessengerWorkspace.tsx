@@ -110,6 +110,7 @@ import { type ConferenceRecordingState } from "./ManagedConferenceStage";
 import { ActiveConferenceConversation } from "./components/ActiveConferenceConversation";
 import { ActiveChatConversation } from "./components/ActiveChatConversation";
 import { AvatarCircle } from "./components/AvatarCircle";
+import { ChatMenuPanel } from "./components/ChatMenuPanel";
 import { ChatListPanel } from "./components/ChatListPanel";
 import { MessageContextMenu } from "./components/MessageContextMenu";
 import { SidebarManagementSheets } from "./components/SidebarManagementSheets";
@@ -193,6 +194,7 @@ export function NorthMessengerWorkspace({
   const [activeListTab, setActiveListTab] = useState<ConversationListTab>("dialogs");
   const [conferenceBrowserMode, setConferenceBrowserMode] = useState<"list" | "calendar">("list");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   const [sidebarSheet, setSidebarSheet] = useState<SidebarSheet>(null);
   const [search, setSearch] = useState("");
   const [groupTitle, setGroupTitle] = useState("");
@@ -207,6 +209,9 @@ export function NorthMessengerWorkspace({
   const [conferenceParticipantUsernames, setConferenceParticipantUsernames] = useState<string[]>([]);
   const [conferenceInviteUsernames, setConferenceInviteUsernames] = useState<string[]>([]);
   const [profileDisplayName, setProfileDisplayName] = useState(session.user.displayName);
+  const [passwordChangeCurrent, setPasswordChangeCurrent] = useState("");
+  const [passwordChangeNext, setPasswordChangeNext] = useState("");
+  const [passwordChangeConfirm, setPasswordChangeConfirm] = useState("");
   const [deleteAccountConfirmation, setDeleteAccountConfirmation] = useState("");
   const [groupParticipantUsernames, setGroupParticipantUsernames] = useState<string[]>([]);
   const [groupInviteUsernames, setGroupInviteUsernames] = useState<string[]>([]);
@@ -227,6 +232,7 @@ export function NorthMessengerWorkspace({
   const [forwardingMessageId, setForwardingMessageId] = useState<string | null>(null);
   const [groupInviteCodesByChatId, setGroupInviteCodesByChatId] = useState<Record<string, string>>({});
   const [conferenceInviteCodesById, setConferenceInviteCodesById] = useState<Record<string, string>>({});
+  const [pendingGroupMenuOpenChatId, setPendingGroupMenuOpenChatId] = useState<string | null>(null);
   const handledRealtimeMessageIdsRef = useRef(new Map<string, true>());
   const conferenceListScrollRef = useRef<HTMLDivElement | null>(null);
   const conferenceSurfaceRef = useRef<HTMLDivElement | null>(null);
@@ -255,6 +261,10 @@ export function NorthMessengerWorkspace({
     isOpen: isMenuOpen,
     onClose: () => setIsMenuOpen(false),
   });
+  const { buttonRef: chatMenuButtonRef, panelRef: chatMenuPanelRef } = useDismissiblePanel({
+    isOpen: isChatMenuOpen,
+    onClose: () => setIsChatMenuOpen(false),
+  });
   const createGroupInviteLinkMutation = useMutation({
     mutationFn: (input: { chatId: string; refresh?: boolean }) =>
       createGroupInviteLinkRequest(session.token, input.chatId, { refresh: input.refresh }),
@@ -274,8 +284,11 @@ export function NorthMessengerWorkspace({
       }));
     },
   });
-  const handleGroupCreated = useEffectEvent((chat: ChatSummary) => {
+  const handleGroupCreated = useEffectEvent((chat: ChatSummary, options: { openMenu: boolean }) => {
     createGroupInviteLinkMutation.mutate({ chatId: chat.id });
+    if (options.openMenu) {
+      setPendingGroupMenuOpenChatId(chat.id);
+    }
   });
   const {
     contextMenu,
@@ -325,6 +338,7 @@ export function NorthMessengerWorkspace({
     activeTypingQuery,
     archivedChatsQuery,
     archivedConferencesQuery,
+    blockedUsersQuery,
     chatsQuery,
     conferencesQuery,
     contactsQuery,
@@ -398,6 +412,7 @@ export function NorthMessengerWorkspace({
     normalizeAccountDeletionConfirmation(deleteAccountConfirmation) ===
     profile.username.toLowerCase();
   const contacts = contactsQuery.data ?? [];
+  const blockedUsers = blockedUsersQuery.data ?? [];
   const conferences = conferencesQuery.data ?? [];
   const archivedConferences = archivedConferencesQuery.data ?? [];
   const userSearchResults = userSearchQuery.data ?? [];
@@ -469,6 +484,14 @@ export function NorthMessengerWorkspace({
   const activeDirectInContacts = activeDirectParticipant
     ? contacts.some((contact) => contact.username === activeDirectParticipant.username)
     : false;
+  const activeDirectBlockedByMe = activeDirectParticipant
+    ? blockedUsers.some((user) => user.username === activeDirectParticipant.username)
+    : false;
+  const activeGroupOwnerUserId =
+    activeChat && !activeChat.direct
+      ? activeChat.ownerUserId ?? activeChat.members[0]?.id ?? null
+      : null;
+  const activeChatIsOwnedByCurrentUser = activeGroupOwnerUserId === session.user.id;
   const activeConferenceIsArchived = Boolean(activeConference?.endedAt);
   const activeConferenceCanJoin = Boolean(
     activeConference?.roomName &&
@@ -640,6 +663,24 @@ export function NorthMessengerWorkspace({
       cancelled = true;
     };
   }, [activeChat?.id, onSessionChange, session.token]);
+
+  useEffect(() => {
+    setIsChatMenuOpen(false);
+  }, [activeChatId, activeConferenceId]);
+
+  useEffect(() => {
+    if (
+      !pendingGroupMenuOpenChatId ||
+      activeChatId !== pendingGroupMenuOpenChatId ||
+      !activeChat ||
+      activeChat.direct
+    ) {
+      return;
+    }
+
+    setIsChatMenuOpen(true);
+    setPendingGroupMenuOpenChatId(null);
+  }, [activeChat, activeChatId, pendingGroupMenuOpenChatId]);
 
   useEffect(() => {
     setConferenceRecordingState("idle");
@@ -833,12 +874,17 @@ export function NorthMessengerWorkspace({
     addContactMutation,
     addGroupParticipantsMutation,
     avatarMutation,
+    banGroupParticipantMutation,
+    blockUserMutation,
     cancelConferenceMutation,
+    changePasswordMutation,
     createChatMutation,
     createConferenceMutation,
     createGroupMutation,
+    deleteGroupMutation,
     deleteAccountMutation,
     endConferenceMutation,
+    leaveGroupMutation,
     removeContact,
     removeContactMutation,
     revokeSessionMutation,
@@ -848,6 +894,7 @@ export function NorthMessengerWorkspace({
     submitCreateConference,
     submitCreateConferenceNow,
     submitCreateGroup,
+    submitPasswordChange,
     submitUpdateGroup,
     submitProfileDisplayName,
     toggleArchiveChat,
@@ -855,6 +902,7 @@ export function NorthMessengerWorkspace({
     updateConferenceMutation,
     updateGroupMutation,
     updateProfileMutation,
+    unblockUserMutation,
   } = useWorkspaceMutations({
     activeChat,
     activeChatId,
@@ -867,12 +915,21 @@ export function NorthMessengerWorkspace({
     conferenceScheduledAt,
     conferenceTitle,
     currentSession: session,
+    passwordChangeConfirm,
+    passwordChangeCurrent,
+    passwordChangeNext,
     groupInviteUsernames,
     groupDetailsAvatarUrl,
     groupDetailsTitle,
     groupParticipantUsernames,
     groupTitle,
+    removeChatLocally: deleteChatLocally,
     onGroupCreated: handleGroupCreated,
+    onPasswordChanged: () => {
+      setPasswordChangeCurrent("");
+      setPasswordChangeNext("");
+      setPasswordChangeConfirm("");
+    },
     onSessionChange,
     openChat,
     openConference,
@@ -891,6 +948,16 @@ export function NorthMessengerWorkspace({
     setMobilePane,
     setSidebarSheet,
   });
+
+  useEffect(() => {
+    if (sidebarSheet === "profile") {
+      return;
+    }
+
+    setPasswordChangeCurrent("");
+    setPasswordChangeNext("");
+    setPasswordChangeConfirm("");
+  }, [sidebarSheet]);
 
   const uploadAvatarFromFile = useEffectEvent(async (file: File) => {
     try {
@@ -918,7 +985,6 @@ export function NorthMessengerWorkspace({
     handleMenuAction,
     openConferenceEditorSheet,
     openConferenceMembersSheet,
-    openGroupInfoSheet,
     openGroupMembersSheet,
   } = useWorkspacePanelActions({
     activeChat,
@@ -999,8 +1065,74 @@ export function NorthMessengerWorkspace({
     submitUpdateGroup();
   });
 
+  const handleLeaveGroup = useEffectEvent(() => {
+    if (!activeChat || activeChat.direct) {
+      return;
+    }
+
+    if (!window.confirm(`Выйти из группы "${activeChat.title}"?`)) {
+      return;
+    }
+
+    leaveGroupMutation.mutate(activeChat.id);
+  });
+
+  const handleDeleteGroup = useEffectEvent(() => {
+    if (!activeChat || activeChat.direct || !activeChatIsOwnedByCurrentUser) {
+      return;
+    }
+
+    if (!window.confirm(`Удалить группу "${activeChat.title}" для всех участников?`)) {
+      return;
+    }
+
+    deleteGroupMutation.mutate(activeChat.id);
+  });
+
+  const handleBanParticipant = useEffectEvent((participant: Participant) => {
+    if (!activeChat || activeChat.direct || participant.id === session.user.id) {
+      return;
+    }
+
+    if (!window.confirm(`Забанить ${participant.displayName} и убрать из группы?`)) {
+      return;
+    }
+
+    banGroupParticipantMutation.mutate(participant);
+  });
+
+  const handleToggleDirectBlock = useEffectEvent(() => {
+    if (!activeDirectParticipant) {
+      return;
+    }
+
+    if (activeDirectBlockedByMe) {
+      unblockUserMutation.mutate(activeDirectParticipant.username);
+      return;
+    }
+
+    if (!window.confirm(`Заблокировать ${activeDirectParticipant.displayName}?`)) {
+      return;
+    }
+
+    blockUserMutation.mutate(activeDirectParticipant.username);
+  });
+
+  const handleStartDirectConference = useEffectEvent(() => {
+    if (!activeDirectParticipant || activeDirectBlockedByMe) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    createConferenceMutation.mutate({
+      title: `Созвон с ${activeDirectParticipant.displayName}`,
+      scheduledAt: now,
+      participantUsernames: [activeDirectParticipant.username],
+    });
+  });
+
   useEffect(() => {
-    if (sidebarSheet !== "groupInfo" || !activeChat || activeChat.direct) {
+    if (!isChatMenuOpen || !activeChat || activeChat.direct) {
       return;
     }
 
@@ -1009,24 +1141,16 @@ export function NorthMessengerWorkspace({
     }
 
     createGroupInviteLinkMutation.mutate({ chatId: activeChat.id });
-  }, [
-    activeChat,
-    createGroupInviteLinkMutation,
-    groupInviteCodesByChatId,
-    sidebarSheet,
-  ]);
+  }, [activeChat, createGroupInviteLinkMutation, groupInviteCodesByChatId, isChatMenuOpen]);
 
   useEffect(() => {
-    if (sidebarSheet !== "groupInfo" || !activeChat || activeChat.direct) {
+    if (!isChatMenuOpen || !activeChat || activeChat.direct) {
       return;
     }
 
     setGroupDetailsTitle(activeChat.title);
     setGroupDetailsAvatarUrl(activeChat.avatarUrl ?? null);
-  }, [
-    activeChat,
-    sidebarSheet,
-  ]);
+  }, [activeChat, isChatMenuOpen]);
 
   useEffect(() => {
     if (!pendingInviteCode) {
@@ -1309,12 +1433,16 @@ export function NorthMessengerWorkspace({
       updateConferenceMutation.error,
       cancelConferenceMutation.error,
       endConferenceMutation.error,
+      leaveGroupMutation.error,
+      deleteGroupMutation.error,
+      banGroupParticipantMutation.error,
       addConferenceParticipantsMutation.error,
       addGroupParticipantsMutation.error,
       sendMessageMutation.error,
       signOutMutation.error,
       revokeSessionMutation.error,
       updateProfileMutation.error,
+      changePasswordMutation.error,
       avatarMutation.error,
       deleteAccountMutation.error,
       updateArchivedChatMutation.error,
@@ -1326,11 +1454,14 @@ export function NorthMessengerWorkspace({
       toggleMessageReactionMutation.error,
       addContactMutation.error,
       removeContactMutation.error,
+      blockUserMutation.error,
+      unblockUserMutation.error,
       chatsQuery.error,
       sessionsQuery.error,
       profileQuery.error,
       archivedChatsQuery.error,
       contactsQuery.error,
+      blockedUsersQuery.error,
       conferencesQuery.error,
       archivedConferencesQuery.error,
       draftsQuery.error,
@@ -1602,6 +1733,9 @@ export function NorthMessengerWorkspace({
               sessionUser={session.user}
               currentSessionId={session.sessionId}
               profileDisplayName={profileDisplayName}
+              passwordChangeCurrent={passwordChangeCurrent}
+              passwordChangeNext={passwordChangeNext}
+              passwordChangeConfirm={passwordChangeConfirm}
               deleteAccountConfirmation={deleteAccountConfirmation}
               deleteAccountRequiresMatch={deleteAccountRequiresMatch}
               groupTitle={groupTitle}
@@ -1634,6 +1768,7 @@ export function NorthMessengerWorkspace({
               updateGroupPending={updateGroupMutation.isPending}
               createChatPending={createChatMutation.isPending}
               updateProfilePending={updateProfileMutation.isPending}
+              changePasswordPending={changePasswordMutation.isPending}
               avatarPending={avatarMutation.isPending}
               deleteAccountPending={deleteAccountMutation.isPending}
               revokeSessionPending={revokeSessionMutation.isPending}
@@ -1641,6 +1776,10 @@ export function NorthMessengerWorkspace({
               onClose={() => setSidebarSheet(null)}
               onProfileDisplayNameChange={setProfileDisplayName}
               onSubmitProfileDisplayName={handleSubmitProfileDisplayName}
+              onPasswordChangeCurrentChange={setPasswordChangeCurrent}
+              onPasswordChangeNextChange={setPasswordChangeNext}
+              onPasswordChangeConfirmChange={setPasswordChangeConfirm}
+              onSubmitPasswordChange={submitPasswordChange}
               onDeleteAccountConfirmationChange={setDeleteAccountConfirmation}
               onDeleteAccount={() => deleteAccountMutation.mutate()}
               onRemoveAvatar={() => avatarMutation.mutate(null)}
@@ -1732,7 +1871,6 @@ export function NorthMessengerWorkspace({
           <ActiveChatConversation
             activeChat={activeChat}
             activeDirectParticipant={activeDirectParticipant}
-            activeDirectInContacts={activeDirectInContacts}
             archivedChatIdSet={archivedChatIdSet}
             sessionUser={session.user}
             conversationSubtitle={conversationSubtitle}
@@ -1745,12 +1883,13 @@ export function NorthMessengerWorkspace({
             replyingToMessage={replyingToMessage}
             editingMessage={editingMessage}
             activeDraft={activeDraft}
+            isChatMenuOpen={isChatMenuOpen}
+            isDirectChatBlocked={activeDirectBlockedByMe}
+            chatMenuButtonRef={chatMenuButtonRef}
             messageStreamRef={messageStreamRef}
             composerTextareaRef={composerTextareaRef}
             onBack={() => setMobilePane("sidebar")}
-            onOpenGroupConferenceComposer={openGroupConferenceComposer}
-            onOpenGroupInfo={openGroupInfoSheet}
-            onAddToContacts={addActiveChatToContacts}
+            onToggleChatMenu={() => setIsChatMenuOpen((current) => !current)}
             onToggleArchive={() => toggleArchiveChat(activeChat.id, archivedChatIdSet)}
             onCloseChat={closeActiveChat}
             onJumpToPinned={() => {
@@ -1791,6 +1930,52 @@ export function NorthMessengerWorkspace({
             </div>
           </div>
           )
+        ) : null}
+
+        {(!activeConference || isConferenceMinimized) && activeChat && isChatMenuOpen ? (
+          <div ref={chatMenuPanelRef} className="chat-menu-panel-shell">
+            <ChatMenuPanel
+              activeChat={activeChat}
+              sessionUserId={session.user.id}
+              activeDirectParticipant={activeDirectParticipant}
+              activeDirectInContacts={activeDirectInContacts}
+              isDirectBlocked={activeDirectBlockedByMe}
+              groupDetailsTitle={groupDetailsTitle}
+              groupDetailsAvatarUrl={groupDetailsAvatarUrl}
+              groupInviteLinkUrl={activeGroupInviteUrl}
+              availableGroupInviteContacts={availableGroupInviteContacts}
+              selectedGroupInviteContacts={selectedGroupInviteContacts}
+              isGroupInvitePickerOpen={isGroupInvitePickerOpen}
+              groupInviteLinkPending={createGroupInviteLinkMutation.isPending}
+              addGroupParticipantsPending={addGroupParticipantsMutation.isPending}
+              updateGroupPending={updateGroupMutation.isPending}
+              createChatPending={createChatMutation.isPending}
+              leaveGroupPending={leaveGroupMutation.isPending}
+              deleteGroupPending={deleteGroupMutation.isPending}
+              banGroupParticipantPending={banGroupParticipantMutation.isPending}
+              toggleBlockPending={blockUserMutation.isPending || unblockUserMutation.isPending}
+              canDeleteGroup={activeChatIsOwnedByCurrentUser}
+              canManageMembers={activeChatIsOwnedByCurrentUser}
+              onClose={() => setIsChatMenuOpen(false)}
+              onGroupDetailsTitleChange={setGroupDetailsTitle}
+              onGroupAvatarSelected={(file) => void uploadGroupAvatarFromFile(file)}
+              onRemoveGroupAvatar={() => setGroupDetailsAvatarUrl(null)}
+              onSubmitUpdateGroup={handleSubmitUpdateGroup}
+              onGenerateGroupInviteLink={handleGenerateGroupInviteLink}
+              onCopyGroupInviteLink={(value) => void navigator.clipboard.writeText(value)}
+              onToggleGroupInvitePicker={() => setIsGroupInvitePickerOpen((current) => !current)}
+              onToggleGroupInviteParticipant={toggleGroupInviteParticipant}
+              onSubmitAddGroupParticipants={submitAddGroupParticipants}
+              onOpenGroupConferenceComposer={openGroupConferenceComposer}
+              onCreateChat={(username) => createChatMutation.mutate(username)}
+              onLeaveGroup={handleLeaveGroup}
+              onDeleteGroup={handleDeleteGroup}
+              onBanParticipant={handleBanParticipant}
+              onAddToContacts={addActiveChatToContacts}
+              onStartDirectConference={handleStartDirectConference}
+              onToggleBlocked={handleToggleDirectBlock}
+            />
+          </div>
         ) : null}
 
       {errorText ? <div className="floating-error">{errorText}</div> : null}

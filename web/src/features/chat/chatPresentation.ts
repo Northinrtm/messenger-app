@@ -17,7 +17,7 @@ export function describeChat(chat: ChatSummary, currentUser: UserProfile) {
     const otherParticipant = chat.members.find(
       (member) => !isCurrentUserParticipant(member, currentUser),
     );
-    return otherParticipant ? `@${otherParticipant.username}` : "\u041B\u0438\u0447\u043D\u044B\u0439 \u0447\u0430\u0442";
+    return otherParticipant ? otherParticipant.username : "\u041B\u0438\u0447\u043D\u044B\u0439 \u0447\u0430\u0442";
   }
 
   return "\u0413\u0440\u0443\u043F\u043F\u0430";

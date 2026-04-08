@@ -1,5 +1,3 @@
-export { ActiveChatConversation } from "./ActiveChatConversation.next";
-/*
 import type {
   ChatMessage,
   ChatSummary,
@@ -127,55 +125,81 @@ export function ActiveChatConversation({
             Чаты
           </button>
 
-          <div className="conversation-identity">
-            <AvatarCircle
-              className="avatar conversation-avatar north-avatar"
-              name={activeDirectParticipant?.displayName ?? activeChat.title}
-              avatarUrl={activeChat.direct ? activeDirectParticipant?.avatarUrl ?? null : activeChat.avatarUrl}
-              badge={activeChat.direct ? undefined : "GR"}
-              online={activeChat.direct ? activeDirectParticipant?.online : false}
-            />
-            <div>
-              <h3>{activeChat.title}</h3>
-              <p className={showTypingIndicator ? "conversation-subtitle is-typing" : "conversation-subtitle"}>
-                {conversationSubtitle}
-              </p>
-            </div>
-          </div>
-          {!activeChat.direct ? (
-            <div className="member-strip">
-              <button
-                type="button"
-                className="ghost-button compact"
-                onClick={() => onOpenGroupConferenceComposer("instant")}
-              >
-                Созвон
-              </button>
-              <button
-                type="button"
-                className="ghost-button compact"
-                onClick={() => onOpenGroupConferenceComposer("scheduled")}
-              >
-                Запланировать
-              </button>
-              <button type="button" className="ghost-button compact" onClick={onOpenGroupInfo}>
-                Инфо
-              </button>
-            </div>
-          ) : null}
-        </div>
-        <div className="conversation-actions">
-          {activeChat.direct && activeDirectParticipant ? (
+          {activeChat.direct ? (
             <button
               type="button"
-              className="ghost-button compact archive-toggle-button"
-              onClick={onAddToContacts}
-              disabled={activeDirectInContacts}
+              ref={chatMenuButtonRef}
+              className={
+                isChatMenuOpen
+                  ? "conversation-identity-button is-active"
+                  : "conversation-identity-button"
+              }
+              onClick={onToggleChatMenu}
             >
-              {activeDirectInContacts ? "В контактах" : "В контакты"}
+              <AvatarCircle
+                className="avatar conversation-avatar north-avatar"
+                name={activeDirectParticipant?.displayName ?? activeChat.title}
+                avatarUrl={activeDirectParticipant?.avatarUrl ?? null}
+                online={activeDirectParticipant?.online}
+              />
+              <span className="conversation-copy">
+                <span className="conversation-title-row">
+                  <h3>{activeChat.title}</h3>
+                </span>
+                <span
+                  className={
+                    showTypingIndicator
+                      ? "conversation-subtitle is-typing"
+                      : "conversation-subtitle"
+                  }
+                >
+                  {conversationSubtitle}
+                </span>
+              </span>
             </button>
-          ) : null}
-          <button type="button" className="ghost-button compact archive-toggle-button" onClick={onToggleArchive}>
+          ) : (
+            <div className="conversation-identity">
+              <AvatarCircle
+                className="avatar conversation-avatar north-avatar"
+                name={activeChat.title}
+                avatarUrl={activeChat.avatarUrl}
+                badge="GR"
+              />
+              <div className="conversation-copy">
+                <div className="conversation-title-row">
+                  <h3>{activeChat.title}</h3>
+                  <button
+                    type="button"
+                    ref={chatMenuButtonRef}
+                    className={
+                      isChatMenuOpen
+                        ? "ghost-button compact conversation-menu-button is-active"
+                        : "ghost-button compact conversation-menu-button"
+                    }
+                    onClick={onToggleChatMenu}
+                  >
+                    Меню
+                  </button>
+                </div>
+                <p
+                  className={
+                    showTypingIndicator
+                      ? "conversation-subtitle is-typing"
+                      : "conversation-subtitle"
+                  }
+                >
+                  {conversationSubtitle}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="conversation-actions">
+          <button
+            type="button"
+            className="ghost-button compact archive-toggle-button"
+            onClick={onToggleArchive}
+          >
             {archivedChatIdSet.has(activeChat.id) ? "Вернуть" : "В архив"}
           </button>
           <button
@@ -193,7 +217,7 @@ export function ActiveChatConversation({
           <button type="button" className="pinned-message-main" onClick={onJumpToPinned}>
             <span className="message-reply-accent pinned-message-accent" aria-hidden="true" />
             <span className="pinned-message-copy">
-              <span className="pinned-message-label">Закреплённое сообщение</span>
+              <span className="pinned-message-label">Закрепленное сообщение</span>
               <strong className="pinned-message-sender">{activePinnedMessage.sender.displayName}</strong>
               <span className="pinned-message-preview">{activePinnedMessage.preview}</span>
             </span>
@@ -229,7 +253,7 @@ export function ActiveChatConversation({
         {messagesLoading ? (
           <div className="empty-state">Загружаем сообщения...</div>
         ) : timelineItems.length === 0 ? (
-          <div className="empty-state">Начните переписку. Сообщения придут сюда.</div>
+          <div className="empty-state">Начните переписку. Сообщения появятся здесь.</div>
         ) : (
           timelineItems.map((item) =>
             item.type === "day" ? (
@@ -240,6 +264,7 @@ export function ActiveChatConversation({
               <MessageRow
                 key={item.key}
                 chatId={activeChat.id}
+                directChat={activeChat.direct}
                 message={item.message}
                 sessionUser={sessionUser}
                 onOpenContextMenu={onOpenMessageContextMenu}
@@ -322,6 +347,7 @@ export function ActiveChatConversation({
           <textarea
             ref={composerTextareaRef}
             value={activeDraft}
+            disabled={isDirectChatBlocked}
             onChange={(event) => onComposerChange(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
@@ -329,16 +355,14 @@ export function ActiveChatConversation({
                 onSubmit();
               }
             }}
-            placeholder={
-              editingMessage
-                ? "Измените сообщение"
-                : replyingToMessage
-                  ? "Напишите ответ"
-                  : "Напишите сообщение"
-            }
+            placeholder={composerPlaceholder}
             rows={1}
           />
-          <button type="submit" className="primary-button north-send-button" disabled={!activeDraft.trim()}>
+          <button
+            type="submit"
+            className="primary-button north-send-button"
+            disabled={!activeDraft.trim() || isDirectChatBlocked}
+          >
             {editingMessage ? "✓" : ">"}
           </button>
         </div>
@@ -349,6 +373,7 @@ export function ActiveChatConversation({
 
 type MessageRowProps = {
   chatId: string;
+  directChat: boolean;
   message: ChatMessage;
   sessionUser: UserProfile;
   onOpenContextMenu: (event: ReactMouseEvent<HTMLElement>, chatId: string, messageId: string) => void;
@@ -363,6 +388,7 @@ type MessageRowProps = {
 
 function MessageRow({
   chatId,
+  directChat,
   message,
   sessionUser,
   onOpenContextMenu,
@@ -391,8 +417,8 @@ function MessageRow({
         className={ownMessage ? "message-bubble is-mine" : "message-bubble"}
         onContextMenu={(event) => onOpenContextMenu(event, chatId, message.id)}
       >
-        <div className="message-meta">
-          <strong>{ownMessage ? "Вы" : message.sender.displayName}</strong>
+        <div className={directChat ? "message-meta is-compact" : "message-meta"}>
+          {!directChat ? <strong>{ownMessage ? "Вы" : message.sender.displayName}</strong> : <span />}
           <div className="message-meta-trailing">
             {message.editedAt ? <span className="message-edited-label">изменено</span> : null}
             <span>{formatClock(message.createdAt)}</span>
@@ -439,7 +465,9 @@ function MessageRow({
                   aria-label={reactionOption?.label ?? reaction.key}
                 >
                   <span>{reactionOption?.emoji ?? reaction.key}</span>
-                  {reaction.count > 1 ? <span className="message-reaction-count">{reaction.count}</span> : null}
+                  {reaction.count > 1 ? (
+                    <span className="message-reaction-count">{reaction.count}</span>
+                  ) : null}
                 </button>
               );
             })}
@@ -449,4 +477,3 @@ function MessageRow({
     </div>
   );
 }
-*/

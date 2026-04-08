@@ -20,6 +20,9 @@ public class ChatRoom {
     @Column(name = "avatar_url")
     private String avatarUrl;
 
+    @Column(name = "owner_user_id")
+    private UUID ownerUserId;
+
     @Column(name = "is_direct", nullable = false)
     private boolean direct;
 
@@ -54,6 +57,10 @@ public class ChatRoom {
         return direct;
     }
 
+    public UUID getOwnerUserId() {
+        return ownerUserId;
+    }
+
     public String getAvatarUrl() {
         return avatarUrl;
     }
@@ -78,6 +85,10 @@ public class ChatRoom {
     public void clearPinnedMessage() {
         this.pinnedMessageId = null;
         this.pinnedAt = null;
+    }
+
+    public void updateOwnerUserId(UUID ownerUserId) {
+        this.ownerUserId = ownerUserId;
     }
 
     public void updateGroupDetails(String title, String avatarUrl) {

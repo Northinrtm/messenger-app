@@ -41,7 +41,8 @@ public class TypingService {
 
     public void publishTyping(UUID chatId, String username, boolean typing) {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
-        chatService.requireChatMembership(chatId, currentUser);
+        var room = chatService.requireChatMembership(chatId, currentUser);
+        chatService.assertChatInteractionAllowed(room, currentUser);
         Instant now = Instant.now();
 
         if (typing) {

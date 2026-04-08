@@ -78,6 +78,7 @@ class MessageCommandService {
         Timer.Sample telemetrySample = telemetry.startSample();
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
         ChatRoom room = chatService.requireChatMembership(chatId, currentUser);
+        chatService.assertChatInteractionAllowed(room, currentUser);
         List<UserAccount> participants = chatService.findParticipants(chatId);
         String clientMessageId = messageSupport.normalizeClientMessageId(request.clientMessageId());
         UUID replyToMessageId = messageSupport.validateReplyTarget(chatId, request.replyToMessageId());
@@ -206,6 +207,7 @@ class MessageCommandService {
     void deleteMessage(UUID chatId, UUID messageId, String username, String rawScope) {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
         ChatRoom room = chatService.requireChatMembership(chatId, currentUser);
+        chatService.assertChatInteractionAllowed(room, currentUser);
 
         ChatMessage message = chatMessageRepository.findById(messageId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found"));
@@ -252,7 +254,8 @@ class MessageCommandService {
     @Transactional
     MessageResponse updateMessage(UUID chatId, UUID messageId, String username, UpdateMessageRequest request) {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
-        chatService.requireChatMembership(chatId, currentUser);
+        ChatRoom room = chatService.requireChatMembership(chatId, currentUser);
+        chatService.assertChatInteractionAllowed(room, currentUser);
 
         ChatMessage message = chatMessageRepository.findById(messageId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found"));

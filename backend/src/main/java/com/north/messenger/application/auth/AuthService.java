@@ -1,17 +1,23 @@
 package com.north.messenger.application.auth;
 
 import com.north.messenger.api.dto.AuthResponse;
+import com.north.messenger.api.dto.ChangePasswordRequest;
 import com.north.messenger.api.dto.LoginRequest;
 import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.api.dto.RegisterRequest;
+import com.north.messenger.api.dto.UserEncryptionKeyBundleRequest;
 import com.north.messenger.api.dto.UserSessionResponse;
 import com.north.messenger.api.dto.UserProfileResponse;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.UserContact;
+import com.north.messenger.domain.model.UserBlock;
+import com.north.messenger.domain.model.UserEncryptionKey;
 import com.north.messenger.domain.model.UserSession;
 import com.north.messenger.domain.repository.ChatRoomRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
+import com.north.messenger.domain.repository.UserBlockRepository;
 import com.north.messenger.domain.repository.UserContactRepository;
+import com.north.messenger.domain.repository.UserEncryptionKeyRepository;
 import com.north.messenger.domain.repository.UserSessionRepository;
 import com.north.messenger.security.JwtService;
 import java.nio.charset.StandardCharsets;
@@ -50,8 +56,10 @@ public class AuthService {
 
     private final UserAccountRepository userAccountRepository;
     private final UserContactRepository userContactRepository;
+    private final UserBlockRepository userBlockRepository;
     private final UserSessionRepository userSessionRepository;
     private final ChatRoomRepository chatRoomRepository;
+    private final UserEncryptionKeyRepository userEncryptionKeyRepository;
     private final PasswordEncoder passwordEncoder;
     private final PasswordPolicyService passwordPolicyService;
     private final JwtService jwtService;
@@ -61,8 +69,10 @@ public class AuthService {
     public AuthService(
             UserAccountRepository userAccountRepository,
             UserContactRepository userContactRepository,
+            UserBlockRepository userBlockRepository,
             UserSessionRepository userSessionRepository,
             ChatRoomRepository chatRoomRepository,
+            UserEncryptionKeyRepository userEncryptionKeyRepository,
             PasswordEncoder passwordEncoder,
             PasswordPolicyService passwordPolicyService,
             JwtService jwtService,
@@ -71,8 +81,10 @@ public class AuthService {
     ) {
         this.userAccountRepository = userAccountRepository;
         this.userContactRepository = userContactRepository;
+        this.userBlockRepository = userBlockRepository;
         this.userSessionRepository = userSessionRepository;
         this.chatRoomRepository = chatRoomRepository;
+        this.userEncryptionKeyRepository = userEncryptionKeyRepository;
         this.passwordEncoder = passwordEncoder;
         this.passwordPolicyService = passwordPolicyService;
         this.jwtService = jwtService;
@@ -95,7 +107,7 @@ public class AuthService {
         if (userAccountRepository.existsByDisplayNameIgnoreCase(displayName)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Display name is already taken");
         }
-        passwordPolicyService.validateRegistrationPassword(username, displayName, request.password());
+        passwordPolicyService.validatePassword(username, displayName, request.password());
 
         UserAccount user = new UserAccount(
                 UUID.randomUUID(),
@@ -178,6 +190,35 @@ public class AuthService {
         return toProfile(currentUser);
     }
 
+    @Transactional
+    public void changePassword(String username, ChangePasswordRequest request) {
+        UserAccount currentUser = requireAuthenticatedUser(username);
+        if (!passwordEncoder.matches(request.currentPassword(), currentUser.getPasswordHash())) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Current password is invalid");
+        }
+        if (passwordEncoder.matches(request.newPassword(), currentUser.getPasswordHash())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "New password must be different from current password");
+        }
+
+        passwordPolicyService.validatePassword(currentUser.getUsername(), currentUser.getDisplayName(), request.newPassword());
+
+        Instant now = Instant.now();
+        Optional<UserEncryptionKey> existingKey = userEncryptionKeyRepository.findById(currentUser.getId());
+        if (existingKey.isPresent() && request.encryptionKeyBundle() == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Encrypted chats must be re-secured when changing password"
+            );
+        }
+
+        currentUser.updatePasswordHash(passwordEncoder.encode(request.newPassword()));
+        userAccountRepository.save(currentUser);
+
+        if (request.encryptionKeyBundle() != null) {
+            upsertEncryptionKeyBundle(currentUser.getId(), request.encryptionKeyBundle(), now);
+        }
+    }
+
     public List<UserProfileResponse> searchUsers(String username, String query) {
         UserAccount currentUser = requireAuthenticatedUser(username);
         String normalizedQuery = normalizeSearchQuery(query);
@@ -214,6 +255,21 @@ public class AuthService {
                 .toList();
     }
 
+    public List<UserProfileResponse> listBlockedUsers(String username) {
+        UserAccount currentUser = requireAuthenticatedUser(username);
+        List<UserBlock> blocks = userBlockRepository.findAllByUserIdOrderByCreatedAtDesc(currentUser.getId());
+        Map<UUID, UserAccount> blockedUsersById = findUsersById(
+                blocks.stream().map(UserBlock::getBlockedUserId).toList()
+        );
+        Map<UUID, Boolean> onlineByUserId = resolveOnlineByUserIds(blockedUsersById.keySet());
+
+        return blocks.stream()
+                .map(block -> blockedUsersById.get(block.getBlockedUserId()))
+                .filter(Objects::nonNull)
+                .map(user -> toProfile(user, onlineByUserId.getOrDefault(user.getId(), false)))
+                .toList();
+    }
+
     @Transactional
     public UserProfileResponse addContact(String username, String contactUsername) {
         UserAccount currentUser = requireAuthenticatedUser(username);
@@ -221,6 +277,7 @@ public class AuthService {
         if (currentUser.getId().equals(contactUser.getId())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot add yourself to contacts");
         }
+        assertUsersCanCommunicate(currentUser, contactUser);
 
         userContactRepository.findByUserIdAndContactUserId(currentUser.getId(), contactUser.getId())
                 .orElseGet(() -> userContactRepository.save(
@@ -228,6 +285,32 @@ public class AuthService {
                 ));
 
         return toProfile(contactUser);
+    }
+
+    @Transactional
+    public UserProfileResponse blockUser(String username, String blockedUsername) {
+        UserAccount currentUser = requireAuthenticatedUser(username);
+        UserAccount blockedUser = requireExistingUser(blockedUsername);
+        if (currentUser.getId().equals(blockedUser.getId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot block yourself");
+        }
+
+        userBlockRepository.findByUserIdAndBlockedUserId(currentUser.getId(), blockedUser.getId())
+                .orElseGet(() -> userBlockRepository.save(
+                        new UserBlock(UUID.randomUUID(), currentUser.getId(), blockedUser.getId(), Instant.now())
+                ));
+        userContactRepository.deleteByUserIdAndContactUserId(currentUser.getId(), blockedUser.getId());
+
+        return toProfile(blockedUser);
+    }
+
+    @Transactional
+    public void unblockUser(String username, String blockedUsername) {
+        UserAccount currentUser = requireAuthenticatedUser(username);
+        findUserByUsername(blockedUsername)
+                .ifPresent(blockedUser ->
+                        userBlockRepository.deleteByUserIdAndBlockedUserId(currentUser.getId(), blockedUser.getId())
+                );
     }
 
     @Transactional
@@ -326,6 +409,17 @@ public class AuthService {
         );
     }
 
+    public boolean isBlockedEitherDirection(UUID firstUserId, UUID secondUserId) {
+        return userBlockRepository.existsByUserIdAndBlockedUserId(firstUserId, secondUserId)
+                || userBlockRepository.existsByUserIdAndBlockedUserId(secondUserId, firstUserId);
+    }
+
+    public void assertUsersCanCommunicate(UserAccount currentUser, UserAccount otherUser) {
+        if (isBlockedEitherDirection(currentUser.getId(), otherUser.getId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Messaging is unavailable for this user");
+        }
+    }
+
     public Map<UUID, Boolean> resolveOnlineByUserIds(Collection<UUID> userIds) {
         if (userIds.isEmpty()) {
             return Map.of();
@@ -404,6 +498,33 @@ public class AuthService {
         }
 
         return avatarUrl;
+    }
+
+    private void upsertEncryptionKeyBundle(UUID userId, UserEncryptionKeyBundleRequest request, Instant now) {
+        UserEncryptionKey key = userEncryptionKeyRepository.findById(userId)
+                .map(existing -> {
+                    existing.update(
+                            request.publicKey(),
+                            request.encryptedPrivateKey(),
+                            request.kdfSalt(),
+                            request.kdfIv(),
+                            request.kdfIterations(),
+                            now
+                    );
+                    return existing;
+                })
+                .orElseGet(() -> new UserEncryptionKey(
+                        userId,
+                        request.publicKey(),
+                        request.encryptedPrivateKey(),
+                        request.kdfSalt(),
+                        request.kdfIv(),
+                        request.kdfIterations(),
+                        now,
+                        now
+                ));
+
+        userEncryptionKeyRepository.save(key);
     }
 
     private boolean isUserOnline(UUID userId) {

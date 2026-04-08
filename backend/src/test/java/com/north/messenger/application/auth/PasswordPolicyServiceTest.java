@@ -12,7 +12,7 @@ class PasswordPolicyServiceTest {
     @Test
     void shouldRejectCommonPassword() {
         assertThatThrownBy(() ->
-                passwordPolicyService.validateRegistrationPassword("north", "North", "Password123!")
+                passwordPolicyService.validatePassword("north", "North", "Password123!")
         )
                 .isInstanceOf(PasswordPolicyViolationException.class)
                 .hasMessage("Password does not meet security requirements");
@@ -21,7 +21,7 @@ class PasswordPolicyServiceTest {
     @Test
     void shouldRejectPasswordContainingUsername() {
         assertThatThrownBy(() ->
-                passwordPolicyService.validateRegistrationPassword("north", "North User", "NorthUser123!")
+                passwordPolicyService.validatePassword("north", "North User", "NorthUser123!")
         )
                 .isInstanceOf(PasswordPolicyViolationException.class);
     }
@@ -29,7 +29,21 @@ class PasswordPolicyServiceTest {
     @Test
     void shouldAcceptStrongPassword() {
         assertThatNoException().isThrownBy(() ->
-                passwordPolicyService.validateRegistrationPassword("north", "North User", "S3cure!River")
+                passwordPolicyService.validatePassword("north", "North User", "riverlantern")
+        );
+    }
+
+    @Test
+    void shouldAcceptEightCharacterPassword() {
+        assertThatNoException().isThrownBy(() ->
+                passwordPolicyService.validatePassword("north", "North User", "bluebird")
+        );
+    }
+
+    @Test
+    void shouldRejectSimpleSequentialPassword() {
+        assertThatThrownBy(() ->
+                passwordPolicyService.validatePassword("north", "North User", "abcdriver12")
         );
     }
 }

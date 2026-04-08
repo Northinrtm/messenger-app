@@ -56,6 +56,11 @@ public class UserController {
         return authService.listContacts(authentication.getName());
     }
 
+    @GetMapping("/blocks")
+    public List<UserProfileResponse> listBlockedUsers(Authentication authentication) {
+        return authService.listBlockedUsers(authentication.getName());
+    }
+
     @PostMapping("/contacts")
     @ResponseStatus(HttpStatus.CREATED)
     public UserProfileResponse addContact(
@@ -69,5 +74,20 @@ public class UserController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void removeContact(Authentication authentication, @PathVariable String username) {
         authService.removeContact(authentication.getName(), username);
+    }
+
+    @PostMapping("/blocks")
+    @ResponseStatus(HttpStatus.CREATED)
+    public UserProfileResponse blockUser(
+            Authentication authentication,
+            @Valid @RequestBody ContactRequest request
+    ) {
+        return authService.blockUser(authentication.getName(), request.username());
+    }
+
+    @DeleteMapping("/blocks/{username}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void unblockUser(Authentication authentication, @PathVariable String username) {
+        authService.unblockUser(authentication.getName(), username);
     }
 }

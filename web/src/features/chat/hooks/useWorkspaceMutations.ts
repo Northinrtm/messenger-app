@@ -3,24 +3,32 @@ import {
   addContact as addContactRequest,
   addConferenceParticipants as addConferenceParticipantsRequest,
   addGroupParticipants,
+  banGroupParticipant as banGroupParticipantRequest,
+  blockUser as blockUserRequest,
   cancelVideoConference as cancelVideoConferenceRequest,
+  changePassword as changePasswordRequest,
   createVideoConference as createVideoConferenceRequest,
+  deleteGroup as deleteGroupRequest,
   deleteOwnAccount as deleteOwnAccountRequest,
   createDirectChat,
   createGroupChat,
   endVideoConference as endVideoConferenceRequest,
+  leaveGroup as leaveGroupRequest,
   logout,
   removeContact as removeContactRequest,
   revokeSession,
+  unblockUser as unblockUserRequest,
   updateArchivedChat,
   updateGroupChat as updateGroupChatRequest,
   updateProfile,
   updateProfileAvatar,
   updateVideoConference as updateVideoConferenceRequest,
 } from "../../../lib/api";
+import { prepareOwnEncryptionKeyBundleForPasswordChange } from "../../../lib/e2ee";
 import type {
   AuthResponse,
   ChatSummary,
+  Participant,
   UserProfile,
   UserSessionInfo,
   VideoConference,
@@ -41,12 +49,17 @@ type UseWorkspaceMutationsOptions = {
   conferenceScheduledAt: string;
   conferenceTitle: string;
   currentSession: AuthResponse;
+  passwordChangeConfirm: string;
+  passwordChangeCurrent: string;
+  passwordChangeNext: string;
   groupInviteUsernames: string[];
   groupDetailsAvatarUrl: string | null;
   groupDetailsTitle: string;
   groupParticipantUsernames: string[];
   groupTitle: string;
-  onGroupCreated?: (chat: ChatSummary) => void;
+  removeChatLocally: (chatId: string) => void;
+  onGroupCreated?: (chat: ChatSummary, options: { openMenu: boolean }) => void;
+  onPasswordChanged?: () => void;
   onSessionChange: (session: AuthResponse | null) => void;
   openChat: (chatId: string, preferredTab?: ConversationListTab) => void;
   openConference: (conferenceId: string) => void;
@@ -78,12 +91,17 @@ export function useWorkspaceMutations({
   conferenceScheduledAt,
   conferenceTitle,
   currentSession,
+  passwordChangeConfirm,
+  passwordChangeCurrent,
+  passwordChangeNext,
   groupInviteUsernames,
   groupDetailsAvatarUrl,
   groupDetailsTitle,
   groupParticipantUsernames,
   groupTitle,
+  removeChatLocally,
   onGroupCreated,
+  onPasswordChanged,
   onSessionChange,
   openChat,
   openConference,
@@ -132,8 +150,8 @@ export function useWorkspaceMutations({
       setGroupParticipantUsernames([]);
       setIsGroupCreatePickerOpen(false);
       openChat(chat.id, "groups");
-      onGroupCreated?.(chat);
-      setSidebarSheet(input.participantUsernames.length === 0 ? "groupInfo" : null);
+      onGroupCreated?.(chat, { openMenu: input.participantUsernames.length === 0 });
+      setSidebarSheet(null);
     },
   });
 
@@ -223,6 +241,14 @@ export function useWorkspaceMutations({
     },
   });
 
+  const banGroupParticipantMutation = useMutation({
+    mutationFn: (participant: Participant) =>
+      banGroupParticipantRequest(token, activeChat!.id, participant.username),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["chats", token] });
+    },
+  });
+
   const updateGroupMutation = useMutation({
     mutationFn: (input: { chatId: string; title: string; avatarUrl: string | null }) =>
       updateGroupChatRequest(token, input.chatId, {
@@ -256,6 +282,25 @@ export function useWorkspaceMutations({
     mutationFn: (displayName: string) => updateProfile(token, { displayName }),
     onSuccess: (nextProfile) => {
       syncProfile(nextProfile);
+    },
+  });
+
+  const changePasswordMutation = useMutation({
+    mutationFn: async (input: { currentPassword: string; newPassword: string }) => {
+      const encryptionKeyBundle = await prepareOwnEncryptionKeyBundleForPasswordChange(
+        token,
+        currentSession.user.id,
+        input.currentPassword,
+        input.newPassword
+      );
+      return changePasswordRequest(token, {
+        currentPassword: input.currentPassword,
+        newPassword: input.newPassword,
+        encryptionKeyBundle,
+      });
+    },
+    onSuccess: () => {
+      onPasswordChanged?.();
     },
   });
 
@@ -315,6 +360,44 @@ export function useWorkspaceMutations({
     },
   });
 
+  const blockUserMutation = useMutation({
+    mutationFn: (username: string) => blockUserRequest(token, username),
+    onSuccess: (blockedUser) => {
+      queryClient.setQueryData<UserProfile[]>(["blocked-users", token], (current) => {
+        const next = current?.filter((item) => item.username !== blockedUser.username) ?? [];
+        return [blockedUser, ...next];
+      });
+      queryClient.setQueryData<UserProfile[]>(["contacts", token], (current) =>
+        current?.filter((item) => item.username !== blockedUser.username) ?? []
+      );
+    },
+  });
+
+  const unblockUserMutation = useMutation({
+    mutationFn: (username: string) => unblockUserRequest(token, username),
+    onSuccess: (_result, username) => {
+      queryClient.setQueryData<UserProfile[]>(["blocked-users", token], (current) =>
+        current?.filter((item) => item.username !== username) ?? []
+      );
+    },
+  });
+
+  const leaveGroupMutation = useMutation({
+    mutationFn: (chatId: string) => leaveGroupRequest(token, chatId),
+    onSuccess: (_result, chatId) => {
+      removeChatLocally(chatId);
+      setSidebarSheet(null);
+    },
+  });
+
+  const deleteGroupMutation = useMutation({
+    mutationFn: (chatId: string) => deleteGroupRequest(token, chatId),
+    onSuccess: (_result, chatId) => {
+      removeChatLocally(chatId);
+      setSidebarSheet(null);
+    },
+  });
+
   const addContact = (user: UserProfile) => {
     if (user.username === currentSession.user.username) {
       return;
@@ -344,6 +427,23 @@ export function useWorkspaceMutations({
     }
 
     updateProfileMutation.mutate(nextDisplayName);
+  };
+
+  const submitPasswordChange = () => {
+    if (!passwordChangeCurrent || !passwordChangeNext) {
+      return;
+    }
+    if (passwordChangeNext.length < 8 || passwordChangeNext !== passwordChangeConfirm) {
+      return;
+    }
+    if (passwordChangeCurrent === passwordChangeNext) {
+      return;
+    }
+
+    changePasswordMutation.mutate({
+      currentPassword: passwordChangeCurrent,
+      newPassword: passwordChangeNext,
+    });
   };
 
   const submitCreateGroup = () => {
@@ -428,12 +528,17 @@ export function useWorkspaceMutations({
     addContactMutation,
     addGroupParticipantsMutation,
     avatarMutation,
+    banGroupParticipantMutation,
+    blockUserMutation,
     cancelConferenceMutation,
+    changePasswordMutation,
     createChatMutation,
     createConferenceMutation,
     createGroupMutation,
+    deleteGroupMutation,
     deleteAccountMutation,
     endConferenceMutation,
+    leaveGroupMutation,
     removeContact,
     removeContactMutation,
     revokeSessionMutation,
@@ -443,6 +548,7 @@ export function useWorkspaceMutations({
     submitCreateConference,
     submitCreateConferenceNow,
     submitCreateGroup,
+    submitPasswordChange,
     submitUpdateGroup,
     submitProfileDisplayName,
     toggleArchiveChat,
@@ -450,5 +556,6 @@ export function useWorkspaceMutations({
     updateConferenceMutation,
     updateGroupMutation,
     updateProfileMutation,
+    unblockUserMutation,
   };
 }

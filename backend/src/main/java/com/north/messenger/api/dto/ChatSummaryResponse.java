@@ -9,6 +9,7 @@ public record ChatSummaryResponse(
         boolean direct,
         String title,
         String avatarUrl,
+        UUID ownerUserId,
         List<ParticipantResponse> members,
         String lastMessage,
         Instant lastMessageAt,

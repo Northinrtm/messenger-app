@@ -229,6 +229,29 @@ export function updateProfile(token: string, input: { displayName: string }) {
   });
 }
 
+export function changePassword(
+  token: string,
+  input: {
+    currentPassword: string;
+    newPassword: string;
+    encryptionKeyBundle?:
+      | {
+          publicKey: string;
+          encryptedPrivateKey: string;
+          kdfSalt: string;
+          kdfIv: string;
+          kdfIterations: number;
+        }
+      | null;
+  }
+) {
+  return request<void>("/api/auth/password", {
+    method: "PUT",
+    token,
+    body: input,
+  });
+}
+
 export function updateProfileAvatar(token: string, avatarUrl: string | null) {
   return request<UserProfile>("/api/auth/me/avatar", {
     method: "PUT",
@@ -625,6 +648,10 @@ export function getContacts(token: string) {
   return request<UserProfile[]>("/api/users/contacts", { token });
 }
 
+export function getBlockedUsers(token: string) {
+  return request<UserProfile[]>("/api/users/blocks", { token });
+}
+
 export function addContact(token: string, username: string) {
   return request<UserProfile>("/api/users/contacts", {
     method: "POST",
@@ -637,5 +664,42 @@ export function removeContact(token: string, username: string) {
   return request<void>(`/api/users/contacts/${encodeURIComponent(username)}`, {
     method: "DELETE",
     token,
+  });
+}
+
+export function blockUser(token: string, username: string) {
+  return request<UserProfile>("/api/users/blocks", {
+    method: "POST",
+    token,
+    body: { username },
+  });
+}
+
+export function unblockUser(token: string, username: string) {
+  return request<void>(`/api/users/blocks/${encodeURIComponent(username)}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
+export function leaveGroup(token: string, chatId: string) {
+  return request<void>(`/api/chats/${chatId}/leave`, {
+    method: "POST",
+    token,
+  });
+}
+
+export function deleteGroup(token: string, chatId: string) {
+  return request<void>(`/api/chats/${chatId}/group`, {
+    method: "DELETE",
+    token,
+  });
+}
+
+export function banGroupParticipant(token: string, chatId: string, username: string) {
+  return request<void>(`/api/chats/${chatId}/bans`, {
+    method: "POST",
+    token,
+    body: { username },
   });
 }

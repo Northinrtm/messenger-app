@@ -5,17 +5,12 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
 
 @Component
 public class PasswordPolicyService {
 
-    private static final int MIN_PASSWORD_LENGTH = 10;
-    private static final Pattern LOWERCASE = Pattern.compile(".*[a-z].*");
-    private static final Pattern UPPERCASE = Pattern.compile(".*[A-Z].*");
-    private static final Pattern DIGIT = Pattern.compile(".*\\d.*");
-    private static final Pattern SYMBOL = Pattern.compile(".*[^A-Za-z0-9].*");
+    private static final int MIN_PASSWORD_LENGTH = 8;
     private static final Set<String> COMMON_PASSWORDS = Set.of(
             "00000000",
             "11111111",
@@ -61,22 +56,10 @@ public class PasswordPolicyService {
             "welcome123"
     );
 
-    public void validateRegistrationPassword(String username, String displayName, String password) {
+    public void validatePassword(String username, String displayName, String password) {
         List<String> violations = new ArrayList<>();
         if (password.length() < MIN_PASSWORD_LENGTH) {
-            violations.add("password: Password must be at least 10 characters long");
-        }
-        if (!LOWERCASE.matcher(password).matches()) {
-            violations.add("password: Password must include at least one lowercase letter");
-        }
-        if (!UPPERCASE.matcher(password).matches()) {
-            violations.add("password: Password must include at least one uppercase letter");
-        }
-        if (!DIGIT.matcher(password).matches()) {
-            violations.add("password: Password must include at least one digit");
-        }
-        if (!SYMBOL.matcher(password).matches()) {
-            violations.add("password: Password must include at least one special character");
+            violations.add("password: Password must be at least 8 characters long");
         }
         if (COMMON_PASSWORDS.contains(password.toLowerCase(Locale.ROOT))) {
             violations.add("password: Password is too common or previously compromised");

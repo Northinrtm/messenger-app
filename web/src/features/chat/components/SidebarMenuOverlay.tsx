@@ -42,22 +42,6 @@ export function SidebarMenuOverlay({
           ^
         </button>
       </div>
-
-      <div className="menu-section menu-account-list">
-        <button type="button" className="menu-row account-row is-current" onClick={onClose}>
-          <AvatarCircle
-            className="menu-row-avatar"
-            name={profile.displayName}
-            avatarUrl={profile.avatarUrl}
-            online={profile.online}
-          />
-          <div className="menu-row-copy">
-            <strong>{profile.displayName}</strong>
-            <span>@{profile.username}</span>
-          </div>
-        </button>
-      </div>
-
       <div className="menu-section menu-item-list">
         {menuActions.map(({ id, label, symbol, badge }) => (
           <button type="button" key={id} className="menu-row" onClick={() => onAction(id)}>
