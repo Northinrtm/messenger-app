@@ -196,6 +196,8 @@ export function NorthMessengerWorkspace({
   const [sidebarSheet, setSidebarSheet] = useState<SidebarSheet>(null);
   const [search, setSearch] = useState("");
   const [groupTitle, setGroupTitle] = useState("");
+  const [groupDetailsTitle, setGroupDetailsTitle] = useState("");
+  const [groupDetailsAvatarUrl, setGroupDetailsAvatarUrl] = useState<string | null>(null);
   const [conferenceTitle, setConferenceTitle] = useState("");
   const [conferenceScheduledAt, setConferenceScheduledAt] = useState(() =>
     createInitialConferenceDateTime()
@@ -252,6 +254,28 @@ export function NorthMessengerWorkspace({
   const { buttonRef: menuButtonRef, panelRef: menuPanelRef } = useDismissiblePanel({
     isOpen: isMenuOpen,
     onClose: () => setIsMenuOpen(false),
+  });
+  const createGroupInviteLinkMutation = useMutation({
+    mutationFn: (input: { chatId: string; refresh?: boolean }) =>
+      createGroupInviteLinkRequest(session.token, input.chatId, { refresh: input.refresh }),
+    onSuccess: (inviteLink, input) => {
+      setGroupInviteCodesByChatId((current) => ({
+        ...current,
+        [input.chatId]: inviteLink.code,
+      }));
+    },
+  });
+  const createConferenceInviteLinkMutation = useMutation({
+    mutationFn: (conferenceId: string) => createConferenceInviteLinkRequest(session.token, conferenceId),
+    onSuccess: (inviteLink, conferenceId) => {
+      setConferenceInviteCodesById((current) => ({
+        ...current,
+        [conferenceId]: inviteLink.code,
+      }));
+    },
+  });
+  const handleGroupCreated = useEffectEvent((chat: ChatSummary) => {
+    createGroupInviteLinkMutation.mutate({ chatId: chat.id });
   });
   const {
     contextMenu,
@@ -824,10 +848,12 @@ export function NorthMessengerWorkspace({
     submitCreateConference,
     submitCreateConferenceNow,
     submitCreateGroup,
+    submitUpdateGroup,
     submitProfileDisplayName,
     toggleArchiveChat,
     updateArchivedChatMutation,
     updateConferenceMutation,
+    updateGroupMutation,
     updateProfileMutation,
   } = useWorkspaceMutations({
     activeChat,
@@ -842,8 +868,11 @@ export function NorthMessengerWorkspace({
     conferenceTitle,
     currentSession: session,
     groupInviteUsernames,
+    groupDetailsAvatarUrl,
+    groupDetailsTitle,
     groupParticipantUsernames,
     groupTitle,
+    onGroupCreated: handleGroupCreated,
     onSessionChange,
     openChat,
     openConference,
@@ -852,6 +881,8 @@ export function NorthMessengerWorkspace({
     resetConferenceComposer,
     setActiveListTab,
     setConferenceInviteUsernames,
+    setGroupDetailsAvatarUrl,
+    setGroupDetailsTitle,
     setGroupInviteUsernames,
     setGroupParticipantUsernames,
     setGroupTitle,
@@ -865,6 +896,15 @@ export function NorthMessengerWorkspace({
     try {
       const avatarUrl = await readFileAsDataUrl(file);
       avatarMutation.mutate(avatarUrl);
+    } catch {
+      return;
+    }
+  });
+
+  const uploadGroupAvatarFromFile = useEffectEvent(async (file: File) => {
+    try {
+      const avatarUrl = await readFileAsDataUrl(file);
+      setGroupDetailsAvatarUrl(avatarUrl);
     } catch {
       return;
     }
@@ -898,26 +938,6 @@ export function NorthMessengerWorkspace({
     setIsGroupInvitePickerOpen,
     setIsMenuOpen,
     signOut: () => signOutMutation.mutate(),
-  });
-
-  const createGroupInviteLinkMutation = useMutation({
-    mutationFn: (chatId: string) => createGroupInviteLinkRequest(session.token, chatId),
-    onSuccess: (inviteLink, chatId) => {
-      setGroupInviteCodesByChatId((current) => ({
-        ...current,
-        [chatId]: inviteLink.code,
-      }));
-    },
-  });
-
-  const createConferenceInviteLinkMutation = useMutation({
-    mutationFn: (conferenceId: string) => createConferenceInviteLinkRequest(session.token, conferenceId),
-    onSuccess: (inviteLink, conferenceId) => {
-      setConferenceInviteCodesById((current) => ({
-        ...current,
-        [conferenceId]: inviteLink.code,
-      }));
-    },
   });
 
   const acceptInviteMutation = useMutation({
@@ -961,7 +981,10 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    createGroupInviteLinkMutation.mutate(activeChat.id);
+    createGroupInviteLinkMutation.mutate({
+      chatId: activeChat.id,
+      refresh: Boolean(groupInviteCodesByChatId[activeChat.id]),
+    });
   });
 
   const handleGenerateConferenceInviteLink = useEffectEvent(() => {
@@ -971,6 +994,39 @@ export function NorthMessengerWorkspace({
 
     createConferenceInviteLinkMutation.mutate(activeConference.id);
   });
+
+  const handleSubmitUpdateGroup = useEffectEvent(() => {
+    submitUpdateGroup();
+  });
+
+  useEffect(() => {
+    if (sidebarSheet !== "groupInfo" || !activeChat || activeChat.direct) {
+      return;
+    }
+
+    if (groupInviteCodesByChatId[activeChat.id] || createGroupInviteLinkMutation.isPending) {
+      return;
+    }
+
+    createGroupInviteLinkMutation.mutate({ chatId: activeChat.id });
+  }, [
+    activeChat,
+    createGroupInviteLinkMutation,
+    groupInviteCodesByChatId,
+    sidebarSheet,
+  ]);
+
+  useEffect(() => {
+    if (sidebarSheet !== "groupInfo" || !activeChat || activeChat.direct) {
+      return;
+    }
+
+    setGroupDetailsTitle(activeChat.title);
+    setGroupDetailsAvatarUrl(activeChat.avatarUrl ?? null);
+  }, [
+    activeChat,
+    sidebarSheet,
+  ]);
 
   useEffect(() => {
     if (!pendingInviteCode) {
@@ -1549,6 +1605,8 @@ export function NorthMessengerWorkspace({
               deleteAccountConfirmation={deleteAccountConfirmation}
               deleteAccountRequiresMatch={deleteAccountRequiresMatch}
               groupTitle={groupTitle}
+              groupDetailsTitle={groupDetailsTitle}
+              groupDetailsAvatarUrl={groupDetailsAvatarUrl}
               contactSearch={contactSearch}
               showContactSearchResults={showContactSearchResults}
               contactSearchResults={contactSearchResults}
@@ -1573,6 +1631,7 @@ export function NorthMessengerWorkspace({
               groupInviteLinkPending={createGroupInviteLinkMutation.isPending}
               addGroupParticipantsPending={addGroupParticipantsMutation.isPending}
               addConferenceParticipantsPending={addConferenceParticipantsMutation.isPending}
+              updateGroupPending={updateGroupMutation.isPending}
               createChatPending={createChatMutation.isPending}
               updateProfilePending={updateProfileMutation.isPending}
               avatarPending={avatarMutation.isPending}
@@ -1586,9 +1645,13 @@ export function NorthMessengerWorkspace({
               onDeleteAccount={() => deleteAccountMutation.mutate()}
               onRemoveAvatar={() => avatarMutation.mutate(null)}
               onGroupTitleChange={setGroupTitle}
+              onGroupDetailsTitleChange={setGroupDetailsTitle}
+              onGroupAvatarSelected={(file) => void uploadGroupAvatarFromFile(file)}
+              onRemoveGroupAvatar={() => setGroupDetailsAvatarUrl(null)}
               onToggleGroupCreatePicker={() => setIsGroupCreatePickerOpen((current) => !current)}
               onToggleGroupParticipant={toggleGroupParticipant}
               onSubmitCreateGroup={handleSubmitCreateGroup}
+              onSubmitUpdateGroup={handleSubmitUpdateGroup}
               onOpenGroupMembers={openGroupMembersSheet}
               onToggleGroupInvitePicker={() => setIsGroupInvitePickerOpen((current) => !current)}
               onToggleGroupInviteParticipant={toggleGroupInviteParticipant}

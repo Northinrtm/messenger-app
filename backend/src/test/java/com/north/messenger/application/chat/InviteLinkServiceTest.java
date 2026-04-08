@@ -16,6 +16,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -34,6 +35,7 @@ class InviteLinkServiceTest {
         chatService = mock(ChatService.class);
         videoConferenceService = mock(VideoConferenceService.class);
         inviteLinkService = new InviteLinkService(inviteLinkRepository, chatService, videoConferenceService);
+        when(inviteLinkRepository.save(any(InviteLink.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     @Test
@@ -52,10 +54,33 @@ class InviteLinkServiceTest {
         when(inviteLinkRepository.findByTargetTypeAndTargetId(InviteLinkTargetType.GROUP, chatId))
                 .thenReturn(Optional.of(inviteLink));
 
-        InviteLinkResponse response = inviteLinkService.createGroupInviteLink("north", chatId);
+        InviteLinkResponse response = inviteLinkService.createGroupInviteLink("north", chatId, false);
 
         assertThat(response.code()).isEqualTo("abc123xy");
-        verify(inviteLinkRepository, never()).save(org.mockito.ArgumentMatchers.any(InviteLink.class));
+        verify(inviteLinkRepository, never()).save(any(InviteLink.class));
+    }
+
+    @Test
+    void createGroupInviteLinkShouldRefreshExistingCode() {
+        UUID chatId = UUID.randomUUID();
+        InviteLink inviteLink = new InviteLink(
+                UUID.randomUUID(),
+                "abc123xy",
+                InviteLinkTargetType.GROUP,
+                chatId,
+                Instant.parse("2026-04-08T10:00:00Z")
+        );
+
+        when(chatService.requireChatMembership(chatId, "north"))
+                .thenReturn(new ChatRoom(chatId, "Project", false, Instant.now()));
+        when(inviteLinkRepository.findByTargetTypeAndTargetId(InviteLinkTargetType.GROUP, chatId))
+                .thenReturn(Optional.of(inviteLink));
+
+        InviteLinkResponse response = inviteLinkService.createGroupInviteLink("north", chatId, true);
+
+        assertThat(response.code()).hasSize(8).isNotEqualTo("abc123xy");
+        assertThat(inviteLink.getCode()).isEqualTo(response.code());
+        verify(inviteLinkRepository).save(inviteLink);
     }
 
     @Test

@@ -515,17 +515,39 @@ export function addGroupParticipants(
   });
 }
 
-export function createGroupInviteLink(token: string, chatId: string) {
-  return request<InviteLink>(`/api/invite-links/groups/${chatId}`, {
-    method: "POST",
+export function updateGroupChat(
+  token: string,
+  chatId: string,
+  input: { title: string; avatarUrl: string | null }
+) {
+  return request<ChatSummary>(`/api/chats/${chatId}`, {
+    method: "PUT",
     token,
+    body: input,
   });
 }
 
-export function createConferenceInviteLink(token: string, conferenceId: string) {
+export function createGroupInviteLink(
+  token: string,
+  chatId: string,
+  options?: { refresh?: boolean }
+) {
+  return request<InviteLink>(`/api/invite-links/groups/${chatId}`, {
+    method: "POST",
+    token,
+    query: { refresh: options?.refresh === true },
+  });
+}
+
+export function createConferenceInviteLink(
+  token: string,
+  conferenceId: string,
+  options?: { refresh?: boolean }
+) {
   return request<InviteLink>(`/api/invite-links/conferences/${conferenceId}`, {
     method: "POST",
     token,
+    query: { refresh: options?.refresh === true },
   });
 }
 

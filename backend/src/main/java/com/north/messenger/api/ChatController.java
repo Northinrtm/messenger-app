@@ -4,6 +4,7 @@ import com.north.messenger.api.dto.AddGroupParticipantsRequest;
 import com.north.messenger.api.dto.ChatSummaryResponse;
 import com.north.messenger.api.dto.CreateDirectChatRequest;
 import com.north.messenger.api.dto.CreateGroupChatRequest;
+import com.north.messenger.api.dto.UpdateGroupChatRequest;
 import com.north.messenger.api.dto.UpdateArchivedChatRequest;
 import com.north.messenger.api.dto.UpdatePinnedMessageRequest;
 import com.north.messenger.application.chat.ChatService;
@@ -65,6 +66,15 @@ public class ChatController {
             @Valid @RequestBody AddGroupParticipantsRequest request
     ) {
         return chatService.addGroupParticipants(authentication.getName(), chatId, request);
+    }
+
+    @PutMapping("/{chatId}")
+    public ChatSummaryResponse updateGroupChat(
+            Authentication authentication,
+            @PathVariable UUID chatId,
+            @Valid @RequestBody UpdateGroupChatRequest request
+    ) {
+        return chatService.updateGroupChat(authentication.getName(), chatId, request);
     }
 
     @PutMapping("/{chatId}/archive")

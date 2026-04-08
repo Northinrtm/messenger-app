@@ -65,4 +65,9 @@ public class InviteLink {
     public Instant getCreatedAt() {
         return createdAt;
     }
+
+    public void rotate(String code, Instant createdAt) {
+        this.code = code;
+        this.createdAt = createdAt;
+    }
 }

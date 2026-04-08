@@ -7,6 +7,7 @@ import com.north.messenger.api.dto.CreateGroupChatRequest;
 import com.north.messenger.api.dto.MessageSnippetResponse;
 import com.north.messenger.api.dto.AddGroupParticipantsRequest;
 import com.north.messenger.api.dto.ParticipantResponse;
+import com.north.messenger.api.dto.UpdateGroupChatRequest;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.message.RealtimeMessagingGateway;
 import com.north.messenger.observability.MessengerTelemetry;
@@ -196,13 +197,6 @@ public class ChatService {
                 List.of()
         );
 
-        if (normalizedUsernames.isEmpty()) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Group chat must include at least one other participant"
-            );
-        }
-
         List<UserAccount> participants = normalizedUsernames.stream()
                 .map(authService::requireExistingUser)
                 .toList();
@@ -256,6 +250,20 @@ public class ChatService {
         participants.forEach(participant ->
                 chatParticipantRepository.save(new ChatParticipant(UUID.randomUUID(), chatId, participant.getId(), joinedAt))
         );
+        notifyChatUpdated(chatId);
+        return getChatSummaryForUser(chatId, currentUser);
+    }
+
+    @Transactional
+    public ChatSummaryResponse updateGroupChat(String username, UUID chatId, UpdateGroupChatRequest request) {
+        UserAccount currentUser = authService.requireAuthenticatedUser(username);
+        ChatRoom room = requireChatMembership(chatId, currentUser);
+        if (room.isDirect()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Direct chat cannot be updated");
+        }
+
+        room.updateGroupDetails(normalizeGroupTitle(request.title()), normalizeAvatarUrl(request.avatarUrl()));
+        chatRoomRepository.save(room);
         notifyChatUpdated(chatId);
         return getChatSummaryForUser(chatId, currentUser);
     }
@@ -451,6 +459,7 @@ public class ChatService {
                 room.getId(),
                 room.isDirect(),
                 title,
+                room.isDirect() ? null : room.getAvatarUrl(),
                 members,
                 lastMessage != null ? summarizeLastMessage(lastMessage) : null,
                 lastMessage != null ? lastMessage.getCreatedAt() : null,
@@ -580,5 +589,20 @@ public class ChatService {
 
     private String normalizeUsername(String username) {
         return username.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizeGroupTitle(String title) {
+        return title.trim();
+    }
+
+    private String normalizeAvatarUrl(String avatarUrl) {
+        if (avatarUrl == null || avatarUrl.isBlank()) {
+            return null;
+        }
+        if (!avatarUrl.startsWith("data:image/")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Avatar must be an image");
+        }
+
+        return avatarUrl;
     }
 }

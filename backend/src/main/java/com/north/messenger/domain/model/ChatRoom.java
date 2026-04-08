@@ -17,6 +17,9 @@ public class ChatRoom {
     @Column(name = "title")
     private String title;
 
+    @Column(name = "avatar_url")
+    private String avatarUrl;
+
     @Column(name = "is_direct", nullable = false)
     private boolean direct;
 
@@ -51,6 +54,10 @@ public class ChatRoom {
         return direct;
     }
 
+    public String getAvatarUrl() {
+        return avatarUrl;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
@@ -71,5 +78,10 @@ public class ChatRoom {
     public void clearPinnedMessage() {
         this.pinnedMessageId = null;
         this.pinnedAt = null;
+    }
+
+    public void updateGroupDetails(String title, String avatarUrl) {
+        this.title = title;
+        this.avatarUrl = avatarUrl;
     }
 }

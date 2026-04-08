@@ -13,6 +13,7 @@ import {
   removeContact as removeContactRequest,
   revokeSession,
   updateArchivedChat,
+  updateGroupChat as updateGroupChatRequest,
   updateProfile,
   updateProfileAvatar,
   updateVideoConference as updateVideoConferenceRequest,
@@ -41,8 +42,11 @@ type UseWorkspaceMutationsOptions = {
   conferenceTitle: string;
   currentSession: AuthResponse;
   groupInviteUsernames: string[];
+  groupDetailsAvatarUrl: string | null;
+  groupDetailsTitle: string;
   groupParticipantUsernames: string[];
   groupTitle: string;
+  onGroupCreated?: (chat: ChatSummary) => void;
   onSessionChange: (session: AuthResponse | null) => void;
   openChat: (chatId: string, preferredTab?: ConversationListTab) => void;
   openConference: (conferenceId: string) => void;
@@ -51,6 +55,8 @@ type UseWorkspaceMutationsOptions = {
   resetConferenceComposer: () => void;
   setActiveListTab: React.Dispatch<React.SetStateAction<ConversationListTab>>;
   setConferenceInviteUsernames: React.Dispatch<React.SetStateAction<string[]>>;
+  setGroupDetailsAvatarUrl: React.Dispatch<React.SetStateAction<string | null>>;
+  setGroupDetailsTitle: React.Dispatch<React.SetStateAction<string>>;
   setGroupInviteUsernames: React.Dispatch<React.SetStateAction<string[]>>;
   setGroupParticipantUsernames: React.Dispatch<React.SetStateAction<string[]>>;
   setGroupTitle: React.Dispatch<React.SetStateAction<string>>;
@@ -73,8 +79,11 @@ export function useWorkspaceMutations({
   conferenceTitle,
   currentSession,
   groupInviteUsernames,
+  groupDetailsAvatarUrl,
+  groupDetailsTitle,
   groupParticipantUsernames,
   groupTitle,
+  onGroupCreated,
   onSessionChange,
   openChat,
   openConference,
@@ -83,6 +92,8 @@ export function useWorkspaceMutations({
   resetConferenceComposer,
   setActiveListTab,
   setConferenceInviteUsernames,
+  setGroupDetailsAvatarUrl,
+  setGroupDetailsTitle,
   setGroupInviteUsernames,
   setGroupParticipantUsernames,
   setGroupTitle,
@@ -114,14 +125,15 @@ export function useWorkspaceMutations({
   const createGroupMutation = useMutation({
     mutationFn: (input: { title: string; participantUsernames: string[] }) =>
       createGroupChat(token, input),
-    onSuccess: (chat) => {
+    onSuccess: (chat, input) => {
       queryClient.setQueryData<ChatSummary[]>(["chats", token], (current) => upsertChat(current, chat));
       void queryClient.invalidateQueries({ queryKey: ["chats", token] });
       setGroupTitle("");
       setGroupParticipantUsernames([]);
       setIsGroupCreatePickerOpen(false);
-      setSidebarSheet(null);
       openChat(chat.id, "groups");
+      onGroupCreated?.(chat);
+      setSidebarSheet(input.participantUsernames.length === 0 ? "groupInfo" : null);
     },
   });
 
@@ -208,6 +220,19 @@ export function useWorkspaceMutations({
       setGroupInviteUsernames([]);
       setIsGroupInvitePickerOpen(false);
       setSidebarSheet(null);
+    },
+  });
+
+  const updateGroupMutation = useMutation({
+    mutationFn: (input: { chatId: string; title: string; avatarUrl: string | null }) =>
+      updateGroupChatRequest(token, input.chatId, {
+        title: input.title,
+        avatarUrl: input.avatarUrl,
+      }),
+    onSuccess: (chat) => {
+      queryClient.setQueryData<ChatSummary[]>(["chats", token], (current) => upsertChat(current, chat));
+      setGroupDetailsTitle(chat.title);
+      setGroupDetailsAvatarUrl(chat.avatarUrl ?? null);
     },
   });
 
@@ -323,13 +348,31 @@ export function useWorkspaceMutations({
 
   const submitCreateGroup = () => {
     const title = groupTitle.trim();
-    if (!title || !groupParticipantUsernames.length) {
+    if (!title) {
       return;
     }
 
     createGroupMutation.mutate({
       title,
       participantUsernames: groupParticipantUsernames,
+    });
+  };
+
+  const submitUpdateGroup = () => {
+    const title = groupDetailsTitle.trim();
+    if (!title || !activeChat || activeChat.direct) {
+      return;
+    }
+
+    const normalizedAvatarUrl = groupDetailsAvatarUrl ?? null;
+    if (title === activeChat.title && normalizedAvatarUrl === (activeChat.avatarUrl ?? null)) {
+      return;
+    }
+
+    updateGroupMutation.mutate({
+      chatId: activeChat.id,
+      title,
+      avatarUrl: normalizedAvatarUrl,
     });
   };
 
@@ -400,10 +443,12 @@ export function useWorkspaceMutations({
     submitCreateConference,
     submitCreateConferenceNow,
     submitCreateGroup,
+    submitUpdateGroup,
     submitProfileDisplayName,
     toggleArchiveChat,
     updateArchivedChatMutation,
     updateConferenceMutation,
+    updateGroupMutation,
     updateProfileMutation,
   };
 }

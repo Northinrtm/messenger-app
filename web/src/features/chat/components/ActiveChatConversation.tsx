@@ -121,7 +121,7 @@ export function ActiveChatConversation({
             <AvatarCircle
               className="avatar conversation-avatar north-avatar"
               name={activeDirectParticipant?.displayName ?? activeChat.title}
-              avatarUrl={activeDirectParticipant?.avatarUrl ?? null}
+              avatarUrl={activeChat.direct ? activeDirectParticipant?.avatarUrl ?? null : activeChat.avatarUrl}
               badge={activeChat.direct ? undefined : "GR"}
               online={activeChat.direct ? activeDirectParticipant?.online : false}
             />

@@ -7,6 +7,7 @@ import java.util.UUID;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -23,17 +24,19 @@ public class InviteLinkController {
     @PostMapping("/groups/{chatId}")
     public InviteLinkResponse createGroupInviteLink(
             Authentication authentication,
-            @PathVariable UUID chatId
+            @PathVariable UUID chatId,
+            @RequestParam(defaultValue = "false") boolean refresh
     ) {
-        return inviteLinkService.createGroupInviteLink(authentication.getName(), chatId);
+        return inviteLinkService.createGroupInviteLink(authentication.getName(), chatId, refresh);
     }
 
     @PostMapping("/conferences/{conferenceId}")
     public InviteLinkResponse createConferenceInviteLink(
             Authentication authentication,
-            @PathVariable UUID conferenceId
+            @PathVariable UUID conferenceId,
+            @RequestParam(defaultValue = "false") boolean refresh
     ) {
-        return inviteLinkService.createConferenceInviteLink(authentication.getName(), conferenceId);
+        return inviteLinkService.createConferenceInviteLink(authentication.getName(), conferenceId, refresh);
     }
 
     @PostMapping("/{code}/accept")

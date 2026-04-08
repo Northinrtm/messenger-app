@@ -23,6 +23,8 @@ type Props = {
   deleteAccountConfirmation: string;
   deleteAccountRequiresMatch: boolean;
   groupTitle: string;
+  groupDetailsTitle: string;
+  groupDetailsAvatarUrl: string | null;
   contactSearch: string;
   showContactSearchResults: boolean;
   contactSearchResults: UserProfile[];
@@ -48,6 +50,7 @@ type Props = {
   groupInviteLinkPending: boolean;
   addGroupParticipantsPending: boolean;
   addConferenceParticipantsPending: boolean;
+  updateGroupPending: boolean;
   createChatPending: boolean;
   updateProfilePending: boolean;
   avatarPending: boolean;
@@ -61,9 +64,13 @@ type Props = {
   onDeleteAccount: () => void;
   onRemoveAvatar: () => void;
   onGroupTitleChange: (value: string) => void;
+  onGroupDetailsTitleChange: (value: string) => void;
+  onGroupAvatarSelected: (file: File) => void;
+  onRemoveGroupAvatar: () => void;
   onToggleGroupCreatePicker: () => void;
   onToggleGroupParticipant: (username: string) => void;
   onSubmitCreateGroup: () => void;
+  onSubmitUpdateGroup: () => void;
   onOpenGroupMembers: (options?: GroupMembersOptions) => void;
   onToggleGroupInvitePicker: () => void;
   onToggleGroupInviteParticipant: (username: string) => void;
@@ -89,6 +96,8 @@ export function SidebarManagementSheets({
   deleteAccountConfirmation,
   deleteAccountRequiresMatch,
   groupTitle,
+  groupDetailsTitle,
+  groupDetailsAvatarUrl,
   contactSearch,
   showContactSearchResults,
   contactSearchResults,
@@ -114,6 +123,7 @@ export function SidebarManagementSheets({
   groupInviteLinkPending,
   addGroupParticipantsPending,
   addConferenceParticipantsPending,
+  updateGroupPending,
   createChatPending,
   updateProfilePending,
   avatarPending,
@@ -127,9 +137,13 @@ export function SidebarManagementSheets({
   onDeleteAccount,
   onRemoveAvatar,
   onGroupTitleChange,
+  onGroupDetailsTitleChange,
+  onGroupAvatarSelected,
+  onRemoveGroupAvatar,
   onToggleGroupCreatePicker,
   onToggleGroupParticipant,
   onSubmitCreateGroup,
+  onSubmitUpdateGroup,
   onOpenGroupMembers,
   onToggleGroupInvitePicker,
   onToggleGroupInviteParticipant,
@@ -341,7 +355,7 @@ export function SidebarManagementSheets({
           <button
             type="submit"
             className="secondary-button"
-            disabled={createGroupPending || !groupTitle.trim() || !groupParticipantUsernames.length}
+            disabled={createGroupPending || !groupTitle.trim()}
           >
             {createGroupPending ? "Создаем..." : "Создать"}
           </button>
@@ -351,6 +365,11 @@ export function SidebarManagementSheets({
   }
 
   if (sheet === "groupInfo" && activeChat && !activeChat.direct) {
+    const normalizedGroupTitle = groupDetailsTitle.trim();
+    const groupDetailsChanged =
+      normalizedGroupTitle !== activeChat.title ||
+      (groupDetailsAvatarUrl ?? null) !== (activeChat.avatarUrl ?? null);
+
     return (
       <div className="sheet-card">
         <div className="sheet-head">
@@ -366,16 +385,73 @@ export function SidebarManagementSheets({
         <div className="profile-avatar-card">
           <AvatarCircle
             className="profile-sheet-avatar"
-            name={activeChat.title}
-            avatarUrl={null}
+            name={normalizedGroupTitle || activeChat.title}
+            avatarUrl={groupDetailsAvatarUrl}
             badge="GR"
             online={false}
           />
           <div className="profile-avatar-copy">
-            <strong>{activeChat.title}</strong>
+            <strong>{normalizedGroupTitle || activeChat.title}</strong>
             <span>{activeChat.members.length} участников</span>
           </div>
         </div>
+
+        <div className="profile-line">
+          <span className="profile-label">РђРІР°С‚Р°СЂ РіСЂСѓРїРїС‹</span>
+          <p className="profile-avatar-hint">
+            РЎРјРµРЅРё РЅР°Р·РІР°РЅРёРµ Рё Р°РІР°С‚Р°СЂ РіСЂСѓРїРїС‹, Р·Р°С‚РµРј СЃРѕС…СЂР°РЅРё РёР·РјРµРЅРµРЅРёСЏ.
+          </p>
+          <div className="profile-avatar-actions">
+            <label htmlFor="group-avatar-input" className="ghost-button compact">
+              Р’С‹Р±СЂР°С‚СЊ С„РѕС‚Рѕ
+            </label>
+            <input
+              id="group-avatar-input"
+              type="file"
+              accept="image/*"
+              className="profile-avatar-input"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) {
+                  onGroupAvatarSelected(file);
+                }
+                event.currentTarget.value = "";
+              }}
+            />
+            {groupDetailsAvatarUrl ? (
+              <button
+                type="button"
+                className="ghost-button compact"
+                onClick={onRemoveGroupAvatar}
+              >
+                РЈР±СЂР°С‚СЊ С„РѕС‚Рѕ
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        <form
+          className="profile-line profile-edit-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onSubmitUpdateGroup();
+          }}
+        >
+          <span className="profile-label">РќР°Р·РІР°РЅРёРµ РіСЂСѓРїРїС‹</span>
+          <input
+            value={groupDetailsTitle}
+            onChange={(event) => onGroupDetailsTitleChange(event.target.value)}
+            placeholder="РќР°Р·РІР°РЅРёРµ РіСЂСѓРїРїС‹"
+            maxLength={120}
+          />
+          <button
+            type="submit"
+            className="secondary-button"
+            disabled={updateGroupPending || normalizedGroupTitle.length < 2 || !groupDetailsChanged}
+          >
+            {updateGroupPending ? "РЎРѕС…СЂР°РЅСЏРµРј..." : "РЎРѕС…СЂР°РЅРёС‚СЊ РёР·РјРµРЅРµРЅРёСЏ"}
+          </button>
+        </form>
 
         <div className="sheet-actions-stack">
           <button
@@ -485,6 +561,16 @@ export function SidebarManagementSheets({
                     <div className="sheet-row-copy">
                       <strong>{member.displayName}{current ? " (Вы)" : ""}</strong>
                       <span>@{member.username}</span>
+                      {!current ? (
+                        <button
+                          type="button"
+                          className="ghost-button compact"
+                          disabled={createChatPending}
+                          onClick={() => onCreateChat(member.username)}
+                        >
+                          {"\u0427\u0430\u0442"}
+                        </button>
+                      ) : null}
                     </div>
                     <span className="member-pill">{current ? "Вы" : "В группе"}</span>
                   </div>

@@ -211,7 +211,7 @@ export function ChatListPanel({
             <AvatarCircle
               className="avatar north-avatar"
               name={directParticipant?.displayName ?? chat.title}
-              avatarUrl={directParticipant?.avatarUrl ?? null}
+              avatarUrl={chat.direct ? directParticipant?.avatarUrl ?? null : chat.avatarUrl}
               badge={chat.direct ? undefined : "GR"}
               online={chat.direct ? directParticipant?.online : false}
             />

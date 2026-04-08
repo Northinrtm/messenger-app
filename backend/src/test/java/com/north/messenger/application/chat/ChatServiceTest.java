@@ -1,5 +1,8 @@
 package com.north.messenger.application.chat;
 
+import com.north.messenger.api.dto.CreateGroupChatRequest;
+import com.north.messenger.api.dto.ParticipantResponse;
+import com.north.messenger.api.dto.UpdateGroupChatRequest;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.message.RealtimeMessagingGateway;
 import com.north.messenger.observability.MessengerTelemetry;
@@ -18,6 +21,7 @@ import com.north.messenger.domain.repository.UserArchivedChatRepository;
 import com.north.messenger.domain.repository.UserDeletedChatRepository;
 import com.north.messenger.domain.repository.UserDeletedMessageRepository;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -339,6 +343,113 @@ class ChatServiceTest {
                 .containsExactly("alice", "north");
         verify(userArchivedChatRepository).deleteByUserIdAndChatId(invitedUser.getId(), chatId);
         verify(userDeletedChatRepository).deleteByChatIdAndUserIdIn(chatId, List.of(invitedUser.getId()));
+    }
+
+    @Test
+    void createGroupChatShouldAllowCreatingGroupWithoutAdditionalParticipants() {
+        UserAccount currentUser = new UserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        ParticipantResponse currentParticipant = new ParticipantResponse(
+                currentUser.getId(),
+                currentUser.getUsername(),
+                currentUser.getDisplayName(),
+                currentUser.getAvatarUrl(),
+                true
+        );
+        var savedRoom = new java.util.concurrent.atomic.AtomicReference<ChatRoom>();
+        var memberships = new ArrayList<ChatParticipant>();
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
+        when(chatRoomRepository.save(any(ChatRoom.class))).thenAnswer(invocation -> {
+            ChatRoom room = invocation.getArgument(0);
+            savedRoom.set(room);
+            return room;
+        });
+        when(chatRoomRepository.findById(any(UUID.class))).thenAnswer(invocation ->
+                Optional.ofNullable(savedRoom.get()).filter(room -> room.getId().equals(invocation.getArgument(0))));
+        when(chatParticipantRepository.save(any(ChatParticipant.class))).thenAnswer(invocation -> {
+            ChatParticipant membership = invocation.getArgument(0);
+            memberships.add(membership);
+            return membership;
+        });
+        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(any(UUID.class))).thenAnswer(invocation ->
+                memberships.stream()
+                        .filter(membership -> membership.getChatId().equals(invocation.getArgument(0)))
+                        .toList());
+        when(chatParticipantRepository.existsByChatIdAndUserId(any(UUID.class), eq(currentUser.getId()))).thenReturn(true);
+        when(userAccountRepository.findAllByIdIn(List.of(currentUser.getId()))).thenReturn(List.of(currentUser));
+        when(authService.resolveOnlineByUserIds(List.of(currentUser.getId())))
+                .thenReturn(java.util.Map.of(currentUser.getId(), true));
+        when(messageReceiptRepository.countUnreadByChatId(any(UUID.class))).thenReturn(List.of());
+        when(messageReceiptRepository.countUnreadByUserIdAndChatIdIn(any(UUID.class), any())).thenReturn(List.of());
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(any(UUID.class), eq(currentUser.getId()), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(authService.toParticipant(currentUser, true)).thenReturn(currentParticipant);
+
+        var response = chatService.createGroupChat("north", new CreateGroupChatRequest("Solo room", List.of()));
+
+        assertThat(response.title()).isEqualTo("Solo room");
+        assertThat(response.members()).containsExactly(currentParticipant);
+        assertThat(memberships).hasSize(1);
+        assertThat(memberships.get(0).getUserId()).isEqualTo(currentUser.getId());
+    }
+
+    @Test
+    void updateGroupChatShouldRenameAndUpdateAvatar() {
+        UserAccount currentUser = new UserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UUID chatId = UUID.randomUUID();
+        ChatRoom room = new ChatRoom(chatId, "Old name", false, Instant.parse("2026-03-21T12:00:00Z"));
+        ChatParticipant membership = new ChatParticipant(
+                UUID.randomUUID(),
+                chatId,
+                currentUser.getId(),
+                Instant.parse("2026-03-21T12:00:00Z")
+        );
+        String avatarUrl = "data:image/png;base64,AAA";
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
+        when(chatRoomRepository.findById(chatId)).thenReturn(Optional.of(room));
+        when(chatParticipantRepository.existsByChatIdAndUserId(chatId, currentUser.getId())).thenReturn(true);
+        when(chatRoomRepository.save(any(ChatRoom.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId)).thenReturn(List.of(membership));
+        when(userAccountRepository.findAllByIdIn(List.of(currentUser.getId()))).thenReturn(List.of(currentUser));
+        when(authService.resolveOnlineByUserIds(List.of(currentUser.getId())))
+                .thenReturn(java.util.Map.of(currentUser.getId(), true));
+        when(messageReceiptRepository.countUnreadByChatId(chatId)).thenReturn(List.of());
+        when(messageReceiptRepository.countUnreadByUserIdAndChatIdIn(currentUser.getId(), List.of(chatId)))
+                .thenReturn(List.of());
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(eq(chatId), eq(currentUser.getId()), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(authService.toParticipant(currentUser, true)).thenReturn(new ParticipantResponse(
+                currentUser.getId(),
+                currentUser.getUsername(),
+                currentUser.getDisplayName(),
+                currentUser.getAvatarUrl(),
+                true
+        ));
+
+        var response = chatService.updateGroupChat(
+                "north",
+                chatId,
+                new UpdateGroupChatRequest("New name", avatarUrl)
+        );
+
+        assertThat(response.title()).isEqualTo("New name");
+        assertThat(response.avatarUrl()).isEqualTo(avatarUrl);
+        assertThat(room.getTitle()).isEqualTo("New name");
+        assertThat(room.getAvatarUrl()).isEqualTo(avatarUrl);
+        verify(realtimeMessagingGateway).sendToUser(eq("north"), eq("/queue/chats"), any());
     }
 
     private MessageReceiptRepository.ChatUnreadCountView unreadCountView(UUID chatId, long unreadCount) {

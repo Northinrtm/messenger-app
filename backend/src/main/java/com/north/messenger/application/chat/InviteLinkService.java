@@ -42,24 +42,24 @@ public class InviteLinkService {
     }
 
     @Transactional
-    public InviteLinkResponse createGroupInviteLink(String username, UUID chatId) {
+    public InviteLinkResponse createGroupInviteLink(String username, UUID chatId, boolean refresh) {
         ChatRoom room = chatService.requireChatMembership(chatId, username);
         if (room.isDirect()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Direct chat links are not supported");
         }
 
-        InviteLink inviteLink = findOrCreateInviteLink(InviteLinkTargetType.GROUP, chatId);
+        InviteLink inviteLink = createOrRefreshInviteLink(InviteLinkTargetType.GROUP, chatId, refresh);
         return new InviteLinkResponse(inviteLink.getCode());
     }
 
     @Transactional
-    public InviteLinkResponse createConferenceInviteLink(String username, UUID conferenceId) {
+    public InviteLinkResponse createConferenceInviteLink(String username, UUID conferenceId, boolean refresh) {
         VideoConference conference = videoConferenceService.requireConferenceInviteLinkAccess(username, conferenceId);
         if (conference.isEnded()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Conference has already ended");
         }
 
-        InviteLink inviteLink = findOrCreateInviteLink(InviteLinkTargetType.CONFERENCE, conferenceId);
+        InviteLink inviteLink = createOrRefreshInviteLink(InviteLinkTargetType.CONFERENCE, conferenceId, refresh);
         return new InviteLinkResponse(inviteLink.getCode());
     }
 
@@ -85,6 +85,42 @@ public class InviteLinkService {
     private InviteLink findOrCreateInviteLink(InviteLinkTargetType targetType, UUID targetId) {
         return inviteLinkRepository.findByTargetTypeAndTargetId(targetType, targetId)
                 .orElseGet(() -> createInviteLink(targetType, targetId));
+    }
+
+    private InviteLink createOrRefreshInviteLink(InviteLinkTargetType targetType, UUID targetId, boolean refresh) {
+        if (!refresh) {
+            return findOrCreateInviteLink(targetType, targetId);
+        }
+
+        InviteLink existingLink = inviteLinkRepository.findByTargetTypeAndTargetId(targetType, targetId)
+                .orElse(null);
+        if (existingLink == null) {
+            return createInviteLink(targetType, targetId);
+        }
+
+        ResponseStatusException lastFailure = null;
+        for (int attempt = 0; attempt < 8; attempt++) {
+            String code = generateCode();
+            if (code.equals(existingLink.getCode()) || inviteLinkRepository.existsByCode(code)) {
+                continue;
+            }
+
+            try {
+                existingLink.rotate(code, Instant.now());
+                return inviteLinkRepository.save(existingLink);
+            } catch (DataIntegrityViolationException exception) {
+                lastFailure = new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "Invite link already exists for this target",
+                        exception
+                );
+            }
+        }
+
+        if (lastFailure != null) {
+            throw lastFailure;
+        }
+        throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to refresh invite link");
     }
 
     private InviteLink createInviteLink(InviteLinkTargetType targetType, UUID targetId) {

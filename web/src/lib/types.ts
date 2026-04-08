@@ -53,6 +53,7 @@ export type ChatSummary = {
   id: string;
   direct: boolean;
   title: string;
+  avatarUrl: string | null;
   members: Participant[];
   lastMessage: string | null;
   lastMessageAt: string | null;
