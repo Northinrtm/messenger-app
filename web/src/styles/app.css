@@ -2846,11 +2846,20 @@ textarea {
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
+.conference-summary-row.with-panel {
+  align-items: flex-start;
+}
+
 .conference-summary-code {
   padding: 0.18rem 0.45rem;
   border-radius: 0.55rem;
   background: #101922;
   overflow-wrap: anywhere;
+}
+
+.conference-share-panel {
+  flex: 1 1 100%;
+  min-width: 0;
 }
 
 .conference-summary-link {

@@ -7,10 +7,10 @@ type Props = {
   conferenceId: string;
   baseUrl: string;
   roomName: string;
-  accessCode: string;
   displayName: string;
   title: string;
   exitRequestToken?: number;
+  onConferenceEndForAll?: () => void;
   onConferencePresenceTouch?: (conferenceId: string) => void;
   onConferencePresenceLeave?: (conferenceId: string, options?: { keepalive?: boolean }) => void;
   onRecordingStateChange?: (state: ConferenceRecordingState) => void;
@@ -80,10 +80,10 @@ export function ManagedConferenceStage({
   conferenceId,
   baseUrl,
   roomName,
-  accessCode,
   displayName,
   title,
   exitRequestToken = 0,
+  onConferenceEndForAll,
   onConferencePresenceTouch,
   onConferencePresenceLeave,
   onRecordingStateChange,
@@ -93,6 +93,7 @@ export function ManagedConferenceStage({
   const hostRef = useRef<HTMLDivElement | null>(null);
   const conferencePresenceTouchRef = useRef(onConferencePresenceTouch);
   const conferencePresenceLeaveRef = useRef(onConferencePresenceLeave);
+  const conferenceEndForAllRef = useRef(onConferenceEndForAll);
   const roleChangeRef = useRef(onRoleChange);
   const recordingStateChangeRef = useRef(onRecordingStateChange);
   const conferenceExitRef = useRef(onConferenceExit);
@@ -106,6 +107,10 @@ export function ManagedConferenceStage({
   useEffect(() => {
     conferencePresenceLeaveRef.current = onConferencePresenceLeave;
   }, [onConferencePresenceLeave]);
+
+  useEffect(() => {
+    conferenceEndForAllRef.current = onConferenceEndForAll;
+  }, [onConferenceEndForAll]);
 
   useEffect(() => {
     roleChangeRef.current = onRoleChange;
@@ -139,7 +144,7 @@ export function ManagedConferenceStage({
     let presenceHeartbeatId: number | null = null;
     let localRecordingActive = false;
     let localParticipantJoined = false;
-    let roomAccessCodeApplied = false;
+    let endForAllRequested = false;
 
     const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
     const baseUrlObject = new URL(normalizedBaseUrl);
@@ -229,15 +234,6 @@ export function ManagedConferenceStage({
       if (normalizedConferenceTitle) {
         sendConferenceCommand(bridge, "subject", normalizedConferenceTitle);
       }
-    };
-
-    const applyRoomAccessCode = () => {
-      if (!bridge || !accessCode || roomAccessCodeApplied || isConferenceClosed) {
-        return;
-      }
-
-      roomAccessCodeApplied = true;
-      sendConferenceCommand(bridge, "password", accessCode);
     };
 
     const handleConferenceExit = () => {
@@ -330,27 +326,28 @@ export function ManagedConferenceStage({
         case "video-conference-joined":
           roleChangeRef.current?.(null);
           syncConferenceIdentity();
-          applyRoomAccessCode();
           startPresenceHeartbeat();
           return;
         case "participant-role-changed":
           if (eventPayload.role === "moderator") {
             roleChangeRef.current?.("moderator");
-            applyRoomAccessCode();
             return;
           }
           roleChangeRef.current?.("participant");
-          return;
-        case "passwordRequired":
-        case "password-required":
-          roomAccessCodeApplied = false;
-          applyRoomAccessCode();
           return;
         case "recording-status-changed":
           handleRecordingStatusChange(eventPayload);
           return;
         case "toolbar-button-clicked":
         case "toolbarButtonClicked":
+          if (eventPayload.key === "__end") {
+            if (endForAllRequested) {
+              return;
+            }
+            endForAllRequested = true;
+            conferenceEndForAllRef.current?.();
+            return;
+          }
           if (eventPayload.key === "hangup") {
             requestConferenceExit();
           }
@@ -421,7 +418,7 @@ export function ManagedConferenceStage({
       bridge?.destroy();
       host.replaceChildren();
     };
-  }, [accessCode, baseUrl, conferenceId, displayName, retryToken, roomName, title]);
+  }, [baseUrl, conferenceId, displayName, retryToken, roomName, title]);
 
   return <div ref={hostRef} className="conference-embed-host" />;
 }
@@ -462,7 +459,10 @@ function buildConferenceFrameUrl(input: {
   hashParams.set("config.recordings.suggestRecording", JSON.stringify(false));
   hashParams.set(
     "config.buttonsWithNotifyClick",
-    JSON.stringify([{ key: "hangup", preventExecution: true }])
+    JSON.stringify([
+      { key: "hangup", preventExecution: true },
+      { key: "__end", preventExecution: false },
+    ])
   );
   hashParams.set("config.bosh", JSON.stringify(input.boshUrl));
   hashParams.set("config.websocket", JSON.stringify(input.websocketUrl));

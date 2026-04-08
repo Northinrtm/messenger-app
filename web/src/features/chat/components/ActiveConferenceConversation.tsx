@@ -32,6 +32,7 @@ type Props = {
   onCancelConference: () => void;
   onConferencePresenceTouch: (conferenceId: string) => void;
   onConferencePresenceLeave: (conferenceId: string, options?: { keepalive?: boolean }) => void;
+  onConferenceEndForAll: () => void;
   onGenerateShareUrl: () => void;
   onToggleInfo: () => void;
   onOpenMembers: () => void;
@@ -42,6 +43,63 @@ type Props = {
   formatConferenceSchedule: (scheduledAt: string) => string;
   formatMemberCount: (count: number) => string;
 };
+
+type ConferenceInviteLinkControlsProps = {
+  shareUrl: string | null;
+  shareUrlPending: boolean;
+  shareInviteLinkActionLabel: string;
+  onCopyShareUrl: (value: string) => void;
+  onGenerateShareUrl: () => void;
+};
+
+function ConferenceInviteLinkControls({
+  shareUrl,
+  shareUrlPending,
+  shareInviteLinkActionLabel,
+  onCopyShareUrl,
+  onGenerateShareUrl,
+}: ConferenceInviteLinkControlsProps) {
+  return (
+    <div className="conference-share-panel invite-link-panel">
+      <div className="invite-link-copy">
+        <strong>Приглашение по ссылке</strong>
+        <span>
+          Короткая ссылка откроет эту конференцию в приложении и добавит пользователя в
+          участники.
+        </span>
+      </div>
+      <div className="invite-link-row">
+        <input
+          className="invite-link-input"
+          readOnly
+          value={shareUrl ?? ""}
+          placeholder="Ссылка ещё не создана"
+          onFocus={(event) => event.currentTarget.select()}
+        />
+        <button
+          type="button"
+          className="ghost-button compact"
+          disabled={!shareUrl}
+          onClick={() => {
+            if (shareUrl) {
+              onCopyShareUrl(shareUrl);
+            }
+          }}
+        >
+          Копировать
+        </button>
+      </div>
+      <button
+        type="button"
+        className="ghost-button"
+        disabled={shareUrlPending}
+        onClick={onGenerateShareUrl}
+      >
+        {shareInviteLinkActionLabel}
+      </button>
+    </div>
+  );
+}
 
 export function ActiveConferenceConversation({
   conference,
@@ -68,6 +126,7 @@ export function ActiveConferenceConversation({
   onCancelConference,
   onConferencePresenceTouch,
   onConferencePresenceLeave,
+  onConferenceEndForAll,
   onGenerateShareUrl,
   onToggleInfo,
   onOpenMembers,
@@ -152,6 +211,19 @@ export function ActiveConferenceConversation({
                         Комната доступна только приглашённым участникам внутри приложения.
                       </span>
                     </div>
+
+                    {canShareInviteLink ? (
+                      <div className="conference-summary-row with-panel">
+                        <span className="conference-summary-label">Ссылка</span>
+                        <ConferenceInviteLinkControls
+                          shareUrl={shareUrl}
+                          shareUrlPending={shareUrlPending}
+                          shareInviteLinkActionLabel={shareInviteLinkActionLabel}
+                          onCopyShareUrl={onCopyShareUrl}
+                          onGenerateShareUrl={onGenerateShareUrl}
+                        />
+                      </div>
+                    ) : null}
 
                     <div className="conference-summary-row participants">
                       <span className="conference-summary-label">Участники</span>
@@ -367,14 +439,14 @@ export function ActiveConferenceConversation({
           <div className="conference-stage">
             <ManagedConferenceStage
               conferenceId={conference.id}
-              key={`${conference.id}:${conference.roomName}:${conference.roomAccessCode}`}
+              key={`${conference.id}:${conference.roomName}`}
               baseUrl={jitsiBaseUrl}
               roomName={conference.roomName}
-              accessCode={conference.roomAccessCode ?? ""}
               displayName={profileDisplayName}
               title={conference.title}
               onConferencePresenceTouch={onConferencePresenceTouch}
               onConferencePresenceLeave={onConferencePresenceLeave}
+              onConferenceEndForAll={onConferenceEndForAll}
               exitRequestToken={exitRequestToken}
               onRecordingStateChange={onRecordingStateChange}
               onConferenceExit={onConferenceExit}

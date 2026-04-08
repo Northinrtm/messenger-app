@@ -448,7 +448,6 @@ export function NorthMessengerWorkspace({
   const activeConferenceIsArchived = Boolean(activeConference?.endedAt);
   const activeConferenceCanJoin = Boolean(
     activeConference?.roomName &&
-      activeConference?.roomAccessCode &&
       activeConference.activatedAt &&
       !activeConference.endedAt
   );
@@ -1350,6 +1349,7 @@ export function NorthMessengerWorkspace({
       onBack={() => setMobilePane("sidebar")}
       onEditConference={openConferenceEditorSheet}
       onCancelConference={handleCancelScheduledConference}
+      onConferenceEndForAll={() => handleEndConference({ skipConfirm: true })}
       onConferencePresenceTouch={handleConferencePresenceTouch}
       onConferencePresenceLeave={handleConferencePresenceLeave}
       onGenerateShareUrl={handleGenerateConferenceInviteLink}

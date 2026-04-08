@@ -33,6 +33,10 @@ type UseWorkspacePanelActionsOptions = {
   signOut: () => void;
 };
 
+type EndConferenceOptions = {
+  skipConfirm?: boolean;
+};
+
 export function useWorkspacePanelActions({
   activeChat,
   activeConference,
@@ -56,13 +60,26 @@ export function useWorkspacePanelActions({
     closeActiveConference();
   });
 
-  const handleEndConference = useEffectEvent(() => {
+  const handleEndConference = useEffectEvent((options?: EndConferenceOptions) => {
     if (
       !activeConference ||
       !activeConferenceIsOwnedByCurrentUser ||
       activeConferenceIsArchived ||
       !activeConference.startedAt
     ) {
+      return;
+    }
+
+    if (options?.skipConfirm) {
+      queryClient.setQueryData<VideoConference[]>(["video-conferences", sessionToken], (current) =>
+        removeVideoConference(current, activeConference.id)
+      );
+      endConferenceMutation.mutate(activeConference.id, {
+        onError: () => {
+          void queryClient.invalidateQueries({ queryKey: ["video-conferences", sessionToken] });
+        },
+      });
+      closeActiveConference();
       return;
     }
 
