@@ -63,7 +63,7 @@ const BRIDGE_MESSAGE_METHOD = "message";
 const BRIDGE_READY_METHOD = "__ready__";
 const JITSI_HIDDEN_DOMAIN = "recorder.meet.jitsi";
 const CONFERENCE_PRESENCE_HEARTBEAT_MS = 30_000;
-const END_FOR_ALL_EVENT_KEYS = new Set(["__end", "endConference"]);
+const END_FOR_ALL_EVENT_KEYS = new Set(["end-meeting", "endConference"]);
 const MINIMAL_TOOLBAR_BUTTONS = [
   "microphone",
   "camera",
@@ -461,7 +461,7 @@ function buildConferenceFrameUrl(input: {
   hashParams.set(
     "config.buttonsWithNotifyClick",
     JSON.stringify([
-      { key: "__end", preventExecution: false },
+      { key: "end-meeting", preventExecution: false },
     ])
   );
   hashParams.set("config.bosh", JSON.stringify(input.boshUrl));

@@ -397,13 +397,13 @@ export function SidebarManagementSheets({
         </div>
 
         <div className="profile-line">
-          <span className="profile-label">РђРІР°С‚Р°СЂ РіСЂСѓРїРїС‹</span>
+          <span className="profile-label">Аватар группы</span>
           <p className="profile-avatar-hint">
-            РЎРјРµРЅРё РЅР°Р·РІР°РЅРёРµ Рё Р°РІР°С‚Р°СЂ РіСЂСѓРїРїС‹, Р·Р°С‚РµРј СЃРѕС…СЂР°РЅРё РёР·РјРµРЅРµРЅРёСЏ.
+            Смени название и аватар группы, затем сохрани изменения.
           </p>
           <div className="profile-avatar-actions">
             <label htmlFor="group-avatar-input" className="ghost-button compact">
-              Р’С‹Р±СЂР°С‚СЊ С„РѕС‚Рѕ
+              Выбрать фото
             </label>
             <input
               id="group-avatar-input"
@@ -424,7 +424,7 @@ export function SidebarManagementSheets({
                 className="ghost-button compact"
                 onClick={onRemoveGroupAvatar}
               >
-                РЈР±СЂР°С‚СЊ С„РѕС‚Рѕ
+                Убрать фото
               </button>
             ) : null}
           </div>
@@ -437,11 +437,11 @@ export function SidebarManagementSheets({
             onSubmitUpdateGroup();
           }}
         >
-          <span className="profile-label">РќР°Р·РІР°РЅРёРµ РіСЂСѓРїРїС‹</span>
+          <span className="profile-label">Название группы</span>
           <input
             value={groupDetailsTitle}
             onChange={(event) => onGroupDetailsTitleChange(event.target.value)}
-            placeholder="РќР°Р·РІР°РЅРёРµ РіСЂСѓРїРїС‹"
+            placeholder="Название группы"
             maxLength={120}
           />
           <button
@@ -449,7 +449,7 @@ export function SidebarManagementSheets({
             className="secondary-button"
             disabled={updateGroupPending || normalizedGroupTitle.length < 2 || !groupDetailsChanged}
           >
-            {updateGroupPending ? "РЎРѕС…СЂР°РЅСЏРµРј..." : "РЎРѕС…СЂР°РЅРёС‚СЊ РёР·РјРµРЅРµРЅРёСЏ"}
+            {updateGroupPending ? "Сохраняем..." : "Сохранить изменения"}
           </button>
         </form>
 
@@ -515,7 +515,7 @@ export function SidebarManagementSheets({
             {groupInviteLinkPending
               ? "Генерируем ссылку..."
               : groupInviteLinkUrl
-                ? "Получить ссылку снова"
+                ? "Обновить ссылку"
                 : "Сгенерировать ссылку"}
           </button>
         </div>
@@ -561,6 +561,8 @@ export function SidebarManagementSheets({
                     <div className="sheet-row-copy">
                       <strong>{member.displayName}{current ? " (Вы)" : ""}</strong>
                       <span>@{member.username}</span>
+                    </div>
+                    <div className="sheet-row-actions">
                       {!current ? (
                         <button
                           type="button"
@@ -571,8 +573,8 @@ export function SidebarManagementSheets({
                           {"\u0427\u0430\u0442"}
                         </button>
                       ) : null}
+                      <span className="member-pill">{current ? "Вы" : "В группе"}</span>
                     </div>
-                    <span className="member-pill">{current ? "Вы" : "В группе"}</span>
                   </div>
                 );
               })}

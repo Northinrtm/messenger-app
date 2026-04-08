@@ -11,7 +11,6 @@ import com.north.messenger.domain.model.VideoConference;
 import com.north.messenger.domain.repository.InviteLinkRepository;
 import java.security.SecureRandom;
 import java.time.Instant;
-import java.util.Locale;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -23,8 +22,12 @@ import org.springframework.web.server.ResponseStatusException;
 @Transactional(readOnly = true)
 public class InviteLinkService {
 
-    private static final char[] CODE_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789".toCharArray();
-    private static final int CODE_LENGTH = 8;
+    private static final char PUBLIC_CODE_PREFIX = '+';
+    private static final char[] CODE_ALPHABET =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789".toCharArray();
+    private static final int CODE_LENGTH = 16;
+    private static final String RAW_CODE_PATTERN = "^[A-Za-z0-9]{16}$";
+    private static final String PUBLIC_CODE_PATTERN = "^\\+[A-Za-z0-9]{16}$";
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final InviteLinkRepository inviteLinkRepository;
@@ -49,7 +52,7 @@ public class InviteLinkService {
         }
 
         InviteLink inviteLink = createOrRefreshInviteLink(InviteLinkTargetType.GROUP, chatId, refresh);
-        return new InviteLinkResponse(inviteLink.getCode());
+        return new InviteLinkResponse(toPublicCode(inviteLink.getCode()));
     }
 
     @Transactional
@@ -60,7 +63,7 @@ public class InviteLinkService {
         }
 
         InviteLink inviteLink = createOrRefreshInviteLink(InviteLinkTargetType.CONFERENCE, conferenceId, refresh);
-        return new InviteLinkResponse(inviteLink.getCode());
+        return new InviteLinkResponse(toPublicCode(inviteLink.getCode()));
     }
 
     @Transactional
@@ -83,8 +86,17 @@ public class InviteLinkService {
     }
 
     private InviteLink findOrCreateInviteLink(InviteLinkTargetType targetType, UUID targetId) {
-        return inviteLinkRepository.findByTargetTypeAndTargetId(targetType, targetId)
-                .orElseGet(() -> createInviteLink(targetType, targetId));
+        InviteLink existingLink = inviteLinkRepository.findByTargetTypeAndTargetId(targetType, targetId)
+                .orElse(null);
+        if (existingLink == null) {
+            return createInviteLink(targetType, targetId);
+        }
+
+        if (isCurrentRawCode(existingLink.getCode())) {
+            return existingLink;
+        }
+
+        return rotateInviteLink(existingLink);
     }
 
     private InviteLink createOrRefreshInviteLink(InviteLinkTargetType targetType, UUID targetId, boolean refresh) {
@@ -98,29 +110,7 @@ public class InviteLinkService {
             return createInviteLink(targetType, targetId);
         }
 
-        ResponseStatusException lastFailure = null;
-        for (int attempt = 0; attempt < 8; attempt++) {
-            String code = generateCode();
-            if (code.equals(existingLink.getCode()) || inviteLinkRepository.existsByCode(code)) {
-                continue;
-            }
-
-            try {
-                existingLink.rotate(code, Instant.now());
-                return inviteLinkRepository.save(existingLink);
-            } catch (DataIntegrityViolationException exception) {
-                lastFailure = new ResponseStatusException(
-                        HttpStatus.CONFLICT,
-                        "Invite link already exists for this target",
-                        exception
-                );
-            }
-        }
-
-        if (lastFailure != null) {
-            throw lastFailure;
-        }
-        throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to refresh invite link");
+        return rotateInviteLink(existingLink);
     }
 
     private InviteLink createInviteLink(InviteLinkTargetType targetType, UUID targetId) {
@@ -169,10 +159,49 @@ public class InviteLinkService {
     }
 
     private String normalizeCode(String rawCode) {
-        String normalized = rawCode == null ? "" : rawCode.trim().toLowerCase(Locale.ROOT);
+        String normalized = rawCode == null ? "" : rawCode.trim();
         if (normalized.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invite code is required");
         }
-        return normalized;
+
+        if (!normalized.matches(PUBLIC_CODE_PATTERN)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invite code format is invalid");
+        }
+
+        return normalized.substring(1);
+    }
+
+    private InviteLink rotateInviteLink(InviteLink inviteLink) {
+        ResponseStatusException lastFailure = null;
+        for (int attempt = 0; attempt < 8; attempt++) {
+            String code = generateCode();
+            if (code.equals(inviteLink.getCode()) || inviteLinkRepository.existsByCode(code)) {
+                continue;
+            }
+
+            try {
+                inviteLink.rotate(code, Instant.now());
+                return inviteLinkRepository.save(inviteLink);
+            } catch (DataIntegrityViolationException exception) {
+                lastFailure = new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "Invite link already exists for this target",
+                        exception
+                );
+            }
+        }
+
+        if (lastFailure != null) {
+            throw lastFailure;
+        }
+        throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to refresh invite link");
+    }
+
+    private boolean isCurrentRawCode(String code) {
+        return code != null && code.matches(RAW_CODE_PATTERN);
+    }
+
+    private String toPublicCode(String code) {
+        return PUBLIC_CODE_PREFIX + code;
     }
 }

@@ -535,7 +535,7 @@ export function createGroupInviteLink(
   return request<InviteLink>(`/api/invite-links/groups/${chatId}`, {
     method: "POST",
     token,
-    query: { refresh: options?.refresh === true },
+    query: { refresh: options?.refresh === true ? 1 : undefined },
   });
 }
 
@@ -547,7 +547,7 @@ export function createConferenceInviteLink(
   return request<InviteLink>(`/api/invite-links/conferences/${conferenceId}`, {
     method: "POST",
     token,
-    query: { refresh: options?.refresh === true },
+    query: { refresh: options?.refresh === true ? 1 : undefined },
   });
 }
 

@@ -31,8 +31,8 @@ function extractInviteCodeFromPath(pathname: string) {
   }
 
   const suffix = pathname.slice(INVITE_PATH_PREFIX.length).trim();
-  const code = suffix.split("/")[0]?.trim().toLowerCase() ?? "";
-  return /^[a-z0-9]{4,16}$/.test(code) ? code : null;
+  const code = decodeURIComponent(suffix.split("/")[0]?.trim() ?? "");
+  return /^\+[A-Za-z0-9]{16}$/.test(code) ? code : null;
 }
 
 export function App() {
