@@ -1179,6 +1179,9 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     <ChatListPanel
       activeListTab={activeListTab}
       conferenceViewMode={conferenceBrowserMode}
+      onToggleConferenceViewMode={() =>
+        setConferenceBrowserMode((current) => (current === "calendar" ? "list" : "calendar"))
+      }
       normalizedSearch={normalizedSearch}
       conferencesLoading={conferencesLoading}
       visibleConferences={visibleConferences}
@@ -1356,29 +1359,6 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
             >
               Видеоконференции
             </button>
-          </div>
-        ) : null}
-
-        {!sidebarSheet && activeListTab === "conferences" ? (
-          <div className="conference-list-toolbar">
-            <button
-              type="button"
-              className={
-                conferenceBrowserMode === "calendar"
-                  ? "ghost-button compact conference-list-toggle is-active"
-                  : "ghost-button compact conference-list-toggle"
-              }
-              onClick={() =>
-                setConferenceBrowserMode((current) => (current === "calendar" ? "list" : "calendar"))
-              }
-            >
-              {conferenceBrowserMode === "calendar" ? "Показать списком" : "Календарь встреч"}
-            </button>
-            <span className="conference-list-toolbar-hint">
-              {conferenceBrowserMode === "calendar"
-                ? "Сначала видны 14 дней, следующие недели открываются при прокрутке."
-                : "Открывает расписание видеоконференций по дням."}
-            </span>
           </div>
         ) : null}
 

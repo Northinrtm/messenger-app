@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 
 import type { VideoConference } from "../../../lib/types";
 import { AvatarCircle } from "./AvatarCircle";
@@ -6,6 +6,7 @@ import { AvatarCircle } from "./AvatarCircle";
 const CALENDAR_PAGE_DAYS = 14;
 
 type Props = {
+  header?: ReactNode;
   conferences: VideoConference[];
   activeConferenceId: string | null;
   currentUsername: string;
@@ -25,6 +26,7 @@ type CalendarDaySection = {
 };
 
 export function ConferenceCalendarPanel({
+  header,
   conferences,
   activeConferenceId,
   currentUsername,
@@ -114,28 +116,10 @@ export function ConferenceCalendarPanel({
     });
   }, [maxVisibleDayCount, upcomingConferences, visibleDayCount]);
 
-  const visibleConferenceCount = calendarSections.reduce(
-    (total, section) => total + section.conferences.length,
-    0,
-  );
-  const nextConferenceOutsideVisibleRange =
-    visibleConferenceCount === 0 && upcomingConferences.length > 0
-      ? upcomingConferences[0]
-      : null;
-  const visibleRangeEnd = addDays(
-    startDayRef.current,
-    Math.min(visibleDayCount, maxVisibleDayCount) - 1,
-  );
-
   if (upcomingConferences.length === 0) {
     return (
       <div className="conference-calendar">
-        <div className="conference-calendar-summary">
-          <div className="conference-calendar-summary-copy">
-            <strong>{normalizedSearch ? "Календарь по поиску" : "Календарь встреч"}</strong>
-            <span>Первые 14 дней от сегодняшней даты.</span>
-          </div>
-        </div>
+        {header}
         <div className="empty-list conference-calendar-empty">
           {normalizedSearch ? "По этому фильтру запланированных встреч нет." : "На ближайшее время встреч нет."}
         </div>
@@ -145,22 +129,7 @@ export function ConferenceCalendarPanel({
 
   return (
     <div className="conference-calendar">
-      <div className="conference-calendar-summary">
-        <div className="conference-calendar-summary-copy">
-          <strong>{normalizedSearch ? "Календарь по поиску" : "Календарь встреч"}</strong>
-          <span>Показаны дни до {formatCalendarRangeEnd(visibleRangeEnd)}.</span>
-        </div>
-        <span className="conference-calendar-count">
-          {formatConferenceCount(upcomingConferences.length)}
-        </span>
-      </div>
-
-      {nextConferenceOutsideVisibleRange ? (
-        <div className="conference-calendar-hint">
-          Следующая встреча запланирована на {formatConferenceSchedule(nextConferenceOutsideVisibleRange.scheduledAt)}.
-          Прокрутите ниже, чтобы открыть следующие две недели.
-        </div>
-      ) : null}
+      {header}
 
       {calendarSections.map((section) => (
         <section key={section.key} className="conference-calendar-day">
@@ -270,13 +239,6 @@ function formatCalendarDayLabel(value: Date) {
 }
 
 function formatCalendarDaySecondaryLabel(value: Date) {
-  return new Intl.DateTimeFormat("ru-RU", {
-    day: "numeric",
-    month: "long",
-  }).format(value);
-}
-
-function formatCalendarRangeEnd(value: Date) {
   return new Intl.DateTimeFormat("ru-RU", {
     day: "numeric",
     month: "long",

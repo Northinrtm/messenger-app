@@ -1,0 +1,58 @@
+<svg width="512" height="160" viewBox="0 0 512 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="northMessengerLockupBg" x1="18" y1="14" x2="110" y2="118" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#243448" />
+      <stop offset="1" stop-color="#0F1725" />
+    </linearGradient>
+    <linearGradient id="northMessengerLockupAccent" x1="34" y1="92" x2="96" y2="28" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4F88FF" />
+      <stop offset="1" stop-color="#7DBBFF" />
+    </linearGradient>
+    <linearGradient id="northMessengerLockupWarm" x1="80" y1="30" x2="98" y2="48" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F7B36C" />
+      <stop offset="1" stop-color="#F36E42" />
+    </linearGradient>
+  </defs>
+  <path
+    d="M36 18H78C96.7787 18 112 33.2213 112 52V72C112 90.7787 96.7787 106 78 106H55.334L35.0857 118.961C31.0956 121.515 26 118.65 26 113.912V106C14.9543 106 6 97.0457 6 86V48C6 31.4315 19.4315 18 36 18Z"
+    fill="url(#northMessengerLockupBg)"
+  />
+  <path
+    d="M36 18H78C96.7787 18 112 33.2213 112 52V72C112 90.7787 96.7787 106 78 106H55.334L35.0857 118.961C31.0956 121.515 26 118.65 26 113.912V106C14.9543 106 6 97.0457 6 86V48C6 31.4315 19.4315 18 36 18Z"
+    stroke="#33485F"
+    stroke-width="4"
+  />
+  <path d="M42 86V46" stroke="url(#northMessengerLockupAccent)" stroke-width="10" stroke-linecap="round" />
+  <path d="M42 46L72 82" stroke="url(#northMessengerLockupAccent)" stroke-width="10" stroke-linecap="round" />
+  <path d="M72 82V54" stroke="url(#northMessengerLockupAccent)" stroke-width="10" stroke-linecap="round" />
+  <path d="M70 56L88 38" stroke="url(#northMessengerLockupAccent)" stroke-width="10" stroke-linecap="round" />
+  <path
+    d="M78 38H92V52"
+    stroke="url(#northMessengerLockupWarm)"
+    stroke-width="8"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <text
+    x="146"
+    y="69"
+    fill="#F4FBFF"
+    font-size="38"
+    font-weight="700"
+    letter-spacing="-0.04em"
+    font-family="Space Grotesk, Segoe UI, sans-serif"
+  >
+    North
+  </text>
+  <text
+    x="146"
+    y="104"
+    fill="#8FB3D9"
+    font-size="28"
+    font-weight="500"
+    letter-spacing="-0.02em"
+    font-family="Space Grotesk, Segoe UI, sans-serif"
+  >
+    Messenger
+  </text>
+</svg>

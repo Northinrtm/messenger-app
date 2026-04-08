@@ -1,0 +1,36 @@
+<svg width="256" height="256" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="northMessengerBg" x1="18" y1="16" x2="106" y2="112" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#243448" />
+      <stop offset="1" stop-color="#0F1725" />
+    </linearGradient>
+    <linearGradient id="northMessengerAccent" x1="36" y1="88" x2="92" y2="30" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4F88FF" />
+      <stop offset="1" stop-color="#7DBBFF" />
+    </linearGradient>
+    <linearGradient id="northMessengerWarm" x1="76" y1="32" x2="96" y2="52" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F7B36C" />
+      <stop offset="1" stop-color="#F36E42" />
+    </linearGradient>
+  </defs>
+  <path
+    d="M36 16H78C96.7787 16 112 31.2213 112 50V70C112 88.7787 96.7787 104 78 104H55.334L35.0857 116.961C31.0956 119.515 26 116.65 26 111.912V104C14.9543 104 6 95.0457 6 84V46C6 29.4315 19.4315 16 36 16Z"
+    fill="url(#northMessengerBg)"
+  />
+  <path
+    d="M36 16H78C96.7787 16 112 31.2213 112 50V70C112 88.7787 96.7787 104 78 104H55.334L35.0857 116.961C31.0956 119.515 26 116.65 26 111.912V104C14.9543 104 6 95.0457 6 84V46C6 29.4315 19.4315 16 36 16Z"
+    stroke="#33485F"
+    stroke-width="4"
+  />
+  <path d="M42 84V44" stroke="url(#northMessengerAccent)" stroke-width="10" stroke-linecap="round" />
+  <path d="M42 44L72 80" stroke="url(#northMessengerAccent)" stroke-width="10" stroke-linecap="round" />
+  <path d="M72 80V52" stroke="url(#northMessengerAccent)" stroke-width="10" stroke-linecap="round" />
+  <path d="M70 54L88 36" stroke="url(#northMessengerAccent)" stroke-width="10" stroke-linecap="round" />
+  <path
+    d="M78 36H92V50"
+    stroke="url(#northMessengerWarm)"
+    stroke-width="8"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>

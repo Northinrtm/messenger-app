@@ -8,6 +8,7 @@ import { ConferenceCalendarPanel } from "./ConferenceCalendarPanel";
 type Props = {
   activeListTab: ConversationListTab;
   conferenceViewMode: "list" | "calendar";
+  onToggleConferenceViewMode: () => void;
   normalizedSearch: string;
   conferencesLoading: boolean;
   visibleConferences: VideoConference[];
@@ -37,6 +38,7 @@ type Props = {
 export function ChatListPanel({
   activeListTab,
   conferenceViewMode,
+  onToggleConferenceViewMode,
   normalizedSearch,
   conferencesLoading,
   visibleConferences,
@@ -63,13 +65,35 @@ export function ChatListPanel({
   formatMemberCount,
 }: Props) {
   if (activeListTab === "conferences") {
+    const conferenceBrowserToggle = (
+      <div className="conference-list-inline-toolbar">
+        <button
+          type="button"
+          className={
+            conferenceViewMode === "calendar"
+              ? "conference-list-toggle is-active"
+              : "conference-list-toggle"
+          }
+          onClick={onToggleConferenceViewMode}
+        >
+          {conferenceViewMode === "calendar" ? "Список" : "Календарь"}
+        </button>
+      </div>
+    );
+
     if (conferencesLoading) {
-      return <div className="empty-list">Загружаем видеоконференции...</div>;
+      return (
+        <>
+          {conferenceBrowserToggle}
+          <div className="empty-list">Загружаем видеоконференции...</div>
+        </>
+      );
     }
 
     if (conferenceViewMode === "calendar") {
       return (
         <ConferenceCalendarPanel
+          header={conferenceBrowserToggle}
           key={normalizedSearch || "conference-calendar"}
           conferences={visibleConferences}
           activeConferenceId={activeConferenceId}
@@ -87,14 +111,18 @@ export function ChatListPanel({
 
     if (visibleConferences.length === 0) {
       return (
-        <div className="empty-list">
-          {normalizedSearch ? "Ничего не найдено." : "Пока нет запланированных видеоконференций."}
-        </div>
+        <>
+          {conferenceBrowserToggle}
+          <div className="empty-list">
+            {normalizedSearch ? "Ничего не найдено." : "Пока нет запланированных видеоконференций."}
+          </div>
+        </>
       );
     }
 
     return (
       <>
+        {conferenceBrowserToggle}
         {visibleConferences.map((conference) => {
           const participantPreview = formatConferenceListPreview(conference, sessionUser.username);
           return (
