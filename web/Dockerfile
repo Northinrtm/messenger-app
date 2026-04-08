@@ -6,6 +6,7 @@ COPY package-lock.json .
 COPY tsconfig.json .
 COPY vite.config.ts .
 COPY index.html .
+COPY public public
 COPY src src
 
 ARG VITE_API_URL=/
