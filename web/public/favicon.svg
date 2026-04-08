@@ -1,8 +1,8 @@
 <svg width="64" height="64" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="favBg" x1="18" y1="16" x2="106" y2="112" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#243448" />
-      <stop offset="1" stop-color="#0F1725" />
+      <stop stop-color="#617D9E" />
+      <stop offset="1" stop-color="#364B66" />
     </linearGradient>
     <linearGradient id="favAccent" x1="36" y1="88" x2="92" y2="30" gradientUnits="userSpaceOnUse">
       <stop stop-color="#4F88FF" />
@@ -14,7 +14,7 @@
     </linearGradient>
   </defs>
   <rect x="8" y="8" width="112" height="112" rx="30" fill="url(#favBg)" />
-  <rect x="8" y="8" width="112" height="112" rx="30" stroke="#33485F" stroke-width="4" />
+  <rect x="8" y="8" width="112" height="112" rx="30" stroke="#98B3CE" stroke-width="4" />
   <path d="M40 86V42" stroke="url(#favAccent)" stroke-width="10" stroke-linecap="round" />
   <path d="M40 42L72 82" stroke="url(#favAccent)" stroke-width="10" stroke-linecap="round" />
   <path d="M72 82V50" stroke="url(#favAccent)" stroke-width="10" stroke-linecap="round" />

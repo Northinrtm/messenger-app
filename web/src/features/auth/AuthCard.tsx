@@ -35,7 +35,7 @@ export function AuthCard({ onAuthenticated }: Props) {
   return (
     <main className="auth-shell">
       <section className="auth-card">
-        <img className="auth-brand-mark" src="/logo-mark.svg" alt="North Messenger" />
+        <img className="auth-brand-mark" src="/logo-mark.svg?v=20260408c" alt="North Messenger" />
         <div className="eyebrow">North Messenger</div>
         <h1>Realtime chat for serious products.</h1>
         <p className="auth-copy">
