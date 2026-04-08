@@ -1515,15 +1515,6 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
                   <span>{activeConferenceStatusLabel ?? "Конференция активна"}</span>
                 </div>
                 <div className="conference-mini-actions">
-                  {activeConferenceCanEnd ? (
-                    <button
-                      type="button"
-                      className="ghost-button compact conference-end-button"
-                      onClick={handleEndConference}
-                    >
-                      Р—Р°РІРµСЂС€РёС‚СЊ
-                    </button>
-                  ) : null}
                   <button
                     type="button"
                     className="ghost-button compact"

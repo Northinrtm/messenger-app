@@ -197,7 +197,7 @@ export function ActiveConferenceConversation({
                               disabled={conferenceActionPending}
                               onClick={onEndConference}
                             >
-                              Р—Р°РІРµСЂС€РёС‚СЊ
+                              Завершить
                             </button>
                           ) : null}
                         </div>
@@ -209,12 +209,7 @@ export function ActiveConferenceConversation({
             </div>
           </div>
         </div>
-        {canJoin ||
-        canEditSchedule ||
-        canManageParticipants ||
-        canCancelSchedule ||
-        canEndConference ||
-        localRecordingActive ? (
+        {canEditSchedule || canCancelSchedule || localRecordingActive ? (
           <div className="conversation-actions conference-actions">
             {canEditSchedule ? (
               <button
@@ -226,16 +221,6 @@ export function ActiveConferenceConversation({
                 Изменить
               </button>
             ) : null}
-            {canManageParticipants ? (
-              <button
-                type="button"
-                className="ghost-button compact"
-                disabled={conferenceActionPending}
-                onClick={onOpenMembers}
-              >
-                Добавить участников
-              </button>
-            ) : null}
             {canCancelSchedule ? (
               <button
                 type="button"
@@ -244,16 +229,6 @@ export function ActiveConferenceConversation({
                 onClick={onCancelConference}
               >
                 Отменить
-              </button>
-            ) : null}
-            {canEndConference ? (
-              <button
-                type="button"
-                className="ghost-button compact conference-end-button"
-                disabled={conferenceActionPending}
-                onClick={onEndConference}
-              >
-                Р—Р°РІРµСЂС€РёС‚СЊ
               </button>
             ) : null}
             {localRecordingActive ? (
