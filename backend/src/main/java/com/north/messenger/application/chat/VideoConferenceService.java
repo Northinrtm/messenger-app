@@ -321,6 +321,32 @@ public class VideoConferenceService {
     }
 
     @Transactional
+    public VideoConferenceResponse joinConferenceViaInvite(String username, UUID conferenceId) {
+        UserAccount currentUser = authService.requireAuthenticatedUser(username);
+        VideoConference conference = videoConferenceRepository.findById(conferenceId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Conference not found"));
+        if (conference.isEnded()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Conference has already ended");
+        }
+
+        if (!videoConferenceParticipantRepository.existsByConferenceIdAndUserId(conferenceId, currentUser.getId())) {
+            videoConferenceParticipantRepository.save(
+                    new VideoConferenceParticipant(UUID.randomUUID(), conferenceId, currentUser.getId(), Instant.now())
+            );
+        }
+
+        List<VideoConferenceParticipant> memberships =
+                videoConferenceParticipantRepository.findAllByConferenceIdOrderByInvitedAtAsc(conferenceId);
+        Map<UUID, UserAccount> usersById = findUsersById(
+                memberships.stream()
+                        .map(VideoConferenceParticipant::getUserId)
+                        .collect(Collectors.toCollection(LinkedHashSet::new))
+        );
+        usersById.putIfAbsent(currentUser.getId(), currentUser);
+        return toResponse(conference, memberships, usersById, currentUser.getId(), findRecording(conferenceId));
+    }
+
+    @Transactional
     public void touchConferencePresence(String username, UUID sessionId, UUID conferenceId) {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
         VideoConference conference = videoConferenceRepository.findById(conferenceId)
@@ -382,6 +408,16 @@ public class VideoConferenceService {
         );
         usersById.putIfAbsent(currentUser.getId(), currentUser);
         return toResponse(conference, memberships, usersById, currentUser.getId(), findRecording(conferenceId));
+    }
+
+    public VideoConference requireConferenceInviteLinkAccess(String username, UUID conferenceId) {
+        UserAccount currentUser = authService.requireAuthenticatedUser(username);
+        VideoConference conference = videoConferenceRepository.findById(conferenceId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Conference not found"));
+        if (!conference.getCreatedByUserId().equals(currentUser.getId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the organizer can create invite links");
+        }
+        return conference;
     }
 
     @Transactional

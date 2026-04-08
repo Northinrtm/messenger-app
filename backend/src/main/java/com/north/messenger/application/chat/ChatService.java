@@ -260,6 +260,30 @@ public class ChatService {
         return getChatSummaryForUser(chatId, currentUser);
     }
 
+    @Transactional
+    public ChatSummaryResponse joinGroupViaInvite(String username, UUID chatId) {
+        UserAccount currentUser = authService.requireAuthenticatedUser(username);
+        ChatRoom room = chatRoomRepository.findById(chatId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Chat not found"));
+        if (room.isDirect()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Direct chat links are not supported");
+        }
+
+        boolean alreadyMember = chatParticipantRepository.existsByChatIdAndUserId(chatId, currentUser.getId());
+        if (!alreadyMember) {
+            chatParticipantRepository.save(
+                    new ChatParticipant(UUID.randomUUID(), chatId, currentUser.getId(), Instant.now())
+            );
+        }
+
+        restoreDeletedChatStateForUsers(chatId, List.of(currentUser.getId()));
+        userArchivedChatRepository.deleteByUserIdAndChatId(currentUser.getId(), chatId);
+        if (!alreadyMember) {
+            notifyChatUpdated(chatId);
+        }
+        return getChatSummaryForUser(chatId, currentUser);
+    }
+
     public ChatRoom requireChatMembership(UUID chatId, String username) {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
         return requireChatMembership(chatId, currentUser);

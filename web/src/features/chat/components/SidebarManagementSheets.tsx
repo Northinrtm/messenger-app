@@ -33,6 +33,7 @@ type Props = {
   currentSessionId: string;
   activeChat: ChatSummary | null;
   activeConference: VideoConference | null;
+  groupInviteLinkUrl: string | null;
   groupContacts: UserProfile[];
   selectedGroupContacts: UserProfile[];
   isGroupCreatePickerOpen: boolean;
@@ -44,6 +45,7 @@ type Props = {
   availableConferenceInviteContacts: UserProfile[];
   conferenceInviteUsernames: string[];
   createGroupPending: boolean;
+  groupInviteLinkPending: boolean;
   addGroupParticipantsPending: boolean;
   addConferenceParticipantsPending: boolean;
   createChatPending: boolean;
@@ -66,6 +68,8 @@ type Props = {
   onToggleGroupInvitePicker: () => void;
   onToggleGroupInviteParticipant: (username: string) => void;
   onSubmitAddGroupParticipants: () => void;
+  onGenerateGroupInviteLink: () => void;
+  onCopyGroupInviteLink: (value: string) => void;
   onToggleConferenceInviteParticipant: (username: string) => void;
   onSubmitAddConferenceParticipants: () => void;
   onContactSearchChange: (value: string) => void;
@@ -95,6 +99,7 @@ export function SidebarManagementSheets({
   currentSessionId,
   activeChat,
   activeConference,
+  groupInviteLinkUrl,
   groupContacts,
   selectedGroupContacts,
   isGroupCreatePickerOpen,
@@ -106,6 +111,7 @@ export function SidebarManagementSheets({
   availableConferenceInviteContacts,
   conferenceInviteUsernames,
   createGroupPending,
+  groupInviteLinkPending,
   addGroupParticipantsPending,
   addConferenceParticipantsPending,
   createChatPending,
@@ -128,6 +134,8 @@ export function SidebarManagementSheets({
   onToggleGroupInvitePicker,
   onToggleGroupInviteParticipant,
   onSubmitAddGroupParticipants,
+  onGenerateGroupInviteLink,
+  onCopyGroupInviteLink,
   onToggleConferenceInviteParticipant,
   onSubmitAddConferenceParticipants,
   onContactSearchChange,
@@ -397,6 +405,42 @@ export function SidebarManagementSheets({
             <span className="member-pill">
               {availableGroupInviteContacts.length > 0 ? "Добавить" : "Готово"}
             </span>
+          </button>
+        </div>
+
+        <div className="invite-link-panel">
+          <div className="invite-link-copy">
+            <strong>Ссылка-приглашение</strong>
+            <span>Открывает группу и сразу добавляет пользователя по короткому адресу.</span>
+          </div>
+          {groupInviteLinkUrl ? (
+            <div className="invite-link-row">
+              <input
+                className="invite-link-input"
+                readOnly
+                value={groupInviteLinkUrl}
+                onFocus={(event) => event.currentTarget.select()}
+              />
+              <button
+                type="button"
+                className="ghost-button compact"
+                onClick={() => onCopyGroupInviteLink(groupInviteLinkUrl)}
+              >
+                Копировать
+              </button>
+            </div>
+          ) : null}
+          <button
+            type="button"
+            className="ghost-button"
+            disabled={groupInviteLinkPending}
+            onClick={onGenerateGroupInviteLink}
+          >
+            {groupInviteLinkPending
+              ? "Генерируем ссылку..."
+              : groupInviteLinkUrl
+                ? "Получить ссылку снова"
+                : "Сгенерировать ссылку"}
           </button>
         </div>
       </div>

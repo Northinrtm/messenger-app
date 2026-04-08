@@ -4,6 +4,8 @@ import type {
   ApiChatMessage,
   AuthResponse,
   ChatSummary,
+  InviteAcceptance,
+  InviteLink,
   MessageReactionEvent,
   Participant,
   UserEncryptionKeyBundle,
@@ -510,6 +512,27 @@ export function addGroupParticipants(
     method: "POST",
     token,
     body: input,
+  });
+}
+
+export function createGroupInviteLink(token: string, chatId: string) {
+  return request<InviteLink>(`/api/invite-links/groups/${chatId}`, {
+    method: "POST",
+    token,
+  });
+}
+
+export function createConferenceInviteLink(token: string, conferenceId: string) {
+  return request<InviteLink>(`/api/invite-links/conferences/${conferenceId}`, {
+    method: "POST",
+    token,
+  });
+}
+
+export function acceptInviteLink(token: string, code: string) {
+  return request<InviteAcceptance>(`/api/invite-links/${encodeURIComponent(code)}/accept`, {
+    method: "POST",
+    token,
   });
 }
 

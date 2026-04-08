@@ -15,10 +15,13 @@ import {
 } from "react";
 import {
   ApiError,
+  acceptInviteLink as acceptInviteLinkRequest,
   addContact as addContactRequest,
   addConferenceParticipants as addConferenceParticipantsRequest,
   addGroupParticipants,
   clearConferencePresence as clearConferencePresenceRequest,
+  createConferenceInviteLink as createConferenceInviteLinkRequest,
+  createGroupInviteLink as createGroupInviteLinkRequest,
   createVideoConference as createVideoConferenceRequest,
   deleteOwnAccount as deleteOwnAccountRequest,
   deleteChat as deleteChatRequest,
@@ -76,6 +79,7 @@ import {
   getDirectParticipant,
   mergeVideoConferenceCollections,
   mergeConferenceCandidates,
+  removeVideoConference,
   trimPreview,
   upsertVideoConferences,
 } from "./chatPresentation";
@@ -132,6 +136,8 @@ import { useWorkspaceNavigation } from "./hooks/useWorkspaceNavigation";
 import { useWorkspaceStatus } from "./hooks/useWorkspaceStatus";
 
 type Props = {
+  pendingInviteCode: string | null;
+  onPendingInviteHandled: () => void;
   session: AuthResponse;
   onSessionChange: (session: AuthResponse | null) => void;
 };
@@ -166,7 +172,20 @@ function clampConferenceMiniPosition(
   };
 }
 
-export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
+function buildInviteUrl(code: string) {
+  if (typeof window === "undefined") {
+    return `/j/${code}`;
+  }
+
+  return new URL(`/j/${code}`, window.location.origin).toString();
+}
+
+export function NorthMessengerWorkspace({
+  pendingInviteCode,
+  onPendingInviteHandled,
+  session,
+  onSessionChange,
+}: Props) {
   const queryClient = useQueryClient();
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [activeConferenceId, setActiveConferenceId] = useState<string | null>(null);
@@ -204,6 +223,8 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const [replyingToMessageId, setReplyingToMessageId] = useState<string | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [forwardingMessageId, setForwardingMessageId] = useState<string | null>(null);
+  const [groupInviteCodesByChatId, setGroupInviteCodesByChatId] = useState<Record<string, string>>({});
+  const [conferenceInviteCodesById, setConferenceInviteCodesById] = useState<Record<string, string>>({});
   const handledRealtimeMessageIdsRef = useRef(new Map<string, true>());
   const conferenceListScrollRef = useRef<HTMLDivElement | null>(null);
   const conferenceSurfaceRef = useRef<HTMLDivElement | null>(null);
@@ -411,6 +432,10 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
   const activeChat = chats.find((chat) => chat.id === activeChatId) ?? null;
   const activeConference =
     allConferences.find((conference) => conference.id === activeConferenceId) ?? null;
+  const activeGroupInviteUrl =
+    activeChat && !activeChat.direct && groupInviteCodesByChatId[activeChat.id]
+      ? buildInviteUrl(groupInviteCodesByChatId[activeChat.id]!)
+      : null;
   const conferenceCandidates = mergeConferenceCandidates(
     groupContacts,
     activeChat && !activeChat.direct ? activeChat.members : [],
@@ -427,10 +452,13 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       activeConference.activatedAt &&
       !activeConference.endedAt
   );
-  const activeConferenceShareUrl: string | null = null;
   const activeConferenceIsOwnedByCurrentUser = activeConference
     ? activeConference.createdBy.id === profile.id
     : false;
+  const activeConferenceShareUrl =
+    activeConference && conferenceInviteCodesById[activeConference.id]
+      ? buildInviteUrl(conferenceInviteCodesById[activeConference.id]!)
+      : null;
   const activeConferenceCanManageParticipants = Boolean(
     activeConference && activeConferenceIsOwnedByCurrentUser && !activeConferenceIsArchived
   );
@@ -447,6 +475,9 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       !activeConference.startedAt
   );
   const activeConferenceCanCancelSchedule = activeConferenceCanEditSchedule;
+  const activeConferenceCanShareInviteLink = Boolean(
+    activeConference && activeConferenceIsOwnedByCurrentUser && !activeConferenceIsArchived
+  );
   const activeConferenceRoleLabel = activeConference
     ? describeConferenceRole(activeConferenceIsOwnedByCurrentUser)
     : null;
@@ -870,6 +901,86 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     signOut: () => signOutMutation.mutate(),
   });
 
+  const createGroupInviteLinkMutation = useMutation({
+    mutationFn: (chatId: string) => createGroupInviteLinkRequest(session.token, chatId),
+    onSuccess: (inviteLink, chatId) => {
+      setGroupInviteCodesByChatId((current) => ({
+        ...current,
+        [chatId]: inviteLink.code,
+      }));
+    },
+  });
+
+  const createConferenceInviteLinkMutation = useMutation({
+    mutationFn: (conferenceId: string) => createConferenceInviteLinkRequest(session.token, conferenceId),
+    onSuccess: (inviteLink, conferenceId) => {
+      setConferenceInviteCodesById((current) => ({
+        ...current,
+        [conferenceId]: inviteLink.code,
+      }));
+    },
+  });
+
+  const acceptInviteMutation = useMutation({
+    mutationFn: (code: string) => acceptInviteLinkRequest(session.token, code),
+    onSuccess: (result) => {
+      if (result.chat) {
+        queryClient.setQueryData<ChatSummary[]>(["chats", session.token], (current) =>
+          upsertChat(current, result.chat!),
+        );
+        queryClient.setQueryData<string[]>(["archived-chats", session.token], (current) =>
+          current?.filter((chatId) => chatId !== result.chat!.id) ?? [],
+        );
+        openChat(result.chat.id, "groups");
+        onPendingInviteHandled();
+        return;
+      }
+
+      if (result.conference) {
+        queryClient.setQueryData<VideoConference[]>(["video-conferences", session.token], (current) =>
+          upsertVideoConferences(current, result.conference!),
+        );
+        queryClient.setQueryData<VideoConference[]>(["video-conferences-archive", session.token], (current) =>
+          removeVideoConference(current, result.conference!.id),
+        );
+        openConference(result.conference.id);
+        onPendingInviteHandled();
+      }
+    },
+    onError: (error) => {
+      if (error instanceof ApiError && error.status === 401) {
+        onSessionChange(null);
+        return;
+      }
+
+      onPendingInviteHandled();
+    },
+  });
+
+  const handleGenerateGroupInviteLink = useEffectEvent(() => {
+    if (!activeChat || activeChat.direct) {
+      return;
+    }
+
+    createGroupInviteLinkMutation.mutate(activeChat.id);
+  });
+
+  const handleGenerateConferenceInviteLink = useEffectEvent(() => {
+    if (!activeConference || !activeConferenceCanShareInviteLink) {
+      return;
+    }
+
+    createConferenceInviteLinkMutation.mutate(activeConference.id);
+  });
+
+  useEffect(() => {
+    if (!pendingInviteCode) {
+      return;
+    }
+
+    acceptInviteMutation.mutate(pendingInviteCode);
+  }, [pendingInviteCode, session.token]);
+
   useEffect(() => {
     if (activeConferenceId === null) {
       setConferenceViewportMode("full");
@@ -1134,9 +1245,12 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
     activeListTab,
     deferredContactSearch,
     errors: [
+      acceptInviteMutation.error,
       createChatMutation.error,
       createGroupMutation.error,
       createConferenceMutation.error,
+      createGroupInviteLinkMutation.error,
+      createConferenceInviteLinkMutation.error,
       updateConferenceMutation.error,
       cancelConferenceMutation.error,
       endConferenceMutation.error,
@@ -1221,6 +1335,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       canEditSchedule={activeConferenceCanEditSchedule}
       canCancelSchedule={activeConferenceCanCancelSchedule}
       canManageParticipants={activeConferenceCanManageParticipants}
+      canShareInviteLink={activeConferenceCanShareInviteLink}
       conferenceActionPending={
         updateConferenceMutation.isPending ||
         cancelConferenceMutation.isPending ||
@@ -1228,6 +1343,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       }
       localRecordingActive={activeConferenceLocalRecordingActive}
       shareUrl={activeConferenceShareUrl}
+      shareUrlPending={createConferenceInviteLinkMutation.isPending}
       isInfoOpen={isConferenceInfoOpen}
       infoButtonRef={conferenceInfoButtonRef}
       infoPanelRef={conferenceInfoPanelRef}
@@ -1236,6 +1352,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
       onCancelConference={handleCancelScheduledConference}
       onConferencePresenceTouch={handleConferencePresenceTouch}
       onConferencePresenceLeave={handleConferencePresenceLeave}
+      onGenerateShareUrl={handleGenerateConferenceInviteLink}
       onToggleInfo={() => setIsConferenceInfoOpen((current) => !current)}
       onOpenMembers={openConferenceMembersSheet}
       onCopyShareUrl={(value) => void navigator.clipboard.writeText(value)}
@@ -1441,6 +1558,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
               sessionsLoading={sessionsLoading}
               activeChat={activeChat}
               activeConference={activeConference}
+              groupInviteLinkUrl={activeGroupInviteUrl}
               groupContacts={groupContacts}
               selectedGroupContacts={selectedGroupContacts}
               isGroupCreatePickerOpen={isGroupCreatePickerOpen}
@@ -1452,6 +1570,7 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
               availableConferenceInviteContacts={availableConferenceInviteContacts}
               conferenceInviteUsernames={conferenceInviteUsernames}
               createGroupPending={createGroupMutation.isPending}
+              groupInviteLinkPending={createGroupInviteLinkMutation.isPending}
               addGroupParticipantsPending={addGroupParticipantsMutation.isPending}
               addConferenceParticipantsPending={addConferenceParticipantsMutation.isPending}
               createChatPending={createChatMutation.isPending}
@@ -1474,6 +1593,8 @@ export function NorthMessengerWorkspace({ session, onSessionChange }: Props) {
               onToggleGroupInvitePicker={() => setIsGroupInvitePickerOpen((current) => !current)}
               onToggleGroupInviteParticipant={toggleGroupInviteParticipant}
               onSubmitAddGroupParticipants={submitAddGroupParticipants}
+              onGenerateGroupInviteLink={handleGenerateGroupInviteLink}
+              onCopyGroupInviteLink={(value) => void navigator.clipboard.writeText(value)}
               onToggleConferenceInviteParticipant={toggleConferenceInviteParticipant}
               onSubmitAddConferenceParticipants={submitAddConferenceParticipants}
               onContactSearchChange={setContactSearch}

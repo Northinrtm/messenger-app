@@ -878,4 +878,63 @@ class VideoConferenceServiceTest {
                 .extracting(ParticipantResponse::username)
                 .containsExactly("north", "south", "east");
     }
+
+    @Test
+    void joinConferenceViaInviteShouldAppendInvitedUser() {
+        UserAccount organizer = new UserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UserAccount invitedUser = new UserAccount(
+                UUID.randomUUID(),
+                "guest",
+                "Guest",
+                "password-hash",
+                Instant.parse("2026-03-20T12:15:00Z")
+        );
+        VideoConference conference = new VideoConference(
+                UUID.randomUUID(),
+                "Team sync",
+                null,
+                organizer.getId(),
+                Instant.parse("2026-03-25T12:00:00Z"),
+                Instant.parse("2026-03-25T11:55:00Z"),
+                null,
+                null
+        );
+        List<VideoConferenceParticipant> memberships = new ArrayList<>(List.of(
+                new VideoConferenceParticipant(UUID.randomUUID(), conference.getId(), organizer.getId(), Instant.parse("2026-03-25T11:55:00Z"))
+        ));
+
+        when(authService.requireAuthenticatedUser("guest")).thenReturn(invitedUser);
+        when(videoConferenceRepository.findById(conference.getId())).thenReturn(Optional.of(conference));
+        when(videoConferenceParticipantRepository.existsByConferenceIdAndUserId(conference.getId(), invitedUser.getId()))
+                .thenReturn(false);
+        when(videoConferenceParticipantRepository.save(any(VideoConferenceParticipant.class))).thenAnswer(invocation -> {
+            VideoConferenceParticipant membership = invocation.getArgument(0);
+            memberships.add(membership);
+            return membership;
+        });
+        when(videoConferenceParticipantRepository.findAllByConferenceIdOrderByInvitedAtAsc(conference.getId()))
+                .thenAnswer(invocation -> List.copyOf(memberships));
+        when(userAccountRepository.findAllByIdIn(anyCollection())).thenReturn(List.of(organizer, invitedUser));
+        when(authService.resolveOnlineByUserIds(anyCollection())).thenReturn(Map.of(
+                organizer.getId(), true,
+                invitedUser.getId(), true
+        ));
+        when(authService.toParticipant(organizer, true)).thenReturn(new ParticipantResponse(
+                organizer.getId(), organizer.getUsername(), organizer.getDisplayName(), organizer.getAvatarUrl(), true
+        ));
+        when(authService.toParticipant(invitedUser, true)).thenReturn(new ParticipantResponse(
+                invitedUser.getId(), invitedUser.getUsername(), invitedUser.getDisplayName(), invitedUser.getAvatarUrl(), true
+        ));
+
+        VideoConferenceResponse response = videoConferenceService.joinConferenceViaInvite("guest", conference.getId());
+
+        assertThat(response.participants()).extracting(ParticipantResponse::username)
+                .containsExactly("north", "guest");
+    }
 }

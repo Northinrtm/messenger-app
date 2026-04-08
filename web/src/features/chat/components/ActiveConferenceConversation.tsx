@@ -19,9 +19,11 @@ type Props = {
   canEditSchedule: boolean;
   canCancelSchedule: boolean;
   canManageParticipants: boolean;
+  canShareInviteLink: boolean;
   conferenceActionPending: boolean;
   localRecordingActive: boolean;
   shareUrl: string | null;
+  shareUrlPending: boolean;
   isInfoOpen: boolean;
   infoButtonRef: RefObject<HTMLButtonElement | null>;
   infoPanelRef: RefObject<HTMLDivElement | null>;
@@ -30,6 +32,7 @@ type Props = {
   onCancelConference: () => void;
   onConferencePresenceTouch: (conferenceId: string) => void;
   onConferencePresenceLeave: (conferenceId: string, options?: { keepalive?: boolean }) => void;
+  onGenerateShareUrl: () => void;
   onToggleInfo: () => void;
   onOpenMembers: () => void;
   onCopyShareUrl: (value: string) => void;
@@ -52,9 +55,11 @@ export function ActiveConferenceConversation({
   canEditSchedule,
   canCancelSchedule,
   canManageParticipants,
+  canShareInviteLink,
   conferenceActionPending,
   localRecordingActive,
   shareUrl,
+  shareUrlPending,
   isInfoOpen,
   infoButtonRef,
   infoPanelRef,
@@ -63,6 +68,7 @@ export function ActiveConferenceConversation({
   onCancelConference,
   onConferencePresenceTouch,
   onConferencePresenceLeave,
+  onGenerateShareUrl,
   onToggleInfo,
   onOpenMembers,
   onCopyShareUrl,
@@ -72,6 +78,12 @@ export function ActiveConferenceConversation({
   formatConferenceSchedule,
   formatMemberCount,
 }: Props) {
+  const shareInviteLinkActionLabel = shareUrlPending
+    ? "\u0413\u0435\u043d\u0435\u0440\u0438\u0440\u0443\u0435\u043c \u0441\u0441\u044b\u043b\u043a\u0443..."
+    : shareUrl
+      ? "\u041f\u043e\u043b\u0443\u0447\u0438\u0442\u044c \u0441\u0441\u044b\u043b\u043a\u0443 \u0441\u043d\u043e\u0432\u0430"
+      : "\u0421\u0433\u0435\u043d\u0435\u0440\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0441\u0441\u044b\u043b\u043a\u0443";
+
   return (
     <>
       <header className="conversation-header north-conversation-header conference-header">
@@ -298,9 +310,9 @@ export function ActiveConferenceConversation({
             </div>
             <div className="conference-meta-line">
               <strong>Код комнаты</strong>
-              <div className="conference-link-row">
+              <div className="invite-link-row">
                 <input
-                  className="conference-link-input"
+                  className="invite-link-input"
                   readOnly
                   value="Вход доступен только внутри приложения"
                   onFocus={(event) => event.currentTarget.select()}
@@ -310,24 +322,42 @@ export function ActiveConferenceConversation({
                 </button>
               </div>
             </div>
-            {shareUrl ? (
+            {canShareInviteLink ? (
               <div className="conference-meta-line">
                 <strong>Ссылка</strong>
-                <div className="conference-link-row">
+                <div className="invite-link-row">
                   <input
-                    className="conference-link-input"
+                    className="invite-link-input"
                     readOnly
-                    value={shareUrl}
+                    value={shareUrl ?? ""}
                     onFocus={(event) => event.currentTarget.select()}
                   />
                   <button
                     type="button"
                     className="ghost-button compact"
-                    onClick={() => onCopyShareUrl(shareUrl)}
+                    disabled={!shareUrl}
+                    onClick={() => {
+                      if (shareUrl) {
+                        onCopyShareUrl(shareUrl);
+                      }
+                    }}
                   >
                     Копировать
                   </button>
                 </div>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  disabled={shareUrlPending}
+                  onClick={onGenerateShareUrl}
+                >
+                  {shareInviteLinkActionLabel /*
+                    ? "Р“РµРЅРµСЂРёСЂСѓРµРј СЃСЃС‹Р»РєСѓ..."
+                    : shareUrl
+                      ? "РџРѕР»СѓС‡РёС‚СЊ СЃСЃС‹Р»РєСѓ СЃРЅРѕРІР°"
+                      : "РЎРіРµРЅРµСЂРёСЂРѕРІР°С‚СЊ СЃСЃС‹Р»РєСѓ"}
+                  */}
+                </button>
               </div>
             ) : null}
           </div>

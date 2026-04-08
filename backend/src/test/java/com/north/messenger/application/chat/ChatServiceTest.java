@@ -273,6 +273,74 @@ class ChatServiceTest {
         verify(realtimeMessagingGateway, never()).sendToUser(eq("north"), eq("/queue/chats"), any());
     }
 
+    @Test
+    void joinGroupViaInviteShouldAddMembershipAndRestoreVisibility() {
+        UserAccount invitedUser = new UserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UserAccount existingMember = new UserAccount(
+                UUID.randomUUID(),
+                "alice",
+                "Alice",
+                "password-hash",
+                Instant.parse("2026-03-20T12:10:00Z")
+        );
+        UUID chatId = UUID.randomUUID();
+        ChatRoom room = new ChatRoom(chatId, "Project", false, Instant.parse("2026-03-21T12:00:00Z"));
+        var memberships = new java.util.ArrayList<>(List.of(
+                new ChatParticipant(UUID.randomUUID(), chatId, existingMember.getId(), Instant.parse("2026-03-21T12:00:00Z"))
+        ));
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(invitedUser);
+        when(chatRoomRepository.findById(chatId)).thenReturn(Optional.of(room));
+        when(chatParticipantRepository.existsByChatIdAndUserId(chatId, invitedUser.getId()))
+                .thenReturn(false, true);
+        when(chatParticipantRepository.save(any(ChatParticipant.class))).thenAnswer(invocation -> {
+            ChatParticipant membership = invocation.getArgument(0);
+            memberships.add(membership);
+            return membership;
+        });
+        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId))
+                .thenAnswer(invocation -> List.copyOf(memberships));
+        when(userAccountRepository.findAllByIdIn(List.of(existingMember.getId(), invitedUser.getId())))
+                .thenReturn(List.of(existingMember, invitedUser));
+        when(authService.resolveOnlineByUserIds(List.of(existingMember.getId(), invitedUser.getId())))
+                .thenReturn(java.util.Map.of(existingMember.getId(), true, invitedUser.getId(), true));
+        when(messageReceiptRepository.countUnreadByChatId(chatId)).thenReturn(List.of());
+        when(messageReceiptRepository.countUnreadByUserIdAndChatIdIn(invitedUser.getId(), List.of(chatId)))
+                .thenReturn(List.of());
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(eq(chatId), eq(invitedUser.getId()), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(eq(chatId), eq(existingMember.getId()), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(authService.toParticipant(existingMember, true)).thenReturn(new com.north.messenger.api.dto.ParticipantResponse(
+                existingMember.getId(),
+                existingMember.getUsername(),
+                existingMember.getDisplayName(),
+                existingMember.getAvatarUrl(),
+                true
+        ));
+        when(authService.toParticipant(invitedUser, true)).thenReturn(new com.north.messenger.api.dto.ParticipantResponse(
+                invitedUser.getId(),
+                invitedUser.getUsername(),
+                invitedUser.getDisplayName(),
+                invitedUser.getAvatarUrl(),
+                true
+        ));
+
+        var response = chatService.joinGroupViaInvite("north", chatId);
+
+        assertThat(response.id()).isEqualTo(chatId);
+        assertThat(response.members()).extracting(com.north.messenger.api.dto.ParticipantResponse::username)
+                .containsExactly("alice", "north");
+        verify(userArchivedChatRepository).deleteByUserIdAndChatId(invitedUser.getId(), chatId);
+        verify(userDeletedChatRepository).deleteByChatIdAndUserIdIn(chatId, List.of(invitedUser.getId()));
+    }
+
     private MessageReceiptRepository.ChatUnreadCountView unreadCountView(UUID chatId, long unreadCount) {
         return new MessageReceiptRepository.ChatUnreadCountView() {
             @Override

@@ -13,6 +13,7 @@ import {
 import type { AuthResponse } from "../lib/types";
 
 const SESSION_RESTORE_CARD_DELAY_MS = 180;
+const INVITE_PATH_PREFIX = "/j/";
 let initialSessionRestorePromise: Promise<AuthResponse | null> | null = null;
 
 function restoreInitialSession() {
@@ -24,11 +25,24 @@ function restoreInitialSession() {
   return initialSessionRestorePromise;
 }
 
+function extractInviteCodeFromPath(pathname: string) {
+  if (!pathname.startsWith(INVITE_PATH_PREFIX)) {
+    return null;
+  }
+
+  const suffix = pathname.slice(INVITE_PATH_PREFIX.length).trim();
+  const code = suffix.split("/")[0]?.trim().toLowerCase() ?? "";
+  return /^[a-z0-9]{4,16}$/.test(code) ? code : null;
+}
+
 export function App() {
   const [session, setSession] = useState<AuthResponse | null>(null);
   const [restoringSession, setRestoringSession] = useState(true);
   const [showRestoringSessionCard, setShowRestoringSessionCard] = useState(false);
   const [refreshingExpiredSession, setRefreshingExpiredSession] = useState(false);
+  const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(() =>
+    typeof window === "undefined" ? null : extractInviteCodeFromPath(window.location.pathname)
+  );
   const refreshInFlightRef = useRef(false);
   const previousUserIdRef = useRef<string | null>(null);
 
@@ -153,6 +167,13 @@ export function App() {
     };
   }, [session, requestSessionRefresh]);
 
+  const handlePendingInviteHandled = useEffectEvent(() => {
+    setPendingInviteCode(null);
+    if (typeof window !== "undefined" && extractInviteCodeFromPath(window.location.pathname)) {
+      window.history.replaceState({}, "", "/");
+    }
+  });
+
   const showBlockingRestore =
     restoringSession || Boolean(session && refreshingExpiredSession && isAccessTokenExpired(session));
   const showSessionRestoreCard =
@@ -176,7 +197,12 @@ export function App() {
         </main>
       ) : session ? (
         <>
-          <NorthMessengerWorkspace session={session} onSessionChange={setSession} />
+          <NorthMessengerWorkspace
+            session={session}
+            pendingInviteCode={pendingInviteCode}
+            onPendingInviteHandled={handlePendingInviteHandled}
+            onSessionChange={setSession}
+          />
           {sessionNeedsUnlock ? (
             <UnlockCard
               session={session}

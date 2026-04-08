@@ -84,6 +84,16 @@ export type VideoConference = {
   participants: Participant[];
 };
 
+export type InviteLink = {
+  code: string;
+};
+
+export type InviteAcceptance = {
+  targetType: "GROUP" | "CONFERENCE";
+  chat: ChatSummary | null;
+  conference: VideoConference | null;
+};
+
 export type ApiChatMessage = {
   id: string;
   chatId: string;
