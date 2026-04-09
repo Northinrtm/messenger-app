@@ -163,16 +163,6 @@ export function ChatMenuPanel({
           <span className="profile-label">Username</span>
           <strong>@{activeDirectParticipant.username}</strong>
         </div>
-        <div className="profile-line">
-          <span className="profile-label">Статус</span>
-          <span>
-            {isDirectBlocked
-              ? "Пользователь заблокирован"
-              : activeDirectParticipant.online
-                ? "В сети"
-                : "Не в сети"}
-          </span>
-        </div>
       </div>
     );
   }

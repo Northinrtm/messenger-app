@@ -401,10 +401,19 @@ function MessageRow({
   getReactionOption,
 }: MessageRowProps) {
   const ownMessage = message.sender.id === sessionUser.id;
+  const showSenderAvatar = !ownMessage && !directChat;
 
   return (
-    <div className={ownMessage ? "message-row is-mine" : "message-row"}>
-      {!ownMessage ? (
+    <div
+      className={
+        ownMessage
+          ? "message-row is-mine"
+          : directChat
+            ? "message-row is-direct"
+            : "message-row"
+      }
+    >
+      {showSenderAvatar ? (
         <AvatarCircle
           className="avatar message-row-avatar north-avatar"
           name={message.sender.displayName}

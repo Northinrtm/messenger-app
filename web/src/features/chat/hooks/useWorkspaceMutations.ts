@@ -419,9 +419,35 @@ export function useWorkspaceMutations({
 
   const deleteGroupMutation = useMutation({
     mutationFn: (chatId: string) => deleteGroupRequest(token, chatId),
+    onMutate: async (chatId) => {
+      const chatsKey = ["chats", token] as const;
+      const archivedChatsKey = ["archived-chats", token] as const;
+      await queryClient.cancelQueries({ queryKey: chatsKey });
+      await queryClient.cancelQueries({ queryKey: archivedChatsKey });
+      const previousChats = queryClient.getQueryData<ChatSummary[]>(chatsKey) ?? [];
+      const previousArchivedChats = queryClient.getQueryData<string[]>(archivedChatsKey) ?? [];
+
+      removeChatLocally(chatId);
+      setSidebarSheet(null);
+
+      return {
+        previousArchivedChats,
+        previousChats,
+        wasActive: activeChatId === chatId,
+      };
+    },
     onSuccess: (_result, chatId) => {
       removeChatLocally(chatId);
       setSidebarSheet(null);
+    },
+    onError: (_error, _chatId, context) => {
+      if (context) {
+        queryClient.setQueryData(["chats", token], context.previousChats);
+        queryClient.setQueryData(["archived-chats", token], context.previousArchivedChats);
+        if (context.wasActive) {
+          openChat(_chatId, "groups");
+        }
+      }
     },
   });
 

@@ -2308,11 +2308,11 @@ textarea {
 }
 
 .north-message-stream {
-  padding: 1rem 1.25rem 1.15rem;
+  padding: 0.85rem 1rem 1rem;
   background: #0e1621;
   border: 0;
   border-radius: 0;
-  gap: 0.75rem;
+  gap: 0.55rem;
 }
 
 .north-message-stream .empty-state {
@@ -2328,7 +2328,7 @@ textarea {
 }
 
 .north-workspace .message-bubble {
-  max-width: min(42rem, 78%);
+  max-width: min(34rem, 70%);
   background: #182533;
   border: 0;
   box-shadow: none;
@@ -2458,12 +2458,16 @@ textarea {
 .message-row {
   display: flex;
   align-items: flex-end;
-  gap: 0.7rem;
+  gap: 0.45rem;
   width: 100%;
 }
 
 .message-row.is-mine {
   justify-content: flex-end;
+}
+
+.message-row.is-direct {
+  gap: 0;
 }
 
 .message-row-avatar {
@@ -2477,15 +2481,21 @@ textarea {
 .north-workspace .message-bubble {
   position: relative;
   display: grid;
-  gap: 0.6rem;
-  padding: 0.95rem 1rem 0.9rem;
+  gap: 0.4rem;
+  padding: 0.72rem 0.86rem 0.68rem;
+  border-radius: 0.95rem;
+}
+
+.message-row.is-direct .message-bubble {
+  max-width: min(33rem, 68%);
 }
 
 .message-body {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: #f4fbff;
-  line-height: 1.5;
+  font-size: 0.97rem;
+  line-height: 1.38;
 }
 
 .message-edited-label {
@@ -2718,20 +2728,25 @@ textarea {
 
 .chat-menu-panel-shell {
   position: absolute;
-  top: 5.2rem;
-  right: 1rem;
+  top: 4.85rem;
+  right: 0.75rem;
+  bottom: 0.75rem;
   z-index: 18;
-  width: min(24rem, calc(100vw - 3rem));
-  max-height: calc(100% - 6.2rem);
+  width: min(21.5rem, calc(100vw - 1.5rem));
+  min-height: 0;
   animation: north-menu-in 180ms ease;
 }
 
 .chat-menu-panel {
   display: grid;
-  gap: 0.85rem;
-  max-height: inherit;
+  gap: 0.75rem;
+  height: 100%;
+  max-height: none;
+  min-height: 0;
   overflow: auto;
-  padding: 1rem;
+  align-content: start;
+  overscroll-behavior: contain;
+  padding: 0.9rem;
   border-radius: 1.25rem;
   background: #1a2633;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -2785,7 +2800,7 @@ textarea {
 }
 
 .chat-menu-members-list {
-  max-height: 18rem;
+  max-height: none;
 }
 
 .chat-menu-footer {
@@ -3248,8 +3263,9 @@ textarea {
   }
 
   .chat-menu-panel-shell {
-    top: 4.9rem;
+    top: 4.75rem;
     right: 0.85rem;
+    bottom: 0.85rem;
     width: calc(100vw - 1.7rem);
   }
 }
@@ -3315,10 +3331,10 @@ body.is-resizing-chat-layout {
   }
 
   .chat-menu-panel-shell {
-    top: 4.7rem;
+    top: 4.55rem;
     right: 0.5rem;
+    bottom: 0.5rem;
     width: calc(100vw - 1rem);
-    max-height: calc(100% - 5.4rem);
   }
 
   .north-send-button {
