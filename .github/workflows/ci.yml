@@ -44,3 +44,11 @@ jobs:
         run: npm run test:run
       - name: Build frontend
         run: npm run build
+
+  deploy-production:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs:
+      - backend
+      - web
+    uses: ./.github/workflows/deploy-prod.yml
+    secrets: inherit
