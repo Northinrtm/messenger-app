@@ -1865,6 +1865,21 @@ textarea {
   width: 100%;
 }
 
+.profile-inline-stack {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.profile-code-value {
+  display: block;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: #f4fbff;
+  overflow-wrap: anywhere;
+}
+
 .profile-inline-save {
   white-space: nowrap;
 }
@@ -2399,6 +2414,7 @@ textarea {
 }
 
 .north-conversation-header {
+  grid-row: 1;
   padding: 0.7rem 1.2rem;
   background: #17212b;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
@@ -2433,6 +2449,8 @@ textarea {
 }
 
 .north-message-stream {
+  grid-row: 3;
+  min-height: 0;
   padding: 0.85rem 1rem 1rem;
   background: #0e1621;
   border: 0;
@@ -2772,6 +2790,7 @@ textarea {
 }
 
 .pinned-message-banner {
+  grid-row: 2;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.8rem;
@@ -2839,6 +2858,7 @@ textarea {
 }
 
 .north-composer {
+  grid-row: 4;
   display: grid;
   gap: 0.65rem;
 }

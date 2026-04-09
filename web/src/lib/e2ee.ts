@@ -43,6 +43,12 @@ type TrustedDeviceUnlockRecord = {
   createdAt: string;
 };
 
+export type EncryptionIdentitySummary = {
+  fingerprint: string | null;
+  pinned: boolean;
+  trustedDeviceEnabled: boolean;
+};
+
 export function hasUnlockedPrivateEncryptionKey(userId: string) {
   return readUnlockedIdentity(userId) !== null;
 }
@@ -64,6 +70,83 @@ export function isTrustedDeviceUnlockSupported() {
 
 export function hasTrustedDeviceUnlock(userId: string) {
   return readTrustedDeviceUnlockRecord(userId) !== null;
+}
+
+export function clearPinnedEncryptionIdentity(userId?: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (userId) {
+    publicKeyCache.delete(userId);
+    window.localStorage.removeItem(getPinnedPublicKeyFingerprintStorageKey(userId));
+    return;
+  }
+
+  publicKeyCache.clear();
+  const keysToRemove: string[] = [];
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const currentKey = window.localStorage.key(index);
+    if (currentKey?.startsWith(PINNED_PUBLIC_KEY_FINGERPRINT_STORAGE_PREFIX)) {
+      keysToRemove.push(currentKey);
+    }
+  }
+  keysToRemove.forEach((key) => window.localStorage.removeItem(key));
+}
+
+export async function getOwnEncryptionIdentitySummary(
+  token: string,
+  userId: string
+): Promise<EncryptionIdentitySummary> {
+  const identity = readUnlockedIdentity(userId);
+  let publicKey = identity?.publicKey ?? null;
+
+  if (!publicKey) {
+    try {
+      publicKey = (await getOwnEncryptionKeyBundle(token)).publicKey;
+    } catch (error) {
+      if (!(error instanceof ApiError && error.status === 404)) {
+        throw error;
+      }
+    }
+  }
+
+  if (!publicKey) {
+    return {
+      fingerprint: null,
+      pinned: false,
+      trustedDeviceEnabled: hasTrustedDeviceUnlock(userId),
+    };
+  }
+
+  const fingerprint = await fingerprintPublicKey(publicKey);
+  return {
+    fingerprint: formatFingerprintForDisplay(fingerprint),
+    pinned: readPinnedPublicKeyFingerprint(userId) === fingerprint,
+    trustedDeviceEnabled: hasTrustedDeviceUnlock(userId),
+  };
+}
+
+export async function getUserEncryptionIdentitySummary(
+  token: string,
+  userId: string
+): Promise<EncryptionIdentitySummary> {
+  const resolvedKeys = await resolveEncryptionPublicKeys(token, [userId]);
+  const publicKey = resolvedKeys.find((entry) => entry.userId === userId)?.publicKey ?? null;
+  if (!publicKey) {
+    return {
+      fingerprint: null,
+      pinned: false,
+      trustedDeviceEnabled: false,
+    };
+  }
+
+  const fingerprint = await fingerprintPublicKey(publicKey);
+  return {
+    fingerprint: formatFingerprintForDisplay(fingerprint),
+    pinned: readPinnedPublicKeyFingerprint(userId) === fingerprint,
+    trustedDeviceEnabled: false,
+  };
 }
 
 export function isUnavailableEncryptedMessage(content: string) {
@@ -894,6 +977,10 @@ async function fingerprintPublicKey(publicKey: string) {
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/g, "");
+}
+
+function formatFingerprintForDisplay(fingerprint: string) {
+  return fingerprint.match(/.{1,4}/g)?.join(" ") ?? fingerprint;
 }
 
 async function createTrustedDeviceCredential(session: AuthResponse) {

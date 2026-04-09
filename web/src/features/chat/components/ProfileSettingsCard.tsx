@@ -1,9 +1,15 @@
 import { useEffect, useState } from "react";
 
 import type { UserProfile } from "../../../lib/types";
+import {
+  clearPinnedEncryptionIdentity,
+  getOwnEncryptionIdentitySummary,
+  type EncryptionIdentitySummary,
+} from "../../../lib/e2ee";
 import { AvatarCircle } from "./AvatarCircle";
 
 type Props = {
+  sessionToken: string;
   profile: UserProfile;
   profileDisplayName: string;
   profileProfession: string;
@@ -30,6 +36,7 @@ type Props = {
 };
 
 export function ProfileSettingsCard({
+  sessionToken,
   profile,
   profileDisplayName,
   profileProfession,
@@ -56,6 +63,8 @@ export function ProfileSettingsCard({
 }: Props) {
   const [isPasswordFormOpen, setIsPasswordFormOpen] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [identitySummary, setIdentitySummary] = useState<EncryptionIdentitySummary | null>(null);
+  const [identityError, setIdentityError] = useState<string | null>(null);
 
   const passwordChangeMatches = passwordChangeNext === passwordChangeConfirm;
   const passwordChangeReady =
@@ -79,6 +88,31 @@ export function ProfileSettingsCard({
     setIsPasswordFormOpen(false);
     setIsDeleteConfirmOpen(false);
   }, [profile.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadIdentity = async () => {
+      try {
+        const nextSummary = await getOwnEncryptionIdentitySummary(sessionToken, profile.id);
+        if (!cancelled) {
+          setIdentitySummary(nextSummary);
+          setIdentityError(null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setIdentitySummary(null);
+          setIdentityError(error instanceof Error ? error.message : "Не удалось загрузить fingerprint");
+        }
+      }
+    };
+
+    void loadIdentity();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionToken, profile.id]);
 
   const closePasswordForm = () => {
     setIsPasswordFormOpen(false);
@@ -178,6 +212,46 @@ export function ProfileSettingsCard({
           />
           <span className="profile-field-help">Короткое описание о себе.</span>
         </form>
+
+        <div className="profile-line profile-action-panel">
+          <div className="profile-action-row">
+            <div className="profile-action-copy">
+              <span className="profile-label">Шифрование</span>
+              <strong>Identity key</strong>
+            </div>
+            {identitySummary?.pinned ? (
+              <button
+                type="button"
+                className="ghost-button compact"
+                onClick={async () => {
+                  clearPinnedEncryptionIdentity();
+                  setIdentitySummary(await getOwnEncryptionIdentitySummary(sessionToken, profile.id));
+                }}
+              >
+                Сбросить доверие
+              </button>
+            ) : null}
+          </div>
+          <div className="profile-inline-stack">
+            {identitySummary?.fingerprint ? (
+              <>
+                <strong className="profile-code-value">{identitySummary.fingerprint}</strong>
+                <span className="profile-field-help">
+                  {identitySummary.pinned
+                    ? "Fingerprint закреплён в этом браузере."
+                    : "Fingerprint ещё не закреплён в этом браузере."}
+                </span>
+                {identitySummary.trustedDeviceEnabled ? (
+                  <span className="profile-field-help">Разблокировка доверенным устройством включена.</span>
+                ) : null}
+              </>
+            ) : (
+              <span className="profile-field-help">
+                {identityError ?? "Ключ шифрования появится после настройки или разблокировки зашифрованных чатов."}
+              </span>
+            )}
+          </div>
+        </div>
 
         <div className="profile-line profile-action-panel">
           <div className="profile-action-row">

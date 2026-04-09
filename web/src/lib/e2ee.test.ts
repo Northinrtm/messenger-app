@@ -26,6 +26,7 @@ vi.mock("./api", () => {
 
 import { resolveEncryptionPublicKeys } from "./api";
 import {
+  clearPinnedEncryptionIdentity,
   clearUnlockedEncryptionState,
   hasUnlockedPrivateEncryptionKey,
   primeEncryptedMessageRecipients,
@@ -120,5 +121,15 @@ describe("e2ee hardening", () => {
       status: 409,
     });
     expect(importKeySpy).not.toHaveBeenCalled();
+  });
+
+  it("clears pinned public key fingerprints without clearing trusted-device setup", () => {
+    window.localStorage.setItem(PINNED_KEY, "fingerprint");
+    window.localStorage.setItem(TRUSTED_DEVICE_KEY, JSON.stringify(trustedDeviceRecord));
+
+    clearPinnedEncryptionIdentity(REMOTE_USER_ID);
+
+    expect(window.localStorage.getItem(PINNED_KEY)).toBeNull();
+    expect(window.localStorage.getItem(TRUSTED_DEVICE_KEY)).not.toBeNull();
   });
 });

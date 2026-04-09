@@ -1813,6 +1813,7 @@ export function NorthMessengerWorkspace({
                   ? sidebarSheet
                   : null
               }
+              sessionToken={session.token}
               profile={profile}
               sessionUser={session.user}
               currentSessionId={session.sessionId}
@@ -2028,6 +2029,7 @@ export function NorthMessengerWorkspace({
             <div ref={chatMenuPanelRef} className="chat-menu-panel-frame">
               <ChatMenuPanel
                 activeChat={activeChat}
+                sessionToken={session.token}
                 sessionUserId={session.user.id}
                 activeDirectParticipant={activeDirectParticipant}
                 activeDirectInContacts={activeDirectInContacts}
