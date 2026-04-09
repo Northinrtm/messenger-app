@@ -110,6 +110,7 @@ import { type ConferenceRecordingState } from "./ManagedConferenceStage";
 import { ActiveConferenceConversation } from "./components/ActiveConferenceConversation";
 import { ActiveChatConversation } from "./components/ActiveChatConversation";
 import { AvatarCircle } from "./components/AvatarCircle";
+import { ChatMembersPanel } from "./components/ChatMembersPanel";
 import { ChatMenuPanel } from "./components/ChatMenuPanel";
 import { ChatListPanel } from "./components/ChatListPanel";
 import { MessageContextMenu } from "./components/MessageContextMenu";
@@ -195,6 +196,7 @@ export function NorthMessengerWorkspace({
   const [conferenceBrowserMode, setConferenceBrowserMode] = useState<"list" | "calendar">("list");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
+  const [isChatMembersOpen, setIsChatMembersOpen] = useState(false);
   const [sidebarSheet, setSidebarSheet] = useState<SidebarSheet>(null);
   const [search, setSearch] = useState("");
   const [groupTitle, setGroupTitle] = useState("");
@@ -264,6 +266,10 @@ export function NorthMessengerWorkspace({
   const { buttonRef: chatMenuButtonRef, panelRef: chatMenuPanelRef } = useDismissiblePanel({
     isOpen: isChatMenuOpen,
     onClose: () => setIsChatMenuOpen(false),
+  });
+  const { panelRef: chatMembersPanelRef } = useDismissiblePanel({
+    isOpen: isChatMembersOpen,
+    onClose: () => setIsChatMembersOpen(false),
   });
   const createGroupInviteLinkMutation = useMutation({
     mutationFn: (input: { chatId: string; refresh?: boolean }) =>
@@ -670,6 +676,7 @@ export function NorthMessengerWorkspace({
 
   useEffect(() => {
     setIsChatMenuOpen(false);
+    setIsChatMembersOpen(false);
   }, [activeChatId, activeConferenceId]);
 
   useEffect(() => {
@@ -683,6 +690,7 @@ export function NorthMessengerWorkspace({
     }
 
     setIsChatMenuOpen(true);
+    setIsChatMembersOpen(false);
     setPendingGroupMenuOpenChatId(null);
   }, [activeChat, activeChatId, pendingGroupMenuOpenChatId]);
 
@@ -1947,7 +1955,10 @@ export function NorthMessengerWorkspace({
             messageStreamRef={messageStreamRef}
             composerTextareaRef={composerTextareaRef}
             onBack={() => setMobilePane("sidebar")}
-            onToggleChatMenu={() => setIsChatMenuOpen((current) => !current)}
+            onToggleChatMenu={() => {
+              setIsChatMembersOpen(false);
+              setIsChatMenuOpen((current) => !current);
+            }}
             onToggleArchive={() => toggleArchiveChat(activeChat.id, archivedChatIdSet)}
             onCloseChat={closeActiveChat}
             onJumpToPinned={() => {
@@ -1991,58 +2002,88 @@ export function NorthMessengerWorkspace({
         ) : null}
 
         {(!activeConference || isConferenceMinimized) && activeChat && isChatMenuOpen ? (
-          <div ref={chatMenuPanelRef} className="chat-menu-panel-shell">
-            <ChatMenuPanel
-              activeChat={activeChat}
-              sessionUserId={session.user.id}
-              activeDirectParticipant={activeDirectParticipant}
-              activeDirectInContacts={activeDirectInContacts}
-              isDirectBlocked={activeDirectBlockedByMe}
-              groupDetailsTitle={groupDetailsTitle}
-              groupDetailsAvatarUrl={groupDetailsAvatarUrl}
-              groupInviteLinkUrl={activeGroupInviteUrl}
-              availableGroupInviteContacts={availableGroupInviteContacts}
-              selectedGroupInviteContacts={selectedGroupInviteContacts}
-              isGroupInvitePickerOpen={isGroupInvitePickerOpen}
-              groupInviteLinkPending={createGroupInviteLinkMutation.isPending}
-              addGroupParticipantsPending={addGroupParticipantsMutation.isPending}
-              updateGroupPending={updateGroupMutation.isPending}
-              createChatPending={createChatMutation.isPending}
-              leaveGroupPending={leaveGroupMutation.isPending}
-              deleteGroupPending={deleteGroupMutation.isPending}
-              banGroupParticipantPending={banGroupParticipantMutation.isPending}
-              removeGroupParticipantPending={removeGroupParticipantMutation.isPending}
-              assignModeratorPending={assignGroupModeratorMutation.isPending}
-              revokeModeratorPending={revokeGroupModeratorMutation.isPending}
-              toggleBlockPending={blockUserMutation.isPending || unblockUserMutation.isPending}
-              canDeleteGroup={activeChatIsOwnedByCurrentUser}
-              canEditGroup={activeChatIsOwnedByCurrentUser}
-              canManageInviteLink={activeChatIsOwnedByCurrentUser}
-              canManageMembers={activeChatIsOwnedByCurrentUser}
-              canManageRoles={activeChatIsOwnedByCurrentUser}
-              canModerateMembers={activeChatCanModerateMembers}
-              onClose={() => setIsChatMenuOpen(false)}
-              onGroupDetailsTitleChange={setGroupDetailsTitle}
-              onGroupAvatarSelected={(file) => void uploadGroupAvatarFromFile(file)}
-              onRemoveGroupAvatar={() => setGroupDetailsAvatarUrl(null)}
-              onSubmitUpdateGroup={handleSubmitUpdateGroup}
-              onGenerateGroupInviteLink={handleGenerateGroupInviteLink}
-              onCopyGroupInviteLink={(value) => void navigator.clipboard.writeText(value)}
-              onToggleGroupInvitePicker={() => setIsGroupInvitePickerOpen((current) => !current)}
-              onToggleGroupInviteParticipant={toggleGroupInviteParticipant}
-              onSubmitAddGroupParticipants={submitAddGroupParticipants}
-              onOpenGroupConferenceComposer={openGroupConferenceComposer}
-              onCreateChat={(username) => createChatMutation.mutate(username)}
-              onLeaveGroup={handleLeaveGroup}
-              onDeleteGroup={handleDeleteGroup}
-              onBanParticipant={handleBanParticipantAction}
-              onRemoveParticipant={handleRemoveParticipantAction}
-              onAssignModerator={handleAssignModeratorAction}
-              onRevokeModerator={handleRevokeModeratorAction}
-              onAddToContacts={addActiveChatToContacts}
-              onStartDirectConference={handleStartDirectConference}
-              onToggleBlocked={handleToggleDirectBlock}
-            />
+          <div className="chat-menu-panel-shell">
+            <div ref={chatMenuPanelRef} className="chat-menu-panel-frame">
+              <ChatMenuPanel
+                activeChat={activeChat}
+                sessionUserId={session.user.id}
+                activeDirectParticipant={activeDirectParticipant}
+                activeDirectInContacts={activeDirectInContacts}
+                isDirectBlocked={activeDirectBlockedByMe}
+                groupDetailsTitle={groupDetailsTitle}
+                groupDetailsAvatarUrl={groupDetailsAvatarUrl}
+                groupInviteLinkUrl={activeGroupInviteUrl}
+                availableGroupInviteContacts={availableGroupInviteContacts}
+                selectedGroupInviteContacts={selectedGroupInviteContacts}
+                isGroupInvitePickerOpen={isGroupInvitePickerOpen}
+                groupInviteLinkPending={createGroupInviteLinkMutation.isPending}
+                addGroupParticipantsPending={addGroupParticipantsMutation.isPending}
+                updateGroupPending={updateGroupMutation.isPending}
+                createChatPending={createChatMutation.isPending}
+                leaveGroupPending={leaveGroupMutation.isPending}
+                deleteGroupPending={deleteGroupMutation.isPending}
+                banGroupParticipantPending={banGroupParticipantMutation.isPending}
+                removeGroupParticipantPending={removeGroupParticipantMutation.isPending}
+                assignModeratorPending={assignGroupModeratorMutation.isPending}
+                revokeModeratorPending={revokeGroupModeratorMutation.isPending}
+                toggleBlockPending={blockUserMutation.isPending || unblockUserMutation.isPending}
+                canDeleteGroup={activeChatIsOwnedByCurrentUser}
+                canEditGroup={activeChatIsOwnedByCurrentUser}
+                canManageInviteLink={activeChatIsOwnedByCurrentUser}
+                canManageMembers={activeChatIsOwnedByCurrentUser}
+                canManageRoles={activeChatIsOwnedByCurrentUser}
+                canModerateMembers={activeChatCanModerateMembers}
+                onClose={() => setIsChatMenuOpen(false)}
+                onOpenMembers={() => {
+                  setIsChatMenuOpen(false);
+                  setIsChatMembersOpen(true);
+                }}
+                onGroupDetailsTitleChange={setGroupDetailsTitle}
+                onGroupAvatarSelected={(file) => void uploadGroupAvatarFromFile(file)}
+                onRemoveGroupAvatar={() => setGroupDetailsAvatarUrl(null)}
+                onSubmitUpdateGroup={handleSubmitUpdateGroup}
+                onGenerateGroupInviteLink={handleGenerateGroupInviteLink}
+                onCopyGroupInviteLink={(value) => void navigator.clipboard.writeText(value)}
+                onToggleGroupInvitePicker={() => setIsGroupInvitePickerOpen((current) => !current)}
+                onToggleGroupInviteParticipant={toggleGroupInviteParticipant}
+                onSubmitAddGroupParticipants={submitAddGroupParticipants}
+                onOpenGroupConferenceComposer={openGroupConferenceComposer}
+                onCreateChat={(username) => createChatMutation.mutate(username)}
+                onLeaveGroup={handleLeaveGroup}
+                onDeleteGroup={handleDeleteGroup}
+                onBanParticipant={handleBanParticipantAction}
+                onRemoveParticipant={handleRemoveParticipantAction}
+                onAssignModerator={handleAssignModeratorAction}
+                onRevokeModerator={handleRevokeModeratorAction}
+                onAddToContacts={addActiveChatToContacts}
+                onStartDirectConference={handleStartDirectConference}
+                onToggleBlocked={handleToggleDirectBlock}
+              />
+            </div>
+          </div>
+        ) : null}
+
+        {(!activeConference || isConferenceMinimized) && activeChat && isChatMembersOpen ? (
+          <div className="chat-menu-panel-shell">
+            <div ref={chatMembersPanelRef} className="chat-members-panel-frame">
+              <ChatMembersPanel
+                activeChat={activeChat}
+                sessionUserId={session.user.id}
+                createChatPending={createChatMutation.isPending}
+                banGroupParticipantPending={banGroupParticipantMutation.isPending}
+                removeGroupParticipantPending={removeGroupParticipantMutation.isPending}
+                assignModeratorPending={assignGroupModeratorMutation.isPending}
+                revokeModeratorPending={revokeGroupModeratorMutation.isPending}
+                canManageRoles={activeChatIsOwnedByCurrentUser}
+                canModerateMembers={activeChatCanModerateMembers}
+                onClose={() => setIsChatMembersOpen(false)}
+                onCreateChat={(username) => createChatMutation.mutate(username)}
+                onBanParticipant={handleBanParticipantAction}
+                onRemoveParticipant={handleRemoveParticipantAction}
+                onAssignModerator={handleAssignModeratorAction}
+                onRevokeModerator={handleRevokeModeratorAction}
+              />
+            </div>
           </div>
         ) : null}
 

@@ -417,17 +417,16 @@ function MessageRow({
       ) : null}
     </div>
   );
+  const rowClassName = directChat
+    ? ownMessage
+      ? "message-row is-mine is-direct"
+      : "message-row is-direct"
+    : ownMessage
+      ? "message-row is-mine"
+      : "message-row";
 
   return (
-    <div
-      className={
-        ownMessage
-          ? "message-row is-mine"
-          : directChat
-            ? "message-row is-direct"
-            : "message-row"
-      }
-    >
+    <div className={rowClassName}>
       {showSenderAvatar ? (
         <AvatarCircle
           className="avatar message-row-avatar north-avatar"
