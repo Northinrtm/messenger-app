@@ -20,7 +20,7 @@ public class UserAccount {
     @Column(name = "display_name", nullable = false, length = 40)
     private String displayName;
 
-    @Column(name = "profession", length = 80)
+    @Column(name = "profession", length = 160)
     private String profession;
 
     @Column(name = "avatar_url")

@@ -1,4 +1,4 @@
-export { ChatMenuPanel } from "./ChatMenuPanel.popover";
+export { ChatMenuPanel } from "./ChatMenuPanel.popover.next";
 
 /*
 

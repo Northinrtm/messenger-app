@@ -486,6 +486,9 @@ public class AuthService {
         }
 
         String normalized = profession.trim();
+        if (normalized.length() > 160) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Profile about text must be 160 characters or fewer");
+        }
         return normalized.isBlank() ? null : normalized;
     }
 

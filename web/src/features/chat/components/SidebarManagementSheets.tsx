@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { UserProfile, UserSessionInfo, ChatSummary, VideoConference } from "../../../lib/types";
 import { AvatarCircle } from "./AvatarCircle";
+import { ProfileSettingsCard } from "./ProfileSettingsCard";
 
 type SidebarManagementSheet =
   | "profile"
@@ -202,6 +203,36 @@ export function SidebarManagementSheets({
   }
 
   if (sheet === "profile") {
+    return (
+      <ProfileSettingsCard
+        profile={profile}
+        profileDisplayName={profileDisplayName}
+        profileProfession={profileProfession}
+        passwordChangeCurrent={passwordChangeCurrent}
+        passwordChangeNext={passwordChangeNext}
+        passwordChangeConfirm={passwordChangeConfirm}
+        deleteAccountConfirmation={deleteAccountConfirmation}
+        deleteAccountRequiresMatch={deleteAccountRequiresMatch}
+        updateProfilePending={updateProfilePending}
+        changePasswordPending={changePasswordPending}
+        avatarPending={avatarPending}
+        deleteAccountPending={deleteAccountPending}
+        onClose={onClose}
+        onProfileDisplayNameChange={onProfileDisplayNameChange}
+        onProfileProfessionChange={onProfileProfessionChange}
+        onSubmitProfileDisplayName={onSubmitProfileDisplayName}
+        onPasswordChangeCurrentChange={onPasswordChangeCurrentChange}
+        onPasswordChangeNextChange={onPasswordChangeNextChange}
+        onPasswordChangeConfirmChange={onPasswordChangeConfirmChange}
+        onSubmitPasswordChange={onSubmitPasswordChange}
+        onDeleteAccountConfirmationChange={onDeleteAccountConfirmationChange}
+        onDeleteAccount={onDeleteAccount}
+        onAvatarSelected={onAvatarSelected}
+      />
+    );
+  }
+
+  if (false) {
     const passwordChangeMatches = passwordChangeNext === passwordChangeConfirm;
     const passwordChangeReady =
       passwordChangeCurrent.length > 0 &&

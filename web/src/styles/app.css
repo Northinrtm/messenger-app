@@ -1772,6 +1772,34 @@ textarea {
   line-height: 1.35;
 }
 
+.profile-about-preview {
+  margin: 0;
+  color: #c9d8e6;
+  font-style: normal;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.profile-about-input {
+  min-height: 5.25rem;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.profile-field-help {
+  color: #8aa0b6;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.profile-about-value {
+  display: block;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .profile-avatar-hint {
   margin: 0;
   color: #8aa0b6;
@@ -2978,6 +3006,8 @@ textarea {
 .chat-menu-panel-shell.is-popover {
   top: 0.9rem;
   left: 1.1rem;
+  bottom: 1rem;
+  max-height: calc(100% - 1.9rem);
 }
 
 .chat-menu-panel-shell.is-modal {
@@ -2994,10 +3024,13 @@ textarea {
   width: min(31rem, calc(100vw - 2rem));
   max-height: calc(100% - 2rem);
   min-height: 0;
+  display: grid;
+  overflow: hidden;
 }
 
 .chat-menu-panel-frame {
   width: min(31rem, calc(100vw - 2.2rem));
+  max-height: 100%;
 }
 
 .chat-members-panel-frame {
@@ -3437,6 +3470,8 @@ textarea {
 }
 
 .north-composer {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
   padding: 0.9rem 1.25rem 1rem;
   background: #17212b;
   border-top: 1px solid rgba(255, 255, 255, 0.05);
