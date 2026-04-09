@@ -2002,7 +2002,7 @@ export function NorthMessengerWorkspace({
         ) : null}
 
         {(!activeConference || isConferenceMinimized) && activeChat && isChatMenuOpen ? (
-          <div className="chat-menu-panel-shell">
+          <div className="chat-menu-panel-shell is-popover">
             <div ref={chatMenuPanelRef} className="chat-menu-panel-frame">
               <ChatMenuPanel
                 activeChat={activeChat}
@@ -2064,7 +2064,7 @@ export function NorthMessengerWorkspace({
         ) : null}
 
         {(!activeConference || isConferenceMinimized) && activeChat && isChatMembersOpen ? (
-          <div className="chat-menu-panel-shell">
+          <div className="chat-menu-panel-shell is-modal">
             <div ref={chatMembersPanelRef} className="chat-members-panel-frame">
               <ChatMembersPanel
                 activeChat={activeChat}

@@ -1,4 +1,4 @@
-export { ChatMenuPanel } from "./ChatMenuPanel.centered";
+export { ChatMenuPanel } from "./ChatMenuPanel.popover";
 
 /*
 
