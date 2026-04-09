@@ -165,8 +165,8 @@ export function ActiveChatConversation({
                 avatarUrl={activeChat.avatarUrl}
                 badge="GR"
               />
-              <div className="conversation-copy">
-                <div className="conversation-title-row">
+              <span className="conversation-copy">
+                <span className="conversation-title-row">
                   <h3>{activeChat.title}</h3>
                   <button
                     type="button"
@@ -180,7 +180,7 @@ export function ActiveChatConversation({
                   >
                     Меню
                   </button>
-                </div>
+                </span>
                 <p
                   className={
                     showTypingIndicator
@@ -190,7 +190,7 @@ export function ActiveChatConversation({
                 >
                   {conversationSubtitle}
                 </p>
-              </div>
+              </span>
             </div>
           )}
         </div>
@@ -402,6 +402,21 @@ function MessageRow({
 }: MessageRowProps) {
   const ownMessage = message.sender.id === sessionUser.id;
   const showSenderAvatar = !ownMessage && !directChat;
+  const messageMetaTrailing = (
+    <div className="message-meta-trailing">
+      {message.editedAt ? <span className="message-edited-label">РёР·РјРµРЅРµРЅРѕ</span> : null}
+      <span>{formatClock(message.createdAt)}</span>
+      {ownMessage ? (
+        <span
+          className={getMessageStatusClassName(message.status)}
+          title={getMessageStatusLabel(message.status)}
+          aria-label={getMessageStatusLabel(message.status)}
+        >
+          {getMessageStatusGlyph(message.status)}
+        </span>
+      ) : null}
+    </div>
+  );
 
   return (
     <div
@@ -456,6 +471,9 @@ function MessageRow({
           </button>
         ) : null}
         <div className="message-body">{message.content}</div>
+        {directChat ? (
+          <div className="message-meta-clone message-meta is-compact is-bottom">{messageMetaTrailing}</div>
+        ) : null}
         {message.reactions.length > 0 ? (
           <div className="message-reactions" aria-label="Реакции на сообщение">
             {message.reactions.map((reaction) => {

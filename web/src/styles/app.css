@@ -832,6 +832,7 @@ textarea {
 }
 
 .conversation-identity {
+  position: relative;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
@@ -863,6 +864,9 @@ textarea {
 }
 
 .conversation-identity-button.is-active .conversation-title-row h3,
+.conversation-identity-button.is-active .conversation-subtitle,
+.conversation-identity:has(.conversation-menu-button.is-active) .conversation-title-row h3,
+.conversation-identity:has(.conversation-menu-button.is-active) .conversation-subtitle,
 .conversation-menu-button.is-active {
   color: #8fd2ff;
 }
@@ -890,6 +894,10 @@ textarea {
 }
 
 .conversation-menu-button {
+  position: absolute;
+  inset: -0.3rem;
+  z-index: 1;
+  opacity: 0;
   flex: 0 0 auto;
 }
 
@@ -2328,7 +2336,7 @@ textarea {
 }
 
 .north-workspace .message-bubble {
-  max-width: min(34rem, 70%);
+  max-width: min(32rem, 66%);
   background: #182533;
   border: 0;
   box-shadow: none;
@@ -2445,10 +2453,20 @@ textarea {
 .message-meta.is-compact {
   justify-content: flex-end;
   gap: 0;
+  font-size: 0.76rem;
+  line-height: 1;
+}
+
+.message-meta.is-compact.is-bottom {
+  margin-top: 0.08rem;
 }
 
 .message-meta.is-compact > span:first-child {
   display: none;
+}
+
+.message-meta.is-compact .message-meta-trailing {
+  gap: 0.28rem;
 }
 
 .north-workspace .message-meta strong {
@@ -2481,13 +2499,17 @@ textarea {
 .north-workspace .message-bubble {
   position: relative;
   display: grid;
-  gap: 0.4rem;
-  padding: 0.72rem 0.86rem 0.68rem;
+  gap: 0.28rem;
+  padding: 0.58rem 0.78rem 0.54rem;
   border-radius: 0.95rem;
 }
 
 .message-row.is-direct .message-bubble {
-  max-width: min(33rem, 68%);
+  max-width: min(29rem, 60%);
+}
+
+.message-row.is-direct .message-bubble > .message-meta.is-compact:not(.message-meta-clone) {
+  display: none;
 }
 
 .message-body {
@@ -2495,7 +2517,7 @@ textarea {
   overflow-wrap: anywhere;
   color: #f4fbff;
   font-size: 0.97rem;
-  line-height: 1.38;
+  line-height: 1.32;
 }
 
 .message-edited-label {
@@ -2762,6 +2784,7 @@ textarea {
 }
 
 .chat-menu-head {
+  flex-wrap: wrap;
   justify-content: space-between;
 }
 
@@ -2788,15 +2811,33 @@ textarea {
   font-size: 0.86rem;
 }
 
+.chat-menu-head .chat-menu-toggle {
+  width: 100%;
+  justify-content: center;
+}
+
 .chat-menu-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.55rem;
 }
 
+.chat-menu-toggle.is-active {
+  background: #2b5278;
+  color: #f4fbff;
+}
+
 .chat-menu-members {
-  display: grid;
+  display: none;
   gap: 0.7rem;
+}
+
+.chat-menu-members.is-open {
+  display: grid;
+}
+
+.chat-menu-members .section-title {
+  display: none;
 }
 
 .chat-menu-members-list {

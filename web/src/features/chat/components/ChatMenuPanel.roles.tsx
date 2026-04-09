@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { ChatSummary, Participant, UserProfile } from "../../../lib/types";
 import { AvatarCircle } from "./AvatarCircle";
 
@@ -114,6 +115,12 @@ export function ChatMenuPanel({
   onStartDirectConference,
   onToggleBlocked,
 }: Props) {
+  const [membersOpen, setMembersOpen] = useState(false);
+
+  useEffect(() => {
+    setMembersOpen(false);
+  }, [activeChat.id]);
+
   if (activeChat.direct && activeDirectParticipant) {
     return (
       <div className="chat-menu-panel">
@@ -196,6 +203,14 @@ export function ChatMenuPanel({
         </div>
         <button type="button" className="sidebar-menu-collapse" onClick={onClose} aria-label="Закрыть меню">
           ×
+        </button>
+        <button
+          type="button"
+          className={membersOpen ? "ghost-button compact chat-menu-toggle is-active" : "ghost-button compact chat-menu-toggle"}
+          onClick={() => setMembersOpen((current) => !current)}
+          aria-expanded={membersOpen}
+        >
+          {membersOpen ? "Скрыть участников" : "Участники"}
         </button>
       </div>
 
@@ -369,7 +384,7 @@ export function ChatMenuPanel({
         </div>
       ) : null}
 
-      <div className="chat-menu-members">
+      <div className={membersOpen ? "chat-menu-members is-open" : "chat-menu-members"}>
         <div className="section-title">Участники</div>
         <div className="sheet-list chat-menu-members-list">
           {activeChat.members.map((member) => {
