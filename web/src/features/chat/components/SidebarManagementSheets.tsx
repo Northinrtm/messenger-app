@@ -19,7 +19,6 @@ type GroupMembersOptions = {
 
 type Props = {
   sheet: SidebarManagementSheet;
-  sessionToken: string;
   profile: UserProfile;
   sessionUser: UserProfile;
   profileDisplayName: string;
@@ -105,7 +104,6 @@ type Props = {
 
 export function SidebarManagementSheets({
   sheet,
-  sessionToken,
   profile,
   sessionUser,
   profileDisplayName,
@@ -207,7 +205,6 @@ export function SidebarManagementSheets({
   if (sheet === "profile") {
     return (
       <ProfileSettingsCard
-        sessionToken={sessionToken}
         profile={profile}
         profileDisplayName={profileDisplayName}
         profileProfession={profileProfession}

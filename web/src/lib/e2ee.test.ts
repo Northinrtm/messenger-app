@@ -24,11 +24,12 @@ vi.mock("./api", () => {
   };
 });
 
-import { resolveEncryptionPublicKeys } from "./api";
+import { ApiError, resolveEncryptionPublicKeys } from "./api";
 import {
   clearPinnedEncryptionIdentity,
   clearUnlockedEncryptionState,
   hasUnlockedPrivateEncryptionKey,
+  isEncryptionIdentityChangedError,
   primeEncryptedMessageRecipients,
 } from "./e2ee";
 
@@ -131,5 +132,18 @@ describe("e2ee hardening", () => {
 
     expect(window.localStorage.getItem(PINNED_KEY)).toBeNull();
     expect(window.localStorage.getItem(TRUSTED_DEVICE_KEY)).not.toBeNull();
+  });
+
+  it("recognizes the dedicated encryption identity mismatch error", () => {
+    expect(
+      isEncryptionIdentityChangedError(
+        new ApiError(
+          "Encryption identity changed for this account in this browser. Re-establish trust before continuing",
+          409
+        )
+      )
+    ).toBe(true);
+    expect(isEncryptionIdentityChangedError(new ApiError("Another 409", 409))).toBe(false);
+    expect(isEncryptionIdentityChangedError(new Error("plain error"))).toBe(false);
   });
 });

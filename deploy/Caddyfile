@@ -1,6 +1,13 @@
 {$APP_DOMAIN} {
     encode gzip zstd
 
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "no-referrer"
+        Permissions-Policy "camera=(self), microphone=(self), geolocation=(), payment=()"
+    }
+
     redir /meet /meet/ 308
     redir /observability /observability/ 308
 

@@ -1,15 +1,8 @@
-import { useEffect, useState } from "react";
-import {
-  clearPinnedEncryptionIdentity,
-  getUserEncryptionIdentitySummary,
-  type EncryptionIdentitySummary,
-} from "../../../lib/e2ee";
 import type { ChatSummary, Participant, UserProfile } from "../../../lib/types";
 import { AvatarCircle } from "./AvatarCircle";
 
 type Props = {
   activeChat: ChatSummary;
-  sessionToken: string;
   sessionUserId: string;
   activeDirectParticipant: Participant | null;
   activeDirectInContacts: boolean;
@@ -73,7 +66,6 @@ function renderMemberCount(count: number) {
 
 export function ChatMenuPanel({
   activeChat,
-  sessionToken,
   sessionUserId,
   activeDirectParticipant,
   activeDirectInContacts,
@@ -105,40 +97,6 @@ export function ChatMenuPanel({
   onStartDirectConference,
   onToggleBlocked,
 }: Props) {
-  const [directIdentitySummary, setDirectIdentitySummary] = useState<EncryptionIdentitySummary | null>(null);
-  const [directIdentityError, setDirectIdentityError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!activeChat.direct || !activeDirectParticipant) {
-      setDirectIdentitySummary(null);
-      setDirectIdentityError(null);
-      return;
-    }
-
-    let cancelled = false;
-
-    const loadIdentity = async () => {
-      try {
-        const nextSummary = await getUserEncryptionIdentitySummary(sessionToken, activeDirectParticipant.id);
-        if (!cancelled) {
-          setDirectIdentitySummary(nextSummary);
-          setDirectIdentityError(null);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setDirectIdentitySummary(null);
-          setDirectIdentityError(error instanceof Error ? error.message : "Не удалось загрузить fingerprint");
-        }
-      }
-    };
-
-    void loadIdentity();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeChat.direct, activeDirectParticipant, sessionToken]);
-
   if (activeChat.direct && activeDirectParticipant) {
     return (
       <div className="chat-menu-panel">
@@ -199,44 +157,6 @@ export function ChatMenuPanel({
             <strong className="profile-about-value">{activeDirectParticipant.profession}</strong>
           </div>
         ) : null}
-        <div className="profile-line profile-action-panel">
-          <div className="profile-action-row">
-            <div className="profile-action-copy">
-              <span className="profile-label">Шифрование</span>
-              <strong>Identity key</strong>
-            </div>
-            {directIdentitySummary?.pinned ? (
-              <button
-                type="button"
-                className="ghost-button compact"
-                onClick={async () => {
-                  clearPinnedEncryptionIdentity(activeDirectParticipant.id);
-                  setDirectIdentitySummary(
-                    await getUserEncryptionIdentitySummary(sessionToken, activeDirectParticipant.id)
-                  );
-                }}
-              >
-                Сбросить доверие
-              </button>
-            ) : null}
-          </div>
-          <div className="profile-inline-stack">
-            {directIdentitySummary?.fingerprint ? (
-              <>
-                <strong className="profile-code-value">{directIdentitySummary.fingerprint}</strong>
-                <span className="profile-field-help">
-                  {directIdentitySummary.pinned
-                    ? "Fingerprint закреплён в этом браузере."
-                    : "Fingerprint ещё не закреплён в этом браузере."}
-                </span>
-              </>
-            ) : (
-              <span className="profile-field-help">
-                {directIdentityError ?? "Ключ шифрования пользователя ещё недоступен."}
-              </span>
-            )}
-          </div>
-        </div>
       </div>
     );
   }

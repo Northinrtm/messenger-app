@@ -18,6 +18,14 @@ type ReactionOption = {
   label: string;
 };
 
+type EncryptionIdentityWarning = {
+  title: string;
+  description: string;
+  errorText: string | null;
+  actionLabel: string;
+  isPending: boolean;
+};
+
 type Props = {
   activeChat: ChatSummary;
   activeDirectParticipant: Participant | null;
@@ -35,6 +43,7 @@ type Props = {
   activeDraft: string;
   isChatMenuOpen: boolean;
   isDirectChatBlocked: boolean;
+  encryptionIdentityWarning: EncryptionIdentityWarning | null;
   chatMenuButtonRef: RefObject<HTMLButtonElement | null>;
   messageStreamRef: RefObject<HTMLDivElement | null>;
   composerTextareaRef: RefObject<HTMLTextAreaElement | null>;
@@ -58,6 +67,7 @@ type Props = {
   onJumpToMessage: (chatId: string, messageId: string) => void;
   onClearReply: () => void;
   onClearEdit: () => void;
+  onRecoverEncryptionIdentity: () => void;
   onComposerChange: (value: string) => void;
   onSubmit: () => void;
   formatClock: (value: string) => string;
@@ -85,6 +95,7 @@ export function ActiveChatConversation({
   activeDraft,
   isChatMenuOpen,
   isDirectChatBlocked,
+  encryptionIdentityWarning,
   chatMenuButtonRef,
   messageStreamRef,
   composerTextareaRef,
@@ -100,6 +111,7 @@ export function ActiveChatConversation({
   onJumpToMessage,
   onClearReply,
   onClearEdit,
+  onRecoverEncryptionIdentity,
   onComposerChange,
   onSubmit,
   formatClock,
@@ -109,9 +121,12 @@ export function ActiveChatConversation({
   getReactionOption,
   buildMessagePreview,
 }: Props) {
+  const composerUnavailable = isDirectChatBlocked || Boolean(encryptionIdentityWarning);
   const composerPlaceholder = isDirectChatBlocked
     ? "Пользователь заблокирован"
-    : editingMessage
+    : encryptionIdentityWarning
+      ? "Обновите чат, чтобы продолжить"
+      : editingMessage
       ? "Измените сообщение"
       : replyingToMessage
         ? "Напишите ответ"
@@ -346,11 +361,32 @@ export function ActiveChatConversation({
             </button>
           </div>
         ) : null}
+        {encryptionIdentityWarning ? (
+          <div className="composer-encryption-warning" role="alert" aria-live="polite">
+            <div className="composer-encryption-warning-copy">
+              <strong>{encryptionIdentityWarning.title}</strong>
+              <span>{encryptionIdentityWarning.description}</span>
+              {encryptionIdentityWarning.errorText ? (
+                <span className="composer-encryption-warning-error">
+                  {encryptionIdentityWarning.errorText}
+                </span>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              className="ghost-button compact composer-encryption-warning-action"
+              onClick={onRecoverEncryptionIdentity}
+              disabled={encryptionIdentityWarning.isPending}
+            >
+              {encryptionIdentityWarning.isPending ? "Обновляем..." : encryptionIdentityWarning.actionLabel}
+            </button>
+          </div>
+        ) : null}
         <div className="north-composer-body">
           <textarea
             ref={composerTextareaRef}
             value={activeDraft}
-            disabled={isDirectChatBlocked}
+            disabled={composerUnavailable}
             onChange={(event) => onComposerChange(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
@@ -364,7 +400,7 @@ export function ActiveChatConversation({
           <button
             type="submit"
             className="primary-button north-send-button"
-            disabled={!activeDraft.trim() || isDirectChatBlocked}
+            disabled={!activeDraft.trim() || composerUnavailable}
           >
             {editingMessage ? "✓" : ">"}
           </button>

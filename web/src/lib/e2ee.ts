@@ -18,6 +18,8 @@ import type {
 const MESSAGE_SCHEME = "RSA-OAEP-256/AES-GCM";
 const KDF_ITERATIONS = 250_000;
 const ENCRYPTED_MESSAGE_UNAVAILABLE = "[Encrypted message unavailable]";
+const ENCRYPTION_IDENTITY_CHANGED_MESSAGE =
+  "Encryption identity changed for this account in this browser. Re-establish trust before continuing";
 const UNLOCKED_IDENTITY_STORAGE_PREFIX = "north-messenger:unlocked-e2ee:";
 const REMEMBERED_UNLOCKED_IDENTITY_STORAGE_PREFIX = "north-messenger:remembered-e2ee:";
 const TRUSTED_DEVICE_STORAGE_PREFIX = "north-messenger:trusted-device-e2ee:";
@@ -151,6 +153,14 @@ export async function getUserEncryptionIdentitySummary(
 
 export function isUnavailableEncryptedMessage(content: string) {
   return content === ENCRYPTED_MESSAGE_UNAVAILABLE;
+}
+
+export function isEncryptionIdentityChangedError(error: unknown) {
+  return (
+    error instanceof ApiError &&
+    error.status === 409 &&
+    error.message === ENCRYPTION_IDENTITY_CHANGED_MESSAGE
+  );
 }
 
 export function clearUnlockedEncryptionState(userId?: string) {
@@ -796,10 +806,7 @@ async function assertPinnedPublicKey(userId: string, publicKey: string) {
 
   if (pinnedFingerprint !== fingerprint) {
     publicKeyCache.delete(userId);
-    throw new ApiError(
-      "Encryption identity changed for this account in this browser. Re-establish trust before continuing",
-      409
-    );
+    throw new ApiError(ENCRYPTION_IDENTITY_CHANGED_MESSAGE, 409);
   }
 }
 

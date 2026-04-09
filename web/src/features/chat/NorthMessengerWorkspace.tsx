@@ -25,6 +25,7 @@ import {
   createVideoConference as createVideoConferenceRequest,
   deleteOwnAccount as deleteOwnAccountRequest,
   deleteChat as deleteChatRequest,
+  describeError,
   endVideoConference as endVideoConferenceRequest,
   createDirectChat,
   createGroupChat,
@@ -39,6 +40,8 @@ import {
 } from "../../lib/api";
 import { JITSI_BASE_URL } from "../../lib/config";
 import {
+  clearPinnedEncryptionIdentity,
+  isEncryptionIdentityChangedError,
   isUnavailableEncryptedMessage,
   primeEncryptedMessageRecipients,
 } from "../../lib/e2ee";
@@ -158,6 +161,12 @@ type ConferenceMiniPosition = {
   y: number;
 };
 
+type ChatEncryptionIdentityWarning = {
+  chatId: string;
+  participantIds: string[];
+  errorText: string | null;
+};
+
 function clampConferenceMiniPosition(
   position: ConferenceMiniPosition,
   size: { width: number; height: number }
@@ -236,6 +245,9 @@ export function NorthMessengerWorkspace({
   const [groupInviteCodesByChatId, setGroupInviteCodesByChatId] = useState<Record<string, string>>({});
   const [conferenceInviteCodesById, setConferenceInviteCodesById] = useState<Record<string, string>>({});
   const [pendingGroupMenuOpenChatId, setPendingGroupMenuOpenChatId] = useState<string | null>(null);
+  const [chatEncryptionIdentityWarning, setChatEncryptionIdentityWarning] =
+    useState<ChatEncryptionIdentityWarning | null>(null);
+  const [isRecoveringEncryptionIdentity, setIsRecoveringEncryptionIdentity] = useState(false);
   const [initialChatViewportHint, setInitialChatViewportHint] = useState<{
     chatId: string;
     unreadCount: number;
@@ -508,6 +520,48 @@ export function NorthMessengerWorkspace({
   );
   const activeChatCanModerateMembers = activeChatIsOwnedByCurrentUser || activeChatIsModerator;
   const activeChatCanShareInviteLink = activeChatIsOwnedByCurrentUser || activeChatIsModerator;
+  const activeChatEncryptionWarning =
+    activeChat && chatEncryptionIdentityWarning?.chatId === activeChat.id
+      ? {
+          title: "Нужно обновить чат",
+          description:
+            "Данные чата изменились. Обновите чат, чтобы снова отправлять и редактировать сообщения.",
+          errorText: chatEncryptionIdentityWarning.errorText,
+          actionLabel: "Обновить чат",
+          isPending: isRecoveringEncryptionIdentity,
+        }
+      : null;
+  const markActiveChatEncryptionIdentityWarning = useEffectEvent(
+    (chatId: string, participantIds: string[], errorText: string | null = null) => {
+      setChatEncryptionIdentityWarning((current) => {
+        if (
+          current?.chatId === chatId &&
+          current.errorText === errorText &&
+          current.participantIds.length === participantIds.length &&
+          current.participantIds.every((participantId, index) => participantId === participantIds[index])
+        ) {
+          return current;
+        }
+
+        return {
+          chatId,
+          participantIds,
+          errorText,
+        };
+      });
+    }
+  );
+  const clearActiveChatEncryptionIdentityWarning = useEffectEvent((chatId?: string) => {
+    setChatEncryptionIdentityWarning((current) => {
+      if (!current) {
+        return null;
+      }
+      if (!chatId || current.chatId === chatId) {
+        return null;
+      }
+      return current;
+    });
+  });
   const activeConferenceIsArchived = Boolean(activeConference?.endedAt);
   const activeConferenceCanJoin = Boolean(
     activeConference?.roomName &&
@@ -672,18 +726,28 @@ export function NorthMessengerWorkspace({
 
       if (error instanceof ApiError && error.status === 401) {
         onSessionChange(null);
+        return;
+      }
+
+      if (isEncryptionIdentityChangedError(error)) {
+        markActiveChatEncryptionIdentityWarning(activeChat.id, activeChat.members.map((member) => member.id));
       }
     });
 
     return () => {
       cancelled = true;
     };
-  }, [activeChat?.id, onSessionChange, session.token]);
+  }, [activeChat, markActiveChatEncryptionIdentityWarning, onSessionChange, session.token]);
 
   useEffect(() => {
     setIsChatMenuOpen(false);
     setIsChatMembersOpen(false);
   }, [activeChatId, activeConferenceId]);
+
+  useEffect(() => {
+    clearActiveChatEncryptionIdentityWarning(activeChatId ?? undefined);
+    setIsRecoveringEncryptionIdentity(false);
+  }, [activeChatId, clearActiveChatEncryptionIdentityWarning]);
 
   useEffect(() => {
     if (
@@ -893,6 +957,80 @@ export function NorthMessengerWorkspace({
     syncChatPinnedSummary,
     syncChatPreviewFromCache,
   });
+
+  const handleRecoverEncryptionIdentity = useEffectEvent(async () => {
+    if (
+      !activeChat ||
+      !chatEncryptionIdentityWarning ||
+      chatEncryptionIdentityWarning.chatId !== activeChat.id ||
+      isRecoveringEncryptionIdentity
+    ) {
+      return;
+    }
+
+    setIsRecoveringEncryptionIdentity(true);
+    sendMessageMutation.reset();
+    editMessageMutation.reset();
+    setChatEncryptionIdentityWarning((current) =>
+      current && current.chatId === activeChat.id
+        ? {
+            ...current,
+            errorText: null,
+          }
+        : current
+    );
+
+    try {
+      chatEncryptionIdentityWarning.participantIds.forEach((participantId) => {
+        clearPinnedEncryptionIdentity(participantId);
+      });
+      await primeEncryptedMessageRecipients(session.token, activeChat.members);
+      setChatEncryptionIdentityWarning(null);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onSessionChange(null);
+        return;
+      }
+
+      setChatEncryptionIdentityWarning((current) =>
+        current && current.chatId === activeChat.id
+          ? {
+              ...current,
+              errorText: "Не удалось обновить чат. Попробуйте ещё раз.",
+            }
+          : current
+      );
+    } finally {
+      setIsRecoveringEncryptionIdentity(false);
+    }
+  });
+
+  useEffect(() => {
+    if (!activeChat) {
+      return;
+    }
+
+    const mismatchError = isEncryptionIdentityChangedError(sendMessageMutation.error)
+      ? sendMessageMutation.error
+      : isEncryptionIdentityChangedError(editMessageMutation.error)
+        ? editMessageMutation.error
+        : null;
+
+    if (!mismatchError) {
+      return;
+    }
+
+    markActiveChatEncryptionIdentityWarning(
+      activeChat.id,
+      activeChat.members.map((member) => member.id),
+      null
+    );
+  }, [
+    activeChat,
+    editMessageMutation.error,
+    markActiveChatEncryptionIdentityWarning,
+    sendMessageMutation.error,
+  ]);
 
   const {
     addConferenceParticipantsMutation,
@@ -1522,7 +1660,7 @@ export function NorthMessengerWorkspace({
       revokeGroupModeratorMutation.error,
       addConferenceParticipantsMutation.error,
       addGroupParticipantsMutation.error,
-      sendMessageMutation.error,
+      isEncryptionIdentityChangedError(sendMessageMutation.error) ? null : sendMessageMutation.error,
       signOutMutation.error,
       revokeSessionMutation.error,
       updateProfileMutation.error,
@@ -1532,7 +1670,7 @@ export function NorthMessengerWorkspace({
       updateArchivedChatMutation.error,
       deleteChatMutation.error,
       deleteMessageMutation.error,
-      editMessageMutation.error,
+      isEncryptionIdentityChangedError(editMessageMutation.error) ? null : editMessageMutation.error,
       pinMessageMutation.error,
       forwardMessageMutation.error,
       toggleMessageReactionMutation.error,
@@ -1813,7 +1951,6 @@ export function NorthMessengerWorkspace({
                   ? sidebarSheet
                   : null
               }
-              sessionToken={session.token}
               profile={profile}
               sessionUser={session.user}
               currentSessionId={session.sessionId}
@@ -1974,6 +2111,7 @@ export function NorthMessengerWorkspace({
             activeDraft={activeDraft}
             isChatMenuOpen={isChatMenuOpen}
             isDirectChatBlocked={activeDirectBlockedByMe}
+            encryptionIdentityWarning={activeChatEncryptionWarning}
             chatMenuButtonRef={chatMenuButtonRef}
             messageStreamRef={messageStreamRef}
             composerTextareaRef={composerTextareaRef}
@@ -2001,6 +2139,7 @@ export function NorthMessengerWorkspace({
             onJumpToMessage={scrollToMessage}
             onClearReply={() => clearComposerContext("reply")}
             onClearEdit={() => clearComposerContext("edit")}
+            onRecoverEncryptionIdentity={handleRecoverEncryptionIdentity}
             onComposerChange={handleComposerChange}
             onSubmit={() => handleSubmitActiveDraft(activeDraft)}
             formatClock={formatClock}
@@ -2029,7 +2168,6 @@ export function NorthMessengerWorkspace({
             <div ref={chatMenuPanelRef} className="chat-menu-panel-frame">
               <ChatMenuPanel
                 activeChat={activeChat}
-                sessionToken={session.token}
                 sessionUserId={session.user.id}
                 activeDirectParticipant={activeDirectParticipant}
                 activeDirectInContacts={activeDirectInContacts}

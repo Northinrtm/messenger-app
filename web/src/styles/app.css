@@ -2906,6 +2906,45 @@ textarea {
   background: rgba(255, 255, 255, 0.1);
 }
 
+.composer-encryption-warning {
+  width: min(100%, 78rem);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+  justify-self: center;
+  padding: 0.85rem 1rem;
+  border-radius: 1rem;
+  background: rgba(202, 88, 82, 0.12);
+  border: 1px solid rgba(214, 102, 96, 0.22);
+  color: #ffd8d2;
+}
+
+.composer-encryption-warning-copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.composer-encryption-warning-copy strong {
+  font-size: 0.94rem;
+  color: #fff1ee;
+}
+
+.composer-encryption-warning-copy span {
+  color: #ffd8d2;
+  line-height: 1.4;
+}
+
+.composer-encryption-warning-error {
+  color: #fff1ee;
+  font-size: 0.84rem;
+}
+
+.composer-encryption-warning-action {
+  white-space: nowrap;
+}
+
 .north-composer:has(.composer-context-edit) {
   gap: 0.45rem;
 }
@@ -3651,6 +3690,10 @@ textarea {
   .chat-menu-panel-shell.is-popover {
     top: 0.75rem;
     left: 0.9rem;
+  }
+
+  .composer-encryption-warning {
+    grid-template-columns: 1fr;
   }
 }
 

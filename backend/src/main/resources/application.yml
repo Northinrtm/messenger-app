@@ -76,7 +76,7 @@ app:
       secure: ${APP_AUTH_REFRESH_COOKIE_SECURE:false}
   jwt:
     issuer: north-messenger
-    access-token-ttl: PT12H
+    access-token-ttl: ${APP_JWT_ACCESS_TOKEN_TTL:PT30M}
     refresh-token-ttl: ${APP_JWT_REFRESH_TOKEN_TTL:P30D}
     secret: ${APP_JWT_SECRET:}
     generate-secret-if-missing: ${APP_JWT_GENERATE_SECRET_IF_MISSING:false}
