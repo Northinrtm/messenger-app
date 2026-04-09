@@ -44,7 +44,8 @@ So the only secret you need in GitHub is the private key for that `deploy` user.
 
 ## Deploy flow
 
-Use the manual `Deploy Production` GitHub Actions workflow.
+Production now deploys automatically on every `push` to `main`.
+The same `Deploy Production` workflow also remains available for manual reruns through `workflow_dispatch`.
 
 The workflow uploads `deploy/remote-update.sh` and runs it on the server.
 
@@ -61,6 +62,8 @@ The workflow uploads `deploy/remote-update.sh` and runs it on the server.
 
 This default deploy path is intentional for small hosts such as `2 vCPU / 2 GB RAM`.
 It keeps the core app running and avoids spending scarce memory on Grafana/Prometheus/Tempo/Loki by default.
+
+If you want truly hands-off deploys, make sure the GitHub `production` environment does not require manual approval.
 
 ## Observability
 
