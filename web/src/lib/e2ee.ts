@@ -21,6 +21,7 @@ const ENCRYPTED_MESSAGE_UNAVAILABLE = "[Encrypted message unavailable]";
 const UNLOCKED_IDENTITY_STORAGE_PREFIX = "north-messenger:unlocked-e2ee:";
 const REMEMBERED_UNLOCKED_IDENTITY_STORAGE_PREFIX = "north-messenger:remembered-e2ee:";
 const TRUSTED_DEVICE_STORAGE_PREFIX = "north-messenger:trusted-device-e2ee:";
+const PINNED_PUBLIC_KEY_FINGERPRINT_STORAGE_PREFIX = "north-messenger:pinned-e2ee-fingerprint:";
 const TRUSTED_DEVICE_RP_NAME = "North Messenger";
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -89,6 +90,8 @@ export function clearUnlockedEncryptionState(userId?: string) {
     removeUnlockedIdentityFromPersistentStorage(currentUserId);
   });
   unlockedIdentityByUserId.clear();
+  importedPublicKeyCache.clear();
+  publicKeyCache.clear();
 }
 
 export async function ensureEncryptionReady(session: AuthResponse, password: string) {
@@ -108,13 +111,13 @@ export async function ensureEncryptionReady(session: AuthResponse, password: str
   }
 
   if (bundle) {
+    await assertPinnedPublicKey(session.user.id, bundle.publicKey);
     const privateKey = await unwrapPrivateKey(bundle, password);
     const identity = {
       publicKey: bundle.publicKey,
       privateKey,
     };
     writeUnlockedIdentity(session.user.id, identity);
-    rememberUnlockedIdentityIfTrusted(session.user.id, identity);
     publicKeyCache.set(session.user.id, bundle.publicKey);
     return;
   }
@@ -129,8 +132,8 @@ export async function ensureEncryptionReady(session: AuthResponse, password: str
     kdfIterations: wrappedPrivateKey.iterations,
   });
 
+  await assertPinnedPublicKey(session.user.id, generatedIdentity.publicKey);
   writeUnlockedIdentity(session.user.id, generatedIdentity);
-  rememberUnlockedIdentityIfTrusted(session.user.id, generatedIdentity);
   publicKeyCache.set(session.user.id, generatedIdentity.publicKey);
 }
 
@@ -211,7 +214,6 @@ export async function trustCurrentDeviceUnlock(session: AuthResponse) {
     ciphertext: bytesToBase64(ciphertext),
     createdAt: new Date().toISOString(),
   });
-  writeUnlockedIdentityToPersistentStorage(session.user.id, identity);
 }
 
 export async function unlockWithTrustedDevice(userId: string) {
@@ -253,7 +255,6 @@ export async function unlockWithTrustedDevice(userId: string) {
       privateKey: parsedIdentity.privateKey,
     };
     writeUnlockedIdentity(userId, identity);
-    writeUnlockedIdentityToPersistentStorage(userId, identity);
     publicKeyCache.set(userId, parsedIdentity.publicKey);
   } catch (error) {
     if (error instanceof ApiError) {
@@ -445,6 +446,9 @@ async function loadPublicKeys(token: string, userIds: string[]) {
 
   if (missingUserIds.length > 0) {
     const resolvedKeys = await resolveEncryptionPublicKeys(token, missingUserIds);
+    await Promise.all(
+      resolvedKeys.map((entry) => assertPinnedPublicKey(entry.userId, entry.publicKey))
+    );
     resolvedKeys.forEach((entry) => {
       publicKeyCache.set(entry.userId, entry.publicKey);
       keysByUserId.set(entry.userId, entry.publicKey);
@@ -687,14 +691,7 @@ function readUnlockedIdentity(userId: string): LocalIdentity | null {
 
   const sessionIdentity = readUnlockedIdentityFromSession(userId);
   if (!sessionIdentity) {
-    const rememberedIdentity = readUnlockedIdentityFromPersistentStorage(userId);
-    if (!rememberedIdentity) {
-      return null;
-    }
-
-    unlockedIdentityByUserId.set(userId, rememberedIdentity);
-    writeUnlockedIdentityToSession(userId, rememberedIdentity);
-    return rememberedIdentity;
+    return null;
   }
 
   unlockedIdentityByUserId.set(userId, sessionIdentity);
@@ -706,12 +703,21 @@ function writeUnlockedIdentity(userId: string, identity: LocalIdentity) {
   writeUnlockedIdentityToSession(userId, identity);
 }
 
-function rememberUnlockedIdentityIfTrusted(userId: string, identity: LocalIdentity) {
-  if (!hasTrustedDeviceUnlock(userId)) {
+async function assertPinnedPublicKey(userId: string, publicKey: string) {
+  const fingerprint = await fingerprintPublicKey(publicKey);
+  const pinnedFingerprint = readPinnedPublicKeyFingerprint(userId);
+  if (!pinnedFingerprint) {
+    writePinnedPublicKeyFingerprint(userId, fingerprint);
     return;
   }
 
-  writeUnlockedIdentityToPersistentStorage(userId, identity);
+  if (pinnedFingerprint !== fingerprint) {
+    publicKeyCache.delete(userId);
+    throw new ApiError(
+      "Encryption identity changed for this account in this browser. Re-establish trust before continuing",
+      409
+    );
+  }
 }
 
 function readTrustedDeviceUnlockRecord(userId: string): TrustedDeviceUnlockRecord | null {
@@ -773,38 +779,6 @@ function removeTrustedDeviceUnlockRecord(userId: string) {
   }
 }
 
-function readUnlockedIdentityFromPersistentStorage(userId: string): LocalIdentity | null {
-  if (typeof window === "undefined" || !hasTrustedDeviceUnlock(userId)) {
-    return null;
-  }
-
-  try {
-    const rawValue = window.localStorage.getItem(getRememberedUnlockedIdentityStorageKey(userId));
-    if (!rawValue) {
-      return null;
-    }
-
-    const parsedIdentity = JSON.parse(rawValue) as Partial<LocalIdentity>;
-    if (
-      typeof parsedIdentity.publicKey !== "string" ||
-      parsedIdentity.publicKey.length === 0 ||
-      typeof parsedIdentity.privateKey !== "string" ||
-      parsedIdentity.privateKey.length === 0
-    ) {
-      removeUnlockedIdentityFromPersistentStorage(userId);
-      return null;
-    }
-
-    return {
-      publicKey: parsedIdentity.publicKey,
-      privateKey: parsedIdentity.privateKey,
-    };
-  } catch {
-    removeUnlockedIdentityFromPersistentStorage(userId);
-    return null;
-  }
-}
-
 function readUnlockedIdentityFromSession(userId: string): LocalIdentity | null {
   if (typeof window === "undefined") {
     return null;
@@ -861,18 +835,6 @@ function removeUnlockedIdentityFromSession(userId: string) {
   }
 }
 
-function writeUnlockedIdentityToPersistentStorage(userId: string, identity: LocalIdentity) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(getRememberedUnlockedIdentityStorageKey(userId), JSON.stringify(identity));
-  } catch {
-    return;
-  }
-}
-
 function removeUnlockedIdentityFromPersistentStorage(userId: string) {
   if (typeof window === "undefined") {
     return;
@@ -895,6 +857,43 @@ function getRememberedUnlockedIdentityStorageKey(userId: string) {
 
 function getTrustedDeviceStorageKey(userId: string) {
   return `${TRUSTED_DEVICE_STORAGE_PREFIX}${userId}`;
+}
+
+function getPinnedPublicKeyFingerprintStorageKey(userId: string) {
+  return `${PINNED_PUBLIC_KEY_FINGERPRINT_STORAGE_PREFIX}${userId}`;
+}
+
+function readPinnedPublicKeyFingerprint(userId: string) {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const value = window.localStorage.getItem(getPinnedPublicKeyFingerprintStorageKey(userId));
+    return value && value.length > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function writePinnedPublicKeyFingerprint(userId: string, fingerprint: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(getPinnedPublicKeyFingerprintStorageKey(userId), fingerprint);
+  } catch {
+    return;
+  }
+}
+
+async function fingerprintPublicKey(publicKey: string) {
+  const digest = await window.crypto.subtle.digest("SHA-256", textEncoder.encode(publicKey));
+  return bytesToBase64(new Uint8Array(digest))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
 }
 
 async function createTrustedDeviceCredential(session: AuthResponse) {

@@ -2848,6 +2848,8 @@ textarea {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.75rem;
   align-items: center;
+  width: min(100%, 78rem);
+  justify-self: center;
 }
 
 .composer-context {
@@ -2858,6 +2860,8 @@ textarea {
   padding: 0.75rem 0.85rem;
   border-radius: 1rem;
   background: #182533;
+  width: min(100%, 78rem);
+  justify-self: center;
 }
 
 .composer-context-label {
