@@ -1,4 +1,4 @@
-export { ChatMenuPanel } from "./ChatMenuPanel.next";
+export { ChatMenuPanel } from "./ChatMenuPanel.roles";
 
 /*
 

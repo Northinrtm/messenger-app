@@ -489,9 +489,13 @@ export function NorthMessengerWorkspace({
     : false;
   const activeGroupOwnerUserId =
     activeChat && !activeChat.direct
-      ? activeChat.ownerUserId ?? activeChat.members[0]?.id ?? null
+      ? activeChat.ownerUserId
       : null;
   const activeChatIsOwnedByCurrentUser = activeGroupOwnerUserId === session.user.id;
+  const activeChatIsModerator = Boolean(
+    activeChat && !activeChat.direct && activeChat.moderatorUserIds.includes(session.user.id)
+  );
+  const activeChatCanModerateMembers = activeChatIsOwnedByCurrentUser || activeChatIsModerator;
   const activeConferenceIsArchived = Boolean(activeConference?.endedAt);
   const activeConferenceCanJoin = Boolean(
     activeConference?.roomName &&
@@ -873,6 +877,7 @@ export function NorthMessengerWorkspace({
     addContact,
     addContactMutation,
     addGroupParticipantsMutation,
+    assignGroupModeratorMutation,
     avatarMutation,
     banGroupParticipantMutation,
     blockUserMutation,
@@ -885,8 +890,10 @@ export function NorthMessengerWorkspace({
     deleteAccountMutation,
     endConferenceMutation,
     leaveGroupMutation,
+    removeGroupParticipantMutation,
     removeContact,
     removeContactMutation,
+    revokeGroupModeratorMutation,
     revokeSessionMutation,
     signOutMutation,
     submitAddConferenceParticipants,
@@ -1099,6 +1106,54 @@ export function NorthMessengerWorkspace({
     }
 
     banGroupParticipantMutation.mutate(participant);
+  });
+
+  const handleBanParticipantAction = useEffectEvent((participant: Participant) => {
+    if (!activeChat || activeChat.direct || !activeChatCanModerateMembers || participant.id === session.user.id) {
+      return;
+    }
+
+    if (!window.confirm(`Забанить ${participant.displayName} и убрать из группы?`)) {
+      return;
+    }
+
+    banGroupParticipantMutation.mutate(participant);
+  });
+
+  const handleRemoveParticipantAction = useEffectEvent((participant: Participant) => {
+    if (!activeChat || activeChat.direct || !activeChatCanModerateMembers || participant.id === session.user.id) {
+      return;
+    }
+
+    if (!window.confirm(`Исключить ${participant.displayName} из группы?`)) {
+      return;
+    }
+
+    removeGroupParticipantMutation.mutate(participant);
+  });
+
+  const handleAssignModeratorAction = useEffectEvent((participant: Participant) => {
+    if (!activeChat || activeChat.direct || !activeChatIsOwnedByCurrentUser || participant.id === session.user.id) {
+      return;
+    }
+
+    if (!window.confirm(`Назначить ${participant.displayName} модератором группы?`)) {
+      return;
+    }
+
+    assignGroupModeratorMutation.mutate(participant);
+  });
+
+  const handleRevokeModeratorAction = useEffectEvent((participant: Participant) => {
+    if (!activeChat || activeChat.direct || !activeChatIsOwnedByCurrentUser) {
+      return;
+    }
+
+    if (!window.confirm(`Снять роль модератора с ${participant.displayName}?`)) {
+      return;
+    }
+
+    revokeGroupModeratorMutation.mutate(participant);
   });
 
   const handleToggleDirectBlock = useEffectEvent(() => {
@@ -1436,6 +1491,9 @@ export function NorthMessengerWorkspace({
       leaveGroupMutation.error,
       deleteGroupMutation.error,
       banGroupParticipantMutation.error,
+      removeGroupParticipantMutation.error,
+      assignGroupModeratorMutation.error,
+      revokeGroupModeratorMutation.error,
       addConferenceParticipantsMutation.error,
       addGroupParticipantsMutation.error,
       sendMessageMutation.error,
@@ -1953,9 +2011,16 @@ export function NorthMessengerWorkspace({
               leaveGroupPending={leaveGroupMutation.isPending}
               deleteGroupPending={deleteGroupMutation.isPending}
               banGroupParticipantPending={banGroupParticipantMutation.isPending}
+              removeGroupParticipantPending={removeGroupParticipantMutation.isPending}
+              assignModeratorPending={assignGroupModeratorMutation.isPending}
+              revokeModeratorPending={revokeGroupModeratorMutation.isPending}
               toggleBlockPending={blockUserMutation.isPending || unblockUserMutation.isPending}
               canDeleteGroup={activeChatIsOwnedByCurrentUser}
+              canEditGroup={activeChatIsOwnedByCurrentUser}
+              canManageInviteLink={activeChatIsOwnedByCurrentUser}
               canManageMembers={activeChatIsOwnedByCurrentUser}
+              canManageRoles={activeChatIsOwnedByCurrentUser}
+              canModerateMembers={activeChatCanModerateMembers}
               onClose={() => setIsChatMenuOpen(false)}
               onGroupDetailsTitleChange={setGroupDetailsTitle}
               onGroupAvatarSelected={(file) => void uploadGroupAvatarFromFile(file)}
@@ -1970,7 +2035,10 @@ export function NorthMessengerWorkspace({
               onCreateChat={(username) => createChatMutation.mutate(username)}
               onLeaveGroup={handleLeaveGroup}
               onDeleteGroup={handleDeleteGroup}
-              onBanParticipant={handleBanParticipant}
+              onBanParticipant={handleBanParticipantAction}
+              onRemoveParticipant={handleRemoveParticipantAction}
+              onAssignModerator={handleAssignModeratorAction}
+              onRevokeModerator={handleRevokeModeratorAction}
               onAddToContacts={addActiveChatToContacts}
               onStartDirectConference={handleStartDirectConference}
               onToggleBlocked={handleToggleDirectBlock}

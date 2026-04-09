@@ -15,6 +15,7 @@ import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.model.ChatParticipant;
 import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.ChatRoomBan;
+import com.north.messenger.domain.model.ChatRoomModerator;
 import com.north.messenger.domain.model.UserArchivedChat;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.UserDeletedChat;
@@ -23,6 +24,7 @@ import com.north.messenger.domain.repository.ChatMessageRepository;
 import com.north.messenger.domain.repository.ChatRoomBanRepository;
 import com.north.messenger.domain.repository.ChatParticipantRepository;
 import com.north.messenger.domain.repository.ChatRoomRepository;
+import com.north.messenger.domain.repository.ChatRoomModeratorRepository;
 import com.north.messenger.domain.repository.MessageReceiptRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import com.north.messenger.domain.repository.UserDeletedChatRepository;
@@ -57,6 +59,7 @@ public class ChatService {
     private final AuthService authService;
     private final ChatRoomRepository chatRoomRepository;
     private final ChatRoomBanRepository chatRoomBanRepository;
+    private final ChatRoomModeratorRepository chatRoomModeratorRepository;
     private final ChatParticipantRepository chatParticipantRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final MessageReceiptRepository messageReceiptRepository;
@@ -71,6 +74,7 @@ public class ChatService {
             AuthService authService,
             ChatRoomRepository chatRoomRepository,
             ChatRoomBanRepository chatRoomBanRepository,
+            ChatRoomModeratorRepository chatRoomModeratorRepository,
             ChatParticipantRepository chatParticipantRepository,
             ChatMessageRepository chatMessageRepository,
             MessageReceiptRepository messageReceiptRepository,
@@ -84,6 +88,7 @@ public class ChatService {
         this.authService = authService;
         this.chatRoomRepository = chatRoomRepository;
         this.chatRoomBanRepository = chatRoomBanRepository;
+        this.chatRoomModeratorRepository = chatRoomModeratorRepository;
         this.chatParticipantRepository = chatParticipantRepository;
         this.chatMessageRepository = chatMessageRepository;
         this.messageReceiptRepository = messageReceiptRepository;
@@ -295,6 +300,7 @@ public class ChatService {
         }
 
         chatParticipantRepository.deleteByChatIdAndUserId(chatId, currentUser.getId());
+        chatRoomModeratorRepository.deleteByChatIdAndUserId(chatId, currentUser.getId());
         userArchivedChatRepository.deleteByUserIdAndChatId(currentUser.getId(), chatId);
         userDeletedChatRepository.deleteByUserIdAndChatId(currentUser.getId(), chatId);
 
@@ -306,6 +312,9 @@ public class ChatService {
                     .orElse(null);
             room.updateOwnerUserId(nextOwnerUserId);
             chatRoomRepository.save(room);
+            if (nextOwnerUserId != null) {
+                chatRoomModeratorRepository.deleteByChatIdAndUserId(chatId, nextOwnerUserId);
+            }
         }
 
         realtimeMessagingGateway.sendToUser(
@@ -341,12 +350,10 @@ public class ChatService {
         if (room.isDirect()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Direct chat does not support bans");
         }
-        requireGroupOwner(room, currentUser);
+        GroupRole currentRole = requireGroupModeratorOrOwner(room, currentUser);
 
         UserAccount bannedUser = authService.requireExistingUser(bannedUsername);
-        if (bannedUser.getId().equals(currentUser.getId())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot ban yourself");
-        }
+        assertCanModerateTarget(room, currentUser, currentRole, bannedUser, "ban");
 
         chatRoomBanRepository.findByChatIdAndUserId(chatId, bannedUser.getId())
                 .orElseGet(() -> chatRoomBanRepository.save(
@@ -356,7 +363,9 @@ public class ChatService {
         boolean wasMember = chatParticipantRepository.existsByChatIdAndUserId(chatId, bannedUser.getId());
         if (wasMember) {
             chatParticipantRepository.deleteByChatIdAndUserId(chatId, bannedUser.getId());
+            chatRoomModeratorRepository.deleteByChatIdAndUserId(chatId, bannedUser.getId());
             userArchivedChatRepository.deleteByUserIdAndChatId(bannedUser.getId(), chatId);
+            userDeletedChatRepository.deleteByUserIdAndChatId(bannedUser.getId(), chatId);
             realtimeMessagingGateway.sendToUser(
                     bannedUser.getUsername(),
                     "/queue/chat-removals",
@@ -364,6 +373,78 @@ public class ChatService {
             );
             notifyChatUpdated(chatId);
         }
+    }
+
+    @Transactional
+    public void assignGroupModerator(String username, UUID chatId, String moderatorUsername) {
+        UserAccount currentUser = authService.requireAuthenticatedUser(username);
+        ChatRoom room = requireChatMembership(chatId, currentUser);
+        if (room.isDirect()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Direct chat does not support moderators");
+        }
+        requireGroupOwner(room, currentUser);
+
+        UserAccount moderatorUser = authService.requireExistingUser(moderatorUsername);
+        if (moderatorUser.getId().equals(currentUser.getId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Owner already has full access");
+        }
+        if (!chatParticipantRepository.existsByChatIdAndUserId(chatId, moderatorUser.getId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "User is not a member of this group");
+        }
+
+        UUID ownerUserId = resolveGroupOwnerUserId(room, chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId));
+        if (Objects.equals(ownerUserId, moderatorUser.getId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Group owner cannot be assigned as moderator");
+        }
+
+        chatRoomModeratorRepository.findByChatIdAndUserId(chatId, moderatorUser.getId())
+                .orElseGet(() -> chatRoomModeratorRepository.save(
+                        new ChatRoomModerator(UUID.randomUUID(), chatId, moderatorUser.getId(), currentUser.getId(), Instant.now())
+                ));
+        notifyChatUpdated(chatId);
+    }
+
+    @Transactional
+    public void revokeGroupModerator(String username, UUID chatId, String moderatorUsername) {
+        UserAccount currentUser = authService.requireAuthenticatedUser(username);
+        ChatRoom room = requireChatMembership(chatId, currentUser);
+        if (room.isDirect()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Direct chat does not support moderators");
+        }
+        requireGroupOwner(room, currentUser);
+
+        UserAccount moderatorUser = authService.requireExistingUser(moderatorUsername);
+        UUID ownerUserId = resolveGroupOwnerUserId(room, chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId));
+        if (Objects.equals(ownerUserId, moderatorUser.getId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Group owner cannot lose owner access");
+        }
+
+        chatRoomModeratorRepository.deleteByChatIdAndUserId(chatId, moderatorUser.getId());
+        notifyChatUpdated(chatId);
+    }
+
+    @Transactional
+    public void removeGroupParticipant(String username, UUID chatId, String participantUsername) {
+        UserAccount currentUser = authService.requireAuthenticatedUser(username);
+        ChatRoom room = requireChatMembership(chatId, currentUser);
+        if (room.isDirect()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Direct chat does not support participant removal");
+        }
+        GroupRole currentRole = requireGroupModeratorOrOwner(room, currentUser);
+
+        UserAccount participant = authService.requireExistingUser(participantUsername);
+        assertCanModerateTarget(room, currentUser, currentRole, participant, "remove");
+
+        chatParticipantRepository.deleteByChatIdAndUserId(chatId, participant.getId());
+        chatRoomModeratorRepository.deleteByChatIdAndUserId(chatId, participant.getId());
+        userArchivedChatRepository.deleteByUserIdAndChatId(participant.getId(), chatId);
+        userDeletedChatRepository.deleteByUserIdAndChatId(participant.getId(), chatId);
+        realtimeMessagingGateway.sendToUser(
+                participant.getUsername(),
+                "/queue/chat-removals",
+                new ChatRemovalEventResponse(chatId)
+        );
+        notifyChatUpdated(chatId);
     }
 
     @Transactional
@@ -450,6 +531,7 @@ public class ChatService {
         );
         Map<UUID, Boolean> onlineByUserId = authService.resolveOnlineByUserIds(participantUserIds);
         List<ParticipantResponse> members = buildParticipantResponses(memberships, usersById, onlineByUserId);
+        List<UUID> moderatorUserIds = resolveModeratorUserIds(chatId);
         Map<UUID, Integer> unreadCountsByUserId = loadUnreadCountsForUsers(chatId);
         List<UserDeletedChat> deletedChatEntries = userDeletedChatRepository.findAllByChatId(chatId);
         Set<UUID> deletedUserIds = (deletedChatEntries == null ? List.<UserDeletedChat>of() : deletedChatEntries).stream()
@@ -471,6 +553,8 @@ public class ChatService {
                                     user.getId(),
                                     usersById,
                                     unreadCountsByUserId.getOrDefault(user.getId(), 0),
+                                    memberships,
+                                    moderatorUserIds,
                                     members
                             )
                     ));
@@ -537,6 +621,8 @@ public class ChatService {
                 currentUserId,
                 usersById,
                 unreadCount,
+                memberships,
+                resolveModeratorUserIds(room.getId()),
                 buildParticipantResponses(memberships, usersById, onlineByUserId)
         );
     }
@@ -546,9 +632,11 @@ public class ChatService {
             UUID currentUserId,
             Map<UUID, UserAccount> usersById,
             int unreadCount,
+            List<ChatParticipant> memberships,
+            List<UUID> moderatorUserIds,
             List<ParticipantResponse> members
     ) {
-        UUID ownerUserId = resolveOwnerUserId(room, members);
+        UUID ownerUserId = resolveGroupOwnerUserId(room, memberships);
         ChatMessage lastMessage = findLatestVisibleMessage(room.getId(), currentUserId);
         MessageSnippetResponse pinnedMessage = buildPinnedSnippet(room, currentUserId, usersById);
         Instant updatedAt = lastMessage != null ? lastMessage.getCreatedAt() : room.getCreatedAt();
@@ -570,6 +658,7 @@ public class ChatService {
                 title,
                 room.isDirect() ? null : room.getAvatarUrl(),
                 room.isDirect() ? null : ownerUserId,
+                room.isDirect() ? List.of() : moderatorUserIds,
                 members,
                 lastMessage != null ? summarizeLastMessage(lastMessage) : null,
                 lastMessage != null ? lastMessage.getCreatedAt() : null,
@@ -667,9 +756,14 @@ public class ChatService {
     private void addParticipants(UUID chatId, UserAccount currentUser, List<UserAccount> participants) {
         Instant joinedAt = Instant.now();
         chatParticipantRepository.save(new ChatParticipant(UUID.randomUUID(), chatId, currentUser.getId(), joinedAt));
-        participants.forEach(participant ->
-                chatParticipantRepository.save(new ChatParticipant(UUID.randomUUID(), chatId, participant.getId(), joinedAt))
-        );
+        for (int index = 0; index < participants.size(); index++) {
+            chatParticipantRepository.save(new ChatParticipant(
+                    UUID.randomUUID(),
+                    chatId,
+                    participants.get(index).getId(),
+                    joinedAt.plusMillis(index + 1L)
+            ));
+        }
     }
 
     private Optional<UserAccount> resolveOtherDirectParticipant(UUID chatId, UUID currentUserId) {
@@ -686,16 +780,27 @@ public class ChatService {
     }
 
     private void requireGroupOwner(ChatRoom room, UserAccount currentUser) {
-        UUID ownerUserId = room.getOwnerUserId();
-        if (ownerUserId == null) {
-            ownerUserId = chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(room.getId()).stream()
-                    .map(ChatParticipant::getUserId)
-                    .findFirst()
-                    .orElse(null);
-        }
+        UUID ownerUserId = resolveGroupOwnerUserId(
+                room,
+                chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(room.getId())
+        );
         if (!Objects.equals(ownerUserId, currentUser.getId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the group owner can manage this group");
         }
+    }
+
+    private GroupRole requireGroupModeratorOrOwner(ChatRoom room, UserAccount currentUser) {
+        UUID ownerUserId = resolveGroupOwnerUserId(
+                room,
+                chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(room.getId())
+        );
+        if (Objects.equals(ownerUserId, currentUser.getId())) {
+            return GroupRole.OWNER;
+        }
+        if (chatRoomModeratorRepository.existsByChatIdAndUserId(room.getId(), currentUser.getId())) {
+            return GroupRole.MODERATOR;
+        }
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the group owner or moderators can manage members");
     }
 
     private void requireGroupNotBanned(UUID chatId, UserAccount user) {
@@ -704,18 +809,58 @@ public class ChatService {
         }
     }
 
-    private UUID resolveOwnerUserId(ChatRoom room, List<ParticipantResponse> members) {
+    private UUID resolveGroupOwnerUserId(ChatRoom room, List<ChatParticipant> memberships) {
         if (room.isDirect()) {
             return null;
         }
-        if (room.getOwnerUserId() != null) {
-            return room.getOwnerUserId();
-        }
-
-        return members.stream()
-                .map(ParticipantResponse::id)
+        UUID resolvedOwnerUserId = memberships.stream()
+                .map(ChatParticipant::getUserId)
                 .findFirst()
                 .orElse(null);
+        if (!Objects.equals(room.getOwnerUserId(), resolvedOwnerUserId)) {
+            room.updateOwnerUserId(resolvedOwnerUserId);
+            chatRoomRepository.save(room);
+        }
+        return resolvedOwnerUserId;
+    }
+
+    private List<UUID> resolveModeratorUserIds(UUID chatId) {
+        return chatRoomModeratorRepository.findAllByChatId(chatId).stream()
+                .map(ChatRoomModerator::getUserId)
+                .toList();
+    }
+
+    private void assertCanModerateTarget(
+            ChatRoom room,
+            UserAccount currentUser,
+            GroupRole currentRole,
+            UserAccount targetUser,
+            String action
+    ) {
+        if (targetUser.getId().equals(currentUser.getId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Use leave instead of moderating yourself");
+        }
+        if (!chatParticipantRepository.existsByChatIdAndUserId(room.getId(), targetUser.getId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "User is not a member of this group");
+        }
+
+        UUID ownerUserId = resolveGroupOwnerUserId(
+                room,
+                chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(room.getId())
+        );
+        if (Objects.equals(ownerUserId, targetUser.getId())) {
+            String actionPastTense = "ban".equals(action) ? "banned" : "removed";
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Group owner cannot be " + actionPastTense);
+        }
+        boolean targetIsModerator = chatRoomModeratorRepository.existsByChatIdAndUserId(room.getId(), targetUser.getId());
+        if (currentRole == GroupRole.MODERATOR && targetIsModerator) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Moderators cannot manage other moderators");
+        }
+    }
+
+    private enum GroupRole {
+        OWNER,
+        MODERATOR
     }
 
     private LinkedHashSet<String> normalizeParticipantUsernames(

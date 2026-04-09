@@ -9,12 +9,14 @@ import com.north.messenger.observability.MessengerTelemetry;
 import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.model.ChatParticipant;
 import com.north.messenger.domain.model.ChatRoom;
+import com.north.messenger.domain.model.ChatRoomModerator;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.UserArchivedChat;
 import com.north.messenger.domain.model.UserDeletedChat;
 import com.north.messenger.domain.repository.ChatMessageRepository;
 import com.north.messenger.domain.repository.ChatRoomBanRepository;
 import com.north.messenger.domain.repository.ChatParticipantRepository;
+import com.north.messenger.domain.repository.ChatRoomModeratorRepository;
 import com.north.messenger.domain.repository.ChatRoomRepository;
 import com.north.messenger.domain.repository.MessageReceiptRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
@@ -36,6 +38,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -44,6 +47,7 @@ class ChatServiceTest {
     private AuthService authService;
     private ChatRoomRepository chatRoomRepository;
     private ChatRoomBanRepository chatRoomBanRepository;
+    private ChatRoomModeratorRepository chatRoomModeratorRepository;
     private ChatParticipantRepository chatParticipantRepository;
     private ChatMessageRepository chatMessageRepository;
     private MessageReceiptRepository messageReceiptRepository;
@@ -60,6 +64,7 @@ class ChatServiceTest {
         authService = mock(AuthService.class);
         chatRoomRepository = mock(ChatRoomRepository.class);
         chatRoomBanRepository = mock(ChatRoomBanRepository.class);
+        chatRoomModeratorRepository = mock(ChatRoomModeratorRepository.class);
         chatParticipantRepository = mock(ChatParticipantRepository.class);
         chatMessageRepository = mock(ChatMessageRepository.class);
         messageReceiptRepository = mock(MessageReceiptRepository.class);
@@ -73,6 +78,7 @@ class ChatServiceTest {
                 authService,
                 chatRoomRepository,
                 chatRoomBanRepository,
+                chatRoomModeratorRepository,
                 chatParticipantRepository,
                 chatMessageRepository,
                 messageReceiptRepository,
@@ -85,6 +91,7 @@ class ChatServiceTest {
         );
         when(userArchivedChatRepository.save(any(UserArchivedChat.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(userDeletedChatRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(chatRoomModeratorRepository.findAllByChatId(any(UUID.class))).thenReturn(List.of());
     }
 
     @Test
@@ -398,6 +405,8 @@ class ChatServiceTest {
         var response = chatService.createGroupChat("north", new CreateGroupChatRequest("Solo room", List.of()));
 
         assertThat(response.title()).isEqualTo("Solo room");
+        assertThat(response.ownerUserId()).isEqualTo(currentUser.getId());
+        assertThat(response.moderatorUserIds()).isEmpty();
         assertThat(response.members()).containsExactly(currentParticipant);
         assertThat(memberships).hasSize(1);
         assertThat(memberships.get(0).getUserId()).isEqualTo(currentUser.getId());
@@ -454,6 +463,135 @@ class ChatServiceTest {
         assertThat(room.getTitle()).isEqualTo("New name");
         assertThat(room.getAvatarUrl()).isEqualTo(avatarUrl);
         verify(realtimeMessagingGateway).sendToUser(eq("north"), eq("/queue/chats"), any());
+    }
+
+    @Test
+    void assignGroupModeratorShouldAllowOwnerToGrantModeratorRole() {
+        UserAccount owner = new UserAccount(UUID.randomUUID(), "north", "North", "hash", Instant.now());
+        UserAccount member = new UserAccount(UUID.randomUUID(), "alice", "Alice", "hash", Instant.now());
+        UUID chatId = UUID.randomUUID();
+        ChatRoom room = new ChatRoom(chatId, "Project", false, Instant.now());
+        room.updateOwnerUserId(owner.getId());
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(owner);
+        when(chatRoomRepository.findById(chatId)).thenReturn(Optional.of(room));
+        when(chatParticipantRepository.existsByChatIdAndUserId(chatId, owner.getId())).thenReturn(true);
+        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId)).thenReturn(List.of(
+                new ChatParticipant(UUID.randomUUID(), chatId, owner.getId(), Instant.parse("2026-04-09T10:00:00Z")),
+                new ChatParticipant(UUID.randomUUID(), chatId, member.getId(), Instant.parse("2026-04-09T10:00:01Z"))
+        ));
+        when(authService.requireExistingUser("alice")).thenReturn(member);
+        when(chatParticipantRepository.existsByChatIdAndUserId(chatId, member.getId())).thenReturn(true);
+        when(chatRoomModeratorRepository.findByChatIdAndUserId(chatId, member.getId())).thenReturn(Optional.empty());
+        when(chatRoomModeratorRepository.save(any(ChatRoomModerator.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(userAccountRepository.findAllByIdIn(List.of(owner.getId(), member.getId()))).thenReturn(List.of(owner, member));
+        when(authService.resolveOnlineByUserIds(List.of(owner.getId(), member.getId())))
+                .thenReturn(java.util.Map.of(owner.getId(), true, member.getId(), true));
+        when(messageReceiptRepository.countUnreadByChatId(chatId)).thenReturn(List.of());
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(eq(chatId), eq(owner.getId()), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(eq(chatId), eq(member.getId()), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(authService.toParticipant(owner, true)).thenReturn(new ParticipantResponse(
+                owner.getId(), owner.getUsername(), owner.getDisplayName(), owner.getAvatarUrl(), true
+        ));
+        when(authService.toParticipant(member, true)).thenReturn(new ParticipantResponse(
+                member.getId(), member.getUsername(), member.getDisplayName(), member.getAvatarUrl(), true
+        ));
+
+        chatService.assignGroupModerator("north", chatId, "alice");
+
+        verify(chatRoomModeratorRepository).save(any(ChatRoomModerator.class));
+        verify(realtimeMessagingGateway, times(2)).sendToUser(any(), eq("/queue/chats"), any());
+    }
+
+    @Test
+    void removeGroupParticipantShouldAllowModeratorToRemoveRegularMember() {
+        UserAccount owner = new UserAccount(UUID.randomUUID(), "owner", "Owner", "hash", Instant.now());
+        UserAccount moderator = new UserAccount(UUID.randomUUID(), "north", "North", "hash", Instant.now());
+        UserAccount member = new UserAccount(UUID.randomUUID(), "alice", "Alice", "hash", Instant.now());
+        UUID chatId = UUID.randomUUID();
+        ChatRoom room = new ChatRoom(chatId, "Project", false, Instant.now());
+        room.updateOwnerUserId(owner.getId());
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(moderator);
+        when(chatRoomRepository.findById(chatId)).thenReturn(Optional.of(room));
+        when(chatParticipantRepository.existsByChatIdAndUserId(chatId, moderator.getId())).thenReturn(true);
+        when(chatRoomModeratorRepository.existsByChatIdAndUserId(chatId, moderator.getId())).thenReturn(true);
+        when(authService.requireExistingUser("alice")).thenReturn(member);
+        when(chatParticipantRepository.existsByChatIdAndUserId(chatId, member.getId())).thenReturn(true);
+        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId)).thenReturn(List.of(
+                new ChatParticipant(UUID.randomUUID(), chatId, owner.getId(), Instant.parse("2026-04-09T10:00:00Z")),
+                new ChatParticipant(UUID.randomUUID(), chatId, moderator.getId(), Instant.parse("2026-04-09T10:00:01Z")),
+                new ChatParticipant(UUID.randomUUID(), chatId, member.getId(), Instant.parse("2026-04-09T10:00:02Z"))
+        ));
+        when(chatRoomModeratorRepository.existsByChatIdAndUserId(chatId, member.getId())).thenReturn(false);
+        when(userAccountRepository.findAllByIdIn(List.of(owner.getId(), moderator.getId()))).thenReturn(List.of(owner, moderator));
+        when(authService.resolveOnlineByUserIds(List.of(owner.getId(), moderator.getId())))
+                .thenReturn(java.util.Map.of(owner.getId(), true, moderator.getId(), true));
+        when(messageReceiptRepository.countUnreadByChatId(chatId)).thenReturn(List.of());
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(eq(chatId), eq(owner.getId()), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(eq(chatId), eq(moderator.getId()), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(authService.toParticipant(owner, true)).thenReturn(new ParticipantResponse(
+                owner.getId(), owner.getUsername(), owner.getDisplayName(), owner.getAvatarUrl(), true
+        ));
+        when(authService.toParticipant(moderator, true)).thenReturn(new ParticipantResponse(
+                moderator.getId(), moderator.getUsername(), moderator.getDisplayName(), moderator.getAvatarUrl(), true
+        ));
+
+        chatService.removeGroupParticipant("north", chatId, "alice");
+
+        verify(chatParticipantRepository).deleteByChatIdAndUserId(chatId, member.getId());
+        verify(realtimeMessagingGateway).sendToUser(eq("alice"), eq("/queue/chat-removals"), any());
+    }
+
+    @Test
+    void listChatsShouldRepairOwnerToEarliestParticipant() {
+        UserAccount creator = new UserAccount(UUID.randomUUID(), "north", "North", "hash", Instant.now());
+        UserAccount other = new UserAccount(UUID.randomUUID(), "alice", "Alice", "hash", Instant.now());
+        UUID chatId = UUID.randomUUID();
+        ChatRoom room = new ChatRoom(chatId, "Project", false, Instant.now());
+        room.updateOwnerUserId(other.getId());
+        ChatParticipant creatorMembership = new ChatParticipant(
+                UUID.randomUUID(),
+                chatId,
+                creator.getId(),
+                Instant.parse("2026-04-09T10:00:00Z")
+        );
+        ChatParticipant otherMembership = new ChatParticipant(
+                UUID.randomUUID(),
+                chatId,
+                other.getId(),
+                Instant.parse("2026-04-09T10:00:01Z")
+        );
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(creator);
+        when(chatParticipantRepository.findAllByUserIdOrderByJoinedAtAsc(creator.getId())).thenReturn(List.of(creatorMembership));
+        when(userDeletedChatRepository.findAllByUserIdOrderByDeletedAtDesc(creator.getId())).thenReturn(List.of());
+        when(chatRoomRepository.findAllById(List.of(chatId))).thenReturn(List.of(room));
+        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId)).thenReturn(List.of(creatorMembership, otherMembership));
+        when(messageReceiptRepository.countUnreadByUserIdAndChatIdIn(creator.getId(), List.of(chatId))).thenReturn(List.of());
+        when(userAccountRepository.findAllByIdIn(List.of(creator.getId(), other.getId()))).thenReturn(List.of(creator, other));
+        when(authService.resolveOnlineByUserIds(List.of(creator.getId(), other.getId())))
+                .thenReturn(java.util.Map.of(creator.getId(), true, other.getId(), true));
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(eq(chatId), eq(creator.getId()), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(authService.toParticipant(creator, true)).thenReturn(new ParticipantResponse(
+                creator.getId(), creator.getUsername(), creator.getDisplayName(), creator.getAvatarUrl(), true
+        ));
+        when(authService.toParticipant(other, true)).thenReturn(new ParticipantResponse(
+                other.getId(), other.getUsername(), other.getDisplayName(), other.getAvatarUrl(), true
+        ));
+        when(chatRoomRepository.save(any(ChatRoom.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var chats = chatService.listChats("north");
+
+        assertThat(chats).hasSize(1);
+        assertThat(chats.get(0).ownerUserId()).isEqualTo(creator.getId());
+        assertThat(room.getOwnerUserId()).isEqualTo(creator.getId());
+        verify(chatRoomRepository).save(room);
     }
 
     private MessageReceiptRepository.ChatUnreadCountView unreadCountView(UUID chatId, long unreadCount) {

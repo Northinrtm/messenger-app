@@ -703,3 +703,25 @@ export function banGroupParticipant(token: string, chatId: string, username: str
     body: { username },
   });
 }
+
+export function assignGroupModerator(token: string, chatId: string, username: string) {
+  return request<void>(`/api/chats/${chatId}/moderators`, {
+    method: "POST",
+    token,
+    body: { username },
+  });
+}
+
+export function revokeGroupModerator(token: string, chatId: string, username: string) {
+  return request<void>(`/api/chats/${chatId}/moderators/${encodeURIComponent(username)}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
+export function removeGroupParticipant(token: string, chatId: string, username: string) {
+  return request<void>(`/api/chats/${chatId}/participants/${encodeURIComponent(username)}`, {
+    method: "DELETE",
+    token,
+  });
+}

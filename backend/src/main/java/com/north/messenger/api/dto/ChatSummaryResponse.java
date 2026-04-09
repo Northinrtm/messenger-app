@@ -10,6 +10,7 @@ public record ChatSummaryResponse(
         String title,
         String avatarUrl,
         UUID ownerUserId,
+        List<UUID> moderatorUserIds,
         List<ParticipantResponse> members,
         String lastMessage,
         Instant lastMessageAt,

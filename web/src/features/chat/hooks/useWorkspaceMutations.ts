@@ -3,6 +3,7 @@ import {
   addContact as addContactRequest,
   addConferenceParticipants as addConferenceParticipantsRequest,
   addGroupParticipants,
+  assignGroupModerator as assignGroupModeratorRequest,
   banGroupParticipant as banGroupParticipantRequest,
   blockUser as blockUserRequest,
   cancelVideoConference as cancelVideoConferenceRequest,
@@ -15,7 +16,9 @@ import {
   endVideoConference as endVideoConferenceRequest,
   leaveGroup as leaveGroupRequest,
   logout,
+  removeGroupParticipant as removeGroupParticipantRequest,
   removeContact as removeContactRequest,
+  revokeGroupModerator as revokeGroupModeratorRequest,
   revokeSession,
   unblockUser as unblockUserRequest,
   updateArchivedChat,
@@ -244,6 +247,30 @@ export function useWorkspaceMutations({
   const banGroupParticipantMutation = useMutation({
     mutationFn: (participant: Participant) =>
       banGroupParticipantRequest(token, activeChat!.id, participant.username),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["chats", token] });
+    },
+  });
+
+  const removeGroupParticipantMutation = useMutation({
+    mutationFn: (participant: Participant) =>
+      removeGroupParticipantRequest(token, activeChat!.id, participant.username),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["chats", token] });
+    },
+  });
+
+  const assignGroupModeratorMutation = useMutation({
+    mutationFn: (participant: Participant) =>
+      assignGroupModeratorRequest(token, activeChat!.id, participant.username),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["chats", token] });
+    },
+  });
+
+  const revokeGroupModeratorMutation = useMutation({
+    mutationFn: (participant: Participant) =>
+      revokeGroupModeratorRequest(token, activeChat!.id, participant.username),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["chats", token] });
     },
@@ -527,6 +554,7 @@ export function useWorkspaceMutations({
     addContact,
     addContactMutation,
     addGroupParticipantsMutation,
+    assignGroupModeratorMutation,
     avatarMutation,
     banGroupParticipantMutation,
     blockUserMutation,
@@ -539,8 +567,10 @@ export function useWorkspaceMutations({
     deleteAccountMutation,
     endConferenceMutation,
     leaveGroupMutation,
+    removeGroupParticipantMutation,
     removeContact,
     removeContactMutation,
+    revokeGroupModeratorMutation,
     revokeSessionMutation,
     signOutMutation,
     submitAddConferenceParticipants,

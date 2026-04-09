@@ -55,6 +55,7 @@ export type ChatSummary = {
   title: string;
   avatarUrl: string | null;
   ownerUserId: string | null;
+  moderatorUserIds: string[];
   members: Participant[];
   lastMessage: string | null;
   lastMessageAt: string | null;

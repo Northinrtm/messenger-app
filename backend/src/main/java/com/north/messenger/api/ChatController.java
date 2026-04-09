@@ -100,6 +100,36 @@ public class ChatController {
         chatService.banGroupParticipant(authentication.getName(), chatId, request.username());
     }
 
+    @PostMapping("/{chatId}/moderators")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void assignGroupModerator(
+            Authentication authentication,
+            @PathVariable UUID chatId,
+            @Valid @RequestBody GroupParticipantActionRequest request
+    ) {
+        chatService.assignGroupModerator(authentication.getName(), chatId, request.username());
+    }
+
+    @DeleteMapping("/{chatId}/moderators/{username}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void revokeGroupModerator(
+            Authentication authentication,
+            @PathVariable UUID chatId,
+            @PathVariable String username
+    ) {
+        chatService.revokeGroupModerator(authentication.getName(), chatId, username);
+    }
+
+    @DeleteMapping("/{chatId}/participants/{username}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeGroupParticipant(
+            Authentication authentication,
+            @PathVariable UUID chatId,
+            @PathVariable String username
+    ) {
+        chatService.removeGroupParticipant(authentication.getName(), chatId, username);
+    }
+
     @PutMapping("/{chatId}/archive")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void updateArchivedChatState(

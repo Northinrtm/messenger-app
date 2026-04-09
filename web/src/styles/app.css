@@ -1687,6 +1687,13 @@ textarea {
   justify-content: flex-end;
 }
 
+.member-pill-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  justify-content: flex-end;
+}
+
 .sheet-row-with-avatar {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
