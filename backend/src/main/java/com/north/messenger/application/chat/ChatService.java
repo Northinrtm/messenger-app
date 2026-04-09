@@ -292,6 +292,9 @@ public class ChatService {
         if (room.isDirect()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Direct chat cannot be left");
         }
+        if (Objects.equals(room.getOwnerUserId(), currentUser.getId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Group owner cannot leave the group");
+        }
 
         List<ChatParticipant> memberships = chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId);
         if (memberships.size() == 1) {

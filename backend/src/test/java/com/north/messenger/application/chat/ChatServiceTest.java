@@ -31,9 +31,11 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.data.domain.Pageable;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -463,6 +465,25 @@ class ChatServiceTest {
         assertThat(room.getTitle()).isEqualTo("New name");
         assertThat(room.getAvatarUrl()).isEqualTo(avatarUrl);
         verify(realtimeMessagingGateway).sendToUser(eq("north"), eq("/queue/chats"), any());
+    }
+
+    @Test
+    void leaveGroupShouldRejectOwner() {
+        UserAccount owner = new UserAccount(UUID.randomUUID(), "north", "North", "hash", Instant.now());
+        UUID chatId = UUID.randomUUID();
+        ChatRoom room = new ChatRoom(chatId, "Project", false, Instant.now());
+        room.updateOwnerUserId(owner.getId());
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(owner);
+        when(chatRoomRepository.findById(chatId)).thenReturn(Optional.of(room));
+        when(chatParticipantRepository.existsByChatIdAndUserId(chatId, owner.getId())).thenReturn(true);
+
+        assertThatThrownBy(() -> chatService.leaveGroup("north", chatId))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Group owner cannot leave the group");
+
+        verify(chatParticipantRepository, never()).deleteByChatIdAndUserId(chatId, owner.getId());
+        verify(chatRoomRepository, never()).save(any(ChatRoom.class));
     }
 
     @Test

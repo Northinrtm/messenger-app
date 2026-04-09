@@ -176,7 +176,7 @@ export function ProfileSettingsCard({
             maxLength={160}
             rows={3}
           />
-          <span className="profile-field-help">Короткое описание, как в Telegram bio.</span>
+          <span className="profile-field-help">Короткое описание о себе.</span>
         </form>
 
         <div className="profile-line profile-action-panel">

@@ -66,6 +66,7 @@ function renderMemberCount(count: number) {
 
 export function ChatMenuPanel({
   activeChat,
+  sessionUserId,
   activeDirectParticipant,
   activeDirectInContacts,
   isDirectBlocked,
@@ -166,6 +167,7 @@ export function ChatMenuPanel({
 
   const normalizedGroupTitle = groupDetailsTitle.trim();
   const groupTitle = normalizedGroupTitle || activeChat.title;
+  const isCurrentUserOwner = activeChat.ownerUserId === sessionUserId;
   const groupChanged =
     groupTitle !== activeChat.title ||
     (groupDetailsAvatarUrl ?? null) !== (activeChat.avatarUrl ?? null);
@@ -306,14 +308,16 @@ export function ChatMenuPanel({
       ) : null}
 
       <div className="chat-menu-footer">
-        <button
-          type="button"
-          className="ghost-button compact"
-          disabled={leaveGroupPending || deleteGroupPending}
-          onClick={onLeaveGroup}
-        >
-          Выйти из группы
-        </button>
+        {!isCurrentUserOwner ? (
+          <button
+            type="button"
+            className="ghost-button compact"
+            disabled={leaveGroupPending || deleteGroupPending}
+            onClick={onLeaveGroup}
+          >
+            Выйти из группы
+          </button>
+        ) : null}
         {canDeleteGroup ? (
           <button
             type="button"
@@ -328,3 +332,4 @@ export function ChatMenuPanel({
     </div>
   );
 }
+

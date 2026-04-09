@@ -158,7 +158,16 @@ export function ActiveChatConversation({
               </span>
             </button>
           ) : (
-            <div className="conversation-identity">
+            <button
+              type="button"
+              ref={chatMenuButtonRef}
+              className={
+                isChatMenuOpen
+                  ? "conversation-identity-button is-active"
+                  : "conversation-identity-button"
+              }
+              onClick={onToggleChatMenu}
+            >
               <AvatarCircle
                 className="avatar conversation-avatar north-avatar"
                 name={activeChat.title}
@@ -168,18 +177,6 @@ export function ActiveChatConversation({
               <span className="conversation-copy">
                 <span className="conversation-title-row">
                   <h3>{activeChat.title}</h3>
-                  <button
-                    type="button"
-                    ref={chatMenuButtonRef}
-                    className={
-                      isChatMenuOpen
-                        ? "ghost-button compact conversation-menu-button is-active"
-                        : "ghost-button compact conversation-menu-button"
-                    }
-                    onClick={onToggleChatMenu}
-                  >
-                    Меню
-                  </button>
                 </span>
                 <p
                   className={
@@ -191,7 +188,7 @@ export function ActiveChatConversation({
                   {conversationSubtitle}
                 </p>
               </span>
-            </div>
+            </button>
           )}
         </div>
         <div className="conversation-actions">
@@ -503,3 +500,4 @@ function MessageRow({
     </div>
   );
 }
+

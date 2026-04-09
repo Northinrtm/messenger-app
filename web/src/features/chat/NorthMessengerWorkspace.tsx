@@ -1097,7 +1097,7 @@ export function NorthMessengerWorkspace({
   });
 
   const handleLeaveGroup = useEffectEvent(() => {
-    if (!activeChat || activeChat.direct) {
+    if (!activeChat || activeChat.direct || activeChatIsOwnedByCurrentUser) {
       return;
     }
 
