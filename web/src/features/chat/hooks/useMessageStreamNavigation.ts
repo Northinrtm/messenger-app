@@ -1,16 +1,50 @@
+import type { ChatMessage } from "../../../lib/types";
 import { useEffect, useEffectEvent, useRef } from "react";
 
 type UseMessageStreamNavigationOptions = {
   activeChatId: string | null;
   currentChatId: string | null;
   lastMessageId: string | null;
+  messages: ChatMessage[];
+  currentUserId: string;
+  pendingInitialAnchor: {
+    chatId: string;
+    unreadCount: number;
+  } | null;
+  clearPendingInitialAnchor: (chatId: string) => void;
   openChat: (chatId: string) => void;
 };
+
+export function resolveInitialMessageAnchorId(
+  messages: ChatMessage[],
+  currentUserId: string,
+  unreadCount: number
+) {
+  if (messages.length === 0) {
+    return null;
+  }
+
+  if (unreadCount <= 0) {
+    return messages[messages.length - 1]?.id ?? null;
+  }
+
+  const unreadIncomingMessages = [...messages]
+    .reverse()
+    .filter((message) => message.sender.id !== currentUserId)
+    .slice(0, unreadCount)
+    .reverse();
+
+  return unreadIncomingMessages[0]?.id ?? messages[messages.length - 1]?.id ?? null;
+}
 
 export function useMessageStreamNavigation({
   activeChatId,
   currentChatId,
   lastMessageId,
+  messages,
+  currentUserId,
+  pendingInitialAnchor,
+  clearPendingInitialAnchor,
   openChat,
 }: UseMessageStreamNavigationOptions) {
   const messageStreamRef = useRef<HTMLDivElement | null>(null);
@@ -20,7 +54,7 @@ export function useMessageStreamNavigation({
     lastMessageId: null,
   });
 
-  const scrollMessageIntoStream = useEffectEvent((messageId: string) => {
+  const scrollMessageIntoStream = useEffectEvent((messageId: string, behavior: ScrollBehavior = "smooth") => {
     const container = messageStreamRef.current;
     if (!container) {
       return false;
@@ -36,10 +70,34 @@ export function useMessageStreamNavigation({
 
     container.scrollTo({
       top: Math.max(0, targetTop),
-      behavior: "smooth",
+      behavior,
     });
 
     return true;
+  });
+
+  const scrollToStreamBottom = useEffectEvent((behavior: ScrollBehavior = "auto") => {
+    const container = messageStreamRef.current;
+    if (!container) {
+      return;
+    }
+
+    container.scrollTo({
+      top: container.scrollHeight,
+      behavior,
+    });
+  });
+
+  const scheduleInitialViewportPosition = useEffectEvent((messageId: string | null) => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        if (messageId && scrollMessageIntoStream(messageId, "auto")) {
+          return;
+        }
+
+        scrollToStreamBottom("auto");
+      });
+    });
   });
 
   const scrollToMessage = useEffectEvent((chatId: string, messageId: string) => {
@@ -78,18 +136,44 @@ export function useMessageStreamNavigation({
       return;
     }
 
+    const pendingAnchorForCurrentChat =
+      currentChatId && pendingInitialAnchor?.chatId === currentChatId
+        ? pendingInitialAnchor
+        : null;
+    if (currentChatId && pendingAnchorForCurrentChat) {
+      const targetMessageId = resolveInitialMessageAnchorId(
+        messages,
+        currentUserId,
+        pendingAnchorForCurrentChat.unreadCount
+      );
+      scheduleInitialViewportPosition(targetMessageId);
+      clearPendingInitialAnchor(currentChatId);
+      viewportSnapshotRef.current = {
+        chatId: currentChatId,
+        lastMessageId,
+      };
+      return;
+    }
+
     const previous = viewportSnapshotRef.current;
     const chatChanged = previous.chatId !== currentChatId;
     const tailChanged = previous.lastMessageId !== lastMessageId;
     if (chatChanged || tailChanged) {
-      container.scrollTop = container.scrollHeight;
+      scheduleInitialViewportPosition(lastMessageId);
     }
 
     viewportSnapshotRef.current = {
       chatId: currentChatId,
       lastMessageId,
     };
-  }, [currentChatId, lastMessageId]);
+  }, [
+    clearPendingInitialAnchor,
+    currentChatId,
+    currentUserId,
+    lastMessageId,
+    messages,
+    pendingInitialAnchor,
+  ]);
 
   return {
     messageStreamRef,

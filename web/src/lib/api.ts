@@ -221,7 +221,10 @@ export function getProfile(token: string) {
   return request<UserProfile>("/api/auth/me", { token });
 }
 
-export function updateProfile(token: string, input: { displayName: string }) {
+export function updateProfile(
+  token: string,
+  input: { displayName: string; profession: string | null }
+) {
   return request<UserProfile>("/api/auth/me", {
     method: "PUT",
     token,

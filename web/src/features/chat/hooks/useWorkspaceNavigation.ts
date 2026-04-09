@@ -28,6 +28,9 @@ type UseWorkspaceNavigationParams = {
   setConferenceTitle: Dispatch<SetStateAction<string>>;
   setConferenceViewportMode: Dispatch<SetStateAction<ConferenceViewportMode>>;
   setDeleteAccountConfirmation: Dispatch<SetStateAction<string>>;
+  setInitialChatViewportHint: Dispatch<
+    SetStateAction<{ chatId: string; unreadCount: number } | null>
+  >;
   setIsConferenceInfoOpen: Dispatch<SetStateAction<boolean>>;
   setIsMenuOpen: Dispatch<SetStateAction<boolean>>;
   setMobilePane: Dispatch<SetStateAction<"sidebar" | "conversation">>;
@@ -69,6 +72,7 @@ export function useWorkspaceNavigation({
   setConferenceTitle,
   setConferenceViewportMode,
   setDeleteAccountConfirmation,
+  setInitialChatViewportHint,
   setIsConferenceInfoOpen,
   setIsMenuOpen,
   setMobilePane,
@@ -151,13 +155,18 @@ export function useWorkspaceNavigation({
   });
 
   const openChat = useEffectEvent((chatId: string, tabHint?: ConversationListTab) => {
+    const targetChat = chats.find((chat) => chat.id === chatId) ?? null;
+
+    setInitialChatViewportHint({
+      chatId,
+      unreadCount: targetChat?.unreadCount ?? 0,
+    });
     clearComposerContext();
     clearChatAttention(chatId);
     clearChatUnreadIndicator(chatId);
     if (tabHint && tabHint !== "conferences") {
       setActiveListTab(tabHint);
     } else {
-      const targetChat = chats.find((chat) => chat.id === chatId) ?? null;
       if (targetChat) {
         setActiveListTab(targetChat.direct ? "dialogs" : "groups");
       }

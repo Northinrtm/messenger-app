@@ -4,7 +4,6 @@ import com.north.messenger.api.dto.ChatSummaryResponse;
 import com.north.messenger.api.dto.InviteAcceptanceResponse;
 import com.north.messenger.api.dto.InviteLinkResponse;
 import com.north.messenger.api.dto.VideoConferenceResponse;
-import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.InviteLink;
 import com.north.messenger.domain.model.InviteLinkTargetType;
 import com.north.messenger.domain.model.VideoConference;
@@ -46,11 +45,7 @@ public class InviteLinkService {
 
     @Transactional
     public InviteLinkResponse createGroupInviteLink(String username, UUID chatId, boolean refresh) {
-        ChatRoom room = chatService.requireChatMembership(chatId, username);
-        if (room.isDirect()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Direct chat links are not supported");
-        }
-
+        chatService.requireGroupInviteLinkAccess(chatId, username);
         InviteLink inviteLink = createOrRefreshInviteLink(InviteLinkTargetType.GROUP, chatId, refresh);
         return new InviteLinkResponse(toPublicCode(inviteLink.getCode()));
     }

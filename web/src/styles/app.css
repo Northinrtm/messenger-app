@@ -1716,8 +1716,9 @@ textarea {
 
 .profile-avatar-card {
   display: grid;
-  gap: 0.8rem;
-  justify-items: flex-start;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 1rem;
   padding: 1rem;
   border-radius: 1rem;
   background: rgba(255, 255, 255, 0.035);
@@ -1730,18 +1731,45 @@ textarea {
   font-size: 1.3rem;
 }
 
+.profile-avatar-trigger {
+  display: grid;
+  justify-items: center;
+  gap: 0.55rem;
+  cursor: pointer;
+}
+
+.profile-avatar-trigger.is-pending {
+  cursor: progress;
+}
+
+.profile-avatar-badge {
+  color: #8aa0b6;
+  font-size: 0.78rem;
+  line-height: 1.2;
+}
+
 .profile-avatar-copy {
   display: grid;
-  gap: 0.2rem;
+  gap: 0.24rem;
+  min-width: 0;
 }
 
 .profile-avatar-copy strong {
   color: #f4fbff;
-  font-size: 1.08rem;
+  font-size: 1.12rem;
+  line-height: 1.2;
 }
 
 .profile-avatar-copy span {
   color: #8aa0b6;
+  overflow-wrap: anywhere;
+}
+
+.profile-avatar-copy em {
+  margin: 0;
+  color: #c9d8e6;
+  font-style: normal;
+  line-height: 1.35;
 }
 
 .profile-avatar-hint {
@@ -1792,6 +1820,8 @@ textarea {
 }
 
 .profile-edit-form {
+  display: grid;
+  gap: 0.6rem;
   align-items: flex-start;
 }
 
@@ -1799,13 +1829,72 @@ textarea {
   display: none;
 }
 
+.profile-inline-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.7rem;
+  align-items: center;
+  width: 100%;
+}
+
+.profile-inline-save {
+  white-space: nowrap;
+}
+
 .profile-line {
   display: grid;
-  gap: 0.2rem;
+  gap: 0.55rem;
   padding: 0.85rem 0.9rem;
   border-radius: 1rem;
   background: rgba(255, 255, 255, 0.035);
   border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.profile-action-panel {
+  gap: 0.75rem;
+}
+
+.profile-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.profile-action-copy {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.profile-action-copy strong {
+  color: #f4fbff;
+}
+
+.profile-action-copy span {
+  color: #8aa0b6;
+}
+
+.profile-expand-form,
+.profile-delete-confirm {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.profile-danger-panel {
+  background: rgba(148, 44, 44, 0.08);
+  border-color: rgba(255, 133, 133, 0.18);
+}
+
+.profile-danger-panel .profile-action-copy strong,
+.profile-delete-confirm strong {
+  color: #ffd7d7;
+}
+
+.profile-delete-confirm p {
+  margin: 0;
+  color: #d8b4b4;
+  line-height: 1.45;
 }
 
 .profile-label {
@@ -2275,7 +2364,7 @@ textarea {
 .north-workspace .north-conversation {
   position: relative;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   padding: 0;
   overflow: hidden;
   background: #0e1621;
@@ -2718,8 +2807,8 @@ textarea {
 .north-composer-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.8rem;
-  align-items: stretch;
+  gap: 0.75rem;
+  align-items: center;
 }
 
 .composer-context {
@@ -2752,6 +2841,91 @@ textarea {
 
 .composer-context-close:hover {
   background: rgba(255, 255, 255, 0.1);
+}
+
+.north-composer:has(.composer-context-edit) {
+  gap: 0.45rem;
+}
+
+.north-composer:has(.composer-context-edit) .composer-context {
+  padding: 0 0 0.45rem;
+  gap: 0.35rem;
+  border-radius: 0;
+  background: transparent;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.north-composer:has(.composer-context-edit) .composer-context-edit {
+  gap: 0.55rem;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.north-composer:has(.composer-context-edit) .message-reply-accent {
+  display: none;
+}
+
+.north-composer:has(.composer-context-edit) .composer-context-copy {
+  gap: 0.08rem;
+}
+
+.north-composer:has(.composer-context-edit) .composer-context-copy strong {
+  display: none;
+}
+
+.north-composer:has(.composer-context-edit) .composer-context-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  color: #73b6ff;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  font-size: 0.98rem;
+}
+
+.north-composer:has(.composer-context-edit) .composer-context-label::before {
+  content: "✎";
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.north-composer:has(.composer-context-edit) .composer-context-copy span:last-child {
+  color: #f4fbff;
+  font-size: 0.98rem;
+}
+
+.north-composer:has(.composer-context-edit) .composer-context-close {
+  width: 1.85rem;
+  height: 1.85rem;
+  align-self: start;
+  background: transparent;
+  color: #8ea2b6;
+}
+
+.north-composer:has(.composer-context-edit) .composer-context-close:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: #dceaf7;
+}
+
+.north-composer:has(.composer-context-edit) .north-composer-body {
+  gap: 0.55rem;
+  align-items: end;
+}
+
+.north-composer:has(.composer-context-edit) textarea {
+  height: 3.15rem;
+  min-height: 3.15rem;
+  max-height: 3.15rem;
+  padding-top: 0.82rem;
+  padding-bottom: 0.78rem;
+}
+
+.north-composer:has(.composer-context-edit) .north-send-button {
+  min-width: 3.15rem;
+  min-height: 3.15rem;
+  font-size: 1.18rem;
+  box-shadow: 0 8px 18px rgba(65, 119, 242, 0.18);
 }
 
 .context-menu-item-copy {
@@ -2859,6 +3033,13 @@ textarea {
   justify-content: space-between;
 }
 
+.chat-menu-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-left: auto;
+}
+
 .chat-menu-avatar {
   width: 3.5rem;
   height: 3.5rem;
@@ -2914,6 +3095,11 @@ textarea {
 
 .chat-members-panel {
   max-height: inherit;
+}
+
+.chat-members-panel-picker {
+  display: grid;
+  gap: 0.7rem;
 }
 
 .chat-members-panel-list {
@@ -3251,21 +3437,25 @@ textarea {
 }
 
 .north-composer {
-  padding: 1rem 1.25rem 1.2rem;
+  padding: 0.9rem 1.25rem 1rem;
   background: #17212b;
   border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .north-composer textarea {
+  display: block;
   height: 3.8rem;
   min-height: 3.8rem;
   max-height: 3.8rem;
+  margin: 0;
+  padding: 1rem 1.15rem;
   border: 0;
   border-radius: 1.3rem;
   background: #182533;
   color: #eff7ff;
   resize: none;
   overflow-y: auto;
+  line-height: 1.25;
 }
 
 .north-composer textarea:focus {
@@ -3277,6 +3467,7 @@ textarea {
   min-width: 3.8rem;
   min-height: 3.8rem;
   padding: 0;
+  align-self: center;
   border-radius: 999px;
   font-size: 1.35rem;
 }

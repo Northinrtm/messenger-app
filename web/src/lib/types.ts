@@ -2,6 +2,7 @@ export type UserProfile = {
   id: string;
   username: string;
   displayName: string;
+  profession: string | null;
   createdAt: string;
   avatarUrl: string | null;
   online: boolean;
@@ -11,6 +12,7 @@ export type Participant = {
   id: string;
   username: string;
   displayName: string;
+  profession: string | null;
   avatarUrl: string | null;
   online: boolean;
 };

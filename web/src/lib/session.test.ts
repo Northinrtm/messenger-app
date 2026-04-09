@@ -15,6 +15,7 @@ const validSession: AuthResponse = {
     id: "user-id",
     username: "north",
     displayName: "North",
+    profession: null,
     createdAt: "2026-03-20T20:00:00.000Z",
     avatarUrl: null,
     online: true,

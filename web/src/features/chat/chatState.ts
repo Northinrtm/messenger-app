@@ -6,6 +6,7 @@ import type {
   MessageReactionEvent,
   MessageStatusEvent,
 } from "../../lib/types";
+import { buildMessagePreview } from "./messagePresentation";
 
 export const MESSAGE_PAGE_SIZE = 50;
 export type ChatPreviewOverride = {
@@ -400,7 +401,7 @@ export function flattenMessagePages(pages: ChatMessage[][] | undefined) {
       }
     });
 
-  return [...deduped.values()].sort(compareMessages);
+  return hydrateReplySnippetPreviews([...deduped.values()].sort(compareMessages));
 }
 
 export function getLatestMessageFromPages(
@@ -416,6 +417,47 @@ export function initials(title: string) {
     .slice(0, 2)
     .map((chunk) => chunk[0]?.toUpperCase() ?? "")
     .join("");
+}
+
+function hydrateReplySnippetPreviews(messages: ChatMessage[]) {
+  const messagesById = new Map(messages.map((message) => [message.id, message]));
+  let changed = false;
+
+  const nextMessages = messages.map((message) => {
+    if (!message.replyTo) {
+      return message;
+    }
+
+    const replyTarget = messagesById.get(message.replyTo.id);
+    if (!replyTarget || replyTarget.content === "[Encrypted message unavailable]") {
+      return message;
+    }
+
+    const nextPreview = buildMessagePreview(replyTarget.content, 88);
+    const nextSender = replyTarget.sender;
+
+    if (
+      message.replyTo.preview === nextPreview &&
+      message.replyTo.sender.id === nextSender.id &&
+      message.replyTo.sender.displayName === nextSender.displayName &&
+      message.replyTo.sender.avatarUrl === nextSender.avatarUrl &&
+      message.replyTo.sender.online === nextSender.online
+    ) {
+      return message;
+    }
+
+    changed = true;
+    return {
+      ...message,
+      replyTo: {
+        ...message.replyTo,
+        sender: nextSender,
+        preview: nextPreview,
+      },
+    };
+  });
+
+  return changed ? nextMessages : messages;
 }
 
 export function parseUsernames(raw: string) {

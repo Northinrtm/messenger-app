@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { UserProfile, UserSessionInfo, ChatSummary, VideoConference } from "../../../lib/types";
 import { AvatarCircle } from "./AvatarCircle";
 
@@ -20,6 +21,7 @@ type Props = {
   profile: UserProfile;
   sessionUser: UserProfile;
   profileDisplayName: string;
+  profileProfession: string;
   passwordChangeCurrent: string;
   passwordChangeNext: string;
   passwordChangeConfirm: string;
@@ -39,6 +41,7 @@ type Props = {
   activeChat: ChatSummary | null;
   activeConference: VideoConference | null;
   groupInviteLinkUrl: string | null;
+  groupInviteLinkVisible: boolean;
   groupContacts: UserProfile[];
   selectedGroupContacts: UserProfile[];
   isGroupCreatePickerOpen: boolean;
@@ -63,6 +66,7 @@ type Props = {
   contactSearchFetching: boolean;
   onClose: () => void;
   onProfileDisplayNameChange: (value: string) => void;
+  onProfileProfessionChange: (value: string) => void;
   onSubmitProfileDisplayName: () => void;
   onPasswordChangeCurrentChange: (value: string) => void;
   onPasswordChangeNextChange: (value: string) => void;
@@ -71,6 +75,7 @@ type Props = {
   onDeleteAccountConfirmationChange: (value: string) => void;
   onDeleteAccount: () => void;
   onRemoveAvatar: () => void;
+  onAvatarSelected: (file: File) => void;
   onGroupTitleChange: (value: string) => void;
   onGroupDetailsTitleChange: (value: string) => void;
   onGroupAvatarSelected: (file: File) => void;
@@ -101,6 +106,7 @@ export function SidebarManagementSheets({
   profile,
   sessionUser,
   profileDisplayName,
+  profileProfession,
   passwordChangeCurrent,
   passwordChangeNext,
   passwordChangeConfirm,
@@ -120,6 +126,7 @@ export function SidebarManagementSheets({
   activeChat,
   activeConference,
   groupInviteLinkUrl,
+  groupInviteLinkVisible,
   groupContacts,
   selectedGroupContacts,
   isGroupCreatePickerOpen,
@@ -144,6 +151,7 @@ export function SidebarManagementSheets({
   contactSearchFetching,
   onClose,
   onProfileDisplayNameChange,
+  onProfileProfessionChange,
   onSubmitProfileDisplayName,
   onPasswordChangeCurrentChange,
   onPasswordChangeNextChange,
@@ -152,6 +160,7 @@ export function SidebarManagementSheets({
   onDeleteAccountConfirmationChange,
   onDeleteAccount,
   onRemoveAvatar,
+  onAvatarSelected,
   onGroupTitleChange,
   onGroupDetailsTitleChange,
   onGroupAvatarSelected,
@@ -176,6 +185,18 @@ export function SidebarManagementSheets({
   formatProfileDate,
   formatSessionTime,
 }: Props) {
+  const [isPasswordFormOpen, setIsPasswordFormOpen] = useState(false);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+
+  useEffect(() => {
+    if (sheet === "profile") {
+      return;
+    }
+
+    setIsPasswordFormOpen(false);
+    setIsDeleteConfirmOpen(false);
+  }, [sheet]);
+
   if (!sheet) {
     return null;
   }
@@ -187,6 +208,266 @@ export function SidebarManagementSheets({
       passwordChangeNext.length >= 8 &&
       passwordChangeMatches &&
       passwordChangeCurrent !== passwordChangeNext;
+    const normalizedProfileDisplayName = profileDisplayName.trim();
+    const normalizedProfileProfession = profileProfession.trim();
+    const profileChanged =
+      normalizedProfileDisplayName !== profile.displayName ||
+      normalizedProfileProfession !== (profile.profession ?? "");
+    const displayedProfileName =
+      normalizedProfileDisplayName.length > 0 ? normalizedProfileDisplayName : profile.displayName;
+    const displayedProfileProfession =
+      normalizedProfileProfession.length > 0
+        ? normalizedProfileProfession
+        : (profile.profession ?? "");
+
+    const closePasswordForm = () => {
+      setIsPasswordFormOpen(false);
+      onPasswordChangeCurrentChange("");
+      onPasswordChangeNextChange("");
+      onPasswordChangeConfirmChange("");
+    };
+
+    const closeDeleteConfirm = () => {
+      setIsDeleteConfirmOpen(false);
+      onDeleteAccountConfirmationChange("");
+    };
+
+    return (
+      <div className="sheet-card">
+        <div className="sheet-head">
+          <div>
+            <div className="section-title">Мой профиль</div>
+            <p className="sheet-copy">Настройки текущего аккаунта.</p>
+          </div>
+          <button type="button" className="ghost-button compact" onClick={onClose}>
+            Закрыть
+          </button>
+        </div>
+
+        <div className="sheet-list profile-sheet">
+          <div className="profile-avatar-card">
+            <label
+              className={avatarPending ? "profile-avatar-trigger is-pending" : "profile-avatar-trigger"}
+            >
+              <AvatarCircle
+                className="menu-profile-avatar profile-sheet-avatar"
+                name={displayedProfileName}
+                avatarUrl={profile.avatarUrl}
+                online={profile.online}
+              />
+              <span className="profile-avatar-badge">
+                {avatarPending ? "Загружаем..." : "Изменить фото"}
+              </span>
+              <input
+                className="profile-avatar-input"
+                type="file"
+                accept="image/*"
+                disabled={avatarPending}
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0];
+                  if (file) {
+                    onAvatarSelected(file);
+                  }
+                  event.currentTarget.value = "";
+                }}
+              />
+            </label>
+            <div className="profile-avatar-copy">
+              <span>@{profile.username}</span>
+              <strong>{displayedProfileName}</strong>
+              {displayedProfileProfession ? <em>{displayedProfileProfession}</em> : null}
+            </div>
+          </div>
+
+          <form
+            className="profile-line profile-edit-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              onSubmitProfileDisplayName();
+            }}
+          >
+            <span className="profile-label">Имя</span>
+            <div className="profile-inline-row">
+              <input
+                value={profileDisplayName}
+                onChange={(event) => onProfileDisplayNameChange(event.target.value)}
+                placeholder="Ваше имя"
+                maxLength={40}
+              />
+              {profileChanged ? (
+                <button
+                  type="submit"
+                  className="ghost-button compact profile-inline-save"
+                  disabled={updateProfilePending || normalizedProfileDisplayName.length < 2}
+                >
+                  {updateProfilePending ? "Сохраняем..." : "Сохранить"}
+                </button>
+              ) : null}
+            </div>
+
+            <span className="profile-label">Профессия</span>
+            <input
+              value={profileProfession}
+              onChange={(event) => onProfileProfessionChange(event.target.value)}
+              placeholder="Например: продуктовый менеджер"
+              maxLength={80}
+            />
+          </form>
+
+          <div className="profile-line profile-action-panel">
+            <div className="profile-action-row">
+              <div className="profile-action-copy">
+                <span className="profile-label">Безопасность</span>
+                <strong>Пароль</strong>
+              </div>
+              <button
+                type="button"
+                className="ghost-button compact"
+                onClick={() => {
+                  if (isPasswordFormOpen) {
+                    closePasswordForm();
+                    return;
+                  }
+
+                  closeDeleteConfirm();
+                  setIsPasswordFormOpen(true);
+                }}
+              >
+                {isPasswordFormOpen ? "Скрыть" : "Сменить пароль"}
+              </button>
+            </div>
+
+            {isPasswordFormOpen ? (
+              <form
+                className="profile-expand-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  onSubmitPasswordChange();
+                }}
+              >
+                <input
+                  value={passwordChangeCurrent}
+                  onChange={(event) => onPasswordChangeCurrentChange(event.target.value)}
+                  placeholder="Текущий пароль"
+                  type="password"
+                  autoComplete="current-password"
+                />
+                <input
+                  value={passwordChangeNext}
+                  onChange={(event) => onPasswordChangeNextChange(event.target.value)}
+                  placeholder="Новый пароль"
+                  type="password"
+                  autoComplete="new-password"
+                />
+                <input
+                  value={passwordChangeConfirm}
+                  onChange={(event) => onPasswordChangeConfirmChange(event.target.value)}
+                  placeholder="Повторите новый пароль"
+                  type="password"
+                  autoComplete="new-password"
+                />
+                {!passwordChangeMatches && passwordChangeConfirm.length > 0 ? (
+                  <div className="form-error">Пароли не совпадают.</div>
+                ) : null}
+                <button
+                  type="submit"
+                  className="secondary-button"
+                  disabled={changePasswordPending || !passwordChangeReady}
+                >
+                  {changePasswordPending ? "Меняем пароль..." : "Обновить пароль"}
+                </button>
+              </form>
+            ) : null}
+          </div>
+
+          <div className="profile-line">
+            <span className="profile-label">Создан</span>
+            <span>{formatProfileDate(profile.createdAt)}</span>
+          </div>
+
+          <div className="profile-line profile-action-panel profile-danger-panel">
+            <div className="profile-action-row">
+              <div className="profile-action-copy">
+                <span className="profile-label">Аккаунт</span>
+                <strong>Удаление аккаунта</strong>
+              </div>
+              <button
+                type="button"
+                className="ghost-button compact danger-button"
+                onClick={() => {
+                  if (isDeleteConfirmOpen) {
+                    closeDeleteConfirm();
+                    return;
+                  }
+
+                  closePasswordForm();
+                  setIsDeleteConfirmOpen(true);
+                }}
+              >
+                Удалить аккаунт
+              </button>
+            </div>
+
+            {isDeleteConfirmOpen ? (
+              <div className="profile-delete-confirm">
+                <p>
+                  Введите username <strong>{profile.username}</strong>, чтобы подтвердить удаление
+                  аккаунта.
+                </p>
+                <input
+                  value={deleteAccountConfirmation}
+                  onChange={(event) => onDeleteAccountConfirmationChange(event.target.value)}
+                  placeholder={profile.username}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                />
+                <button
+                  type="button"
+                  className="secondary-button danger-button"
+                  disabled={deleteAccountPending || !deleteAccountRequiresMatch}
+                  onClick={onDeleteAccount}
+                >
+                  {deleteAccountPending ? "Удаляем аккаунт..." : "Подтвердить удаление"}
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (false) {
+    const passwordChangeMatches = passwordChangeNext === passwordChangeConfirm;
+    const passwordChangeReady =
+      passwordChangeCurrent.length > 0 &&
+      passwordChangeNext.length >= 8 &&
+      passwordChangeMatches &&
+      passwordChangeCurrent !== passwordChangeNext;
+    const normalizedProfileDisplayName = profileDisplayName.trim();
+    const normalizedProfileProfession = profileProfession.trim();
+    const profileChanged =
+      normalizedProfileDisplayName !== profile.displayName ||
+      normalizedProfileProfession !== (profile.profession ?? "");
+    const displayedProfileName =
+      normalizedProfileDisplayName.length > 0 ? normalizedProfileDisplayName : profile.displayName;
+    const displayedProfileProfession =
+      normalizedProfileProfession.length > 0
+        ? normalizedProfileProfession
+        : (profile.profession ?? "");
+
+    const closePasswordForm = () => {
+      setIsPasswordFormOpen(false);
+      onPasswordChangeCurrentChange("");
+      onPasswordChangeNextChange("");
+      onPasswordChangeConfirmChange("");
+    };
+
+    const closeDeleteConfirm = () => {
+      setIsDeleteConfirmOpen(false);
+      onDeleteAccountConfirmationChange("");
+    };
 
     return (
       <div className="sheet-card">
@@ -242,16 +523,23 @@ export function SidebarManagementSheets({
               placeholder="Новое имя"
               maxLength={40}
             />
+            <span className="profile-label">Профессия</span>
+            <input
+              value={profileProfession}
+              onChange={(event) => onProfileProfessionChange(event.target.value)}
+              placeholder="Например: продуктовый менеджер"
+              maxLength={80}
+            />
             <button
               type="submit"
               className="secondary-button"
               disabled={
                 updateProfilePending ||
-                profileDisplayName.trim().length < 2 ||
-                profileDisplayName.trim() === profile.displayName
+                normalizedProfileDisplayName.length < 2 ||
+                !profileChanged
               }
             >
-              {updateProfilePending ? "Сохраняем..." : "Сохранить имя"}
+              {updateProfilePending ? "Сохраняем..." : "Сохранить профиль"}
             </button>
           </form>
           <form
@@ -303,6 +591,12 @@ export function SidebarManagementSheets({
             <span className="profile-label">Username</span>
             <strong>@{profile.username}</strong>
           </div>
+          {profile.profession ? (
+            <div className="profile-line">
+              <span className="profile-label">Профессия</span>
+              <strong>{profile.profession}</strong>
+            </div>
+          ) : null}
           <div className="profile-line">
             <span className="profile-label">ID аккаунта</span>
             <span>{profile.id}</span>
@@ -552,7 +846,8 @@ export function SidebarManagementSheets({
           </button>
         </div>
 
-        <div className="invite-link-panel">
+        {groupInviteLinkVisible ? (
+          <div className="invite-link-panel">
           <div className="invite-link-copy">
             <strong>Ссылка-приглашение</strong>
             <span>Открывает группу и сразу добавляет пользователя по короткому адресу.</span>
@@ -586,7 +881,8 @@ export function SidebarManagementSheets({
                 ? "Обновить ссылку"
                 : "Сгенерировать ссылку"}
           </button>
-        </div>
+          </div>
+        ) : null}
       </div>
     );
   }

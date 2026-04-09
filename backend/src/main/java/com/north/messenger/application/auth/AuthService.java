@@ -178,14 +178,16 @@ public class AuthService {
     }
 
     @Transactional
-    public UserProfileResponse updateProfile(String username, String displayName) {
+    public UserProfileResponse updateProfile(String username, String displayName, String profession) {
         UserAccount currentUser = requireAuthenticatedUser(username);
         String normalizedDisplayName = normalizeDisplayName(displayName);
+        String normalizedProfession = normalizeProfession(profession);
         if (userAccountRepository.existsByDisplayNameIgnoreCaseAndIdNot(normalizedDisplayName, currentUser.getId())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Display name is already taken");
         }
 
         currentUser.updateDisplayName(normalizedDisplayName);
+        currentUser.updateProfession(normalizedProfession);
         userAccountRepository.save(currentUser);
         return toProfile(currentUser);
     }
@@ -404,6 +406,7 @@ public class AuthService {
                 user.getId(),
                 user.getUsername(),
                 user.getDisplayName(),
+                user.getProfession(),
                 avatarService.resolveAvatarUrl(user),
                 online
         );
@@ -452,6 +455,7 @@ public class AuthService {
                 user.getId(),
                 user.getUsername(),
                 user.getDisplayName(),
+                user.getProfession(),
                 user.getCreatedAt(),
                 avatarService.resolveAvatarUrl(user),
                 online
@@ -474,6 +478,15 @@ public class AuthService {
 
     private String normalizeDisplayName(String displayName) {
         return displayName.trim();
+    }
+
+    private String normalizeProfession(String profession) {
+        if (profession == null) {
+            return null;
+        }
+
+        String normalized = profession.trim();
+        return normalized.isBlank() ? null : normalized;
     }
 
     private String normalizeSearchQuery(String query) {

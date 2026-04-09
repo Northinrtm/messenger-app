@@ -68,6 +68,7 @@ type UseWorkspaceMutationsOptions = {
   openConference: (conferenceId: string) => void;
   profile: UserProfile;
   profileDisplayName: string;
+  profileProfession: string;
   resetConferenceComposer: () => void;
   setActiveListTab: React.Dispatch<React.SetStateAction<ConversationListTab>>;
   setConferenceInviteUsernames: React.Dispatch<React.SetStateAction<string[]>>;
@@ -79,6 +80,7 @@ type UseWorkspaceMutationsOptions = {
   setIsGroupCreatePickerOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setIsGroupInvitePickerOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setMobilePane: React.Dispatch<React.SetStateAction<"sidebar" | "conversation">>;
+  setProfileProfession: React.Dispatch<React.SetStateAction<string>>;
   setSidebarSheet: React.Dispatch<React.SetStateAction<SidebarSheet>>;
 };
 
@@ -110,6 +112,7 @@ export function useWorkspaceMutations({
   openConference,
   profile,
   profileDisplayName,
+  profileProfession,
   resetConferenceComposer,
   setActiveListTab,
   setConferenceInviteUsernames,
@@ -121,6 +124,7 @@ export function useWorkspaceMutations({
   setIsGroupCreatePickerOpen,
   setIsGroupInvitePickerOpen,
   setMobilePane,
+  setProfileProfession,
   setSidebarSheet,
 }: UseWorkspaceMutationsOptions) {
   const queryClient = useQueryClient();
@@ -306,9 +310,10 @@ export function useWorkspaceMutations({
   });
 
   const updateProfileMutation = useMutation({
-    mutationFn: (displayName: string) => updateProfile(token, { displayName }),
+    mutationFn: (input: { displayName: string; profession: string | null }) => updateProfile(token, input),
     onSuccess: (nextProfile) => {
       syncProfile(nextProfile);
+      setProfileProfession(nextProfile.profession ?? "");
     },
   });
 
@@ -475,11 +480,17 @@ export function useWorkspaceMutations({
 
   const submitProfileDisplayName = () => {
     const nextDisplayName = profileDisplayName.trim();
-    if (!nextDisplayName || nextDisplayName === profile.displayName) {
+    const nextProfession = profileProfession.trim();
+    const normalizedProfession = nextProfession ? nextProfession : null;
+    const profileProfessionChanged = normalizedProfession !== (profile.profession ?? null);
+    if (!nextDisplayName || (nextDisplayName === profile.displayName && !profileProfessionChanged)) {
       return;
     }
 
-    updateProfileMutation.mutate(nextDisplayName);
+    updateProfileMutation.mutate({
+      displayName: nextDisplayName,
+      profession: normalizedProfession,
+    });
   };
 
   const submitPasswordChange = () => {

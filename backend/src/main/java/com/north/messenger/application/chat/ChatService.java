@@ -487,6 +487,16 @@ public class ChatService {
         return room;
     }
 
+    public ChatRoom requireGroupInviteLinkAccess(UUID chatId, String username) {
+        UserAccount currentUser = authService.requireAuthenticatedUser(username);
+        ChatRoom room = requireChatMembership(chatId, currentUser);
+        if (room.isDirect()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Direct chat links are not supported");
+        }
+        requireGroupModeratorOrOwner(room, currentUser);
+        return room;
+    }
+
     public void assertChatInteractionAllowed(ChatRoom room, UserAccount currentUser) {
         if (!room.isDirect()) {
             return;
@@ -813,15 +823,23 @@ public class ChatService {
         if (room.isDirect()) {
             return null;
         }
-        UUID resolvedOwnerUserId = memberships.stream()
+
+        UUID currentOwnerUserId = room.getOwnerUserId();
+        if (currentOwnerUserId != null && memberships.stream()
+                .map(ChatParticipant::getUserId)
+                .anyMatch(currentOwnerUserId::equals)) {
+            return currentOwnerUserId;
+        }
+
+        UUID fallbackOwnerUserId = memberships.stream()
                 .map(ChatParticipant::getUserId)
                 .findFirst()
                 .orElse(null);
-        if (!Objects.equals(room.getOwnerUserId(), resolvedOwnerUserId)) {
-            room.updateOwnerUserId(resolvedOwnerUserId);
+        if (!Objects.equals(currentOwnerUserId, fallbackOwnerUserId)) {
+            room.updateOwnerUserId(fallbackOwnerUserId);
             chatRoomRepository.save(room);
         }
-        return resolvedOwnerUserId;
+        return fallbackOwnerUserId;
     }
 
     private List<UUID> resolveModeratorUserIds(UUID chatId) {

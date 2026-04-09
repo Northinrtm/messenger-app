@@ -506,6 +506,58 @@ class ChatServiceTest {
     }
 
     @Test
+    void updateGroupChatShouldRepairLegacyOwnerAndAllowEarliestMemberToEdit() {
+        UserAccount creator = new UserAccount(UUID.randomUUID(), "north", "North", "hash", Instant.now());
+        UserAccount member = new UserAccount(UUID.randomUUID(), "alice", "Alice", "hash", Instant.now());
+        UUID chatId = UUID.randomUUID();
+        ChatRoom room = new ChatRoom(chatId, "Legacy group", false, Instant.now());
+        ChatParticipant creatorMembership = new ChatParticipant(
+                UUID.randomUUID(),
+                chatId,
+                creator.getId(),
+                Instant.parse("2026-04-09T10:00:00Z")
+        );
+        ChatParticipant memberMembership = new ChatParticipant(
+                UUID.randomUUID(),
+                chatId,
+                member.getId(),
+                Instant.parse("2026-04-09T10:00:01Z")
+        );
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(creator);
+        when(chatRoomRepository.findById(chatId)).thenReturn(Optional.of(room));
+        when(chatParticipantRepository.existsByChatIdAndUserId(chatId, creator.getId())).thenReturn(true);
+        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId))
+                .thenReturn(List.of(creatorMembership, memberMembership));
+        when(chatRoomRepository.save(any(ChatRoom.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(userAccountRepository.findAllByIdIn(List.of(creator.getId(), member.getId()))).thenReturn(List.of(creator, member));
+        when(authService.resolveOnlineByUserIds(List.of(creator.getId(), member.getId())))
+                .thenReturn(java.util.Map.of(creator.getId(), true, member.getId(), true));
+        when(messageReceiptRepository.countUnreadByChatId(chatId)).thenReturn(List.of());
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(eq(chatId), eq(creator.getId()), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(eq(chatId), eq(member.getId()), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(authService.toParticipant(creator, true)).thenReturn(new ParticipantResponse(
+                creator.getId(), creator.getUsername(), creator.getDisplayName(), creator.getAvatarUrl(), true
+        ));
+        when(authService.toParticipant(member, true)).thenReturn(new ParticipantResponse(
+                member.getId(), member.getUsername(), member.getDisplayName(), member.getAvatarUrl(), true
+        ));
+
+        var response = chatService.updateGroupChat(
+                "north",
+                chatId,
+                new UpdateGroupChatRequest("Repaired title", null)
+        );
+
+        assertThat(response.title()).isEqualTo("Repaired title");
+        assertThat(response.ownerUserId()).isEqualTo(creator.getId());
+        assertThat(room.getOwnerUserId()).isEqualTo(creator.getId());
+        verify(chatRoomRepository, times(2)).save(room);
+    }
+
+    @Test
     void removeGroupParticipantShouldAllowModeratorToRemoveRegularMember() {
         UserAccount owner = new UserAccount(UUID.randomUUID(), "owner", "Owner", "hash", Instant.now());
         UserAccount moderator = new UserAccount(UUID.randomUUID(), "north", "North", "hash", Instant.now());
@@ -548,12 +600,106 @@ class ChatServiceTest {
     }
 
     @Test
-    void listChatsShouldRepairOwnerToEarliestParticipant() {
+    void listChatsShouldKeepStoredOwnerWhenOwnerIsStillMember() {
         UserAccount creator = new UserAccount(UUID.randomUUID(), "north", "North", "hash", Instant.now());
         UserAccount other = new UserAccount(UUID.randomUUID(), "alice", "Alice", "hash", Instant.now());
         UUID chatId = UUID.randomUUID();
         ChatRoom room = new ChatRoom(chatId, "Project", false, Instant.now());
         room.updateOwnerUserId(other.getId());
+        ChatParticipant creatorMembership = new ChatParticipant(
+                UUID.randomUUID(),
+                chatId,
+                creator.getId(),
+                Instant.parse("2026-04-09T10:00:00Z")
+        );
+        ChatParticipant otherMembership = new ChatParticipant(
+                UUID.randomUUID(),
+                chatId,
+                other.getId(),
+                Instant.parse("2026-04-09T10:00:01Z")
+        );
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(creator);
+        when(chatParticipantRepository.findAllByUserIdOrderByJoinedAtAsc(creator.getId())).thenReturn(List.of(creatorMembership));
+        when(userDeletedChatRepository.findAllByUserIdOrderByDeletedAtDesc(creator.getId())).thenReturn(List.of());
+        when(chatRoomRepository.findAllById(List.of(chatId))).thenReturn(List.of(room));
+        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId)).thenReturn(List.of(creatorMembership, otherMembership));
+        when(messageReceiptRepository.countUnreadByUserIdAndChatIdIn(creator.getId(), List.of(chatId))).thenReturn(List.of());
+        when(userAccountRepository.findAllByIdIn(List.of(creator.getId(), other.getId()))).thenReturn(List.of(creator, other));
+        when(authService.resolveOnlineByUserIds(List.of(creator.getId(), other.getId())))
+                .thenReturn(java.util.Map.of(creator.getId(), true, other.getId(), true));
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(eq(chatId), eq(creator.getId()), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(authService.toParticipant(creator, true)).thenReturn(new ParticipantResponse(
+                creator.getId(), creator.getUsername(), creator.getDisplayName(), creator.getAvatarUrl(), true
+        ));
+        when(authService.toParticipant(other, true)).thenReturn(new ParticipantResponse(
+                other.getId(), other.getUsername(), other.getDisplayName(), other.getAvatarUrl(), true
+        ));
+        when(chatRoomRepository.save(any(ChatRoom.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var chats = chatService.listChats("north");
+
+        assertThat(chats).hasSize(1);
+        assertThat(chats.get(0).ownerUserId()).isEqualTo(other.getId());
+        assertThat(room.getOwnerUserId()).isEqualTo(other.getId());
+        verify(chatRoomRepository, never()).save(room);
+    }
+
+    @Test
+    void listChatsShouldRepairMissingOwnerToEarliestParticipant() {
+        UserAccount creator = new UserAccount(UUID.randomUUID(), "north", "North", "hash", Instant.now());
+        UserAccount other = new UserAccount(UUID.randomUUID(), "alice", "Alice", "hash", Instant.now());
+        UUID chatId = UUID.randomUUID();
+        ChatRoom room = new ChatRoom(chatId, "Project", false, Instant.now());
+        ChatParticipant creatorMembership = new ChatParticipant(
+                UUID.randomUUID(),
+                chatId,
+                creator.getId(),
+                Instant.parse("2026-04-09T10:00:00Z")
+        );
+        ChatParticipant otherMembership = new ChatParticipant(
+                UUID.randomUUID(),
+                chatId,
+                other.getId(),
+                Instant.parse("2026-04-09T10:00:01Z")
+        );
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(creator);
+        when(chatParticipantRepository.findAllByUserIdOrderByJoinedAtAsc(creator.getId())).thenReturn(List.of(creatorMembership));
+        when(userDeletedChatRepository.findAllByUserIdOrderByDeletedAtDesc(creator.getId())).thenReturn(List.of());
+        when(chatRoomRepository.findAllById(List.of(chatId))).thenReturn(List.of(room));
+        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId)).thenReturn(List.of(creatorMembership, otherMembership));
+        when(messageReceiptRepository.countUnreadByUserIdAndChatIdIn(creator.getId(), List.of(chatId))).thenReturn(List.of());
+        when(userAccountRepository.findAllByIdIn(List.of(creator.getId(), other.getId()))).thenReturn(List.of(creator, other));
+        when(authService.resolveOnlineByUserIds(List.of(creator.getId(), other.getId())))
+                .thenReturn(java.util.Map.of(creator.getId(), true, other.getId(), true));
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(eq(chatId), eq(creator.getId()), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(authService.toParticipant(creator, true)).thenReturn(new ParticipantResponse(
+                creator.getId(), creator.getUsername(), creator.getDisplayName(), creator.getAvatarUrl(), true
+        ));
+        when(authService.toParticipant(other, true)).thenReturn(new ParticipantResponse(
+                other.getId(), other.getUsername(), other.getDisplayName(), other.getAvatarUrl(), true
+        ));
+        when(chatRoomRepository.save(any(ChatRoom.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var chats = chatService.listChats("north");
+
+        assertThat(chats).hasSize(1);
+        assertThat(chats.get(0).ownerUserId()).isEqualTo(creator.getId());
+        assertThat(room.getOwnerUserId()).isEqualTo(creator.getId());
+        verify(chatRoomRepository).save(room);
+    }
+
+    @Test
+    void listChatsShouldRepairOwnerWhenStoredOwnerIsNoLongerMember() {
+        UserAccount creator = new UserAccount(UUID.randomUUID(), "north", "North", "hash", Instant.now());
+        UserAccount other = new UserAccount(UUID.randomUUID(), "alice", "Alice", "hash", Instant.now());
+        UserAccount removedOwner = new UserAccount(UUID.randomUUID(), "ghost", "Ghost", "hash", Instant.now());
+        UUID chatId = UUID.randomUUID();
+        ChatRoom room = new ChatRoom(chatId, "Project", false, Instant.now());
+        room.updateOwnerUserId(removedOwner.getId());
         ChatParticipant creatorMembership = new ChatParticipant(
                 UUID.randomUUID(),
                 chatId,

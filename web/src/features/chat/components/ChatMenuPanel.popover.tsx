@@ -152,6 +152,12 @@ export function ChatMenuPanel({
           <span className="profile-label">Username</span>
           <strong>@{activeDirectParticipant.username}</strong>
         </div>
+        {activeDirectParticipant.profession ? (
+          <div className="profile-line">
+            <span className="profile-label">Профессия</span>
+            <strong>{activeDirectParticipant.profession}</strong>
+          </div>
+        ) : null}
       </div>
     );
   }

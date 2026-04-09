@@ -107,6 +107,7 @@ export function useWorkspacePanelActions({
       id: activeDirectParticipant.id,
       username: activeDirectParticipant.username,
       displayName: activeDirectParticipant.displayName,
+      profession: activeDirectParticipant.profession ?? null,
       createdAt: new Date().toISOString(),
       avatarUrl: activeDirectParticipant.avatarUrl ?? null,
       online: activeDirectParticipant.online === true,

@@ -7,6 +7,7 @@ function participant(id: string, displayName: string): Participant {
     id,
     username: displayName.toLowerCase(),
     displayName,
+    profession: null,
     avatarUrl: null,
     online: true,
   };

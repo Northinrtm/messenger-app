@@ -87,7 +87,7 @@ public class AuthController {
             Authentication authentication,
             @Valid @RequestBody UpdateProfileRequest request
     ) {
-        return authService.updateProfile(authentication.getName(), request.displayName());
+        return authService.updateProfile(authentication.getName(), request.displayName(), request.profession());
     }
 
     @PutMapping("/password")

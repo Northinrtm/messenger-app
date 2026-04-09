@@ -25,6 +25,7 @@ function message(id: string, createdAt: string): ChatMessage {
       id: "user-1",
       username: "north",
       displayName: "North",
+      profession: null,
       avatarUrl: null,
       online: true,
     },
@@ -51,6 +52,43 @@ describe("chatState", () => {
     ];
 
     expect(flattenMessagePages(pages).map((item: ChatMessage) => item.id)).toEqual(["1", "2", "3"]);
+  });
+
+  it("hydrates reply previews from decrypted messages instead of the server placeholder", () => {
+    const repliedMessage = {
+      ...message("1", "2026-03-22T10:00:00.000Z"),
+      sender: {
+        id: "user-2",
+        username: "denis",
+        displayName: "Денис",
+        profession: null,
+        avatarUrl: "avatar.png",
+        online: true,
+      },
+      content: "Привет, это исходное сообщение",
+    };
+    const replyMessage: ChatMessage = {
+      ...message("2", "2026-03-22T10:01:00.000Z"),
+      replyTo: {
+        id: "1",
+        sender: {
+          id: "user-2",
+          username: "denis",
+          displayName: "Денис",
+          profession: null,
+          avatarUrl: null,
+          online: false,
+        },
+        createdAt: repliedMessage.createdAt,
+        preview: "Encrypted message",
+      },
+    };
+
+    const next = flattenMessagePages([[replyMessage, repliedMessage]]);
+
+    expect(next[1]?.replyTo?.preview).toBe("Привет, это исходное сообщение");
+    expect(next[1]?.replyTo?.sender.avatarUrl).toBe("avatar.png");
+    expect(next[1]?.replyTo?.sender.online).toBe(true);
   });
 
   it("prefers the confirmed server message over the optimistic client copy", () => {

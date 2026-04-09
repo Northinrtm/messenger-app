@@ -30,6 +30,7 @@ type UseWorkspaceEffectsOptions = {
   lastMessageId: string | null;
   messageCount: number;
   profileDisplayName: string;
+  profileProfession: string | null;
   queryClient: QueryClient;
   replyingToMessageId: string | null;
   sessionToken: string;
@@ -44,6 +45,7 @@ type UseWorkspaceEffectsOptions = {
   setIsGroupInvitePickerOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setMobilePane: React.Dispatch<React.SetStateAction<"sidebar" | "conversation">>;
   setProfileDisplayName: React.Dispatch<React.SetStateAction<string>>;
+  setProfileProfession: React.Dispatch<React.SetStateAction<string>>;
   setReplyingToMessageId: React.Dispatch<React.SetStateAction<string | null>>;
   setSidebarSheet: React.Dispatch<React.SetStateAction<SidebarSheet>>;
   sidebarSheet: SidebarSheet;
@@ -76,6 +78,7 @@ export function useWorkspaceEffects({
   lastMessageId,
   messageCount,
   profileDisplayName,
+  profileProfession,
   queryClient,
   replyingToMessageId,
   sessionToken,
@@ -90,6 +93,7 @@ export function useWorkspaceEffects({
   setIsGroupInvitePickerOpen,
   setMobilePane,
   setProfileDisplayName,
+  setProfileProfession,
   setReplyingToMessageId,
   setSidebarSheet,
   sidebarSheet,
@@ -123,6 +127,10 @@ export function useWorkspaceEffects({
   useEffect(() => {
     setProfileDisplayName(profileDisplayName);
   }, [profileDisplayName, setProfileDisplayName]);
+
+  useEffect(() => {
+    setProfileProfession(profileProfession ?? "");
+  }, [profileProfession, setProfileProfession]);
 
   useEffect(() => {
     setIsConferenceInfoOpen(false);

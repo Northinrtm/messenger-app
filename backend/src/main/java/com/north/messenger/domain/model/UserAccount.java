@@ -20,6 +20,9 @@ public class UserAccount {
     @Column(name = "display_name", nullable = false, length = 40)
     private String displayName;
 
+    @Column(name = "profession", length = 80)
+    private String profession;
+
     @Column(name = "avatar_url")
     private String avatarUrl;
 
@@ -33,7 +36,25 @@ public class UserAccount {
     }
 
     public UserAccount(UUID id, String username, String displayName, String passwordHash, Instant createdAt) {
-        this(id, username, displayName, null, passwordHash, createdAt);
+        this(id, username, displayName, null, null, passwordHash, createdAt);
+    }
+
+    public UserAccount(
+            UUID id,
+            String username,
+            String displayName,
+            String profession,
+            String avatarUrl,
+            String passwordHash,
+            Instant createdAt
+    ) {
+        this.id = id;
+        this.username = username;
+        this.displayName = displayName;
+        this.profession = profession;
+        this.avatarUrl = avatarUrl;
+        this.passwordHash = passwordHash;
+        this.createdAt = createdAt;
     }
 
     public UserAccount(
@@ -44,12 +65,7 @@ public class UserAccount {
             String passwordHash,
             Instant createdAt
     ) {
-        this.id = id;
-        this.username = username;
-        this.displayName = displayName;
-        this.avatarUrl = avatarUrl;
-        this.passwordHash = passwordHash;
-        this.createdAt = createdAt;
+        this(id, username, displayName, null, avatarUrl, passwordHash, createdAt);
     }
 
     public UUID getId() {
@@ -68,6 +84,10 @@ public class UserAccount {
         return avatarUrl;
     }
 
+    public String getProfession() {
+        return profession;
+    }
+
     public String getPasswordHash() {
         return passwordHash;
     }
@@ -78,6 +98,10 @@ public class UserAccount {
 
     public void updateDisplayName(String displayName) {
         this.displayName = displayName;
+    }
+
+    public void updateProfession(String profession) {
+        this.profession = profession;
     }
 
     public void updateAvatarUrl(String avatarUrl) {

@@ -49,7 +49,7 @@ class InviteLinkServiceTest {
                 Instant.parse("2026-04-08T10:00:00Z")
         );
 
-        when(chatService.requireChatMembership(chatId, "north"))
+        when(chatService.requireGroupInviteLinkAccess(chatId, "north"))
                 .thenReturn(new ChatRoom(chatId, "Project", false, Instant.now()));
         when(inviteLinkRepository.findByTargetTypeAndTargetId(InviteLinkTargetType.GROUP, chatId))
                 .thenReturn(Optional.of(inviteLink));
@@ -71,7 +71,7 @@ class InviteLinkServiceTest {
                 Instant.parse("2026-04-08T10:00:00Z")
         );
 
-        when(chatService.requireChatMembership(chatId, "north"))
+        when(chatService.requireGroupInviteLinkAccess(chatId, "north"))
                 .thenReturn(new ChatRoom(chatId, "Project", false, Instant.now()));
         when(inviteLinkRepository.findByTargetTypeAndTargetId(InviteLinkTargetType.GROUP, chatId))
                 .thenReturn(Optional.of(inviteLink));
@@ -94,7 +94,7 @@ class InviteLinkServiceTest {
                 Instant.parse("2026-04-08T10:00:00Z")
         );
 
-        when(chatService.requireChatMembership(chatId, "north"))
+        when(chatService.requireGroupInviteLinkAccess(chatId, "north"))
                 .thenReturn(new ChatRoom(chatId, "Project", false, Instant.now()));
         when(inviteLinkRepository.findByTargetTypeAndTargetId(InviteLinkTargetType.GROUP, chatId))
                 .thenReturn(Optional.of(inviteLink));
