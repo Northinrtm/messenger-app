@@ -248,9 +248,15 @@ export function ActiveChatConversation({
         ) : null}
 
         {messagesLoading ? (
-          <div className="empty-state">Загружаем сообщения...</div>
+          <div className="conversation-empty north-message-stream-empty">
+            <div className="empty-state north-empty-state">Загружаем сообщения...</div>
+          </div>
         ) : timelineItems.length === 0 ? (
-          <div className="empty-state">Начните переписку. Сообщения появятся здесь.</div>
+          <div className="conversation-empty north-message-stream-empty">
+            <div className="empty-state north-empty-state">
+              Начните переписку. Сообщения появятся здесь.
+            </div>
+          </div>
         ) : (
           timelineItems.map((item) =>
             item.type === "day" ? (

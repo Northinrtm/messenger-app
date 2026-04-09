@@ -2446,6 +2446,17 @@ textarea {
   color: #8aa0b6;
 }
 
+.north-message-stream-empty {
+  min-height: 100%;
+  align-content: center;
+}
+
+.north-message-stream-empty .north-empty-state {
+  width: min(100%, 34rem);
+  min-height: 0;
+  padding: 0;
+}
+
 .north-workspace .timeline-day span {
   background: #1c2d3e;
   border: 0;
