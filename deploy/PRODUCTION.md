@@ -95,8 +95,8 @@ Required `.env.prod` values:
 - `MANAGEMENT_OTLP_TRACING_ENDPOINT`
 - `ALERTMANAGER_WEBHOOK_URL` if you want external alert delivery
 
-If the Prometheus scrape credentials are omitted, production compose falls back to `prometheus/prometheus`.
-That is acceptable only as a bootstrap/default; set explicit values in `.env.prod` for a real deployment.
+Production compose fails closed if the Prometheus scrape credentials are missing.
+Set explicit values in `.env.prod` before enabling the observability stack.
 
 Production backend logs run in JSON mode and are shipped into Loki by Promtail.
 Production Docker logs use bounded `json-file` rotation controlled by `DOCKER_LOG_MAX_SIZE` and `DOCKER_LOG_MAX_FILE`.

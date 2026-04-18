@@ -22,6 +22,7 @@ type SendMessageInput = {
   chatId: string;
   clientMessageId: string;
   content: string;
+  localOrder: number;
   participants: Participant[];
   replyTo?: MessageSnippet | null;
 };
@@ -38,6 +39,7 @@ export function createOptimisticOutgoingMessage(
     createdAt: new Date().toISOString(),
     editedAt: null,
     clientMessageId: input.clientMessageId,
+    localOrder: input.localOrder,
     replyTo: input.replyTo ?? null,
     reactions: [],
     status: {

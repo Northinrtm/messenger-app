@@ -94,9 +94,11 @@ public class AuthController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void changePassword(
             Authentication authentication,
-            @Valid @RequestBody ChangePasswordRequest request
+            @Valid @RequestBody ChangePasswordRequest request,
+            HttpServletResponse httpResponse
     ) {
         authService.changePassword(authentication.getName(), request);
+        refreshTokenCookieService.clear(httpResponse);
     }
 
     @PutMapping("/me/avatar")

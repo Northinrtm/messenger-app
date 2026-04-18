@@ -9,11 +9,21 @@ import type {
 import { buildMessagePreview } from "./messagePresentation";
 
 export const MESSAGE_PAGE_SIZE = 50;
+const ENCRYPTED_MESSAGE_UNAVAILABLE = "[Encrypted message unavailable]";
+const ENCRYPTED_MESSAGE_PLACEHOLDER = "Encrypted message";
 export type ChatPreviewOverride = {
   lastMessage: string;
   lastMessageAt: string;
 };
-export type ChatMessageActivityMode = "keep" | "increment" | "clear";
+export type ChatMessageActivityMode = "keep" | "clear";
+
+export function buildMessagesQueryKey(userId: string, chatId: string | null | undefined) {
+  return ["messages", userId, chatId ?? null] as const;
+}
+
+export function getMessageIdentityKey(message: Pick<ChatMessage, "id" | "clientMessageId">) {
+  return message.clientMessageId ?? message.id;
+}
 
 export function upsertChat(current: ChatSummary[] | undefined, nextChat: ChatSummary) {
   const list = current ?? [];
@@ -146,12 +156,7 @@ export function applyChatMessageActivity(
         lastMessage: message.content,
         lastMessageAt: message.createdAt,
         updatedAt: message.createdAt,
-        unreadCount:
-          unreadMode === "increment"
-            ? chat.unreadCount + 1
-            : unreadMode === "clear"
-              ? 0
-              : chat.unreadCount,
+        unreadCount: unreadMode === "clear" ? 0 : chat.unreadCount,
       };
     })
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
@@ -228,8 +233,11 @@ export function mergeMessagePages(
     const existingIndex = page.findIndex((message) => matchesMessageIdentity(message, incoming));
     if (existingIndex >= 0) {
       replaced = true;
+      const reconciledMessage = reconcileChatMessage(page[existingIndex]!, incoming);
       return page
-        .map((message, messageIndex) => (messageIndex === existingIndex ? incoming : message))
+        .map((message, messageIndex) =>
+          messageIndex === existingIndex ? reconciledMessage : message
+        )
         .sort(compareMessages);
     }
 
@@ -244,6 +252,45 @@ export function mergeMessagePages(
     ...current,
     pages,
   };
+}
+
+export function reconcileMessageInfiniteData(
+  current: InfiniteData<ChatMessage[]> | undefined,
+  incoming: InfiniteData<ChatMessage[]> | undefined
+): InfiniteData<ChatMessage[]> | undefined {
+  if (!current || !incoming) {
+    return incoming;
+  }
+
+  const currentMessages = new Map<string, ChatMessage>();
+  current.pages.forEach((page) => {
+    page.forEach((message) => {
+      currentMessages.set(`id:${message.id}`, message);
+      if (message.clientMessageId) {
+        currentMessages.set(`client:${message.clientMessageId}`, message);
+      }
+    });
+  });
+
+  let changed = false;
+  const pages = incoming.pages.map((page) =>
+    page.map((message) => {
+      const existing =
+        currentMessages.get(`id:${message.id}`) ??
+        (message.clientMessageId
+          ? currentMessages.get(`client:${message.clientMessageId}`)
+          : undefined);
+      if (!existing) {
+        return message;
+      }
+
+      const reconciled = reconcileChatMessage(existing, message);
+      changed = changed || reconciled !== message;
+      return reconciled;
+    })
+  );
+
+  return changed ? { ...incoming, pages } : incoming;
 }
 
 export function removeMessageByClientMessageId(
@@ -396,9 +443,17 @@ export function flattenMessagePages(pages: ChatMessage[][] | undefined) {
     .forEach((message: ChatMessage) => {
       const dedupeKey = message.clientMessageId ? `client:${message.clientMessageId}` : `id:${message.id}`;
       const existing = deduped.get(dedupeKey);
-      if (!existing || shouldPreferMessage(existing, message)) {
+      if (!existing) {
         deduped.set(dedupeKey, message);
+        return;
       }
+
+      if (shouldPreferMessage(existing, message)) {
+        deduped.set(dedupeKey, reconcileChatMessage(existing, message));
+        return;
+      }
+
+      deduped.set(dedupeKey, reconcileChatMessage(message, existing));
     });
 
   return hydrateReplySnippetPreviews([...deduped.values()].sort(compareMessages));
@@ -485,7 +540,17 @@ export function removeChatById(current: ChatSummary[] | undefined, chatId: strin
 }
 
 function compareMessages(left: ChatMessage, right: ChatMessage) {
-  return left.createdAt.localeCompare(right.createdAt);
+  const localOrderComparison = compareLocalMessageOrder(left, right);
+  if (localOrderComparison !== 0) {
+    return localOrderComparison;
+  }
+
+  const createdAtComparison = left.createdAt.localeCompare(right.createdAt);
+  if (createdAtComparison !== 0) {
+    return createdAtComparison;
+  }
+
+  return getMessageSortTieBreaker(left).localeCompare(getMessageSortTieBreaker(right));
 }
 
 function matchesMessageIdentity(left: ChatMessage, right: ChatMessage) {
@@ -501,6 +566,20 @@ function matchesMessageIdentity(left: ChatMessage, right: ChatMessage) {
 }
 
 function shouldPreferMessage(current: ChatMessage, incoming: ChatMessage) {
+  if (
+    isEncryptedMessageUnavailable(current.content) &&
+    !isEncryptedMessageUnavailable(incoming.content)
+  ) {
+    return true;
+  }
+
+  if (
+    !isEncryptedMessageUnavailable(current.content) &&
+    isEncryptedMessageUnavailable(incoming.content)
+  ) {
+    return false;
+  }
+
   if (incoming.createdAt.localeCompare(current.createdAt) > 0) {
     return true;
   }
@@ -510,4 +589,130 @@ function shouldPreferMessage(current: ChatMessage, incoming: ChatMessage) {
 
 function isOptimisticClientMessage(message: ChatMessage) {
   return Boolean(message.clientMessageId && message.id === message.clientMessageId);
+}
+
+function getMessageSortTieBreaker(message: Pick<ChatMessage, "id" | "clientMessageId">) {
+  if (message.clientMessageId && message.id === message.clientMessageId) {
+    return message.clientMessageId;
+  }
+
+  return message.id;
+}
+
+function reconcileChatMessage(current: ChatMessage, incoming: ChatMessage): ChatMessage {
+  const nextContent =
+    isEncryptedMessageUnavailable(incoming.content) &&
+    !isEncryptedMessageUnavailable(current.content)
+      ? current.content
+      : incoming.content;
+  const nextReplyTo = reconcileMessageSnippet(current.replyTo, incoming.replyTo);
+  const nextStatus = pickPreferredMessageStatus(current.status, incoming.status);
+  const nextEditedAt = pickLatestTimestamp(current.editedAt, incoming.editedAt);
+  const nextClientMessageId = incoming.clientMessageId ?? current.clientMessageId ?? null;
+  const nextLocalOrder = incoming.localOrder ?? current.localOrder ?? null;
+
+  if (
+    nextContent === incoming.content &&
+    nextReplyTo === incoming.replyTo &&
+    nextStatus === incoming.status &&
+    nextEditedAt === incoming.editedAt &&
+    nextClientMessageId === (incoming.clientMessageId ?? null) &&
+    nextLocalOrder === (incoming.localOrder ?? null)
+  ) {
+    return incoming;
+  }
+
+  return {
+    ...incoming,
+    content: nextContent,
+    replyTo: nextReplyTo,
+    status: nextStatus,
+    editedAt: nextEditedAt,
+    clientMessageId: nextClientMessageId,
+    localOrder: nextLocalOrder,
+  };
+}
+
+function compareLocalMessageOrder(
+  left: Pick<ChatMessage, "localOrder">,
+  right: Pick<ChatMessage, "localOrder">
+) {
+  if (typeof left.localOrder !== "number" || typeof right.localOrder !== "number") {
+    return 0;
+  }
+
+  return left.localOrder - right.localOrder;
+}
+
+function reconcileMessageSnippet(current: MessageSnippet | null, incoming: MessageSnippet | null) {
+  if (!current) {
+    return incoming;
+  }
+
+  if (!incoming) {
+    return current;
+  }
+
+  const nextPreview =
+    isEncryptedPreviewPlaceholder(incoming.preview) && !isEncryptedPreviewPlaceholder(current.preview)
+      ? current.preview
+      : incoming.preview;
+
+  if (nextPreview === incoming.preview) {
+    return incoming;
+  }
+
+  return {
+    ...incoming,
+    preview: nextPreview,
+  };
+}
+
+function pickPreferredMessageStatus(current: ChatMessage["status"], incoming: ChatMessage["status"]) {
+  if (!current) {
+    return incoming;
+  }
+
+  if (!incoming) {
+    return current;
+  }
+
+  if (getMessageStatusRank(incoming.state) >= getMessageStatusRank(current.state)) {
+    return incoming;
+  }
+
+  return current;
+}
+
+function getMessageStatusRank(state: NonNullable<ChatMessage["status"]>["state"]) {
+  switch (state) {
+    case "READ":
+      return 3;
+    case "DELIVERED":
+      return 2;
+    case "SENT":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function pickLatestTimestamp(current: string | null, incoming: string | null) {
+  if (!current) {
+    return incoming;
+  }
+
+  if (!incoming) {
+    return current;
+  }
+
+  return incoming.localeCompare(current) >= 0 ? incoming : current;
+}
+
+function isEncryptedMessageUnavailable(content: string) {
+  return content === ENCRYPTED_MESSAGE_UNAVAILABLE;
+}
+
+function isEncryptedPreviewPlaceholder(preview: string) {
+  return preview === ENCRYPTED_MESSAGE_PLACEHOLDER || preview === ENCRYPTED_MESSAGE_UNAVAILABLE;
 }

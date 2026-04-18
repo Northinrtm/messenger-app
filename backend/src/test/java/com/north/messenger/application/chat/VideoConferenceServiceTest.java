@@ -74,6 +74,7 @@ class VideoConferenceServiceTest {
                         Duration.ofHours(12),
                         Duration.ofDays(30),
                         "north-messenger",
+                        "north-messenger-clients",
                         false
                 )
         );

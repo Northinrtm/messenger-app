@@ -42,6 +42,7 @@ public class JwtService {
         String token = Jwts.builder()
                 .subject(user.getUsername())
                 .issuer(jwtProperties.issuer())
+                .setAudience(jwtProperties.audience())
                 .issuedAt(Date.from(issuedAt))
                 .expiration(Date.from(expiresAt))
                 .claim("displayName", user.getDisplayName())
@@ -107,6 +108,8 @@ public class JwtService {
     private Claims parseClaims(String token) {
         return Jwts.parser()
                 .verifyWith(signingKey)
+                .requireIssuer(jwtProperties.issuer())
+                .requireAudience(jwtProperties.audience())
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();

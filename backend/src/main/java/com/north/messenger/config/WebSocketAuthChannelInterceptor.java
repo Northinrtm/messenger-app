@@ -23,20 +23,27 @@ import org.springframework.stereotype.Component;
 @Component
 public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
 
+    private static final String APP_DESTINATION_PREFIX = "/app/";
     private static final String CHAT_TOPIC_PREFIX = "/topic/chats.";
+    private static final List<String> CLIENT_BLOCKED_SEND_PREFIXES = List.of("/topic/", "/queue/", "/user/");
     private static final String SESSION_AUTHENTICATION_ATTRIBUTE =
             WebSocketAuthChannelInterceptor.class.getName() + ".AUTHENTICATION";
+    public static final String SESSION_ID_ATTRIBUTE =
+            WebSocketAuthChannelInterceptor.class.getName() + ".SESSION_ID";
     private static final Logger log = LoggerFactory.getLogger(WebSocketAuthChannelInterceptor.class);
 
     private final AuthService authService;
     private final ChatParticipantRepository chatParticipantRepository;
+    private final AuthenticatedWebSocketSessionRegistry webSocketSessionRegistry;
 
     public WebSocketAuthChannelInterceptor(
             AuthService authService,
-            ChatParticipantRepository chatParticipantRepository
+            ChatParticipantRepository chatParticipantRepository,
+            AuthenticatedWebSocketSessionRegistry webSocketSessionRegistry
     ) {
         this.authService = authService;
         this.chatParticipantRepository = chatParticipantRepository;
+        this.webSocketSessionRegistry = webSocketSessionRegistry;
     }
 
     @Override
@@ -51,11 +58,26 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
             return authenticate(message, accessor);
         }
 
-        if (StompCommand.SUBSCRIBE.equals(command)) {
-            return authorizeSubscription(message, accessor);
+        if (StompCommand.DISCONNECT.equals(command)) {
+            return message;
         }
 
-        return message;
+        AuthorizedStompSession authorizedSession = restoreAndAuthorizeSession(accessor);
+        if (authorizedSession == null) {
+            return null;
+        }
+
+        Message<?> authorizedMessage = authorizedSession.principalRestored()
+                ? MessageBuilder.createMessage(message.getPayload(), accessor.getMessageHeaders())
+                : message;
+        if (StompCommand.SUBSCRIBE.equals(command)) {
+            return authorizeSubscription(authorizedMessage, accessor, authorizedSession.principal());
+        }
+        if (StompCommand.SEND.equals(command)) {
+            return authorizeSend(authorizedMessage, accessor, authorizedSession.principal());
+        }
+
+        return authorizedMessage;
     }
 
     private Message<?> authenticate(Message<?> message, StompHeaderAccessor accessor) {
@@ -64,9 +86,9 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
             throw new MessagingException("WebSocket Authorization header is required");
         }
 
-        UserAccount user = authService.authenticateAccessToken(authorization.substring(7))
-                .map(AuthService.AuthenticatedSession::user)
+        AuthService.AuthenticatedSession authenticatedSession = authService.authenticateAccessToken(authorization.substring(7))
                 .orElseThrow(() -> new MessagingException("WebSocket authentication required"));
+        UserAccount user = authenticatedSession.user();
         UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
                 user.getUsername(),
                 null,
@@ -75,27 +97,15 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
 
         accessor.setUser(authentication);
         storeAuthentication(accessor, authentication);
+        storeSessionId(accessor, authenticatedSession.sessionId());
+        webSocketSessionRegistry.register(accessor.getSessionId(), user.getUsername(), authenticatedSession.sessionId());
         return MessageBuilder.createMessage(message.getPayload(), accessor.getMessageHeaders());
     }
 
-    private Message<?> authorizeSubscription(Message<?> message, StompHeaderAccessor accessor) {
-        Principal principal = accessor.getUser();
-        boolean principalRestored = false;
-        if (principal == null) {
-            principal = restorePrincipal(accessor);
-            principalRestored = principal != null;
-        }
-        if (principal == null) {
-            log.warn("Dropping websocket subscription without principal destination={}", accessor.getDestination());
-            return null;
-        }
-
-        Message<?> authorizedMessage = principalRestored
-                ? MessageBuilder.createMessage(message.getPayload(), accessor.getMessageHeaders())
-                : message;
+    private Message<?> authorizeSubscription(Message<?> message, StompHeaderAccessor accessor, Principal principal) {
         String destination = accessor.getDestination();
         if (destination == null || !destination.startsWith(CHAT_TOPIC_PREFIX)) {
-            return authorizedMessage;
+            return message;
         }
 
         UUID chatId;
@@ -121,12 +131,43 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
             return null;
         }
 
-        return authorizedMessage;
+        return message;
+    }
+
+    private Message<?> authorizeSend(Message<?> message, StompHeaderAccessor accessor, Principal principal) {
+        String destination = accessor.getDestination();
+        if (destination == null || destination.isBlank()) {
+            log.warn("Dropping websocket send without destination user={}", principal.getName());
+            return null;
+        }
+        if (CLIENT_BLOCKED_SEND_PREFIXES.stream().anyMatch(destination::startsWith)) {
+            log.warn(
+                    "Dropping websocket send to broker destination user={} destination={}",
+                    principal.getName(),
+                    destination
+            );
+            return null;
+        }
+        if (!destination.startsWith(APP_DESTINATION_PREFIX)) {
+            log.warn(
+                    "Dropping websocket send to unsupported destination user={} destination={}",
+                    principal.getName(),
+                    destination
+            );
+            return null;
+        }
+        return message;
     }
 
     private void storeAuthentication(StompHeaderAccessor accessor, Principal principal) {
         if (accessor.getSessionAttributes() != null) {
             accessor.getSessionAttributes().put(SESSION_AUTHENTICATION_ATTRIBUTE, principal);
+        }
+    }
+
+    private void storeSessionId(StompHeaderAccessor accessor, UUID sessionId) {
+        if (accessor.getSessionAttributes() != null) {
+            accessor.getSessionAttributes().put(SESSION_ID_ATTRIBUTE, sessionId);
         }
     }
 
@@ -144,6 +185,55 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
         return restoredPrincipal;
     }
 
+    private UUID restoreSessionId(StompHeaderAccessor accessor) {
+        if (accessor.getSessionAttributes() == null) {
+            return null;
+        }
+
+        Object rawSessionId = accessor.getSessionAttributes().get(SESSION_ID_ATTRIBUTE);
+        if (!(rawSessionId instanceof UUID sessionId)) {
+            return null;
+        }
+        return sessionId;
+    }
+
+    private AuthorizedStompSession restoreAndAuthorizeSession(StompHeaderAccessor accessor) {
+        Principal principal = accessor.getUser();
+        boolean principalRestored = false;
+        if (principal == null) {
+            principal = restorePrincipal(accessor);
+            principalRestored = principal != null;
+        }
+        if (principal == null) {
+            log.warn("Dropping websocket frame without principal command={} destination={}", accessor.getCommand(), accessor.getDestination());
+            return null;
+        }
+
+        UUID sessionId = restoreSessionId(accessor);
+        if (sessionId == null) {
+            log.warn(
+                    "Dropping websocket frame without authenticated session user={} command={} destination={}",
+                    principal.getName(),
+                    accessor.getCommand(),
+                    accessor.getDestination()
+            );
+            return null;
+        }
+
+        if (authService.authenticateSession(principal.getName(), sessionId).isEmpty()) {
+            log.warn(
+                    "Dropping websocket frame for inactive session user={} sessionId={} command={} destination={}",
+                    principal.getName(),
+                    sessionId,
+                    accessor.getCommand(),
+                    accessor.getDestination()
+            );
+            return null;
+        }
+
+        return new AuthorizedStompSession(principal, principalRestored);
+    }
+
     private UUID extractChatId(String destination) {
         String rawChatId = destination.substring(CHAT_TOPIC_PREFIX.length());
         int suffixIndex = rawChatId.indexOf('.');
@@ -156,5 +246,11 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
         } catch (IllegalArgumentException exception) {
             throw new MessagingException("Invalid chat topic destination", exception);
         }
+    }
+
+    private record AuthorizedStompSession(
+            Principal principal,
+            boolean principalRestored
+    ) {
     }
 }

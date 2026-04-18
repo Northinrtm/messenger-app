@@ -10,6 +10,7 @@ import {
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -57,7 +58,9 @@ import type {
 } from "../../lib/types";
 import {
   applyChatPreviewOverrides,
+  buildMessagesQueryKey,
   clearChatUnreadCount,
+  getMessageIdentityKey,
   removeChatById,
   upsertChat,
 } from "./chatState";
@@ -87,13 +90,19 @@ import {
   upsertVideoConferences,
 } from "./chatPresentation";
 import {
+  buildConferenceActivitySnapshot,
   buildTimeline,
   extractImageFromClipboard,
+  hasConferenceActivitySinceSeen,
+  hasUnreadChatActivitySince,
   isCurrentUserParticipant,
+  isConferenceActivitySnapshotEqual,
   mergeTypingParticipants,
   normalizeAccountDeletionConfirmation,
   readFileAsDataUrl,
+  shouldPrimeEncryptionRecipientsOnChatOpen,
   syncChatTypingParticipants,
+  getLatestUnreadChatActivityAt,
   type TimelineItem,
 } from "./chatWorkspaceUtils";
 import {
@@ -150,11 +159,12 @@ type Props = {
 const TYPING_EVENT_TTL_MS = 8_000;
 const TYPING_HEARTBEAT_MS = 3_000;
 const TYPING_IDLE_MS = 8_000;
-const MESSAGE_QUERY_GC_TIME_MS = 60_000;
+const MESSAGE_QUERY_GC_TIME_MS = 30 * 60_000;
 const TYPING_QUERY_GC_TIME_MS = 15_000;
 const SEARCH_QUERY_GC_TIME_MS = 30_000;
 const CONFERENCE_ACTIVATION_LEAD_MS = 5 * 60 * 1000;
 const CONFERENCE_MINI_WINDOW_MARGIN_PX = 8;
+const CHAT_ENCRYPTION_WARNING_GRACE_MS = 500;
 
 type ConferenceMiniPosition = {
   x: number;
@@ -165,6 +175,7 @@ type ChatEncryptionIdentityWarning = {
   chatId: string;
   participantIds: string[];
   errorText: string | null;
+  isVisible: boolean;
 };
 
 function clampConferenceMiniPosition(
@@ -201,7 +212,7 @@ export function NorthMessengerWorkspace({
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [activeConferenceId, setActiveConferenceId] = useState<string | null>(null);
   const [conferenceViewportMode, setConferenceViewportMode] = useState<"full" | "mini">("full");
-  const [activeListTab, setActiveListTab] = useState<ConversationListTab>("dialogs");
+  const [activeListTab, setActiveListTab] = useState<ConversationListTab>("chats");
   const [conferenceBrowserMode, setConferenceBrowserMode] = useState<"list" | "calendar">("list");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
@@ -252,6 +263,10 @@ export function NorthMessengerWorkspace({
     chatId: string;
     unreadCount: number;
   } | null>(null);
+  const [lastSeenChatsActivityAt, setLastSeenChatsActivityAt] = useState<string | null>(null);
+  const [seenConferenceActivitySnapshot, setSeenConferenceActivitySnapshot] = useState<
+    Record<string, string> | null
+  >(null);
   const handledRealtimeMessageIdsRef = useRef(new Map<string, true>());
   const conferenceListScrollRef = useRef<HTMLDivElement | null>(null);
   const conferenceSurfaceRef = useRef<HTMLDivElement | null>(null);
@@ -406,11 +421,9 @@ export function NorthMessengerWorkspace({
   const previewHydrationChats =
     sidebarSheet === "archive"
       ? listedServerChats.filter((chat) => archivedChatIdSet.has(chat.id))
-      : activeListTab === "groups"
-        ? visibleServerChats.filter((chat) => !chat.direct)
-        : activeListTab === "dialogs"
-          ? visibleServerChats.filter((chat) => chat.direct)
-          : [];
+      : activeListTab === "chats"
+        ? visibleServerChats
+        : [];
   const {
     applyChatPreviewMessage,
     applyServerChatPreviewMessage,
@@ -422,7 +435,6 @@ export function NorthMessengerWorkspace({
   } = useChatPreviews({
     archivedChatIds,
     formatPreviewText: buildChatListPreviewText,
-    onUnauthorized: () => onSessionChange(null),
     previewHydrationChats,
     queryClient,
     token: session.token,
@@ -465,8 +477,7 @@ export function NorthMessengerWorkspace({
         );
       });
   const visibleChats = filteredChats.filter((chat) => !archivedChatIdSet.has(chat.id));
-  const visibleDirectChats = visibleChats.filter((chat) => chat.direct);
-  const visibleGroupChats = visibleChats.filter((chat) => !chat.direct);
+  const nonArchivedChats = listedChats.filter((chat) => !archivedChatIdSet.has(chat.id));
   const archivedChats = listedChats.filter((chat) => archivedChatIdSet.has(chat.id));
   const groupContacts = contacts.filter((contact) => contact.username !== session.user.username);
   const directChatUsernames = new Set(
@@ -490,6 +501,18 @@ export function NorthMessengerWorkspace({
           participantText.includes(normalizedSearch)
         );
       });
+  const latestUnreadChatActivityAt = getLatestUnreadChatActivityAt(nonArchivedChats);
+  const currentConferenceActivitySnapshot = useMemo(
+    () => buildConferenceActivitySnapshot(listedConferences),
+    [listedConferences]
+  );
+  const isViewingChatsSection = !sidebarSheet && activeListTab === "chats";
+  const isViewingConferencesSection = !sidebarSheet && activeListTab === "conferences";
+  const showChatsTabIndicator =
+    !isViewingChatsSection && hasUnreadChatActivitySince(nonArchivedChats, lastSeenChatsActivityAt);
+  const showConferencesTabIndicator =
+    !isViewingConferencesSection &&
+    hasConferenceActivitySinceSeen(currentConferenceActivitySnapshot, seenConferenceActivitySnapshot);
 
   const activeChat = chats.find((chat) => chat.id === activeChatId) ?? null;
   const activeConference =
@@ -521,7 +544,9 @@ export function NorthMessengerWorkspace({
   const activeChatCanModerateMembers = activeChatIsOwnedByCurrentUser || activeChatIsModerator;
   const activeChatCanShareInviteLink = activeChatIsOwnedByCurrentUser || activeChatIsModerator;
   const activeChatEncryptionWarning =
-    activeChat && chatEncryptionIdentityWarning?.chatId === activeChat.id
+    activeChat &&
+    chatEncryptionIdentityWarning?.chatId === activeChat.id &&
+    chatEncryptionIdentityWarning.isVisible
       ? {
           title: "Нужно обновить чат",
           description:
@@ -547,6 +572,7 @@ export function NorthMessengerWorkspace({
           chatId,
           participantIds,
           errorText,
+          isVisible: false,
         };
       });
     }
@@ -560,6 +586,16 @@ export function NorthMessengerWorkspace({
         return null;
       }
       return current;
+    });
+  });
+  const refreshEncryptionIdentityForChat = useEffectEvent(async (chat: ChatSummary) => {
+    chat.members.forEach((participant) => {
+      clearPinnedEncryptionIdentity(participant.id);
+    });
+    await primeEncryptedMessageRecipients(session.token, chat.members, {
+      currentUserId: session.user.id,
+      session,
+      forceRefresh: true,
     });
   });
   const activeConferenceIsArchived = Boolean(activeConference?.endedAt);
@@ -634,6 +670,12 @@ export function NorthMessengerWorkspace({
           activeTypingQuery.data ?? []
         )
     : [];
+  const activeChatMemberIdsKey = activeChat
+    ? activeChat.members
+        .map((member) => member.id)
+        .sort()
+        .join(",")
+    : "";
   const conversationSubtitle = activeChat
     ? activeTypingParticipants.length > 0
       ? formatTypingParticipants(activeTypingParticipants)
@@ -642,11 +684,12 @@ export function NorthMessengerWorkspace({
         : formatMemberCount(activeChat.members.length)
     : "";
   const showTypingIndicator = activeTypingParticipants.length > 0;
-  const timelineItems = buildTimeline(messages);
+  const timelineItems = useMemo(() => buildTimeline(messages), [messages]);
   const messagesLoading =
     Boolean(activeChat?.id) && messagesQuery.data === undefined && messagesQuery.isFetching;
   const lastMessageId = messages[messages.length - 1]?.id ?? null;
   const lastMessage = messages[messages.length - 1] ?? null;
+  const lastMessageAnchorKey = lastMessage ? getMessageIdentityKey(lastMessage) : null;
   const contextMenuMessage =
     contextMenu?.kind === "message"
       ? messages.find((message) => message.id === contextMenu.messageId) ?? null
@@ -714,30 +757,63 @@ export function NorthMessengerWorkspace({
   }, [activeChatId, activeTypingQuery.data, isRealtimeConnected]);
 
   useEffect(() => {
-    if (!activeChat) {
+    if (!activeChat || !shouldPrimeEncryptionRecipientsOnChatOpen(messagesLoading)) {
       return;
     }
 
     let cancelled = false;
-    void primeEncryptedMessageRecipients(session.token, activeChat.members).catch((error) => {
-      if (cancelled) {
-        return;
-      }
+    void primeEncryptedMessageRecipients(session.token, activeChat.members, {
+      currentUserId: session.user.id,
+      session,
+    })
+      .then(() => {
+        if (cancelled) {
+          return;
+        }
+        clearActiveChatEncryptionIdentityWarning(activeChat.id);
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
 
-      if (error instanceof ApiError && error.status === 401) {
-        onSessionChange(null);
-        return;
-      }
+        if (error instanceof ApiError && error.status === 401) {
+          onSessionChange(null);
+          return;
+        }
 
-      if (isEncryptionIdentityChangedError(error)) {
-        markActiveChatEncryptionIdentityWarning(activeChat.id, activeChat.members.map((member) => member.id));
-      }
-    });
+        if (isEncryptionIdentityChangedError(error)) {
+          void refreshEncryptionIdentityForChat(activeChat)
+            .then(() => {
+              if (cancelled) {
+                return;
+              }
+              clearActiveChatEncryptionIdentityWarning(activeChat.id);
+            })
+            .catch((recoveryError) => {
+              if (cancelled) {
+                return;
+              }
+
+              if (recoveryError instanceof ApiError && recoveryError.status === 401) {
+                onSessionChange(null);
+              }
+            });
+        }
+      });
 
     return () => {
       cancelled = true;
     };
-  }, [activeChat, markActiveChatEncryptionIdentityWarning, onSessionChange, session.token]);
+  }, [
+    activeChat?.id,
+    activeChatMemberIdsKey,
+    messagesLoading,
+    onSessionChange,
+    session.sessionId,
+    session.token,
+    session.user.id,
+  ]);
 
   useEffect(() => {
     setIsChatMenuOpen(false);
@@ -747,7 +823,41 @@ export function NorthMessengerWorkspace({
   useEffect(() => {
     clearActiveChatEncryptionIdentityWarning(activeChatId ?? undefined);
     setIsRecoveringEncryptionIdentity(false);
-  }, [activeChatId, clearActiveChatEncryptionIdentityWarning]);
+    sendMessageMutation.reset();
+    editMessageMutation.reset();
+  }, [activeChatId, session.sessionId, session.user.id]);
+
+  useEffect(() => {
+    if (!chatEncryptionIdentityWarning || chatEncryptionIdentityWarning.isVisible) {
+      return;
+    }
+
+    const timerId = window.setTimeout(() => {
+      setChatEncryptionIdentityWarning((current) => {
+        if (
+          !current ||
+          current.isVisible ||
+          current.chatId !== chatEncryptionIdentityWarning.chatId ||
+          current.errorText !== chatEncryptionIdentityWarning.errorText ||
+          current.participantIds.length !== chatEncryptionIdentityWarning.participantIds.length ||
+          !current.participantIds.every(
+            (participantId, index) => participantId === chatEncryptionIdentityWarning.participantIds[index]
+          )
+        ) {
+          return current;
+        }
+
+        return {
+          ...current,
+          isVisible: true,
+        };
+      });
+    }, CHAT_ENCRYPTION_WARNING_GRACE_MS);
+
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, [chatEncryptionIdentityWarning]);
 
   useEffect(() => {
     if (
@@ -767,6 +877,39 @@ export function NorthMessengerWorkspace({
   useEffect(() => {
     setConferenceRecordingState("idle");
   }, [activeConference?.id]);
+
+  useEffect(() => {
+    if (!isViewingChatsSection) {
+      return;
+    }
+
+    const nextSeenActivityAt = latestUnreadChatActivityAt ?? new Date().toISOString();
+    setLastSeenChatsActivityAt((current) => {
+      if (current && nextSeenActivityAt.localeCompare(current) <= 0) {
+        return current;
+      }
+
+      return nextSeenActivityAt;
+    });
+  }, [isViewingChatsSection, latestUnreadChatActivityAt]);
+
+  useEffect(() => {
+    if (!isViewingConferencesSection && seenConferenceActivitySnapshot !== null) {
+      return;
+    }
+
+    setSeenConferenceActivitySnapshot((current) => {
+      if (isConferenceActivitySnapshotEqual(current, currentConferenceActivitySnapshot)) {
+        return current;
+      }
+
+      return currentConferenceActivitySnapshot;
+    });
+  }, [
+    currentConferenceActivitySnapshot,
+    isViewingConferencesSection,
+    seenConferenceActivitySnapshot,
+  ]);
 
   const rememberRealtimeMessage = (messageId: string) => {
     handledRealtimeMessageIdsRef.current.set(messageId, true);
@@ -876,6 +1019,7 @@ export function NorthMessengerWorkspace({
     useMessageStreamNavigation({
       activeChatId,
       currentChatId: activeChat?.id ?? null,
+      lastMessageAnchorKey,
       lastMessageId,
       messages,
       currentUserId: session.user.id,
@@ -894,7 +1038,7 @@ export function NorthMessengerWorkspace({
     queryClient.setQueryData<string[]>(["archived-chats", session.token], (current) =>
       current?.filter((item) => item !== chatId) ?? []
     );
-    queryClient.removeQueries({ queryKey: ["messages", session.token, chatId] });
+    queryClient.removeQueries({ queryKey: buildMessagesQueryKey(session.user.id, chatId) });
     clearChatPreviewOverride(chatId);
     clearChatAttention(chatId);
     clearDraftForChat(chatId);
@@ -935,6 +1079,7 @@ export function NorthMessengerWorkspace({
     clearComposerContext,
     clearDraftForChat,
     currentUser: session.user,
+    session,
     deleteChatLocally,
     editingMessage,
     focusComposer,
@@ -981,10 +1126,7 @@ export function NorthMessengerWorkspace({
     );
 
     try {
-      chatEncryptionIdentityWarning.participantIds.forEach((participantId) => {
-        clearPinnedEncryptionIdentity(participantId);
-      });
-      await primeEncryptedMessageRecipients(session.token, activeChat.members);
+      await refreshEncryptionIdentityForChat(activeChat);
       setChatEncryptionIdentityWarning(null);
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
@@ -1010,11 +1152,14 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    const mismatchError = isEncryptionIdentityChangedError(sendMessageMutation.error)
-      ? sendMessageMutation.error
-      : isEncryptionIdentityChangedError(editMessageMutation.error)
-        ? editMessageMutation.error
-        : null;
+    const mismatchError =
+      sendMessageMutation.variables?.chatId === activeChat.id &&
+      isEncryptionIdentityChangedError(sendMessageMutation.error)
+        ? sendMessageMutation.error
+        : editMessageMutation.variables?.chatId === activeChat.id &&
+            isEncryptionIdentityChangedError(editMessageMutation.error)
+          ? editMessageMutation.error
+          : null;
 
     if (!mismatchError) {
       return;
@@ -1028,8 +1173,9 @@ export function NorthMessengerWorkspace({
   }, [
     activeChat,
     editMessageMutation.error,
-    markActiveChatEncryptionIdentityWarning,
+    editMessageMutation.variables,
     sendMessageMutation.error,
+    sendMessageMutation.variables,
   ]);
 
   const {
@@ -1185,7 +1331,7 @@ export function NorthMessengerWorkspace({
         queryClient.setQueryData<string[]>(["archived-chats", session.token], (current) =>
           current?.filter((chatId) => chatId !== result.chat!.id) ?? [],
         );
-        openChat(result.chat.id, "groups");
+        openChat(result.chat.id, "chats");
         onPendingInviteHandled();
         return;
       }
@@ -1693,8 +1839,7 @@ export function NorthMessengerWorkspace({
     ],
     normalizedSearch,
     onUnauthorized: () => onSessionChange(null),
-    visibleDirectChats,
-    visibleGroupChats,
+    visibleChats,
   });
   const showTopSearchResults = deferredSearch.trim().length > 0;
   const chatListContent = (
@@ -1855,32 +2000,46 @@ export function NorthMessengerWorkspace({
             <button
               type="button"
               className={
-                activeListTab === "dialogs"
-                  ? "conversation-list-tab is-active"
-                  : "conversation-list-tab"
+                [
+                  activeListTab === "chats"
+                    ? "conversation-list-tab is-active"
+                    : "conversation-list-tab",
+                  showChatsTabIndicator ? "has-indicator" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")
               }
-              onClick={() => activateListTab("dialogs")}
+              data-tab="chats"
+              aria-label={"\u0427\u0430\u0442\u044B"}
+              onClick={() => activateListTab("chats")}
             >
               Диалоги
             </button>
-            <button
+            {/* <button
               type="button"
               className={
-                activeListTab === "groups"
+                activeListTab === "chats"
                   ? "conversation-list-tab is-active"
                   : "conversation-list-tab"
               }
-              onClick={() => activateListTab("groups")}
+              onClick={() => activateListTab("chats")}
             >
               Группы
-            </button>
+            </button> */}
             <button
               type="button"
               className={
-                activeListTab === "conferences"
-                  ? "conversation-list-tab is-active"
-                  : "conversation-list-tab"
+                [
+                  activeListTab === "conferences"
+                    ? "conversation-list-tab is-active"
+                    : "conversation-list-tab",
+                  showConferencesTabIndicator ? "has-indicator" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")
               }
+              data-tab="conferences"
+              aria-label={"\u0412\u0438\u0434\u0435\u043E\u043A\u043E\u043D\u0444\u0435\u0440\u0435\u043D\u0446\u0438\u0438"}
               onClick={() => activateListTab("conferences")}
             >
               Видеоконференции

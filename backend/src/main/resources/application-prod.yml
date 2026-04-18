@@ -1,4 +1,13 @@
 app:
+  actuator:
+    scrape:
+      username: ${APP_ACTUATOR_SCRAPE_USERNAME}
+      password: ${APP_ACTUATOR_SCRAPE_PASSWORD}
   auth:
     refresh-cookie:
+      name: ${APP_AUTH_REFRESH_COOKIE_NAME:__Secure-north_refresh_token}
+      same-site: ${APP_AUTH_REFRESH_COOKIE_SAME_SITE:Strict}
       secure: true
+  realtime:
+    redis:
+      mac-secret: ${APP_REALTIME_REDIS_MAC_SECRET}

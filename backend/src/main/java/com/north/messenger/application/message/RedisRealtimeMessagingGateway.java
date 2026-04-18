@@ -16,13 +16,16 @@ public class RedisRealtimeMessagingGateway implements RealtimeMessagingGateway {
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
+    private final RedisRealtimeIntegrityService redisRealtimeIntegrityService;
 
     public RedisRealtimeMessagingGateway(
             StringRedisTemplate redisTemplate,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            RedisRealtimeIntegrityService redisRealtimeIntegrityService
     ) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
+        this.redisRealtimeIntegrityService = redisRealtimeIntegrityService;
     }
 
     @Override
@@ -46,7 +49,10 @@ public class RedisRealtimeMessagingGateway implements RealtimeMessagingGateway {
     }
 
     private void publish(RedisDistributedRealtimeEvent event) {
-        redisTemplate.convertAndSend(RedisRealtimeConfig.REALTIME_CHANNEL, serialize(event));
+        redisTemplate.convertAndSend(
+                RedisRealtimeConfig.REALTIME_CHANNEL,
+                serialize(redisRealtimeIntegrityService.sign(event))
+        );
     }
 
     private String serialize(Object payload) {

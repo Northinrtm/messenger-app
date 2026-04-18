@@ -1,4 +1,5 @@
-import type { ChatMessage, Participant, UserProfile } from "../../lib/types";
+import type { ChatMessage, ChatSummary, Participant, UserProfile, VideoConference } from "../../lib/types";
+import { getMessageIdentityKey } from "./chatState";
 import { formatTimelineDay } from "./chatPresentation";
 
 export type TimelineItem =
@@ -21,7 +22,7 @@ export function buildTimeline(messages: ChatMessage[]): TimelineItem[] {
     if (label !== previousLabel) {
       items.push({
         type: "day",
-        key: `day-${message.id}`,
+        key: `day-${getMessageIdentityKey(message)}`,
         label,
       });
       previousLabel = label;
@@ -29,12 +30,107 @@ export function buildTimeline(messages: ChatMessage[]): TimelineItem[] {
 
     items.push({
       type: "message",
-      key: message.id,
+      key: getMessageIdentityKey(message),
       message,
     });
   });
 
   return items;
+}
+
+export function shouldPrimeEncryptionRecipientsOnChatOpen(messagesLoading: boolean) {
+  return !messagesLoading;
+}
+
+export function getLatestUnreadChatActivityAt(chats: ChatSummary[]) {
+  return chats.reduce<string | null>((latest, chat) => {
+    if (chat.unreadCount <= 0) {
+      return latest;
+    }
+
+    const candidate = chat.lastMessageAt ?? chat.updatedAt;
+    if (!candidate) {
+      return latest;
+    }
+
+    if (!latest || candidate.localeCompare(latest) > 0) {
+      return candidate;
+    }
+
+    return latest;
+  }, null);
+}
+
+export function hasUnreadChatActivitySince(
+  chats: ChatSummary[],
+  lastSeenActivityAt: string | null
+) {
+  const latestUnreadActivityAt = getLatestUnreadChatActivityAt(chats);
+  if (!latestUnreadActivityAt) {
+    return false;
+  }
+
+  if (!lastSeenActivityAt) {
+    return true;
+  }
+
+  return latestUnreadActivityAt.localeCompare(lastSeenActivityAt) > 0;
+}
+
+export type ConferenceActivitySnapshot = Record<string, string>;
+
+export function buildConferenceActivitySnapshot(conferences: VideoConference[]) {
+  return Object.fromEntries(
+    conferences.map((conference) => [
+      conference.id,
+      [
+        conference.title,
+        conference.scheduledAt,
+        conference.createdAt,
+        conference.activatedAt ?? "",
+        conference.startedAt ?? "",
+        conference.endedAt ?? "",
+        conference.recordingCreatedAt ?? "",
+        conference.createdBy.id,
+        conference.participants
+          .map((participant) => participant.id)
+          .sort()
+          .join(","),
+      ].join("|"),
+    ])
+  );
+}
+
+export function isConferenceActivitySnapshotEqual(
+  left: ConferenceActivitySnapshot | null,
+  right: ConferenceActivitySnapshot | null
+) {
+  if (left === right) {
+    return true;
+  }
+
+  if (!left || !right) {
+    return false;
+  }
+
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) {
+    return false;
+  }
+
+  return leftKeys.every((key) => left[key] === right[key]);
+}
+
+export function hasConferenceActivitySinceSeen(
+  current: ConferenceActivitySnapshot,
+  seen: ConferenceActivitySnapshot | null
+) {
+  if (!seen) {
+    return false;
+  }
+
+  return !isConferenceActivitySnapshotEqual(current, seen);
 }
 
 export function mergeTypingParticipants(primary: Participant[], fallback: Participant[]) {

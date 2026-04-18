@@ -5,19 +5,16 @@ import com.north.messenger.api.dto.ChangePasswordRequest;
 import com.north.messenger.api.dto.LoginRequest;
 import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.api.dto.RegisterRequest;
-import com.north.messenger.api.dto.UserEncryptionKeyBundleRequest;
 import com.north.messenger.api.dto.UserSessionResponse;
 import com.north.messenger.api.dto.UserProfileResponse;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.UserContact;
 import com.north.messenger.domain.model.UserBlock;
-import com.north.messenger.domain.model.UserEncryptionKey;
 import com.north.messenger.domain.model.UserSession;
 import com.north.messenger.domain.repository.ChatRoomRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import com.north.messenger.domain.repository.UserBlockRepository;
 import com.north.messenger.domain.repository.UserContactRepository;
-import com.north.messenger.domain.repository.UserEncryptionKeyRepository;
 import com.north.messenger.domain.repository.UserSessionRepository;
 import com.north.messenger.security.JwtService;
 import java.nio.charset.StandardCharsets;
@@ -59,7 +56,6 @@ public class AuthService {
     private final UserBlockRepository userBlockRepository;
     private final UserSessionRepository userSessionRepository;
     private final ChatRoomRepository chatRoomRepository;
-    private final UserEncryptionKeyRepository userEncryptionKeyRepository;
     private final PasswordEncoder passwordEncoder;
     private final PasswordPolicyService passwordPolicyService;
     private final JwtService jwtService;
@@ -72,7 +68,6 @@ public class AuthService {
             UserBlockRepository userBlockRepository,
             UserSessionRepository userSessionRepository,
             ChatRoomRepository chatRoomRepository,
-            UserEncryptionKeyRepository userEncryptionKeyRepository,
             PasswordEncoder passwordEncoder,
             PasswordPolicyService passwordPolicyService,
             JwtService jwtService,
@@ -84,7 +79,6 @@ public class AuthService {
         this.userBlockRepository = userBlockRepository;
         this.userSessionRepository = userSessionRepository;
         this.chatRoomRepository = chatRoomRepository;
-        this.userEncryptionKeyRepository = userEncryptionKeyRepository;
         this.passwordEncoder = passwordEncoder;
         this.passwordPolicyService = passwordPolicyService;
         this.jwtService = jwtService;
@@ -137,7 +131,7 @@ public class AuthService {
 
     @Transactional
     public IssuedAuthSession refresh(String refreshToken) {
-        UserSession session = requireActiveSession(refreshToken);
+        UserSession session = requireActiveSessionForUpdate(refreshToken);
         UserAccount user = requireUserById(session.getUserId());
         return rotateSession(user, session);
     }
@@ -148,7 +142,8 @@ public class AuthService {
                 .filter(session -> !session.isRevoked())
                 .ifPresent(session -> {
                     UserAccount user = userAccountRepository.findById(session.getUserId()).orElse(null);
-                    session.revoke(Instant.now());
+                    Instant now = Instant.now();
+                    session.revoke(now);
                     userSessionRepository.save(session);
                     if (user != null) {
                         notifySessionRevoked(user.getUsername(), session.getId());
@@ -204,21 +199,18 @@ public class AuthService {
 
         passwordPolicyService.validatePassword(currentUser.getUsername(), currentUser.getDisplayName(), request.newPassword());
 
-        Instant now = Instant.now();
-        Optional<UserEncryptionKey> existingKey = userEncryptionKeyRepository.findById(currentUser.getId());
-        if (existingKey.isPresent() && request.encryptionKeyBundle() == null) {
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    "Encrypted chats must be re-secured when changing password"
-            );
-        }
-
         currentUser.updatePasswordHash(passwordEncoder.encode(request.newPassword()));
         userAccountRepository.save(currentUser);
 
-        if (request.encryptionKeyBundle() != null) {
-            upsertEncryptionKeyBundle(currentUser.getId(), request.encryptionKeyBundle(), now);
-        }
+        Instant now = Instant.now();
+        userSessionRepository.findAllByUserIdAndRevokedAtIsNullOrderByLastUsedAtDesc(currentUser.getId())
+                .forEach(session -> {
+                    if (!session.isRevoked()) {
+                        session.revoke(now);
+                        userSessionRepository.save(session);
+                        notifySessionRevoked(currentUser.getUsername(), session.getId());
+                    }
+                });
     }
 
     public List<UserProfileResponse> searchUsers(String username, String query) {
@@ -353,7 +345,8 @@ public class AuthService {
         }
 
         if (!session.isRevoked()) {
-            session.revoke(Instant.now());
+            Instant now = Instant.now();
+            session.revoke(now);
             userSessionRepository.save(session);
             notifySessionRevoked(currentUser.getUsername(), session.getId());
         }
@@ -370,16 +363,58 @@ public class AuthService {
 
         UserAccount user = userAccountRepository.findById(claims.userId()).orElse(null);
         UserSession session = userSessionRepository.findById(claims.sessionId()).orElse(null);
+        if (user == null || session == null) {
+            return Optional.empty();
+        }
+        if (!claims.expiresAt().isAfter(Instant.now())) {
+            return Optional.empty();
+        }
+        return authenticateSession(user, session, claims.username(), true);
+    }
+
+    @Transactional
+    public Optional<AuthenticatedSession> authenticateSession(String username, UUID sessionId) {
+        return authenticateSession(username, sessionId, true);
+    }
+
+    public boolean isSessionActive(String username, UUID sessionId) {
+        return authenticateSession(username, sessionId, false).isPresent();
+    }
+
+    private Optional<AuthenticatedSession> authenticateSession(String username, UUID sessionId, boolean touchSession) {
+        UserSession session = userSessionRepository.findById(sessionId).orElse(null);
+        if (session == null) {
+            return Optional.empty();
+        }
+
+        UserAccount user = userAccountRepository.findById(session.getUserId()).orElse(null);
+        if (user == null) {
+            return Optional.empty();
+        }
+
+        return authenticateSession(user, session, username, touchSession);
+    }
+
+    public AuthenticatedSession requireAuthenticatedSession(String username, UUID sessionId) {
+        return authenticateSession(username, sessionId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authenticated session not found"));
+    }
+
+    private Optional<AuthenticatedSession> authenticateSession(
+            UserAccount user,
+            UserSession session,
+            String expectedUsername,
+            boolean touchSession
+    ) {
         Instant now = Instant.now();
-
-        if (user == null || session == null || !session.isActiveAt(now) || !claims.expiresAt().isAfter(now)) {
+        if (!session.isActiveAt(now)) {
             return Optional.empty();
         }
-        if (!session.getUserId().equals(user.getId()) || !user.getUsername().equals(claims.username())) {
+        if (!session.getUserId().equals(user.getId()) || !user.getUsername().equals(expectedUsername)) {
             return Optional.empty();
         }
 
-        if (session.shouldTouchAt(now)) {
+        if (touchSession && session.shouldTouchAt(now)) {
             session.touch(now);
             userSessionRepository.save(session);
         }
@@ -390,6 +425,17 @@ public class AuthService {
     public UserAccount requireAuthenticatedUser(String username) {
         return findUserByUsername(username)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authenticated user not found"));
+    }
+
+    public AuthenticatedSession requireAuthenticatedSession(String username, String accessToken) {
+        AuthenticatedSession authenticatedSession = authenticateAccessToken(accessToken)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authenticated session not found"));
+
+        if (!authenticatedSession.user().getUsername().equals(username)) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authenticated session does not belong to current user");
+        }
+
+        return authenticatedSession;
     }
 
     public UserAccount requireExistingUser(String username) {
@@ -516,33 +562,6 @@ public class AuthService {
         return avatarUrl;
     }
 
-    private void upsertEncryptionKeyBundle(UUID userId, UserEncryptionKeyBundleRequest request, Instant now) {
-        UserEncryptionKey key = userEncryptionKeyRepository.findById(userId)
-                .map(existing -> {
-                    existing.update(
-                            request.publicKey(),
-                            request.encryptedPrivateKey(),
-                            request.kdfSalt(),
-                            request.kdfIv(),
-                            request.kdfIterations(),
-                            now
-                    );
-                    return existing;
-                })
-                .orElseGet(() -> new UserEncryptionKey(
-                        userId,
-                        request.publicKey(),
-                        request.encryptedPrivateKey(),
-                        request.kdfSalt(),
-                        request.kdfIv(),
-                        request.kdfIterations(),
-                        now,
-                        now
-                ));
-
-        userEncryptionKeyRepository.save(key);
-    }
-
     private boolean isUserOnline(UUID userId) {
         Instant now = Instant.now();
         return userSessionRepository.existsByUserIdAndRevokedAtIsNullAndExpiresAtAfterAndLastUsedAtAfter(
@@ -654,8 +673,16 @@ public class AuthService {
         );
     }
 
-    private UserSession requireActiveSession(String refreshToken) {
-        UserSession session = findSessionByRefreshToken(refreshToken)
+    private UserSession requireActiveSessionForUpdate(String refreshToken) {
+        RefreshTokenId tokenId;
+        try {
+            tokenId = parseRefreshToken(refreshToken);
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token is invalid");
+        }
+
+        UserSession session = userSessionRepository.findByIdForUpdate(tokenId.sessionId())
+                .filter(candidate -> constantTimeEquals(candidate.getTokenHash(), hashRefreshSecret(tokenId.secret())))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token is invalid"));
 
         if (!session.isActiveAt(Instant.now())) {

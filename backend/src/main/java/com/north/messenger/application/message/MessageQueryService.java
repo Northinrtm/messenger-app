@@ -3,6 +3,7 @@ package com.north.messenger.application.message;
 import com.north.messenger.api.dto.MessageReactionSummaryResponse;
 import com.north.messenger.api.dto.MessageResponse;
 import com.north.messenger.api.dto.MessageSnippetResponse;
+import com.north.messenger.api.dto.EncryptedMessagePayloadResponse;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.chat.ChatService;
 import com.north.messenger.domain.model.ChatMessage;
@@ -14,6 +15,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -53,7 +55,14 @@ class MessageQueryService {
     }
 
     @Transactional
-    List<MessageResponse> listMessages(UUID chatId, String username, Instant before, int limit) {
+    List<MessageResponse> listMessages(
+            UUID chatId,
+            String username,
+            Instant before,
+            UUID beforeMessageId,
+            int limit,
+            boolean acknowledgeDelivered
+    ) {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
         chatService.requireChatMembership(chatId, currentUser);
 
@@ -66,14 +75,23 @@ class MessageQueryService {
                                 currentUser.getId(),
                                 pageRequest
                         )
-                        : chatMessageRepository.findVisibleEncryptedByChatIdAndCreatedAtBeforeOrderByCreatedAtDesc(
-                                chatId,
-                                before,
-                                currentUser.getId(),
-                                pageRequest
-                        )
+                        : beforeMessageId == null
+                                ? chatMessageRepository.findVisibleEncryptedByChatIdAndCreatedAtBeforeOrderByCreatedAtDesc(
+                                        chatId,
+                                        before,
+                                        currentUser.getId(),
+                                        pageRequest
+                                )
+                                : chatMessageRepository
+                                        .findVisibleEncryptedByChatIdAndCreatedAtBeforeOrAtAndIdBeforeOrderByCreatedAtDesc(
+                                                chatId,
+                                                before,
+                                                beforeMessageId,
+                                                currentUser.getId(),
+                                                pageRequest
+                                        )
         );
-        recentMessages.sort((left, right) -> left.getCreatedAt().compareTo(right.getCreatedAt()));
+        recentMessages.sort(MessageQueryService::compareMessageOrder);
 
         Map<UUID, UserAccount> usersById = userAccountRepository.findAllByIdIn(
                         recentMessages.stream().map(ChatMessage::getSenderId).toList()
@@ -86,6 +104,9 @@ class MessageQueryService {
                 recentMessages.stream().map(ChatMessage::getId).toList(),
                 currentUser.getId()
         );
+        Set<String> visibleCurrentUserDeviceIds = recentMessages.isEmpty()
+                ? Set.of()
+                : messageSupport.loadVisibleDeviceIds(currentUser.getId());
         Map<UUID, MessageSnippetResponse> repliesByMessageId = messageSupport.loadReplySnippetsByMessageId(
                 recentMessages,
                 usersById
@@ -99,22 +120,34 @@ class MessageQueryService {
                         usersById,
                         summariesByMessageId,
                         reactionsByMessageId,
+                        visibleCurrentUserDeviceIds,
                         repliesByMessageId
                 ))
                 .flatMap(Optional::stream)
                 .toList();
 
-        messageReceiptService.acknowledgeReceipts(
-                chatId,
-                currentUser,
-                messageSupport.extractIncomingMessageIds(
-                        renderedMessages.stream().map(RenderedMessage::message).toList(),
-                        currentUser.getId()
-                ),
-                MessageSupport.ReceiptUpdateMode.DELIVERED
-        );
+        if (acknowledgeDelivered) {
+            messageReceiptService.acknowledgeReceipts(
+                    chatId,
+                    currentUser,
+                    messageSupport.extractIncomingMessageIds(
+                            renderedMessages.stream().map(RenderedMessage::message).toList(),
+                            currentUser.getId()
+                    ),
+                    MessageSupport.ReceiptUpdateMode.DELIVERED
+            );
+        }
 
         return renderedMessages.stream().map(RenderedMessage::response).toList();
+    }
+
+    private static int compareMessageOrder(ChatMessage left, ChatMessage right) {
+        int createdAtComparison = left.getCreatedAt().compareTo(right.getCreatedAt());
+        if (createdAtComparison != 0) {
+            return createdAtComparison;
+        }
+
+        return left.getId().compareTo(right.getId());
     }
 
     private Optional<RenderedMessage> tryRenderMessage(
@@ -124,6 +157,7 @@ class MessageQueryService {
             Map<UUID, UserAccount> usersById,
             Map<UUID, MessageSupport.MessageReceiptSummary> summariesByMessageId,
             Map<UUID, List<MessageReactionSummaryResponse>> reactionsByMessageId,
+            Set<String> visibleCurrentUserDeviceIds,
             Map<UUID, MessageSnippetResponse> repliesByMessageId
     ) {
         UserAccount sender = usersById.get(message.getSenderId());
@@ -139,16 +173,23 @@ class MessageQueryService {
         }
 
         try {
+            EncryptedMessagePayloadResponse encryptedPayload = messageSupport.toEncryptedPayload(
+                    message,
+                    currentUser.getId(),
+                    messageSupport.deserializeEncryptedKeys(message),
+                    visibleCurrentUserDeviceIds
+            );
             return Optional.of(new RenderedMessage(
                     message,
                     messageSupport.toResponse(
                             message,
-                            sender,
+                            authService.toParticipant(sender),
                             currentUser.getId(),
                             summariesByMessageId.getOrDefault(message.getId(), MessageSupport.MessageReceiptSummary.empty()),
                             reactionsByMessageId.getOrDefault(message.getId(), List.of()),
                             null,
-                            repliesByMessageId.get(message.getId())
+                            repliesByMessageId.get(message.getId()),
+                            encryptedPayload
                     )
             ));
         } catch (IllegalStateException exception) {

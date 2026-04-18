@@ -168,7 +168,7 @@ export function useWorkspaceNavigation({
       setActiveListTab(tabHint);
     } else {
       if (targetChat) {
-        setActiveListTab(targetChat.direct ? "dialogs" : "groups");
+        setActiveListTab("chats");
       }
     }
     setIsMenuOpen(false);

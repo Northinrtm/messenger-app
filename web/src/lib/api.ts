@@ -8,8 +8,8 @@ import type {
   InviteLink,
   MessageReactionEvent,
   Participant,
-  UserEncryptionKeyBundle,
-  UserEncryptionPublicKey,
+  UserEncryptionDevice,
+  UserEncryptionDeviceBundle,
   VideoConference,
   UserProfile,
   UserSessionInfo,
@@ -237,15 +237,6 @@ export function changePassword(
   input: {
     currentPassword: string;
     newPassword: string;
-    encryptionKeyBundle?:
-      | {
-          publicKey: string;
-          encryptedPrivateKey: string;
-          kdfSalt: string;
-          kdfIv: string;
-          kdfIterations: number;
-        }
-      | null;
   }
 ) {
   return request<void>("/api/auth/password", {
@@ -421,12 +412,20 @@ export function createGroupChat(
 export function getMessagesRaw(
   token: string,
   chatId: string,
-  options: { before?: string | null; limit?: number } = {}
+  options: {
+    before?: string | null;
+    beforeMessageId?: string | null;
+    limit?: number;
+    acknowledgeDelivered?: boolean;
+  } = {}
 ) {
   return request<ApiChatMessage[]>(`/api/chats/${chatId}/messages`, {
     token,
     query: {
+      acknowledgeDelivered:
+        options.acknowledgeDelivered === undefined ? undefined : options.acknowledgeDelivered ? 1 : 0,
       before: options.before,
+      beforeMessageId: options.beforeMessageId,
       limit: options.limit,
     },
   });
@@ -440,9 +439,8 @@ export function sendMessageRaw(
     replyToMessageId?: string | null;
     encryptedPayload: {
       scheme: string;
-      ciphertext: string;
-      iv: string;
-      encryptedKeysByUserId: Record<string, string>;
+      encryptedKeysByRecipientId: Record<string, string>;
+      sharedEnvelope?: string | null;
     };
   }
 ) {
@@ -460,9 +458,8 @@ export function updateMessage(
   body: {
     encryptedPayload: {
       scheme: string;
-      ciphertext: string;
-      iv: string;
-      encryptedKeysByUserId: Record<string, string>;
+      encryptedKeysByRecipientId: Record<string, string>;
+      sharedEnvelope?: string | null;
     };
   }
 ) {
@@ -618,32 +615,51 @@ export function searchUsers(token: string, query: string) {
   });
 }
 
-export function getOwnEncryptionKeyBundle(token: string) {
-  return request<UserEncryptionKeyBundle>("/api/e2ee/me", { token });
+export function listOwnEncryptionDevices(token: string) {
+  return request<UserEncryptionDevice[]>("/api/e2ee/devices/me", {
+    token,
+  });
 }
 
-export function upsertOwnEncryptionKeyBundle(
+export function upsertOwnEncryptionDevice(
   token: string,
   body: {
-    publicKey: string;
-    encryptedPrivateKey: string;
-    kdfSalt: string;
-    kdfIv: string;
-    kdfIterations: number;
+    deviceId?: string;
+    identityKey: string;
+    identityKeyAlgorithm: string;
+    identitySignatureKey: string;
+    identitySignatureKeyAlgorithm: string;
+    signedPrekeyId: number;
+    signedPrekeyPublicKey: string;
+    signedPrekeySignature: string;
+    signedPrekeyAlgorithm: string;
+    oneTimePrekeys: Array<{
+      keyId: number;
+      publicKey: string;
+    }>;
   }
 ) {
-  return request<UserEncryptionKeyBundle>("/api/e2ee/me", {
+  return request<UserEncryptionDevice>("/api/e2ee/devices/me", {
     method: "PUT",
     token,
     body,
   });
 }
 
-export function resolveEncryptionPublicKeys(token: string, userIds: string[]) {
-  return request<UserEncryptionPublicKey[]>("/api/e2ee/keys/resolve", {
+export function resolveEncryptionDeviceBundles(
+  token: string,
+  userIds: string[],
+  options?: { consumeOneTimePrekeys?: boolean; deviceIds?: string[]; requesterDeviceId?: string }
+) {
+  return request<UserEncryptionDeviceBundle[]>("/api/e2ee/devices/bundles/resolve", {
     method: "POST",
     token,
-    body: { userIds },
+    body: {
+      userIds,
+      consumeOneTimePrekeys: options?.consumeOneTimePrekeys === true,
+      deviceIds: options?.deviceIds,
+      requesterDeviceId: options?.requesterDeviceId,
+    },
   });
 }
 

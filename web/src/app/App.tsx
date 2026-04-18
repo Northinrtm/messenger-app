@@ -3,7 +3,11 @@ import { AuthCard } from "../features/auth/AuthCard";
 import { UnlockCard } from "../features/auth/UnlockCard";
 import { NorthMessengerWorkspace } from "../features/chat/NorthMessengerWorkspace";
 import { refreshSession } from "../lib/api";
-import { clearUnlockedEncryptionState, hasUnlockedPrivateEncryptionKey } from "../lib/e2ee";
+import {
+  hasUnlockedPrivateEncryptionKey,
+  lockUnlockedEncryptionState,
+  syncEncryptionDeviceState,
+} from "../lib/e2ee";
 import {
   getSessionRefreshDelay,
   isRefreshCompatible,
@@ -108,11 +112,11 @@ export function App() {
     const nextUserId = session?.user.id ?? null;
 
     if (previousUserId && previousUserId !== nextUserId) {
-      clearUnlockedEncryptionState(previousUserId);
+      lockUnlockedEncryptionState(previousUserId);
     }
 
     if (!nextUserId && previousUserId) {
-      clearUnlockedEncryptionState(previousUserId);
+      lockUnlockedEncryptionState(previousUserId);
     }
 
     previousUserIdRef.current = nextUserId;
@@ -144,6 +148,14 @@ export function App() {
       return;
     }
 
+    void syncEncryptionDeviceState(session);
+  }, [restoringSession, session]);
+
+  useEffect(() => {
+    if (restoringSession || !session) {
+      return;
+    }
+
     const refreshOnReturn = () => {
       if (document.visibilityState === "hidden") {
         return;
@@ -157,6 +169,8 @@ export function App() {
       if (shouldRefreshSessionSoon(session)) {
         void requestSessionRefresh(false);
       }
+
+      void syncEncryptionDeviceState(session);
     };
 
     window.addEventListener("focus", refreshOnReturn);

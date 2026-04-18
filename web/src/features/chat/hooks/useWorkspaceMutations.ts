@@ -27,7 +27,7 @@ import {
   updateProfileAvatar,
   updateVideoConference as updateVideoConferenceRequest,
 } from "../../../lib/api";
-import { prepareOwnEncryptionKeyBundleForPasswordChange } from "../../../lib/e2ee";
+import { resecureLocalEncryptionStateForPasswordChange } from "../../../lib/e2ee";
 import type {
   AuthResponse,
   ChatSummary,
@@ -143,7 +143,7 @@ export function useWorkspaceMutations({
       queryClient.setQueryData<ChatSummary[]>(["chats", token], (current) => upsertChat(current, chat));
       void queryClient.invalidateQueries({ queryKey: ["chats", token] });
       setSidebarSheet(null);
-      openChat(chat.id, "dialogs");
+      openChat(chat.id, "chats");
     },
   });
 
@@ -156,7 +156,7 @@ export function useWorkspaceMutations({
       setGroupTitle("");
       setGroupParticipantUsernames([]);
       setIsGroupCreatePickerOpen(false);
-      openChat(chat.id, "groups");
+      openChat(chat.id, "chats");
       onGroupCreated?.(chat, { openMenu: input.participantUsernames.length === 0 });
       setSidebarSheet(null);
     },
@@ -319,20 +319,33 @@ export function useWorkspaceMutations({
 
   const changePasswordMutation = useMutation({
     mutationFn: async (input: { currentPassword: string; newPassword: string }) => {
-      const encryptionKeyBundle = await prepareOwnEncryptionKeyBundleForPasswordChange(
-        token,
+      await resecureLocalEncryptionStateForPasswordChange(
         currentSession.user.id,
         input.currentPassword,
         input.newPassword
       );
-      return changePasswordRequest(token, {
-        currentPassword: input.currentPassword,
-        newPassword: input.newPassword,
-        encryptionKeyBundle,
-      });
+      try {
+        return await changePasswordRequest(token, {
+          currentPassword: input.currentPassword,
+          newPassword: input.newPassword,
+        });
+      } catch (error) {
+        try {
+          await resecureLocalEncryptionStateForPasswordChange(
+            currentSession.user.id,
+            input.newPassword,
+            input.currentPassword
+          );
+        } catch {
+          // Best-effort rollback. If it fails, the original server-side error is still the one that matters here.
+        }
+        throw error;
+      }
     },
     onSuccess: () => {
       onPasswordChanged?.();
+      queryClient.clear();
+      onSessionChange(null);
     },
   });
 
@@ -450,7 +463,7 @@ export function useWorkspaceMutations({
         queryClient.setQueryData(["chats", token], context.previousChats);
         queryClient.setQueryData(["archived-chats", token], context.previousArchivedChats);
         if (context.wasActive) {
-          openChat(_chatId, "groups");
+          openChat(_chatId, "chats");
         }
       }
     },

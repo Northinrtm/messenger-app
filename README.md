@@ -94,8 +94,9 @@ The current repository state is focused on direct chats, group chats, E2EE text 
 
 ## Security and E2EE
 
-- message content is encrypted client-side with `RSA-OAEP + AES-GCM`
-- backend stores encrypted payloads and wrapped per-user keys
+- direct chats use client-side `X3DH-DEVICE-AES-GCM` transport envelopes
+- group chats use client-side `GROUP-SENDER-KEY-AES-GCM` shared envelopes
+- backend stores encrypted payloads and wrapped per-device transport payloads
 - refresh token is not stored in `localStorage`
 - access token is kept in client memory
 - password-based E2EE unlock is available at any time
@@ -351,8 +352,8 @@ Use:
 
 - set a stable `APP_JWT_SECRET`
 - in production it must be a valid Base64 secret with at least 32 bytes after decoding
-- set `APP_ACTUATOR_SCRAPE_USERNAME` and `APP_ACTUATOR_SCRAPE_PASSWORD` for internal Prometheus auth
-- if they are omitted, production compose falls back to `prometheus/prometheus`; override them explicitly on any non-trivial deployment
+- set explicit `APP_ACTUATOR_SCRAPE_USERNAME` and `APP_ACTUATOR_SCRAPE_PASSWORD` for internal Prometheus auth
+- production compose fails closed if those scrape credentials are missing
 - leave `ENABLE_OBSERVABILITY_STACK=false` on small servers unless you intentionally want to spend RAM on Grafana/Prometheus/Tempo/Loki
 - leave `MANAGEMENT_TRACING_ENABLED=false` on small servers unless the observability stack is enabled
 - set `ALERTMANAGER_WEBHOOK_URL` if you want Alertmanager notifications to leave the server

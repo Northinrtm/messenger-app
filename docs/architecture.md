@@ -27,9 +27,9 @@ This repository is a production-style MVP for a direct-message messenger:
 3. Client keeps the session locally and refreshes the access token before expiry.
 4. HTTP API uses the JWT filter for protected endpoints.
 5. WebSocket/STOMP connects to `/ws` with `Authorization: Bearer <token>`.
-6. The channel interceptor validates the token on `CONNECT` and validates membership on `SUBSCRIBE`.
-7. Sending a message goes through `STOMP /app/chats/{chatId}/messages` over the existing `/ws` connection.
-8. HTTP `POST /api/chats/{chatId}/messages` stays as the fallback path when realtime send is unavailable.
+6. The channel interceptor validates the token on `CONNECT`, re-validates the bound session on later frames, and validates membership on `SUBSCRIBE`.
+7. Sending a message goes through HTTP `POST /api/chats/{chatId}/messages`.
+8. WebSocket/STOMP is used for inbound realtime delivery such as `/user/queue/messages` and typing updates.
 9. Backend persists the message and pushes it to each participant via `/user/queue/messages`.
 
 ## Why the backend is a modular monolith

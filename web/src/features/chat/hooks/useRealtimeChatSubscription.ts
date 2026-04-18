@@ -1,5 +1,6 @@
 import { type InfiniteData, type QueryClient } from "@tanstack/react-query";
 import { useEffect, useEffectEvent, useRef } from "react";
+import { isUnavailableEncryptedMessage } from "../../../lib/e2ee";
 import { replaceSubscribedChatIds, subscribeToChats } from "../../../lib/realtime";
 import type {
   ChatMessage,
@@ -15,6 +16,7 @@ import type {
   UserProfile,
 } from "../../../lib/types";
 import {
+  buildMessagesQueryKey,
   mergeMessagePages,
   removeMessageById,
   updateMessageReactionsPages,
@@ -57,9 +59,21 @@ type UseRealtimeChatSubscriptionOptions = {
   applyChatPreviewMessage: (message: ChatMessage) => void;
   applyServerChatPreviewMessage: (
     message: ChatMessage,
-    unreadMode: "clear" | "increment"
+    unreadMode: "clear" | "keep"
   ) => void;
 };
+
+type ActiveChatReconnectSnapshot = {
+  chatId: string;
+  dataUpdatedAt: number;
+};
+
+export function getRealtimeUnreadMode(options: {
+  ownMessage: boolean;
+  isVisibleActiveChat: boolean;
+}) {
+  return options.ownMessage || options.isVisibleActiveChat ? "clear" : "keep";
+}
 
 export function useRealtimeChatSubscription({
   acknowledgeDelivered,
@@ -96,6 +110,9 @@ export function useRealtimeChatSubscription({
   syncChatPreviewFromCache,
 }: UseRealtimeChatSubscriptionOptions) {
   const handledRealtimeMessageIdsRef = useRef(new Map<string, true>());
+  const hasEstablishedRealtimeConnectionRef = useRef(false);
+  const activeChatReconnectSnapshotRef = useRef<ActiveChatReconnectSnapshot | null>(null);
+  const getMessagesKey = (chatId: string) => buildMessagesQueryKey(currentUser.id, chatId);
 
   const rememberRealtimeMessage = (messageId: string) => {
     handledRealtimeMessageIdsRef.current.set(messageId, true);
@@ -115,22 +132,24 @@ export function useRealtimeChatSubscription({
     const nextMessage = normalizeIncomingMessage(message);
     const ownMessage = isOwnMessage(nextMessage);
     const isVisibleActiveChat =
-      nextMessage.chatId === activeChatId && document.visibilityState !== "hidden";
+      nextMessage.chatId === activeChatId &&
+      document.visibilityState === "visible" &&
+      (typeof document.hasFocus !== "function" || document.hasFocus());
     clearTypingParticipant(message.chatId, message.sender.id);
     rememberRealtimeMessage(message.id);
     applyChatPreviewMessage(nextMessage);
 
     queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
-      ["messages", sessionToken, nextMessage.chatId],
+      getMessagesKey(nextMessage.chatId),
       (current) => mergeMessagePages(current, nextMessage)
     );
     applyServerChatPreviewMessage(
       nextMessage,
-      ownMessage || isVisibleActiveChat ? "clear" : "increment"
+      getRealtimeUnreadMode({ ownMessage, isVisibleActiveChat })
     );
 
     if (!ownMessage) {
-      if (isVisibleActiveChat) {
+      if (isVisibleActiveChat && !isUnavailableEncryptedMessage(nextMessage.content)) {
         clearChatUnreadIndicator(nextMessage.chatId);
         void acknowledgeRead(nextMessage.chatId, [nextMessage.id]);
       } else {
@@ -154,6 +173,10 @@ export function useRealtimeChatSubscription({
     if (isNewChat) {
       void queryClient.invalidateQueries({ queryKey: ["chats", sessionToken] });
     }
+
+    if (chat.lastMessageAt && chat.lastMessage === "Encrypted message") {
+      void refreshChatPreviewFromServer(chat.id);
+    }
   });
 
   const handleRealtimeSession = useEffectEvent((event: SessionEvent) => {
@@ -163,27 +186,43 @@ export function useRealtimeChatSubscription({
   });
 
   const handleRealtimeConnect = useEffectEvent(() => {
+    const currentActiveChatId = activeChatId;
+    const shouldRefreshActiveChat = shouldRefreshActiveChatOnRealtimeConnect(
+      hasEstablishedRealtimeConnectionRef.current,
+      {
+        activeChatId: currentActiveChatId,
+        disconnectedChatSnapshot: activeChatReconnectSnapshotRef.current,
+        currentDataUpdatedAt: currentActiveChatId
+          ? queryClient.getQueryState<InfiniteData<ChatMessage[]>>(getMessagesKey(currentActiveChatId))
+              ?.dataUpdatedAt ?? 0
+          : 0,
+      }
+    );
+    hasEstablishedRealtimeConnectionRef.current = true;
+    activeChatReconnectSnapshotRef.current = null;
     void queryClient.invalidateQueries({ queryKey: ["chats", sessionToken] });
-    if (!activeChatId) {
+    if (!currentActiveChatId) {
       return;
     }
 
-    void queryClient.invalidateQueries({ queryKey: ["messages", sessionToken, activeChatId] });
+    if (shouldRefreshActiveChat) {
+      void queryClient.invalidateQueries({ queryKey: getMessagesKey(currentActiveChatId) });
+    }
     if (activeDraft.trim()) {
-      sendTypingHeartbeat(activeChatId);
+      sendTypingHeartbeat(currentActiveChatId);
     }
   });
 
   const handleRealtimeMessageStatus = useEffectEvent((event: MessageStatusEvent) => {
     queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
-      ["messages", sessionToken, event.chatId],
+      getMessagesKey(event.chatId),
       (current) => updateMessageStatusPages(current, event)
     );
   });
 
   const handleRealtimeMessageDeletion = useEffectEvent((event: MessageDeletionEvent) => {
     queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
-      ["messages", sessionToken, event.chatId],
+      getMessagesKey(event.chatId),
       (current) => removeMessageById(current, event.messageId)
     );
     if (activePinnedMessageId === event.messageId) {
@@ -206,7 +245,7 @@ export function useRealtimeChatSubscription({
 
   const handleRealtimeMessageReaction = useEffectEvent((event: MessageReactionEvent) => {
     queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
-      ["messages", sessionToken, event.chatId],
+      getMessagesKey(event.chatId),
       (current) => updateMessageReactionsPages(current, event)
     );
   });
@@ -258,6 +297,7 @@ export function useRealtimeChatSubscription({
 
   useEffect(() => {
     if (isRealtimeConnected) {
+      activeChatReconnectSnapshotRef.current = null;
       return;
     }
 
@@ -266,7 +306,36 @@ export function useRealtimeChatSubscription({
       return;
     }
 
-    void queryClient.invalidateQueries({ queryKey: ["messages", sessionToken, activeChatId] });
+    activeChatReconnectSnapshotRef.current = {
+      chatId: activeChatId,
+      dataUpdatedAt:
+        queryClient.getQueryState<InfiniteData<ChatMessage[]>>(getMessagesKey(activeChatId))
+          ?.dataUpdatedAt ?? 0,
+    };
     void queryClient.invalidateQueries({ queryKey: ["typing", sessionToken, activeChatId] });
   }, [activeChatId, isRealtimeConnected, queryClient, sessionToken]);
+}
+
+export function shouldRefreshActiveChatOnRealtimeConnect(
+  hasEstablishedRealtimeConnection: boolean,
+  options?: {
+    activeChatId?: string | null;
+    disconnectedChatSnapshot?: ActiveChatReconnectSnapshot | null;
+    currentDataUpdatedAt?: number;
+  }
+) {
+  if (!hasEstablishedRealtimeConnection) {
+    return false;
+  }
+
+  if (!options?.activeChatId) {
+    return true;
+  }
+
+  const snapshot = options.disconnectedChatSnapshot;
+  if (!snapshot || snapshot.chatId !== options.activeChatId) {
+    return true;
+  }
+
+  return (options.currentDataUpdatedAt ?? 0) <= snapshot.dataUpdatedAt;
 }

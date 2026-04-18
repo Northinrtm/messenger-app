@@ -9,12 +9,19 @@ public record EncryptedMessagePayloadRequest(
         @NotBlank
         @Size(max = 120)
         String scheme,
-        @NotBlank
-        String ciphertext,
-        @NotBlank
-        @Size(max = 255)
-        String iv,
         @NotEmpty
-        Map<String, String> encryptedKeysByUserId
+        @Size(max = 512)
+        Map<
+                @NotBlank @Size(max = 64) String,
+                @NotBlank @Size(max = 12000) String
+                > encryptedKeysByRecipientId,
+        @Size(max = 20000)
+        String sharedEnvelope
 ) {
+    public EncryptedMessagePayloadRequest(
+            String scheme,
+            Map<String, String> encryptedKeysByRecipientId
+    ) {
+        this(scheme, encryptedKeysByRecipientId, null);
+    }
 }

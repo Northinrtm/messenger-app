@@ -46,9 +46,8 @@ export type MessageSnippet = {
 
 export type EncryptedMessagePayload = {
   scheme: string;
-  ciphertext: string;
-  iv: string;
-  encryptedKey: string;
+  encryptedKeysByRecipientId: Record<string, string>;
+  sharedEnvelope?: string | null;
 };
 
 export type ChatSummary = {
@@ -109,7 +108,7 @@ export type ApiChatMessage = {
   clientMessageId?: string | null;
   replyTo: MessageSnippet | null;
   reactions: MessageReaction[];
-  encryptedPayload: EncryptedMessagePayload;
+  encryptedPayload: EncryptedMessagePayload | null;
 };
 
 export type ChatMessage = {
@@ -121,6 +120,7 @@ export type ChatMessage = {
   editedAt: string | null;
   status: MessageStatus | null;
   clientMessageId?: string | null;
+  localOrder?: number | null;
   replyTo: MessageSnippet | null;
   reactions: MessageReaction[];
 };
@@ -174,18 +174,40 @@ export type ApiErrorResponse = {
   details: string[];
 };
 
-export type UserEncryptionKeyBundle = {
-  userId: string;
+export type UserEncryptionDevicePrekey = {
+  keyId: number;
   publicKey: string;
-  encryptedPrivateKey: string;
-  kdfSalt: string;
-  kdfIv: string;
-  kdfIterations: number;
-  createdAt: string;
-  updatedAt: string;
 };
 
-export type UserEncryptionPublicKey = {
+export type UserEncryptionDevice = {
+  deviceId: string;
+  deviceName: string;
+  identityKey: string;
+  identityKeyAlgorithm: string;
+  identitySignatureKey: string;
+  identitySignatureKeyAlgorithm: string;
+  signedPrekeyId: number;
+  signedPrekeyPublicKey: string;
+  signedPrekeySignature: string;
+  signedPrekeyAlgorithm: string;
+  availableOneTimePrekeys: number;
+  registeredAt: string;
+  lastSeenAt: string;
+};
+
+export type UserEncryptionDeviceBundle = {
   userId: string;
-  publicKey: string;
+  deviceId: string;
+  deviceName: string;
+  identityKey: string;
+  identityKeyAlgorithm: string;
+  identitySignatureKey: string;
+  identitySignatureKeyAlgorithm: string;
+  signedPrekeyId: number;
+  signedPrekeyPublicKey: string;
+  signedPrekeySignature: string;
+  signedPrekeyAlgorithm: string;
+  oneTimePrekey: UserEncryptionDevicePrekey | null;
+  registeredAt: string;
+  lastSeenAt: string;
 };

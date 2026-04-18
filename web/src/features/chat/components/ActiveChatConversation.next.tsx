@@ -476,6 +476,7 @@ function MessageRow({
       ) : null}
       <article
         data-message-id={message.id}
+        data-message-anchor-key={message.clientMessageId ?? message.id}
         className={ownMessage ? "message-bubble is-mine" : "message-bubble"}
         onContextMenu={(event) => onOpenContextMenu(event, chatId, message.id)}
       >

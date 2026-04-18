@@ -4,6 +4,7 @@ import { useEffect, useEffectEvent, useRef } from "react";
 type UseMessageStreamNavigationOptions = {
   activeChatId: string | null;
   currentChatId: string | null;
+  lastMessageAnchorKey: string | null;
   lastMessageId: string | null;
   messages: ChatMessage[];
   currentUserId: string;
@@ -40,6 +41,7 @@ export function resolveInitialMessageAnchorId(
 export function useMessageStreamNavigation({
   activeChatId,
   currentChatId,
+  lastMessageAnchorKey,
   lastMessageId,
   messages,
   currentUserId,
@@ -49,9 +51,9 @@ export function useMessageStreamNavigation({
 }: UseMessageStreamNavigationOptions) {
   const messageStreamRef = useRef<HTMLDivElement | null>(null);
   const pendingOlderScrollOffsetRef = useRef<number | null>(null);
-  const viewportSnapshotRef = useRef<{ chatId: string | null; lastMessageId: string | null }>({
+  const viewportSnapshotRef = useRef<{ chatId: string | null; lastMessageAnchorKey: string | null }>({
     chatId: null,
-    lastMessageId: null,
+    lastMessageAnchorKey: null,
   });
 
   const scrollMessageIntoStream = useEffectEvent((messageId: string, behavior: ScrollBehavior = "smooth") => {
@@ -76,6 +78,32 @@ export function useMessageStreamNavigation({
     return true;
   });
 
+  const scrollAnchorIntoStream = useEffectEvent(
+    (anchorKey: string, behavior: ScrollBehavior = "smooth") => {
+      const container = messageStreamRef.current;
+      if (!container) {
+        return false;
+      }
+
+      const messageNode = container.querySelector<HTMLElement>(
+        `[data-message-anchor-key="${anchorKey}"]`
+      );
+      if (!messageNode) {
+        return false;
+      }
+
+      const targetTop =
+        messageNode.offsetTop - container.clientHeight / 2 + messageNode.offsetHeight / 2;
+
+      container.scrollTo({
+        top: Math.max(0, targetTop),
+        behavior,
+      });
+
+      return true;
+    }
+  );
+
   const scrollToStreamBottom = useEffectEvent((behavior: ScrollBehavior = "auto") => {
     const container = messageStreamRef.current;
     if (!container) {
@@ -88,17 +116,23 @@ export function useMessageStreamNavigation({
     });
   });
 
-  const scheduleInitialViewportPosition = useEffectEvent((messageId: string | null) => {
+  const scheduleInitialViewportPosition = useEffectEvent(
+    (messageId: string | null, anchorKey: string | null) => {
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
         if (messageId && scrollMessageIntoStream(messageId, "auto")) {
           return;
         }
 
+        if (anchorKey && scrollAnchorIntoStream(anchorKey, "auto")) {
+          return;
+        }
+
         scrollToStreamBottom("auto");
       });
     });
-  });
+    }
+  );
 
   const scrollToMessage = useEffectEvent((chatId: string, messageId: string) => {
     if (activeChatId !== chatId) {
@@ -131,7 +165,7 @@ export function useMessageStreamNavigation({
       pendingOlderScrollOffsetRef.current = null;
       viewportSnapshotRef.current = {
         chatId: currentChatId,
-        lastMessageId,
+        lastMessageAnchorKey,
       };
       return;
     }
@@ -146,30 +180,31 @@ export function useMessageStreamNavigation({
         currentUserId,
         pendingAnchorForCurrentChat.unreadCount
       );
-      scheduleInitialViewportPosition(targetMessageId);
+      scheduleInitialViewportPosition(targetMessageId, lastMessageAnchorKey);
       clearPendingInitialAnchor(currentChatId);
       viewportSnapshotRef.current = {
         chatId: currentChatId,
-        lastMessageId,
+        lastMessageAnchorKey,
       };
       return;
     }
 
     const previous = viewportSnapshotRef.current;
     const chatChanged = previous.chatId !== currentChatId;
-    const tailChanged = previous.lastMessageId !== lastMessageId;
+    const tailChanged = previous.lastMessageAnchorKey !== lastMessageAnchorKey;
     if (chatChanged || tailChanged) {
-      scheduleInitialViewportPosition(lastMessageId);
+      scheduleInitialViewportPosition(null, lastMessageAnchorKey);
     }
 
     viewportSnapshotRef.current = {
       chatId: currentChatId,
-      lastMessageId,
+      lastMessageAnchorKey,
     };
   }, [
     clearPendingInitialAnchor,
     currentChatId,
     currentUserId,
+    lastMessageAnchorKey,
     lastMessageId,
     messages,
     pendingInitialAnchor,

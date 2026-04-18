@@ -9,9 +9,14 @@ import org.springframework.stereotype.Component;
 public class LocalRealtimeMessagingGateway implements RealtimeMessagingGateway {
 
     private final SimpMessagingTemplate messagingTemplate;
+    private final AuthenticatedWebSocketUserDelivery authenticatedWebSocketUserDelivery;
 
-    public LocalRealtimeMessagingGateway(SimpMessagingTemplate messagingTemplate) {
+    public LocalRealtimeMessagingGateway(
+            SimpMessagingTemplate messagingTemplate,
+            AuthenticatedWebSocketUserDelivery authenticatedWebSocketUserDelivery
+    ) {
         this.messagingTemplate = messagingTemplate;
+        this.authenticatedWebSocketUserDelivery = authenticatedWebSocketUserDelivery;
     }
 
     @Override
@@ -21,6 +26,6 @@ public class LocalRealtimeMessagingGateway implements RealtimeMessagingGateway {
 
     @Override
     public void sendToUser(String username, String destination, Object payload) {
-        messagingTemplate.convertAndSendToUser(username, destination, payload);
+        authenticatedWebSocketUserDelivery.sendToUser(username, destination, payload);
     }
 }

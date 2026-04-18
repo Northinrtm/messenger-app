@@ -33,8 +33,22 @@ public class MessageService {
     }
 
     @Transactional
-    public List<MessageResponse> listMessages(UUID chatId, String username, Instant before, int limit) {
-        return messageQueryService.listMessages(chatId, username, before, limit);
+    public List<MessageResponse> listMessages(
+            UUID chatId,
+            String username,
+            Instant before,
+            UUID beforeMessageId,
+            int limit,
+            boolean acknowledgeDelivered
+    ) {
+        return messageQueryService.listMessages(
+                chatId,
+                username,
+                before,
+                beforeMessageId,
+                limit,
+                acknowledgeDelivered
+        );
     }
 
     @Transactional

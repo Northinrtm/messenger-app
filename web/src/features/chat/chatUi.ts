@@ -11,7 +11,7 @@ export type SidebarSheet =
   | "forward"
   | null;
 
-export type ConversationListTab = "dialogs" | "groups" | "conferences";
+export type ConversationListTab = "chats" | "conferences";
 
 export type MenuActionId =
   | "conference"

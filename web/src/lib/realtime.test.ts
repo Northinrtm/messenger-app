@@ -1,4 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("./e2ee", () => ({
+  hydrateChatMessage: vi.fn(async (message: Record<string, unknown>) => ({
+    id: message.id,
+    chatId: message.chatId,
+    sender: message.sender,
+    content: "hydrated from realtime",
+    createdAt: message.createdAt,
+    editedAt: message.editedAt ?? null,
+    status: message.status ?? null,
+    clientMessageId: message.clientMessageId ?? null,
+    replyTo: message.replyTo ?? null,
+    reactions: message.reactions ?? [],
+  })),
+}));
+
+import { hydrateChatMessage } from "./e2ee";
 import { subscribeToChats } from "./realtime";
 
 const stompClients: MockClient[] = [];
@@ -9,6 +26,8 @@ vi.mock("@stomp/stompjs", () => {
     connected = false;
     activateCalls = 0;
     deactivateCalls = 0;
+    publishCalls: Array<{ destination: string; body: string }> = [];
+    subscriptions = new Map<string, (frame: { body: string }) => void>();
     onConnect = () => undefined;
     onStompError = () => undefined;
     onWebSocketClose = () => undefined;
@@ -29,16 +48,17 @@ vi.mock("@stomp/stompjs", () => {
       return Promise.resolve();
     }
 
-    subscribe() {
+    subscribe(destination: string, callback: (frame: { body: string }) => void) {
+      this.subscriptions.set(destination, callback);
       return {
-        unsubscribe() {
-          return undefined;
+        unsubscribe: () => {
+          this.subscriptions.delete(destination);
         },
       };
     }
 
-    publish() {
-      return undefined;
+    publish(frame: { destination: string; body: string }) {
+      this.publishCalls.push(frame);
     }
   }
 
@@ -58,6 +78,8 @@ type MockClient = {
   connected: boolean;
   activateCalls: number;
   deactivateCalls: number;
+  publishCalls: Array<{ destination: string; body: string }>;
+  subscriptions: Map<string, (frame: { body: string }) => void>;
   config: {
     brokerURL: string;
   };
@@ -68,6 +90,16 @@ type MockClient = {
   activate: () => void;
   deactivate: () => Promise<void>;
 };
+
+function emitFrame(
+  client: MockClient,
+  destination: string,
+  body: Record<string, unknown>
+) {
+  client.subscriptions.get(destination)?.({
+    body: JSON.stringify(body),
+  });
+}
 
 function setDocumentVisibilityState(state: DocumentVisibilityState) {
   Object.defineProperty(document, "visibilityState", {
@@ -176,7 +208,7 @@ describe("realtime reconnect protection", () => {
     disposeFirst();
   });
 
-  it("pauses realtime after the tab stays hidden and resumes when visible again", () => {
+  it("keeps realtime active while the tab is hidden", () => {
     const connectionChange = vi.fn();
     const dispose = createSubscription({
       onConnectionChange: connectionChange,
@@ -190,17 +222,14 @@ describe("realtime reconnect protection", () => {
     setDocumentVisibilityState("hidden");
     document.dispatchEvent(new Event("visibilitychange"));
 
-    vi.advanceTimersByTime(14_999);
+    vi.advanceTimersByTime(15_000);
     expect(client.deactivateCalls).toBe(0);
-
-    vi.advanceTimersByTime(1);
-    expect(client.deactivateCalls).toBe(1);
-    expect(connectionChange).toHaveBeenLastCalledWith(false);
 
     setDocumentVisibilityState("visible");
     document.dispatchEvent(new Event("visibilitychange"));
 
-    expect(client.activateCalls).toBe(2);
+    expect(client.activateCalls).toBe(1);
+    expect(connectionChange).toHaveBeenCalledTimes(1);
 
     dispose();
   });
@@ -222,4 +251,59 @@ describe("realtime reconnect protection", () => {
 
     dispose();
   });
+
+  it("hydrates incoming websocket messages and forwards them to onMessage", async () => {
+    const onMessage = vi.fn();
+    const dispose = subscribeToChats({
+      chatIds: [],
+      token: "test-token",
+      currentUserId: "user-1",
+      onChat: () => undefined,
+      onMessage,
+      onSessionEvent: () => undefined,
+    });
+    const client = stompClients[0];
+    client.connected = true;
+    client.onConnect();
+
+    const incomingPayload = {
+      id: "message-id",
+      chatId: "chat-id",
+      sender: {
+        id: "user-2",
+        username: "remote",
+        displayName: "Remote",
+        profession: null,
+        avatarUrl: null,
+        online: true,
+      },
+      content: null,
+      createdAt: "2026-04-13T12:00:00.000Z",
+      editedAt: null,
+      status: null,
+      clientMessageId: null,
+      replyTo: null,
+      reactions: [],
+      encryptedPayload: {
+        scheme: "X3DH-DEVICE-AES-GCM",
+        encryptedKeysByRecipientId: {},
+      },
+    };
+
+    emitFrame(client, "/user/queue/messages", incomingPayload);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(vi.mocked(hydrateChatMessage)).toHaveBeenCalledWith(incomingPayload, "user-1");
+    expect(onMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "message-id",
+        chatId: "chat-id",
+        content: "hydrated from realtime",
+      })
+    );
+
+    dispose();
+  });
+
 });

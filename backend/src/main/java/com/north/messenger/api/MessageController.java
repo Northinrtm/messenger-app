@@ -6,12 +6,14 @@ import com.north.messenger.api.dto.MessageReactionEventResponse;
 import com.north.messenger.api.dto.MessageResponse;
 import com.north.messenger.api.dto.ToggleMessageReactionRequest;
 import com.north.messenger.api.dto.UpdateMessageRequest;
+import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.message.MessageService;
 import jakarta.validation.Valid;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -19,6 +21,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -30,9 +33,11 @@ import org.springframework.web.bind.annotation.PutMapping;
 public class MessageController {
 
     private final MessageService messageService;
+    private final AuthService authService;
 
-    public MessageController(MessageService messageService) {
+    public MessageController(MessageService messageService, AuthService authService) {
         this.messageService = messageService;
+        this.authService = authService;
     }
 
     @GetMapping
@@ -40,18 +45,32 @@ public class MessageController {
             Authentication authentication,
             @PathVariable UUID chatId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant before,
-            @RequestParam(defaultValue = "50") int limit
+            @RequestParam(required = false) UUID beforeMessageId,
+            @RequestParam(defaultValue = "50") int limit,
+            @RequestParam(defaultValue = "true") boolean acknowledgeDelivered
     ) {
-        return messageService.listMessages(chatId, authentication.getName(), before, limit);
+        return messageService.listMessages(
+                chatId,
+                authentication.getName(),
+                before,
+                beforeMessageId,
+                limit,
+                acknowledgeDelivered
+        );
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public MessageResponse sendMessage(
             Authentication authentication,
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
             @PathVariable UUID chatId,
             @Valid @RequestBody CreateMessageRequest request
     ) {
+        authService.requireAuthenticatedSession(
+                authentication.getName(),
+                extractBearerToken(authorization)
+        );
         return messageService.sendMessage(chatId, authentication.getName(), request);
     }
 
@@ -89,11 +108,21 @@ public class MessageController {
     @PutMapping("/{messageId}")
     public MessageResponse updateMessage(
             Authentication authentication,
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
             @PathVariable UUID chatId,
             @PathVariable UUID messageId,
             @Valid @RequestBody UpdateMessageRequest request
     ) {
-        return messageService.updateMessage(chatId, messageId, authentication.getName(), request);
+        authService.requireAuthenticatedSession(
+                authentication.getName(),
+                extractBearerToken(authorization)
+        );
+        return messageService.updateMessage(
+                chatId,
+                messageId,
+                authentication.getName(),
+                request
+        );
     }
 
     @PutMapping("/{messageId}/reactions")
@@ -104,6 +133,13 @@ public class MessageController {
             @Valid @RequestBody ToggleMessageReactionRequest request
     ) {
         return messageService.toggleReaction(chatId, messageId, authentication.getName(), request);
+    }
+
+    private String extractBearerToken(String authorization) {
+        if (authorization == null || !authorization.startsWith("Bearer ")) {
+            return "";
+        }
+        return authorization.substring(7);
     }
 }
 

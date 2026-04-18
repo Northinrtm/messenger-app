@@ -60,20 +60,6 @@ type RealtimeConnection = {
   disposeLifecycleHandlers: (() => void) | null;
 };
 
-type OutgoingEncryptedMessagePayload = {
-  scheme: string;
-  ciphertext: string;
-  iv: string;
-  encryptedKeysByUserId: Record<string, string>;
-};
-
-type PendingOutgoingMessage = {
-  reject: (error: Error) => void;
-  resolve: (message: ChatMessage) => void;
-  timeoutId: number;
-};
-
-const OUTGOING_MESSAGE_ACK_TIMEOUT_MS = 1_500;
 const REALTIME_CONNECTION_TIMEOUT_MS = 10_000;
 const REALTIME_HEARTBEAT_INTERVAL_MS = 10_000;
 const REALTIME_RECONNECT_INITIAL_DELAY_MS = 2_000;
@@ -84,7 +70,6 @@ const REALTIME_RECONNECT_FAILURE_THRESHOLD = 5;
 const REALTIME_RECONNECT_COOLDOWN_MS = 60_000;
 const REALTIME_VISIBILITY_PAUSE_DELAY_MS = 15_000;
 let activeConnection: RealtimeConnection | null = null;
-const pendingOutgoingMessages = new Map<string, PendingOutgoingMessage>();
 
 export function subscribeToChats({
   chatIds,
@@ -160,7 +145,7 @@ export function subscribeToChats({
     connection.failedReconnectAt = [];
     connection.lastRecordedFailureAt = 0;
     setConnectionState(connection, true);
-    clearSubscriptions(connection, true);
+    clearSubscriptions(connection);
 
     connection.userSubscriptions.push(
       client.subscribe("/user/queue/chats", (frame) => {
@@ -182,7 +167,6 @@ export function subscribeToChats({
           JSON.parse(frame.body) as ApiChatMessage,
           connection.currentUserId
         ).then((message) => {
-          resolvePendingOutgoingMessage(message);
           connection.onMessage(message);
         });
       })
@@ -243,7 +227,7 @@ export function subscribeToChats({
     connection.disposeLifecycleHandlers = null;
     clearReconnectCooldown(connection);
     clearVisibilityPause(connection);
-    clearSubscriptions(connection, shouldNotifyDisconnected);
+    clearSubscriptions(connection);
     if (shouldNotifyDisconnected) {
       setConnectionState(connection, false);
       activeConnection = null;
@@ -273,46 +257,6 @@ export function publishTypingEvent(chatId: string, typing: boolean) {
     body: JSON.stringify({ typing }),
   });
   return true;
-}
-
-export function publishOutgoingMessage(
-  chatId: string,
-  request: {
-    clientMessageId?: string;
-    replyToMessageId?: string | null;
-    encryptedPayload: OutgoingEncryptedMessagePayload;
-  }
-) {
-  const client = activeConnection?.client;
-  const clientMessageId = request.clientMessageId?.trim();
-  if (!client?.connected || !clientMessageId) {
-    return null;
-  }
-
-  return new Promise<ChatMessage>((resolve, reject) => {
-    const existing = pendingOutgoingMessages.get(clientMessageId);
-    if (existing) {
-      window.clearTimeout(existing.timeoutId);
-      existing.reject(new Error("Superseded outgoing message acknowledgement"));
-      pendingOutgoingMessages.delete(clientMessageId);
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      pendingOutgoingMessages.delete(clientMessageId);
-      reject(new Error("Outgoing message acknowledgement timed out"));
-    }, OUTGOING_MESSAGE_ACK_TIMEOUT_MS);
-
-    pendingOutgoingMessages.set(clientMessageId, {
-      resolve,
-      reject,
-      timeoutId,
-    });
-
-    client.publish({
-      destination: `/app/chats/${chatId}/messages`,
-      body: JSON.stringify(request),
-    });
-  });
 }
 
 function syncTypingSubscriptions(connection: RealtimeConnection) {
@@ -346,7 +290,7 @@ function syncTypingSubscriptions(connection: RealtimeConnection) {
   });
 }
 
-function clearSubscriptions(connection: RealtimeConnection, rejectPendingMessages: boolean) {
+function clearSubscriptions(connection: RealtimeConnection) {
   connection.userSubscriptions.forEach((subscription) => {
     try {
       subscription.unsubscribe();
@@ -365,9 +309,6 @@ function clearSubscriptions(connection: RealtimeConnection, rejectPendingMessage
   });
   connection.typingSubscriptions.clear();
 
-  if (rejectPendingMessages) {
-    rejectPendingOutgoingMessages();
-  }
 }
 
 function handleConnectionFailure(connection: RealtimeConnection) {
@@ -375,7 +316,7 @@ function handleConnectionFailure(connection: RealtimeConnection) {
     return;
   }
 
-  clearSubscriptions(connection, true);
+  clearSubscriptions(connection);
   setConnectionState(connection, false);
 
   if (connection.pausedByLifecycle) {
@@ -441,7 +382,7 @@ function retireConnection(connection: RealtimeConnection) {
   connection.disposeLifecycleHandlers = null;
   clearReconnectCooldown(connection);
   clearVisibilityPause(connection);
-  clearSubscriptions(connection, false);
+  clearSubscriptions(connection);
   connection.connected = false;
   void connection.client.deactivate();
 }
@@ -455,49 +396,11 @@ function setConnectionState(connection: RealtimeConnection, connected: boolean) 
   connection.onConnectionChange?.(connected);
 }
 
-function resolvePendingOutgoingMessage(message: ChatMessage) {
-  const clientMessageId = message.clientMessageId ?? null;
-  if (!clientMessageId) {
-    return;
-  }
-
-  const pending = pendingOutgoingMessages.get(clientMessageId);
-  if (!pending) {
-    return;
-  }
-
-  window.clearTimeout(pending.timeoutId);
-  pendingOutgoingMessages.delete(clientMessageId);
-  pending.resolve(message);
-}
-
-function rejectPendingOutgoingMessages() {
-  pendingOutgoingMessages.forEach((pending) => {
-    window.clearTimeout(pending.timeoutId);
-    pending.reject(new Error("Realtime connection is unavailable"));
-  });
-  pendingOutgoingMessages.clear();
-}
-
 function normalizeChatIds(chatIds: string[]) {
   return Array.from(new Set(chatIds)).sort();
 }
 
 function registerLifecycleHandlers(connection: RealtimeConnection) {
-  const handleVisibilityChange = () => {
-    if (!isActiveConnection(connection)) {
-      return;
-    }
-
-    if (document.visibilityState === "hidden") {
-      scheduleVisibilityPause(connection);
-      return;
-    }
-
-    clearVisibilityPause(connection);
-    resumeConnectionFromLifecyclePause(connection);
-  };
-
   const handlePageHide = () => {
     if (!isActiveConnection(connection)) {
       return;
@@ -507,12 +410,10 @@ function registerLifecycleHandlers(connection: RealtimeConnection) {
     pauseConnectionForLifecycle(connection);
   };
 
-  document.addEventListener("visibilitychange", handleVisibilityChange);
   window.addEventListener("pagehide", handlePageHide);
   window.addEventListener("beforeunload", handlePageHide);
 
   return () => {
-    document.removeEventListener("visibilitychange", handleVisibilityChange);
     window.removeEventListener("pagehide", handlePageHide);
     window.removeEventListener("beforeunload", handlePageHide);
   };
@@ -544,7 +445,7 @@ function pauseConnectionForLifecycle(connection: RealtimeConnection) {
 
   connection.pausedByLifecycle = true;
   clearReconnectCooldown(connection);
-  clearSubscriptions(connection, true);
+  clearSubscriptions(connection);
   setConnectionState(connection, false);
   void connection.client.deactivate();
 }

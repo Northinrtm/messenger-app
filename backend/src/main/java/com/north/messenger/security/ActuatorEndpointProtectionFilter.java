@@ -31,8 +31,8 @@ public class ActuatorEndpointProtectionFilter extends OncePerRequestFilter {
 
     public ActuatorEndpointProtectionFilter(
             ObjectMapper objectMapper,
-            @Value("${app.actuator.scrape.username:prometheus}") String expectedUsername,
-            @Value("${app.actuator.scrape.password:prometheus}") String expectedPassword
+            @Value("${app.actuator.scrape.username:}") String expectedUsername,
+            @Value("${app.actuator.scrape.password:}") String expectedPassword
     ) {
         this.objectMapper = objectMapper;
         this.expectedUsername = expectedUsername;

@@ -33,7 +33,7 @@ export function UnlockCard({
 
   const finalizeUnlock = async (nextSession: AuthResponse) => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["messages", session.token] }),
+      queryClient.invalidateQueries({ queryKey: ["messages", session.user.id] }),
       queryClient.invalidateQueries({ queryKey: ["chats", session.token] }),
     ]);
     setPassword("");
@@ -59,7 +59,7 @@ export function UnlockCard({
 
   const trustedUnlockMutation = useMutation({
     mutationFn: async () => {
-      await unlockWithTrustedDevice(session.user.id);
+      await unlockWithTrustedDevice(session);
       return session;
     },
     onSuccess: async (nextSession) => {

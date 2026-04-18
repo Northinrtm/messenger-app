@@ -105,17 +105,18 @@ class MessageCommandService {
         }
 
         String encryptedKeysJson = messageSupport.serializeEncryptedKeys(
-                messageSupport.validateEncryptedPayload(encryptedPayload, participants)
+                messageSupport.validateEncryptedPayload(encryptedPayload, room, currentUser, participants)
         );
+        MessageSupport.StoredEncryptedEnvelope storedEnvelope = messageSupport.extractStoredEnvelope(encryptedPayload);
 
         try {
             ChatMessage message = new ChatMessage(
                     UUID.randomUUID(),
                     chatId,
                     currentUser.getId(),
-                    encryptedPayload.ciphertext(),
+                    storedEnvelope.ciphertext(),
                     encryptedPayload.scheme(),
-                    encryptedPayload.iv(),
+                    storedEnvelope.iv(),
                     encryptedKeysJson,
                     clientMessageId,
                     replyToMessageId,
@@ -230,10 +231,10 @@ class MessageCommandService {
             return;
         }
 
-        if (!room.isDirect() && !message.getSenderId().equals(currentUser.getId())) {
+        if (!message.getSenderId().equals(currentUser.getId())) {
             throw new ResponseStatusException(
                     HttpStatus.FORBIDDEN,
-                    "Delete for everyone is only available for your own group messages"
+                    "Delete for everyone is only available for your own messages"
             );
         }
 
@@ -273,12 +274,13 @@ class MessageCommandService {
 
         List<UserAccount> participants = chatService.findParticipants(chatId);
         String encryptedKeysJson = messageSupport.serializeEncryptedKeys(
-                messageSupport.validateEncryptedPayload(encryptedPayload, participants)
+                messageSupport.validateEncryptedPayload(encryptedPayload, room, currentUser, participants)
         );
+        MessageSupport.StoredEncryptedEnvelope storedEnvelope = messageSupport.extractStoredEnvelope(encryptedPayload);
         message.updateEncryptedContent(
-                encryptedPayload.ciphertext(),
+                storedEnvelope.ciphertext(),
                 encryptedPayload.scheme(),
-                encryptedPayload.iv(),
+                storedEnvelope.iv(),
                 encryptedKeysJson,
                 Instant.now()
         );

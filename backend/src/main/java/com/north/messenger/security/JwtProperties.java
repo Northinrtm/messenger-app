@@ -10,6 +10,7 @@ public record JwtProperties(
         Duration accessTokenTtl,
         Duration refreshTokenTtl,
         String issuer,
+        String audience,
         boolean generateSecretIfMissing
 ) {
     private static final int MIN_SECRET_BYTES = 32;
@@ -20,6 +21,9 @@ public record JwtProperties(
         }
         if (issuer == null || issuer.isBlank()) {
             throw new IllegalStateException("app.jwt.issuer must not be blank");
+        }
+        if (audience == null || audience.isBlank()) {
+            throw new IllegalStateException("app.jwt.audience must not be blank");
         }
         if (accessTokenTtl == null || accessTokenTtl.isZero() || accessTokenTtl.isNegative()) {
             throw new IllegalStateException("app.jwt.access-token-ttl must be greater than zero");

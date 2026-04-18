@@ -1,14 +1,14 @@
 import type { InfiniteData, QueryClient } from "@tanstack/react-query";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
-import { ApiError } from "../../../lib/api";
 import {
-  getEncryptedMessages,
   isUnavailableEncryptedMessage,
+  readLatestArchivedDecryptedChatMessage,
 } from "../../../lib/e2ee";
 import { readLocalChatPreviews, writeLocalChatPreviews } from "../../../lib/chatPreviewCache";
 import type { ChatMessage, ChatSummary, MessageSnippet } from "../../../lib/types";
 import {
   applyChatMessageActivity,
+  buildMessagesQueryKey,
   getLatestMessageFromPages,
   removeChatPreviewOverride,
   replaceChatPreviewOverride,
@@ -20,7 +20,6 @@ import {
 type UseChatPreviewsOptions = {
   archivedChatIds: string[];
   formatPreviewText: (message: Pick<ChatMessage, "content" | "replyTo">) => string;
-  onUnauthorized: () => void;
   previewHydrationChats: ChatSummary[];
   queryClient: QueryClient;
   token: string;
@@ -30,7 +29,6 @@ type UseChatPreviewsOptions = {
 export function useChatPreviews({
   archivedChatIds,
   formatPreviewText,
-  onUnauthorized,
   previewHydrationChats,
   queryClient,
   token,
@@ -42,7 +40,7 @@ export function useChatPreviews({
   const chatPreviewOverridesRef = useRef<
     Record<string, { lastMessage: string; lastMessageAt: string }>
   >({});
-  const chatPreviewHydrationRef = useRef(new Map<string, string>());
+  const previewHydrationInFlightRef = useRef(new Set<string>());
 
   const clearChatPreviewOverride = useEffectEvent((chatId: string) => {
     setChatPreviewOverrides((current) => removeChatPreviewOverride(current, chatId));
@@ -94,13 +92,11 @@ export function useChatPreviews({
   );
 
   const syncChatPreviewFromCache = useEffectEvent((chatId: string) => {
-    const cachedPages = queryClient.getQueryData<InfiniteData<ChatMessage[]>>([
-      "messages",
-      token,
-      chatId,
-    ]);
+    const cachedPages = queryClient.getQueryData<InfiniteData<ChatMessage[]>>(
+      buildMessagesQueryKey(userId, chatId)
+    );
     if (cachedPages === undefined) {
-      void queryClient.invalidateQueries({ queryKey: ["chats", token] });
+      void refreshChatPreviewFromServer(chatId);
       return;
     }
 
@@ -110,18 +106,7 @@ export function useChatPreviews({
       !latestMessage.content.trim() ||
       isUnavailableEncryptedMessage(latestMessage.content)
     ) {
-      clearChatPreviewOverride(chatId);
-      queryClient.setQueryData<ChatSummary[]>(["chats", token], (current) =>
-        current?.map((chat) =>
-          chat.id !== chatId
-            ? chat
-            : {
-                ...chat,
-                lastMessage: null,
-                lastMessageAt: null,
-              }
-        ) ?? []
-      );
+      void refreshChatPreviewFromServer(chatId);
       return;
     }
 
@@ -154,58 +139,88 @@ export function useChatPreviews({
     }
 
     const currentPreview = chat.lastMessage?.trim() ?? "";
-    return currentPreview.length === 0 || isUnavailableEncryptedMessage(currentPreview);
+    return (
+      currentPreview.length === 0 ||
+      currentPreview === "Encrypted message" ||
+      isUnavailableEncryptedMessage(currentPreview)
+    );
   });
 
   const refreshChatPreviewFromServer = useEffectEvent(async (chatId: string) => {
-    try {
-      const messages = await getEncryptedMessages(token, userId, chatId, {
-        limit: 1,
-      });
-      const latestMessage = messages[messages.length - 1] ?? null;
-
-      if (
-        !latestMessage ||
-        !latestMessage.content.trim() ||
-        isUnavailableEncryptedMessage(latestMessage.content)
-      ) {
-        clearChatPreviewOverride(chatId);
-        queryClient.setQueryData<ChatSummary[]>(["chats", token], (current) =>
-          current?.map((chat) =>
-            chat.id !== chatId
-              ? chat
-              : {
-                  ...chat,
-                  lastMessage: null,
-                  lastMessageAt: null,
-                }
-          ) ?? []
-        );
+    const currentChatSummary =
+      (queryClient.getQueryData<ChatSummary[]>(["chats", token]) ?? []).find((chat) => chat.id === chatId) ??
+      null;
+    const cachedPages = queryClient.getQueryData<InfiniteData<ChatMessage[]>>(
+      buildMessagesQueryKey(userId, chatId)
+    );
+    const latestMessage = getLatestMessageFromPages(cachedPages) ?? null;
+    if (
+      !latestMessage ||
+      !latestMessage.content.trim() ||
+      isUnavailableEncryptedMessage(latestMessage.content)
+    ) {
+      if (previewHydrationInFlightRef.current.has(chatId)) {
         return;
       }
 
-      const previewText = formatPreviewText(latestMessage);
-      setChatPreviewOverrides((current) =>
-        replaceChatPreviewOverride(current, chatId, {
-          lastMessage: previewText,
-          lastMessageAt: latestMessage.createdAt,
-        })
-      );
-      queryClient.setQueryData<ChatSummary[]>(["chats", token], (current) =>
-        applyChatMessageActivity(
-          current,
-          {
-            ...latestMessage,
-            content: previewText,
-          },
-          "keep"
-        )
-      );
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 401) {
-        onUnauthorized();
+      previewHydrationInFlightRef.current.add(chatId);
+      try {
+        const archivedMessage = await readLatestArchivedDecryptedChatMessage(userId, chatId);
+        if (
+          !archivedMessage ||
+          !archivedMessage.content.trim() ||
+          isUnavailableEncryptedMessage(archivedMessage.content) ||
+          (currentChatSummary?.lastMessageAt &&
+            archivedMessage.createdAt.localeCompare(currentChatSummary.lastMessageAt) < 0)
+        ) {
+          return;
+        }
+
+        applyChatPreviewMessage(archivedMessage);
+        queryClient.setQueryData<ChatSummary[]>(["chats", token], (current) =>
+          applyChatMessageActivity(
+            current,
+            {
+              ...archivedMessage,
+              sender: currentChatSummary?.members[0] ?? {
+                id: userId,
+                username: "",
+                displayName: "",
+                profession: null,
+                avatarUrl: null,
+                online: false,
+              },
+              reactions: [],
+              status: null,
+              clientMessageId: null,
+            },
+            "keep"
+          )
+        );
+      } finally {
+        previewHydrationInFlightRef.current.delete(chatId);
       }
+
+      return;
     }
+
+    const previewText = formatPreviewText(latestMessage);
+    setChatPreviewOverrides((current) =>
+      replaceChatPreviewOverride(current, chatId, {
+        lastMessage: previewText,
+        lastMessageAt: latestMessage.createdAt,
+      })
+    );
+    queryClient.setQueryData<ChatSummary[]>(["chats", token], (current) =>
+      applyChatMessageActivity(
+        current,
+        {
+          ...latestMessage,
+          content: previewText,
+        },
+        "keep"
+      )
+    );
   });
 
   const syncChatPinnedSummary = useEffectEvent((chatId: string, pinnedMessage: MessageSnippet | null) => {
@@ -233,30 +248,20 @@ export function useChatPreviews({
       return;
     }
 
-    const targetVersion = chat.lastMessageAt!;
-
-    if (chatPreviewHydrationRef.current.get(chat.id) === targetVersion) {
+    const cachedPages = queryClient.getQueryData<InfiniteData<ChatMessage[]>>(
+      buildMessagesQueryKey(userId, chat.id)
+    );
+    const latestMessage = getLatestMessageFromPages(cachedPages);
+    if (
+      latestMessage &&
+      latestMessage.content.trim() &&
+      !isUnavailableEncryptedMessage(latestMessage.content)
+    ) {
+      applyChatPreviewMessage(latestMessage);
       return;
     }
 
-    chatPreviewHydrationRef.current.set(chat.id, targetVersion);
-    try {
-      const messages = await getEncryptedMessages(token, userId, chat.id, {
-        limit: 1,
-      });
-      const latestMessage = messages[messages.length - 1];
-      if (latestMessage) {
-        applyChatPreviewMessage(latestMessage);
-      }
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 401) {
-        onUnauthorized();
-      }
-    } finally {
-      if (chatPreviewHydrationRef.current.get(chat.id) === targetVersion) {
-        chatPreviewHydrationRef.current.delete(chat.id);
-      }
-    }
+    await refreshChatPreviewFromServer(chat.id);
   });
 
   useEffect(() => {

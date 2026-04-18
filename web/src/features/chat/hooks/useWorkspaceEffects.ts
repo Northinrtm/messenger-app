@@ -235,16 +235,6 @@ export function useWorkspaceEffects({
   useEffect(() => {
     queryClient
       .getQueryCache()
-      .findAll({ queryKey: ["messages", sessionToken] })
-      .forEach((query) => {
-        const queryChatId = typeof query.queryKey[2] === "string" ? query.queryKey[2] : null;
-        if (queryChatId !== activeChatId) {
-          queryClient.removeQueries({ queryKey: query.queryKey, exact: true });
-        }
-      });
-
-    queryClient
-      .getQueryCache()
       .findAll({ queryKey: ["typing", sessionToken] })
       .forEach((query) => {
         const queryChatId = typeof query.queryKey[2] === "string" ? query.queryKey[2] : null;
@@ -286,9 +276,15 @@ export function useWorkspaceEffects({
       }
     };
 
+    const handleWindowFocus = () => {
+      acknowledgeVisibleMessagesAsRead();
+    };
+
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleWindowFocus);
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleWindowFocus);
     };
   }, [acknowledgeVisibleMessagesAsRead]);
 }

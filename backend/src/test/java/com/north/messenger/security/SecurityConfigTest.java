@@ -13,9 +13,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
@@ -25,7 +29,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(AuthController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class, AuthEndpointProtectionFilter.class})
+@Import({
+        SecurityConfig.class,
+        JwtAuthenticationFilter.class,
+        AuthEndpointProtectionFilter.class,
+        ActuatorEndpointProtectionFilter.class
+})
 class SecurityConfigTest {
 
     @Autowired
@@ -122,5 +131,17 @@ class SecurityConfigTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new LoginRequest("north", "password"))))
                 .andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void shouldFailClosedForPrometheusWhenScrapeCredentialsAreMissing() throws Exception {
+        mockMvc.perform(get("/actuator/prometheus")
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("prometheus", "prometheus")))
+                .andExpect(status().isUnauthorized());
+    }
+
+    private String basicAuth(String username, String password) {
+        String token = username + ":" + password;
+        return "Basic " + Base64.getEncoder().encodeToString(token.getBytes(StandardCharsets.UTF_8));
     }
 }

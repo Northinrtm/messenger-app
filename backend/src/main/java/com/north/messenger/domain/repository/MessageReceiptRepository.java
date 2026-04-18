@@ -33,6 +33,12 @@ public interface MessageReceiptRepository extends JpaRepository<MessageReceipt, 
               and message.encryptionScheme is not null
               and message.encryptionScheme <> ''
               and message.chatId in :chatIds
+              and not exists (
+                select deleted.id
+                from UserDeletedMessage deleted
+                where deleted.userId = receipt.userId
+                  and deleted.messageId = message.id
+              )
             group by message.chatId
             """)
     List<ChatUnreadCountView> countUnreadByUserIdAndChatIdIn(
@@ -48,6 +54,12 @@ public interface MessageReceiptRepository extends JpaRepository<MessageReceipt, 
               and message.encryptionScheme is not null
               and message.encryptionScheme <> ''
               and message.chatId = :chatId
+              and not exists (
+                select deleted.id
+                from UserDeletedMessage deleted
+                where deleted.userId = receipt.userId
+                  and deleted.messageId = message.id
+              )
             group by receipt.userId
             """)
     List<UserUnreadCountView> countUnreadByChatId(@Param("chatId") UUID chatId);

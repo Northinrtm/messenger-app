@@ -19,6 +19,7 @@ class JwtPropertiesTest {
                 ACCESS_TOKEN_TTL,
                 REFRESH_TOKEN_TTL,
                 "north-messenger",
+                "north-messenger-clients",
                 false
         ))
                 .isInstanceOf(IllegalStateException.class)
@@ -32,6 +33,7 @@ class JwtPropertiesTest {
                 ACCESS_TOKEN_TTL,
                 REFRESH_TOKEN_TTL,
                 "north-messenger",
+                "north-messenger-clients",
                 false
         ))
                 .isInstanceOf(IllegalStateException.class)
@@ -47,6 +49,7 @@ class JwtPropertiesTest {
                 ACCESS_TOKEN_TTL,
                 REFRESH_TOKEN_TTL,
                 "north-messenger",
+                "north-messenger-clients",
                 false
         ))
                 .isInstanceOf(IllegalStateException.class)
@@ -60,7 +63,26 @@ class JwtPropertiesTest {
                 ACCESS_TOKEN_TTL,
                 REFRESH_TOKEN_TTL,
                 "north-messenger",
+                "north-messenger-clients",
                 true
         );
+    }
+
+    @Test
+    void shouldRejectBlankAudience() {
+        String validSecret = Base64.getEncoder().encodeToString(
+                "messenger-app-demo-secret-key-for-local-development-this-must-be-replaced".getBytes(StandardCharsets.UTF_8)
+        );
+
+        assertThatThrownBy(() -> new JwtProperties(
+                validSecret,
+                ACCESS_TOKEN_TTL,
+                REFRESH_TOKEN_TTL,
+                "north-messenger",
+                " ",
+                false
+        ))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("app.jwt.audience must not be blank");
     }
 }

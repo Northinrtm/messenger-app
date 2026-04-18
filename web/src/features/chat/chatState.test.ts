@@ -1,9 +1,13 @@
+import type { InfiniteData } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 import {
+  applyChatMessageActivity,
   applyChatPreviewOverrides,
   flattenMessagePages,
+  getMessageIdentityKey,
   mergeMessagePages,
   parseUsernames,
+  reconcileMessageInfiniteData,
   replaceChatPreviewOverride,
   removeMessageByClientMessageId,
   upsertChatPreviewOverride,
@@ -129,6 +133,185 @@ describe("chatState", () => {
     const merged = mergeMessagePages(current, confirmed);
 
     expect(merged.pages[0]).toEqual([confirmed]);
+  });
+
+  it("orders equal timestamps deterministically by message identity", () => {
+    const pages = [[
+      message("b", "2026-03-22T10:00:00.000Z"),
+      message("a", "2026-03-22T10:00:00.000Z"),
+    ]];
+
+    expect(flattenMessagePages(pages).map((item: ChatMessage) => item.id)).toEqual(["a", "b"]);
+  });
+
+  it("keeps rapid-send optimistic messages in local send order when timestamps match", () => {
+    const pages = [[
+      { ...message("client-2", "2026-03-22T10:00:00.000Z"), clientMessageId: "client-2", localOrder: 2 },
+      { ...message("client-3", "2026-03-22T10:00:00.000Z"), clientMessageId: "client-3", localOrder: 3 },
+      { ...message("client-1", "2026-03-22T10:00:00.000Z"), clientMessageId: "client-1", localOrder: 1 },
+    ]];
+
+    expect(flattenMessagePages(pages).map((item: ChatMessage) => item.clientMessageId)).toEqual([
+      "client-1",
+      "client-2",
+      "client-3",
+    ]);
+  });
+
+  it("keeps the same render identity when an optimistic message is confirmed", () => {
+    const optimistic = {
+      ...message("client-1", "2026-03-22T10:00:00.000Z"),
+      clientMessageId: "client-1",
+    };
+    const confirmed = {
+      ...message("server-1", "2026-03-22T10:00:01.000Z"),
+      clientMessageId: "client-1",
+    };
+
+    expect(getMessageIdentityKey(optimistic)).toBe("client-1");
+    expect(getMessageIdentityKey(confirmed)).toBe("client-1");
+  });
+
+  it("preserves rapid-send order when multiple confirmations arrive out of order", () => {
+    let current: InfiniteData<ChatMessage[]> = {
+      pages: [[
+        { ...message("client-1", "2026-03-22T10:00:00.000Z"), clientMessageId: "client-1", localOrder: 1 },
+        { ...message("client-2", "2026-03-22T10:00:00.000Z"), clientMessageId: "client-2", localOrder: 2 },
+        { ...message("client-3", "2026-03-22T10:00:00.000Z"), clientMessageId: "client-3", localOrder: 3 },
+      ]],
+      pageParams: [null],
+    };
+
+    current = mergeMessagePages(current, {
+      ...message("server-3", "2026-03-22T10:00:03.000Z"),
+      clientMessageId: "client-3",
+    });
+    current = mergeMessagePages(current, {
+      ...message("server-1", "2026-03-22T10:00:05.000Z"),
+      clientMessageId: "client-1",
+    });
+    current = mergeMessagePages(current, {
+      ...message("server-2", "2026-03-22T10:00:04.000Z"),
+      clientMessageId: "client-2",
+    });
+
+    expect(flattenMessagePages(current.pages).map((item: ChatMessage) => item.id)).toEqual([
+      "server-1",
+      "server-2",
+      "server-3",
+    ]);
+  });
+
+  it("preserves rapid-send order when realtime delivery and local acknowledgements interleave", () => {
+    let current: InfiniteData<ChatMessage[]> = {
+      pages: [[
+        { ...message("client-1", "2026-03-22T10:00:00.000Z"), clientMessageId: "client-1", localOrder: 1 },
+        { ...message("client-2", "2026-03-22T10:00:00.000Z"), clientMessageId: "client-2", localOrder: 2 },
+        { ...message("client-3", "2026-03-22T10:00:00.000Z"), clientMessageId: "client-3", localOrder: 3 },
+      ]],
+      pageParams: [null],
+    };
+
+    current = mergeMessagePages(current, {
+      ...message("server-2", "2026-03-22T10:00:01.000Z"),
+      clientMessageId: "client-2",
+    });
+    current = mergeMessagePages(current, {
+      ...message("server-3", "2026-03-22T10:00:04.000Z"),
+      clientMessageId: "client-3",
+    });
+    current = mergeMessagePages(current, {
+      ...message("server-1", "2026-03-22T10:00:05.000Z"),
+      clientMessageId: "client-1",
+    });
+
+    expect(flattenMessagePages(current.pages).map((item: ChatMessage) => item.id)).toEqual([
+      "server-1",
+      "server-2",
+      "server-3",
+    ]);
+  });
+
+  it("preserves rapid-send order across refetch reconciliation", () => {
+    const current = {
+      pages: [[
+        { ...message("server-1", "2026-03-22T10:00:05.000Z"), clientMessageId: "client-1", localOrder: 1 },
+        { ...message("server-2", "2026-03-22T10:00:04.000Z"), clientMessageId: "client-2", localOrder: 2 },
+        { ...message("server-3", "2026-03-22T10:00:03.000Z"), clientMessageId: "client-3", localOrder: 3 },
+      ]],
+      pageParams: [null],
+    };
+    const incoming = {
+      pages: [[
+        { ...message("server-3", "2026-03-22T10:00:03.000Z"), clientMessageId: "client-3" },
+        { ...message("server-2", "2026-03-22T10:00:04.000Z"), clientMessageId: "client-2" },
+        { ...message("server-1", "2026-03-22T10:00:05.000Z"), clientMessageId: "client-1" },
+      ]],
+      pageParams: [null],
+    };
+
+    const reconciled = reconcileMessageInfiniteData(current, incoming);
+
+    expect(flattenMessagePages(reconciled?.pages).map((item: ChatMessage) => item.id)).toEqual([
+      "server-1",
+      "server-2",
+      "server-3",
+    ]);
+  });
+
+  it("keeps older paginated history ahead of newer rapid-send messages", () => {
+    const pages = [
+      [
+        { ...message("server-2", "2026-03-22T10:00:04.000Z"), clientMessageId: "client-2", localOrder: 2 },
+        { ...message("server-1", "2026-03-22T10:00:05.000Z"), clientMessageId: "client-1", localOrder: 1 },
+      ],
+      [
+        message("history-1", "2026-03-22T09:59:58.000Z"),
+        message("history-2", "2026-03-22T09:59:59.000Z"),
+      ],
+    ];
+
+    expect(flattenMessagePages(pages).map((item: ChatMessage) => item.id)).toEqual([
+      "history-1",
+      "history-2",
+      "server-1",
+      "server-2",
+    ]);
+  });
+
+  it("keeps already decrypted content when the same realtime message arrives as unavailable", () => {
+    const current = {
+      pages: [[message("1", "2026-03-22T10:00:00.000Z")]],
+      pageParams: [null],
+    };
+    const unavailable = {
+      ...message("1", "2026-03-22T10:00:00.000Z"),
+      content: "[Encrypted message unavailable]",
+    };
+
+    const merged = mergeMessagePages(current, unavailable);
+
+    expect(merged.pages[0][0]?.content).toBe("message-1");
+  });
+
+  it("preserves decrypted history when a refetch returns the same message as unavailable", () => {
+    const current = {
+      pages: [[message("1", "2026-03-22T10:00:00.000Z")]],
+      pageParams: [null],
+    };
+    const incoming = {
+      pages: [[
+        {
+          ...message("1", "2026-03-22T10:00:00.000Z"),
+          content: "[Encrypted message unavailable]",
+        },
+      ]],
+      pageParams: [null],
+    };
+
+    const reconciled = reconcileMessageInfiniteData(current, incoming);
+
+    expect(reconciled?.pages[0][0]?.content).toBe("message-1");
   });
 
   it("removes an optimistic message by client message id", () => {
@@ -275,5 +458,66 @@ describe("chatState", () => {
       lastMessage: "visible older message",
       lastMessageAt: "2026-03-22T10:01:00.000Z",
     });
+  });
+
+  it("keeps unread count sourced from the server when preview updates arrive for inactive chats", () => {
+    const chats: ChatSummary[] = [
+      {
+        id: "chat-1",
+        direct: true,
+        title: "Alice",
+        avatarUrl: null,
+        ownerUserId: null,
+        moderatorUserIds: [],
+        members: [],
+        lastMessage: "previous",
+        lastMessageAt: "2026-03-22T10:00:00.000Z",
+        updatedAt: "2026-03-22T10:00:00.000Z",
+        unreadCount: 3,
+        pinnedMessage: null,
+      },
+    ];
+
+    const next = applyChatMessageActivity(
+      chats,
+      {
+        ...message("2", "2026-03-22T10:01:00.000Z"),
+        chatId: "chat-1",
+      },
+      "keep"
+    );
+
+    expect(next?.[0]?.unreadCount).toBe(3);
+    expect(next?.[0]?.lastMessageAt).toBe("2026-03-22T10:01:00.000Z");
+  });
+
+  it("still clears unread count for the active chat after read acknowledgement", () => {
+    const chats: ChatSummary[] = [
+      {
+        id: "chat-1",
+        direct: true,
+        title: "Alice",
+        avatarUrl: null,
+        ownerUserId: null,
+        moderatorUserIds: [],
+        members: [],
+        lastMessage: "previous",
+        lastMessageAt: "2026-03-22T10:00:00.000Z",
+        updatedAt: "2026-03-22T10:00:00.000Z",
+        unreadCount: 3,
+        pinnedMessage: null,
+      },
+    ];
+
+    const next = applyChatMessageActivity(
+      chats,
+      {
+        ...message("2", "2026-03-22T10:01:00.000Z"),
+        chatId: "chat-1",
+      },
+      "clear"
+    );
+
+    expect(next?.[0]?.unreadCount).toBe(0);
   });
 });

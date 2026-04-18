@@ -1488,6 +1488,10 @@ textarea {
 }
 
 .conversation-list-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
   padding: 0.55rem 0.8rem;
   border: 0;
@@ -1497,6 +1501,37 @@ textarea {
   font-size: 0.82rem;
   font-weight: 600;
   white-space: nowrap;
+}
+
+.conversation-list-tab[data-tab] {
+  min-height: 2.3rem;
+  padding-right: 1rem;
+  font-size: 0;
+}
+
+.conversation-list-tab[data-tab]::after {
+  font-size: 0.82rem;
+  line-height: 1;
+}
+
+.conversation-list-tab[data-tab="chats"]::after {
+  content: "\0427\0430\0442\044B";
+}
+
+.conversation-list-tab[data-tab="conferences"]::after {
+  content: "\0412\0438\0434\0435\043E\043A\043E\043D\0444\0435\0440\0435\043D\0446\0438\0438";
+}
+
+.conversation-list-tab.has-indicator::before {
+  content: "";
+  position: absolute;
+  top: 0.38rem;
+  right: 0.38rem;
+  width: 0.48rem;
+  height: 0.48rem;
+  border-radius: 999px;
+  background: #ff8d5d;
+  box-shadow: 0 0 0 2px #17212b;
 }
 
 .conversation-list-tab.is-active {

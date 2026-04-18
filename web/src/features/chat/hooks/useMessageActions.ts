@@ -3,7 +3,7 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import { type Dispatch, type SetStateAction } from "react";
+import { type Dispatch, type SetStateAction, useRef } from "react";
 import {
   ApiError,
   createDirectChat,
@@ -16,8 +16,8 @@ import {
   sendEncryptedMessage,
   updateEncryptedMessage,
 } from "../../../lib/e2ee";
-import { publishOutgoingMessage } from "../../../lib/realtime";
 import type {
+  AuthResponse,
   ChatMessage,
   ChatSummary,
   MessageReaction,
@@ -26,6 +26,7 @@ import type {
   UserProfile,
 } from "../../../lib/types";
 import {
+  buildMessagesQueryKey,
   mergeMessagePages,
   removeMessageByClientMessageId,
   removeMessageById,
@@ -33,7 +34,7 @@ import {
   updateMessageById,
   updateMessageReactionsPages,
 } from "../chatState";
-import type { ContextMenuState } from "../chatUi";
+import type { ContextMenuState, ConversationListTab } from "../chatUi";
 import {
   createOptimisticOutgoingMessage,
   ensureOwnMessageStatus,
@@ -45,6 +46,7 @@ type SendMessageInput = {
   chatId: string;
   clientMessageId: string;
   content: string;
+  localOrder: number;
   participants: Participant[];
   replyTo?: MessageSnippet | null;
 };
@@ -54,6 +56,7 @@ type UseMessageActionsOptions = {
   activePinnedMessageId: string | null;
   chats: ChatSummary[];
   currentUser: UserProfile;
+  session: AuthResponse;
   editingMessage: ChatMessage | null;
   forwardingMessage: ChatMessage | null;
   replyingToMessage: ChatMessage | null;
@@ -61,7 +64,7 @@ type UseMessageActionsOptions = {
   applyChatPreviewMessage: (message: ChatMessage) => void;
   applyServerChatPreviewMessage: (
     message: ChatMessage,
-    unreadMode: "clear" | "increment",
+    unreadMode: "clear" | "keep",
   ) => void;
   clearComposerContext: (mode?: "all" | "reply" | "edit" | "forward") => void;
   clearDraftForChat: (chatId: string) => void;
@@ -69,7 +72,7 @@ type UseMessageActionsOptions = {
   focusComposer: () => void;
   incrementPendingOutgoing: (chatId: string) => void;
   decrementPendingOutgoing: (chatId: string) => void;
-  onOpenChat: (chatId: string, preferredTab?: "dialogs" | "groups" | "conferences") => void;
+  onOpenChat: (chatId: string, preferredTab?: ConversationListTab) => void;
   onOpenForwardSheet: () => void;
   refreshChatPreviewFromServer: (chatId: string) => Promise<unknown> | void;
   rememberRealtimeMessage: (messageId: string) => void;
@@ -93,6 +96,7 @@ export function useMessageActions({
   clearComposerContext,
   clearDraftForChat,
   currentUser,
+  session,
   deleteChatLocally,
   editingMessage,
   focusComposer,
@@ -116,6 +120,8 @@ export function useMessageActions({
   syncChatPreviewFromCache,
 }: UseMessageActionsOptions) {
   const queryClient = useQueryClient();
+  const nextLocalMessageOrderRef = useRef(0);
+  const getMessagesKey = (chatId: string) => buildMessagesQueryKey(currentUser.id, chatId);
 
   const sendMessageMutation = useMutation({
     mutationFn: (input: SendMessageInput) =>
@@ -127,12 +133,14 @@ export function useMessageActions({
         input.clientMessageId,
         input.replyTo?.id ?? null,
         {
-          sendViaRealtime: (request) => publishOutgoingMessage(input.chatId, request),
+          currentUserId: currentUser.id,
+          isDirectChat: activeChat?.direct,
+          session,
         },
       ),
     onMutate: (input) => {
       incrementPendingOutgoing(input.chatId);
-      void queryClient.cancelQueries({ queryKey: ["messages", sessionToken, input.chatId] });
+      void queryClient.cancelQueries({ queryKey: getMessagesKey(input.chatId) });
       const optimisticMessage = createOptimisticOutgoingMessage(currentUser, input);
       applyChatPreviewMessage(optimisticMessage);
       applyServerChatPreviewMessage(optimisticMessage, "clear");
@@ -148,7 +156,7 @@ export function useMessageActions({
       });
       scheduleDraftSave(input.chatId, "");
       queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
-        ["messages", sessionToken, input.chatId],
+        getMessagesKey(input.chatId),
         (current) => mergeMessagePages(current, optimisticMessage),
       );
       return input;
@@ -157,7 +165,7 @@ export function useMessageActions({
       const nextMessage = ensureOwnMessageStatus(message, currentUser);
       rememberRealtimeMessage(nextMessage.id);
       queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
-        ["messages", sessionToken, input.chatId],
+        getMessagesKey(input.chatId),
         (current) => mergeMessagePages(current, nextMessage),
       );
       applyChatPreviewMessage(nextMessage);
@@ -168,7 +176,7 @@ export function useMessageActions({
     },
     onError: (_error, input) => {
       queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
-        ["messages", sessionToken, input.chatId],
+        getMessagesKey(input.chatId),
         (current) => removeMessageByClientMessageId(current, input.clientMessageId),
       );
       void queryClient.invalidateQueries({ queryKey: ["chats", sessionToken] });
@@ -236,7 +244,7 @@ export function useMessageActions({
       scope: "SELF" | "EVERYONE";
     }) => deleteMessageRequest(sessionToken, chatId, messageId, scope),
     onMutate: async ({ chatId, messageId }) => {
-      const messageKey = ["messages", sessionToken, chatId] as const;
+      const messageKey = getMessagesKey(chatId);
       await queryClient.cancelQueries({ queryKey: messageKey });
       const previousMessages = queryClient.getQueryData<InfiniteData<ChatMessage[]>>(messageKey);
       queryClient.setQueryData<InfiniteData<ChatMessage[]>>(messageKey, (current) =>
@@ -262,9 +270,9 @@ export function useMessageActions({
     },
     onError: (_error, variables, context) => {
       if (context?.previousMessages) {
-        queryClient.setQueryData(["messages", sessionToken, variables.chatId], context.previousMessages);
+        queryClient.setQueryData(getMessagesKey(variables.chatId), context.previousMessages);
       }
-      void queryClient.invalidateQueries({ queryKey: ["messages", sessionToken, variables.chatId] });
+      void queryClient.invalidateQueries({ queryKey: getMessagesKey(variables.chatId) });
       void queryClient.invalidateQueries({ queryKey: ["chats", sessionToken] });
     },
     onSuccess: (_result, variables) => {
@@ -292,10 +300,15 @@ export function useMessageActions({
         messageId,
         content,
         participants,
+        {
+          currentUserId: currentUser.id,
+          isDirectChat: activeChat?.direct,
+          session,
+        }
       ),
     onSuccess: (message, variables) => {
       queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
-        ["messages", sessionToken, variables.chatId],
+        getMessagesKey(variables.chatId),
         (current) => updateMessageById(current, variables.messageId, () => message),
       );
       if (activePinnedMessageId === message.id) {
@@ -347,7 +360,9 @@ export function useMessageActions({
         crypto.randomUUID(),
         null,
         {
-          sendViaRealtime: (request) => publishOutgoingMessage(targetChat.id, request),
+          currentUserId: currentUser.id,
+          isDirectChat: targetChat.direct,
+          session,
         },
       );
 
@@ -358,13 +373,13 @@ export function useMessageActions({
         upsertChat(current, targetChat),
       );
       queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
-        ["messages", sessionToken, targetChat.id],
+        getMessagesKey(targetChat.id),
         (current) => mergeMessagePages(current, ensureOwnMessageStatus(sentMessage, currentUser)),
       );
       applyChatPreviewMessage(sentMessage);
       applyServerChatPreviewMessage(sentMessage, "clear");
       clearComposerContext("forward");
-      onOpenChat(targetChat.id, targetChat.direct ? "dialogs" : "groups");
+      onOpenChat(targetChat.id, "chats");
     },
   });
 
@@ -380,7 +395,7 @@ export function useMessageActions({
     }) => toggleMessageReactionRequest(sessionToken, chatId, messageId, key),
     onSuccess: (event) => {
       queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
-        ["messages", sessionToken, event.chatId],
+        getMessagesKey(event.chatId),
         (current) => updateMessageReactionsPages(current, event),
       );
     },
@@ -515,6 +530,7 @@ export function useMessageActions({
       chatId: activeChat.id,
       clientMessageId: `client-${window.crypto.randomUUID()}`,
       content: trimmed,
+      localOrder: ++nextLocalMessageOrderRef.current,
       participants: activeChat.members,
       replyTo: replyingToMessage ? toMessageSnippet(replyingToMessage) : null,
     });

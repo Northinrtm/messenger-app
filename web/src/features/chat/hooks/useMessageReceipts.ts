@@ -4,6 +4,7 @@ import {
   acknowledgeDelivered as acknowledgeDeliveredRequest,
   acknowledgeRead as acknowledgeReadRequest,
 } from "../../../lib/api";
+import { isUnavailableEncryptedMessage } from "../../../lib/e2ee";
 import type { ChatMessage, UserProfile } from "../../../lib/types";
 
 type UseMessageReceiptsOptions = {
@@ -79,12 +80,16 @@ export function useMessageReceipts({
   });
 
   const acknowledgeVisibleMessagesAsRead = useEffectEvent(() => {
-    if (!activeChatId || document.visibilityState === "hidden") {
+    if (!activeChatId || !canAcknowledgeMessagesAsRead()) {
       return;
     }
 
     const incomingMessageIds = messages
-      .filter((message) => message.sender.id !== currentUser.id)
+      .filter(
+        (message) =>
+          message.sender.id !== currentUser.id &&
+          !isUnavailableEncryptedMessage(message.content)
+      )
       .map((message) => message.id);
     if (!incomingMessageIds.length) {
       return;
@@ -98,4 +103,16 @@ export function useMessageReceipts({
     acknowledgeRead,
     acknowledgeVisibleMessagesAsRead,
   };
+}
+
+function canAcknowledgeMessagesAsRead() {
+  if (document.visibilityState !== "visible") {
+    return false;
+  }
+
+  if (typeof document.hasFocus === "function") {
+    return document.hasFocus();
+  }
+
+  return true;
 }
