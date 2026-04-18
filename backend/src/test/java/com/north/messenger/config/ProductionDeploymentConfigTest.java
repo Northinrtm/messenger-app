@@ -12,12 +12,12 @@ class ProductionDeploymentConfigTest {
     private static final Path REPO_ROOT = Path.of("..").toAbsolutePath().normalize();
 
     @Test
-    void productionComposeShouldRequireExplicitPrometheusScrapeCredentials() throws Exception {
+    void productionComposeShouldAllowMissingPrometheusScrapeCredentialsUntilRuntime() throws Exception {
         String compose = readRepoFile("docker-compose.prod.yml");
 
         assertThat(compose)
-                .contains("APP_ACTUATOR_SCRAPE_USERNAME: ${APP_ACTUATOR_SCRAPE_USERNAME:?APP_ACTUATOR_SCRAPE_USERNAME must be set}")
-                .contains("APP_ACTUATOR_SCRAPE_PASSWORD: ${APP_ACTUATOR_SCRAPE_PASSWORD:?APP_ACTUATOR_SCRAPE_PASSWORD must be set}")
+                .contains("APP_ACTUATOR_SCRAPE_USERNAME: ${APP_ACTUATOR_SCRAPE_USERNAME:-}")
+                .contains("APP_ACTUATOR_SCRAPE_PASSWORD: ${APP_ACTUATOR_SCRAPE_PASSWORD:-}")
                 .doesNotContain(":-prometheus");
     }
 
