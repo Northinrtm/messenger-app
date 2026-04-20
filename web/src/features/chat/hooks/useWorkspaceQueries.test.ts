@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import type { ChatMessage } from "../../../lib/types";
+import type { ApiChatMessage, ChatMessage } from "../../../lib/types";
 import {
+  buildRawMessagesQueryKey,
   getConferenceQueryRefreshStrategy,
   createInitialMessagePageCursor,
   getCleanupEligiblePendingMessageClientIds,
   getChatsQueryRefreshStrategy,
   getNextMessagePageCursor,
+  mergeHydratedMessageSnapshot,
+  upsertRawMessagePage,
 } from "./useWorkspaceQueries";
 
 function message(id: string, createdAt: string): ChatMessage {
@@ -29,6 +32,29 @@ function message(id: string, createdAt: string): ChatMessage {
     clientMessageId: null,
     replyTo: null,
     reactions: [],
+  };
+}
+
+function rawMessage(id: string, createdAt: string): ApiChatMessage {
+  return {
+    id,
+    chatId: "chat-id",
+    serverOrder: Number(id.replace("message-", "")) + 1,
+    sender: {
+      id: "sender-id",
+      username: "north",
+      displayName: "North",
+      profession: null,
+      avatarUrl: null,
+      online: true,
+    },
+    createdAt,
+    editedAt: null,
+    status: null,
+    clientMessageId: null,
+    replyTo: null,
+    reactions: [],
+    encryptedPayload: null,
   };
 }
 
@@ -117,5 +143,57 @@ describe("useWorkspaceQueries pagination helpers", () => {
 
     expect(cleanupEligibleIds.has("client-1")).toBe(false);
     expect(cleanupEligibleIds.has("client-2")).toBe(true);
+  });
+
+  it("builds a dedicated cache key for raw encrypted history pages", () => {
+    expect(buildRawMessagesQueryKey("user-1", "chat-1")).toEqual([
+      "messages-raw",
+      "user-1",
+      "chat-1",
+    ]);
+  });
+
+  it("replaces raw message pages by cursor instead of duplicating them", () => {
+    const initial = upsertRawMessagePage(
+      undefined,
+      [rawMessage("message-1", "2026-04-17T10:00:00.000Z")],
+      {
+        beforeServerOrder: null,
+        limit: 30,
+      }
+    );
+    const replaced = upsertRawMessagePage(
+      initial,
+      [rawMessage("message-2", "2026-04-17T10:01:00.000Z")],
+      {
+        beforeServerOrder: null,
+        limit: 30,
+      }
+    );
+
+    expect(replaced.pages).toEqual([
+      [rawMessage("message-2", "2026-04-17T10:01:00.000Z")],
+    ]);
+    expect(replaced.pageParams).toEqual([
+      {
+        beforeServerOrder: null,
+        limit: 30,
+      },
+    ]);
+  });
+
+  it("keeps readable content when late hydration still returns unavailable", () => {
+    const merged = mergeHydratedMessageSnapshot(
+      {
+        ...message("message-1", "2026-04-17T10:00:00.000Z"),
+        content: "already decrypted",
+      },
+      {
+        ...message("message-1", "2026-04-17T10:00:00.000Z"),
+        content: "[Encrypted message unavailable]",
+      }
+    );
+
+    expect(merged.content).toBe("already decrypted");
   });
 });

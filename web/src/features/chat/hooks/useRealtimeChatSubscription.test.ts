@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   getRealtimeUnreadMode,
+  shouldRefreshChatListOnRealtimeConnect,
   shouldRefreshActiveChatOnRealtimeConnect,
 } from "./useRealtimeChatSubscription";
 
@@ -51,6 +52,16 @@ describe("shouldRefreshActiveChatOnRealtimeConnect", () => {
         currentDataUpdatedAt: 200,
       })
     ).toBe(true);
+  });
+});
+
+describe("shouldRefreshChatListOnRealtimeConnect", () => {
+  it("skips the redundant initial chat list refetch on first websocket connect", () => {
+    expect(shouldRefreshChatListOnRealtimeConnect(false)).toBe(false);
+  });
+
+  it("refreshes the chat list after a later reconnect", () => {
+    expect(shouldRefreshChatListOnRealtimeConnect(true)).toBe(true);
   });
 });
 

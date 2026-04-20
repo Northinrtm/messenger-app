@@ -39,6 +39,7 @@ import {
   clearPinnedEncryptionIdentity,
   clearUnlockedEncryptionState,
   getEncryptedMessages,
+  getEncryptedMessagesSnapshot,
   hasUnlockedPrivateEncryptionKey,
   hydrateChatMessage,
   isEncryptionIdentityChangedError,
@@ -3632,6 +3633,115 @@ describe("e2ee hardening", () => {
     await expect(hydrateChatMessage(incomingGroupMessage, USER_ID)).resolves.toMatchObject({
       content: "archived group fallback",
     });
+  });
+
+  it("returns a fast history snapshot from the archived decrypted message cache", async () => {
+    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
+    vi.spyOn(window.crypto.subtle, "generateKey").mockResolvedValue({
+      publicKey: {} as CryptoKey,
+      privateKey: {} as CryptoKey,
+    } as CryptoKeyPair);
+    vi.spyOn(window.crypto.subtle, "exportKey").mockResolvedValue({
+      kty: "OKP",
+      crv: "X25519",
+      x: "generated",
+    } as JsonWebKey);
+    vi.spyOn(window.crypto.subtle, "deriveBits").mockResolvedValue(new Uint8Array(32).buffer);
+    vi.spyOn(window.crypto.subtle, "deriveKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "encrypt").mockImplementation(
+      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
+    );
+    vi.spyOn(window.crypto.subtle, "decrypt").mockImplementation(
+      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
+    );
+    window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(identity));
+    window.sessionStorage.setItem(
+      DEVICE_MATERIAL_KEY,
+      JSON.stringify({
+        ...localDeviceMaterial,
+        oneTimePrekeys: [
+          {
+            keyId: 21,
+            publicKey: '{"kty":"OKP","crv":"X25519","x":"otp-local"}',
+            privateKey:
+              '{"kty":"OKP","crv":"X25519","d":"otp-local-private","x":"otp-local"}',
+          },
+        ],
+      })
+    );
+
+    const incomingGroupMessage: ApiChatMessage = {
+      id: "archived-group-snapshot-message-id",
+      chatId: "group-chat-id",
+      sender: participant,
+      createdAt: "2026-04-09T10:35:00.000Z",
+      editedAt: null,
+      status: null,
+      clientMessageId: null,
+      replyTo: null,
+      reactions: [],
+      encryptedPayload: {
+        scheme: "GROUP-SENDER-KEY-AES-GCM",
+        sharedEnvelope: JSON.stringify({
+          aadVersion: 1,
+          chatId: "group-chat-id",
+          senderUserId: REMOTE_USER_ID,
+          senderDeviceId: "device-id",
+          senderKeyId: "group-sender-key",
+          messageCounter: 0,
+          ciphertext: utf8ToBase64("archived group snapshot"),
+          iv: utf8ToBase64("grouparchiv34"),
+          signature: "c2ln",
+        }),
+        encryptedKeysByRecipientId: {
+          "self-device": JSON.stringify({
+            aadVersion: 1,
+            senderUserId: REMOTE_USER_ID,
+            senderDeviceId: "device-id",
+            recipientDeviceId: "self-device",
+            senderIdentityKey: deviceBundle.identityKey,
+            senderIdentitySignatureKey: deviceBundle.identitySignatureKey,
+            initiatorEphemeralPublicKey: '{"kty":"OKP","crv":"X25519","x":"group-initiator"}',
+            ratchetPublicKey: '{"kty":"OKP","crv":"X25519","x":"group-ratchet"}',
+            recipientSignedPrekeyId: 9,
+            recipientOneTimePrekeyId: 21,
+            messageCounter: 0,
+            ciphertext: utf8ToBase64(
+              JSON.stringify({
+                aadVersion: 1,
+                chatId: "group-chat-id",
+                senderUserId: REMOTE_USER_ID,
+                senderDeviceId: "device-id",
+                senderKeyId: "group-sender-key",
+                chainKey: utf8ToBase64("group-next-chain-key"),
+                messageCounter: 0,
+              })
+            ),
+            iv: utf8ToBase64("groupdistiv3"),
+          }),
+        },
+      },
+    };
+
+    await expect(hydrateChatMessage(incomingGroupMessage, USER_ID)).resolves.toMatchObject({
+      content: "archived group snapshot",
+    });
+
+    window.sessionStorage.removeItem(DEVICE_MATERIAL_KEY);
+    window.sessionStorage.removeItem(DEVICE_SESSION_KEY);
+    window.sessionStorage.removeItem(GROUP_SENDER_CHAIN_KEY);
+    vi.mocked(getMessagesRaw).mockResolvedValue([incomingGroupMessage]);
+
+    const historySnapshot = await getEncryptedMessagesSnapshot("token", USER_ID, "group-chat-id");
+
+    expect(historySnapshot.hydratedMessages).toEqual([
+      expect.objectContaining({
+        id: "archived-group-snapshot-message-id",
+        content: "archived group snapshot",
+      }),
+    ]);
+    expect(historySnapshot.rawMessages).toEqual([incomingGroupMessage]);
   });
 
   it("waits for history hydration batches before hydrating later realtime messages", async () => {

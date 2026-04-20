@@ -716,6 +716,32 @@ export async function getEncryptedMessages(
   });
 }
 
+export async function getEncryptedMessagesSnapshot(
+  token: string,
+  userId: string,
+  chatId: string,
+  options: {
+    beforeServerOrder?: number | null;
+    limit?: number;
+    acknowledgeDelivered?: boolean;
+  } = {}
+) {
+  ensureE2eeTransportStorageSchema();
+
+  const rawMessages = await getMessagesRaw(token, chatId, {
+    ...options,
+    acknowledgeDelivered: options.acknowledgeDelivered ?? false,
+  });
+  const hydratedMessages = await Promise.all(
+    rawMessages.map((message) => hydrateChatMessageSnapshot(message, userId))
+  );
+
+  return {
+    rawMessages,
+    hydratedMessages,
+  };
+}
+
 export async function sendEncryptedMessage(
   token: string,
   chatId: string,
@@ -991,6 +1017,20 @@ export async function hydrateChatMessage(
   return hydrateChatMessageInternal(message, userId);
 }
 
+export async function hydrateChatMessageSnapshot(
+  message: ApiChatMessage,
+  userId: string
+): Promise<ChatMessage> {
+  ensureE2eeTransportStorageSchema();
+
+  const archivedMessage = await readArchivedDecryptedMessageRecord(userId, message.id);
+  return buildHydratedChatMessage(
+    message,
+    archivedMessage?.content ?? ENCRYPTED_MESSAGE_UNAVAILABLE,
+    archivedMessage?.editedAt ?? message.editedAt
+  );
+}
+
 async function hydrateChatMessageInternal(
   message: ApiChatMessage,
   userId: string
@@ -998,38 +1038,23 @@ async function hydrateChatMessageInternal(
   return serializeMessageHydration(userId, async () => {
     ensureE2eeTransportStorageSchema();
 
-    const buildHydratedMessage = (content: string, editedAt = message.editedAt) =>
-      ({
-        id: message.id,
-        chatId: message.chatId,
-        serverOrder: message.serverOrder ?? null,
-        sender: message.sender,
-        content,
-        createdAt: message.createdAt,
-        editedAt,
-        status: message.status,
-        clientMessageId: message.clientMessageId ?? null,
-        replyTo: message.replyTo,
-        reactions: message.reactions ?? [],
-      }) satisfies ChatMessage;
-
     if (!message.encryptedPayload) {
       const archivedMessage = await readArchivedDecryptedMessageRecord(userId, message.id);
       return archivedMessage
-        ? buildHydratedMessage(archivedMessage.content, archivedMessage.editedAt)
-        : buildHydratedMessage(ENCRYPTED_MESSAGE_UNAVAILABLE);
+        ? buildHydratedChatMessage(message, archivedMessage.content, archivedMessage.editedAt)
+        : buildHydratedChatMessage(message, ENCRYPTED_MESSAGE_UNAVAILABLE);
     }
 
     try {
       const content = await decryptMessage(message.encryptedPayload, userId);
-      const hydratedMessage = buildHydratedMessage(content);
+      const hydratedMessage = buildHydratedChatMessage(message, content);
       void rememberArchivedDecryptedMessage(userId, hydratedMessage);
       return hydratedMessage;
     } catch {
       const archivedMessage = await readArchivedDecryptedMessageRecord(userId, message.id);
       return archivedMessage
-        ? buildHydratedMessage(archivedMessage.content, archivedMessage.editedAt)
-        : buildHydratedMessage(ENCRYPTED_MESSAGE_UNAVAILABLE);
+        ? buildHydratedChatMessage(message, archivedMessage.content, archivedMessage.editedAt)
+        : buildHydratedChatMessage(message, ENCRYPTED_MESSAGE_UNAVAILABLE);
     }
   });
 }
@@ -1057,6 +1082,26 @@ async function waitForPendingMessageHydrationBatch(userId: string) {
   }
 
   await pendingBatch.catch(() => undefined);
+}
+
+function buildHydratedChatMessage(
+  message: ApiChatMessage,
+  content: string,
+  editedAt = message.editedAt
+) {
+  return {
+    id: message.id,
+    chatId: message.chatId,
+    serverOrder: message.serverOrder ?? null,
+    sender: message.sender,
+    content,
+    createdAt: message.createdAt,
+    editedAt,
+    status: message.status,
+    clientMessageId: message.clientMessageId ?? null,
+    replyTo: message.replyTo,
+    reactions: message.reactions ?? [],
+  } satisfies ChatMessage;
 }
 
 function serializeMessageHydration<T>(userId: string, task: () => Promise<T>): Promise<T> {

@@ -77,6 +77,12 @@ export function getRealtimeUnreadMode(options: {
   return options.ownMessage || options.isVisibleActiveChat ? "clear" : "keep";
 }
 
+export function shouldRefreshChatListOnRealtimeConnect(
+  hasEstablishedRealtimeConnection: boolean
+) {
+  return hasEstablishedRealtimeConnection;
+}
+
 export function useRealtimeChatSubscription({
   acknowledgeDelivered,
   acknowledgeRead,
@@ -194,8 +200,9 @@ export function useRealtimeChatSubscription({
 
   const handleRealtimeConnect = useEffectEvent(() => {
     const currentActiveChatId = activeChatId;
+    const hadPreviousRealtimeConnection = hasEstablishedRealtimeConnectionRef.current;
     const shouldRefreshActiveChat = shouldRefreshActiveChatOnRealtimeConnect(
-      hasEstablishedRealtimeConnectionRef.current,
+      hadPreviousRealtimeConnection,
       {
         activeChatId: currentActiveChatId,
         disconnectedChatSnapshot: activeChatReconnectSnapshotRef.current,
@@ -207,7 +214,9 @@ export function useRealtimeChatSubscription({
     );
     hasEstablishedRealtimeConnectionRef.current = true;
     activeChatReconnectSnapshotRef.current = null;
-    void queryClient.invalidateQueries({ queryKey: ["chats", sessionToken] });
+    if (shouldRefreshChatListOnRealtimeConnect(hadPreviousRealtimeConnection)) {
+      void queryClient.invalidateQueries({ queryKey: ["chats", sessionToken] });
+    }
     if (!currentActiveChatId) {
       return;
     }

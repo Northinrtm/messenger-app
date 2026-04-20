@@ -1,6 +1,6 @@
 import type { InfiniteData } from "@tanstack/react-query";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   getArchivedChats,
   getArchivedVideoConferences,
@@ -13,19 +13,20 @@ import {
   getVideoConferences,
   searchUsers,
 } from "../../../lib/api";
-import { getEncryptedMessages, isUnavailableEncryptedMessage } from "../../../lib/e2ee";
 import {
-  recoverLocalPendingMessages,
-  removeLocalPendingMessage,
-  toRecoveredPendingChatMessage,
-} from "../../../lib/localPendingMessages";
-import type { ChatMessage, ChatSummary, UserProfile } from "../../../lib/types";
+  getEncryptedMessagesSnapshot,
+  hydrateChatMessage,
+  isUnavailableEncryptedMessage,
+} from "../../../lib/e2ee";
+import { recoverLocalPendingMessages, removeLocalPendingMessage, toRecoveredPendingChatMessage } from "../../../lib/localPendingMessages";
+import type { ApiChatMessage, ChatMessage, ChatSummary, UserProfile } from "../../../lib/types";
 import type { ConversationListTab, SidebarSheet } from "../chatUi";
 import {
   buildMessagesQueryKey,
   flattenMessagePages,
   MESSAGE_PAGE_SIZE,
   reconcileMessageInfiniteData,
+  updateMessageById,
 } from "../chatState";
 
 type UseWorkspaceQueriesOptions = {
@@ -57,6 +58,10 @@ export function createInitialMessagePageCursor(): MessagePageCursor {
     beforeServerOrder: null,
     limit: INITIAL_MESSAGE_PAGE_SIZE,
   };
+}
+
+export function buildRawMessagesQueryKey(userId: string, chatId: string | null | undefined) {
+  return ["messages-raw", userId, chatId ?? null] as const;
 }
 
 export function getChatsQueryRefreshStrategy(isRealtimeConnected: boolean) {
@@ -104,6 +109,88 @@ export function getCleanupEligiblePendingMessageClientIds(messages: ChatMessage[
   );
 }
 
+export function upsertRawMessagePage(
+  current: InfiniteData<ApiChatMessage[]> | undefined,
+  nextPage: ApiChatMessage[],
+  pageParam: MessagePageCursor
+): InfiniteData<ApiChatMessage[]> {
+  const normalizedPageParam = {
+    beforeServerOrder: pageParam.beforeServerOrder ?? null,
+    limit: pageParam.limit,
+  } satisfies MessagePageCursor;
+
+  if (!current) {
+    return {
+      pages: [nextPage],
+      pageParams: [normalizedPageParam],
+    };
+  }
+
+  const pageIndex = current.pageParams.findIndex((currentPageParam) => {
+    const candidate = (currentPageParam ?? null) as MessagePageCursor | null;
+    return (
+      (candidate?.beforeServerOrder ?? null) === normalizedPageParam.beforeServerOrder &&
+      (candidate?.limit ?? INITIAL_MESSAGE_PAGE_SIZE) === normalizedPageParam.limit
+    );
+  });
+
+  if (pageIndex < 0) {
+    return {
+      pages: [...current.pages, nextPage],
+      pageParams: [...current.pageParams, normalizedPageParam],
+    };
+  }
+
+  return {
+    pages: current.pages.map((page, index) => (index === pageIndex ? nextPage : page)),
+    pageParams: current.pageParams.map((currentPageParam, index) =>
+      index === pageIndex ? normalizedPageParam : currentPageParam
+    ),
+  };
+}
+
+export function mergeHydratedMessageSnapshot(
+  currentMessage: ChatMessage,
+  hydratedMessage: ChatMessage
+) {
+  const nextContent =
+    isUnavailableEncryptedMessage(hydratedMessage.content) &&
+    !isUnavailableEncryptedMessage(currentMessage.content)
+      ? currentMessage.content
+      : hydratedMessage.content;
+  const nextClientMessageId =
+    hydratedMessage.clientMessageId ?? currentMessage.clientMessageId ?? null;
+  const nextServerOrder = hydratedMessage.serverOrder ?? currentMessage.serverOrder ?? null;
+  const nextEditedAt = hydratedMessage.editedAt ?? currentMessage.editedAt ?? null;
+  const nextStatus = hydratedMessage.status ?? currentMessage.status;
+  const nextReplyTo = hydratedMessage.replyTo ?? currentMessage.replyTo;
+  const nextLocalOrder = currentMessage.localOrder ?? hydratedMessage.localOrder ?? null;
+
+  if (
+    nextContent === currentMessage.content &&
+    nextClientMessageId === (currentMessage.clientMessageId ?? null) &&
+    nextServerOrder === (currentMessage.serverOrder ?? null) &&
+    nextEditedAt === currentMessage.editedAt &&
+    nextStatus === currentMessage.status &&
+    nextReplyTo === currentMessage.replyTo &&
+    nextLocalOrder === (currentMessage.localOrder ?? null)
+  ) {
+    return currentMessage;
+  }
+
+  return {
+    ...currentMessage,
+    ...hydratedMessage,
+    content: nextContent,
+    clientMessageId: nextClientMessageId,
+    serverOrder: nextServerOrder,
+    editedAt: nextEditedAt,
+    status: nextStatus,
+    replyTo: nextReplyTo,
+    localOrder: nextLocalOrder,
+  } satisfies ChatMessage;
+}
+
 export function useWorkspaceQueries({
   activeChatId,
   activeConferenceId,
@@ -121,6 +208,11 @@ export function useWorkspaceQueries({
   userId,
 }: UseWorkspaceQueriesOptions) {
   const queryClient = useQueryClient();
+  const queuedMessageHydrationKeysRef = useRef(new Set<string>());
+  const messageHydrationQueueRef = useRef(
+    new Map<string, { chatId: string; rawMessage: ApiChatMessage }>()
+  );
+  const messageHydrationWorkerRunningRef = useRef(false);
   const shouldFetchSessions = sidebarSheet === "sessions";
   const shouldAggressivelyRefreshConferences =
     activeListTab === "conferences" || Boolean(activeConferenceId);
@@ -215,11 +307,25 @@ export function useWorkspaceQueries({
 
   const messagesQuery = useInfiniteQuery({
     queryKey: buildMessagesQueryKey(userId, activeChat?.id),
-    queryFn: ({ pageParam }) =>
-      getEncryptedMessages(sessionToken, userId, activeChat!.id, {
-        beforeServerOrder: pageParam?.beforeServerOrder,
+    queryFn: async ({ pageParam }) => {
+      const resolvedPageParam = {
+        beforeServerOrder: pageParam?.beforeServerOrder ?? null,
         limit: pageParam?.limit ?? INITIAL_MESSAGE_PAGE_SIZE,
-      }),
+      } satisfies MessagePageCursor;
+      const { hydratedMessages, rawMessages } = await getEncryptedMessagesSnapshot(
+        sessionToken,
+        userId,
+        activeChat!.id,
+        resolvedPageParam
+      );
+
+      queryClient.setQueryData<InfiniteData<ApiChatMessage[]>>(
+        buildRawMessagesQueryKey(userId, activeChat!.id),
+        (current) => upsertRawMessagePage(current, rawMessages, resolvedPageParam)
+      );
+
+      return hydratedMessages;
+    },
     enabled: Boolean(activeChat?.id),
     initialPageParam: createInitialMessagePageCursor(),
     getNextPageParam: (lastPage, _allPages, lastPageParam) =>
@@ -284,6 +390,75 @@ export function useWorkspaceQueries({
     });
     queryClient.setQueryData(["pending-outgoing-messages", userId], nextRecoveredMessages);
   }, [messagesQuery.data?.pages, pendingOutgoingMessagesQuery.data, queryClient, userId]);
+
+  useEffect(() => {
+    const drainMessageHydrationQueue = async () => {
+      if (messageHydrationWorkerRunningRef.current) {
+        return;
+      }
+
+      messageHydrationWorkerRunningRef.current = true;
+      try {
+        while (messageHydrationQueueRef.current.size > 0) {
+          const nextQueuedMessage = messageHydrationQueueRef.current.entries().next().value as
+            | [string, { chatId: string; rawMessage: ApiChatMessage }]
+            | undefined;
+          if (!nextQueuedMessage) {
+            break;
+          }
+
+          const [hydrationKey, queuedMessage] = nextQueuedMessage;
+          messageHydrationQueueRef.current.delete(hydrationKey);
+
+          try {
+            const hydratedMessage = await hydrateChatMessage(queuedMessage.rawMessage, userId);
+            queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
+              buildMessagesQueryKey(userId, queuedMessage.chatId),
+              (current) =>
+                updateMessageById(current, hydratedMessage.id, (currentMessage) =>
+                  mergeHydratedMessageSnapshot(currentMessage, hydratedMessage)
+                )
+            );
+          } catch {
+            // Keep the fast snapshot in place when late hydration fails.
+          }
+        }
+      } finally {
+        messageHydrationWorkerRunningRef.current = false;
+        if (messageHydrationQueueRef.current.size > 0) {
+          void drainMessageHydrationQueue();
+        }
+      }
+    };
+
+    if (!activeChat?.id) {
+      return;
+    }
+
+    const rawMessages = queryClient.getQueryData<InfiniteData<ApiChatMessage[]>>(
+      buildRawMessagesQueryKey(userId, activeChat.id)
+    );
+    if (!rawMessages?.pages.length) {
+      return;
+    }
+
+    rawMessages.pages.forEach((page) => {
+      page.forEach((rawMessage) => {
+        const hydrationKey = `${activeChat.id}:${rawMessage.id}:${rawMessage.editedAt ?? ""}`;
+        if (queuedMessageHydrationKeysRef.current.has(hydrationKey)) {
+          return;
+        }
+
+        queuedMessageHydrationKeysRef.current.add(hydrationKey);
+        messageHydrationQueueRef.current.set(hydrationKey, {
+          chatId: activeChat.id,
+          rawMessage,
+        });
+      });
+    });
+
+    void drainMessageHydrationQueue();
+  }, [activeChat?.id, messagesQuery.data?.pages, queryClient, userId]);
 
   return {
     activeTypingQuery,
