@@ -239,8 +239,12 @@ export function AuthCard({
       <section className="auth-card">
         <img className="auth-brand-mark" src="/logo-mark.svg?v=20260408d" alt="North Messenger" />
         <div className="eyebrow">North Messenger</div>
-        <h1>{title}</h1>
-        <p className="auth-copy">{description}</p>
+        {!isAuthMode ? (
+          <>
+            <h1>{title}</h1>
+            <p className="auth-copy">{description}</p>
+          </>
+        ) : null}
 
         {isAuthMode ? (
           <div className="mode-switch">
@@ -308,7 +312,7 @@ export function AuthCard({
               <input
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                placeholder="name@example.com"
+                placeholder=""
                 type="email"
                 autoComplete="email"
                 autoCapitalize="none"
@@ -353,14 +357,11 @@ export function AuthCard({
                 <input
                   value={resetPassword}
                   onChange={(event) => setResetPassword(event.target.value)}
-                  placeholder="At least 8 characters"
+                  placeholder=""
                   type="password"
                   autoComplete="new-password"
                   required
                 />
-                <small className="field-help">
-                  8+ characters. Avoid your name, common passwords, and simple patterns like 1234.
-                </small>
               </label>
             </>
           ) : mode === "requestReset" ? null : (
@@ -369,16 +370,11 @@ export function AuthCard({
               <input
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                placeholder="At least 8 characters"
+                placeholder=""
                 type="password"
                 autoComplete={mode === "register" ? "new-password" : "current-password"}
                 required
               />
-              {mode === "register" ? (
-                <small className="field-help">
-                  8+ characters. Avoid your name, common passwords, and simple patterns like 1234.
-                </small>
-              ) : null}
             </label>
           )}
 
