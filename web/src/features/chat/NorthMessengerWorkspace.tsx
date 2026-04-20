@@ -129,6 +129,7 @@ import { MessageContextMenu } from "./components/MessageContextMenu";
 import { SidebarManagementSheets } from "./components/SidebarManagementSheets";
 import { SidebarMenuOverlay } from "./components/SidebarMenuOverlay";
 import { SidebarUtilitySheets } from "./components/SidebarUtilitySheets";
+import { WorkspaceConversation } from "./components/WorkspaceConversation";
 import { WorkspaceSidebar } from "./components/WorkspaceSidebar";
 import { MENU_ACTIONS, type ConversationListTab, type MenuActionId, type SidebarSheet } from "./chatUi";
 import { useContextMenu } from "./hooks/useContextMenu";
@@ -631,11 +632,11 @@ export function NorthMessengerWorkspace({
     chatEncryptionIdentityWarning?.chatId === activeChat.id &&
     chatEncryptionIdentityWarning.isVisible
       ? {
-          title: "РќСѓР¶РЅРѕ РѕР±РЅРѕРІРёС‚СЊ С‡Р°С‚",
+          title: "Р СњРЎС“Р В¶Р Р…Р С• Р С•Р В±Р Р…Р С•Р Р†Р С‘РЎвЂљРЎРЉ РЎвЂЎР В°РЎвЂљ",
           description:
-            "Р”Р°РЅРЅС‹Рµ С‡Р°С‚Р° РёР·РјРµРЅРёР»РёСЃСЊ. РћР±РЅРѕРІРёС‚Рµ С‡Р°С‚, С‡С‚РѕР±С‹ СЃРЅРѕРІР° РѕС‚РїСЂР°РІР»СЏС‚СЊ Рё СЂРµРґР°РєС‚РёСЂРѕРІР°С‚СЊ СЃРѕРѕР±С‰РµРЅРёСЏ.",
+            "Р вЂќР В°Р Р…Р Р…РЎвЂ№Р Вµ РЎвЂЎР В°РЎвЂљР В° Р С‘Р В·Р СР ВµР Р…Р С‘Р В»Р С‘РЎРѓРЎРЉ. Р С›Р В±Р Р…Р С•Р Р†Р С‘РЎвЂљР Вµ РЎвЂЎР В°РЎвЂљ, РЎвЂЎРЎвЂљР С•Р В±РЎвЂ№ РЎРѓР Р…Р С•Р Р†Р В° Р С•РЎвЂљР С—РЎР‚Р В°Р Р†Р В»РЎРЏРЎвЂљРЎРЉ Р С‘ РЎР‚Р ВµР Т‘Р В°Р С”РЎвЂљР С‘РЎР‚Р С•Р Р†Р В°РЎвЂљРЎРЉ РЎРѓР С•Р С•Р В±РЎвЂ°Р ВµР Р…Р С‘РЎРЏ.",
           errorText: chatEncryptionIdentityWarning.errorText,
-          actionLabel: "РћР±РЅРѕРІРёС‚СЊ С‡Р°С‚",
+          actionLabel: "Р С›Р В±Р Р…Р С•Р Р†Р С‘РЎвЂљРЎРЉ РЎвЂЎР В°РЎвЂљ",
           isPending: isRecoveringEncryptionIdentity,
         }
       : null;
@@ -824,10 +825,10 @@ export function NorthMessengerWorkspace({
   );
   const isPinnedContextMenuMessage =
     Boolean(contextMenuMessage && activeChat?.pinnedMessage?.id === contextMenuMessage.id);
-  const deleteForEveryoneLabel = activeChat?.direct ? "РЈРґР°Р»РёС‚СЊ РґР»СЏ РѕР±РѕРёС…" : "РЈРґР°Р»РёС‚СЊ РґР»СЏ РІСЃРµС…";
+  const deleteForEveryoneLabel = activeChat?.direct ? "Р Р€Р Т‘Р В°Р В»Р С‘РЎвЂљРЎРЉ Р Т‘Р В»РЎРЏ Р С•Р В±Р С•Р С‘РЎвЂ¦" : "Р Р€Р Т‘Р В°Р В»Р С‘РЎвЂљРЎРЉ Р Т‘Р В»РЎРЏ Р Р†РЎРѓР ВµРЎвЂ¦";
   const deleteForEveryoneHint = activeChat?.direct
-    ? "РЎРѕРѕР±С‰РµРЅРёРµ РёСЃС‡РµР·РЅРµС‚ Сѓ РІР°СЃ РѕР±РѕРёС…"
-    : "РЎРѕРѕР±С‰РµРЅРёРµ РёСЃС‡РµР·РЅРµС‚ Сѓ РІСЃРµС… СѓС‡Р°СЃС‚РЅРёРєРѕРІ";
+    ? "Р РЋР С•Р С•Р В±РЎвЂ°Р ВµР Р…Р С‘Р Вµ Р С‘РЎРѓРЎвЂЎР ВµР В·Р Р…Р ВµРЎвЂљ РЎС“ Р Р†Р В°РЎРѓ Р С•Р В±Р С•Р С‘РЎвЂ¦"
+    : "Р РЋР С•Р С•Р В±РЎвЂ°Р ВµР Р…Р С‘Р Вµ Р С‘РЎРѓРЎвЂЎР ВµР В·Р Р…Р ВµРЎвЂљ РЎС“ Р Р†РЎРѓР ВµРЎвЂ¦ РЎС“РЎвЂЎР В°РЎРѓРЎвЂљР Р…Р С‘Р С”Р С•Р Р†";
 
   useEffect(() => {
     if (isRealtimeConnected || !activeChatId || activeTypingQuery.data === undefined) {
@@ -1224,7 +1225,7 @@ export function NorthMessengerWorkspace({
         current && current.chatId === activeChat.id
           ? {
               ...current,
-              errorText: "РќРµ СѓРґР°Р»РѕСЃСЊ РѕР±РЅРѕРІРёС‚СЊ С‡Р°С‚. РџРѕРїСЂРѕР±СѓР№С‚Рµ РµС‰С‘ СЂР°Р·.",
+              errorText: "Р СњР Вµ РЎС“Р Т‘Р В°Р В»Р С•РЎРѓРЎРЉ Р С•Р В±Р Р…Р С•Р Р†Р С‘РЎвЂљРЎРЉ РЎвЂЎР В°РЎвЂљ. Р СџР С•Р С—РЎР‚Р С•Р В±РЎС“Р в„–РЎвЂљР Вµ Р ВµРЎвЂ°РЎвЂ РЎР‚Р В°Р В·.",
             }
           : current
       );
@@ -1352,8 +1353,8 @@ export function NorthMessengerWorkspace({
     });
   const emailVerificationInfo = resendOwnEmailVerificationMutation.isSuccess
     ? profile.email
-      ? `РџРёСЃСЊРјРѕ РґР»СЏ РїРѕРґС‚РІРµСЂР¶РґРµРЅРёСЏ РѕС‚РїСЂР°РІР»РµРЅРѕ РЅР° ${profile.email}.`
-      : "РџРёСЃСЊРјРѕ РґР»СЏ РїРѕРґС‚РІРµСЂР¶РґРµРЅРёСЏ РѕС‚РїСЂР°РІР»РµРЅРѕ."
+      ? `Р СџР С‘РЎРѓРЎРЉР СР С• Р Т‘Р В»РЎРЏ Р С—Р С•Р Т‘РЎвЂљР Р†Р ВµРЎР‚Р В¶Р Т‘Р ВµР Р…Р С‘РЎРЏ Р С•РЎвЂљР С—РЎР‚Р В°Р Р†Р В»Р ВµР Р…Р С• Р Р…Р В° ${profile.email}.`
+      : "Р СџР С‘РЎРѓРЎРЉР СР С• Р Т‘Р В»РЎРЏ Р С—Р С•Р Т‘РЎвЂљР Р†Р ВµРЎР‚Р В¶Р Т‘Р ВµР Р…Р С‘РЎРЏ Р С•РЎвЂљР С—РЎР‚Р В°Р Р†Р В»Р ВµР Р…Р С•."
     : null;
   const emailVerificationError = resendOwnEmailVerificationMutation.error
     ? describeError(resendOwnEmailVerificationMutation.error)
@@ -1480,7 +1481,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Р’С‹Р№С‚Рё РёР· РіСЂСѓРїРїС‹ "${activeChat.title}"?`)) {
+    if (!window.confirm(`Р вЂ™РЎвЂ№Р в„–РЎвЂљР С‘ Р С‘Р В· Р С–РЎР‚РЎС“Р С—Р С—РЎвЂ№ "${activeChat.title}"?`)) {
       return;
     }
 
@@ -1492,7 +1493,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`РЈРґР°Р»РёС‚СЊ РіСЂСѓРїРїСѓ "${activeChat.title}" РґР»СЏ РІСЃРµС… СѓС‡Р°СЃС‚РЅРёРєРѕРІ?`)) {
+    if (!window.confirm(`Р Р€Р Т‘Р В°Р В»Р С‘РЎвЂљРЎРЉ Р С–РЎР‚РЎС“Р С—Р С—РЎС“ "${activeChat.title}" Р Т‘Р В»РЎРЏ Р Р†РЎРѓР ВµРЎвЂ¦ РЎС“РЎвЂЎР В°РЎРѓРЎвЂљР Р…Р С‘Р С”Р С•Р Р†?`)) {
       return;
     }
 
@@ -1504,7 +1505,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Р—Р°Р±Р°РЅРёС‚СЊ ${participant.displayName} Рё СѓР±СЂР°С‚СЊ РёР· РіСЂСѓРїРїС‹?`)) {
+    if (!window.confirm(`Р вЂ”Р В°Р В±Р В°Р Р…Р С‘РЎвЂљРЎРЉ ${participant.displayName} Р С‘ РЎС“Р В±РЎР‚Р В°РЎвЂљРЎРЉ Р С‘Р В· Р С–РЎР‚РЎС“Р С—Р С—РЎвЂ№?`)) {
       return;
     }
 
@@ -1516,7 +1517,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Р—Р°Р±Р°РЅРёС‚СЊ ${participant.displayName} Рё СѓР±СЂР°С‚СЊ РёР· РіСЂСѓРїРїС‹?`)) {
+    if (!window.confirm(`Р вЂ”Р В°Р В±Р В°Р Р…Р С‘РЎвЂљРЎРЉ ${participant.displayName} Р С‘ РЎС“Р В±РЎР‚Р В°РЎвЂљРЎРЉ Р С‘Р В· Р С–РЎР‚РЎС“Р С—Р С—РЎвЂ№?`)) {
       return;
     }
 
@@ -1528,7 +1529,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`РСЃРєР»СЋС‡РёС‚СЊ ${participant.displayName} РёР· РіСЂСѓРїРїС‹?`)) {
+    if (!window.confirm(`Р ВРЎРѓР С”Р В»РЎР‹РЎвЂЎР С‘РЎвЂљРЎРЉ ${participant.displayName} Р С‘Р В· Р С–РЎР‚РЎС“Р С—Р С—РЎвЂ№?`)) {
       return;
     }
 
@@ -1540,7 +1541,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`РќР°Р·РЅР°С‡РёС‚СЊ ${participant.displayName} РјРѕРґРµСЂР°С‚РѕСЂРѕРј РіСЂСѓРїРїС‹?`)) {
+    if (!window.confirm(`Р СњР В°Р В·Р Р…Р В°РЎвЂЎР С‘РЎвЂљРЎРЉ ${participant.displayName} Р СР С•Р Т‘Р ВµРЎР‚Р В°РЎвЂљР С•РЎР‚Р С•Р С Р С–РЎР‚РЎС“Р С—Р С—РЎвЂ№?`)) {
       return;
     }
 
@@ -1552,7 +1553,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`РЎРЅСЏС‚СЊ СЂРѕР»СЊ РјРѕРґРµСЂР°С‚РѕСЂР° СЃ ${participant.displayName}?`)) {
+    if (!window.confirm(`Р РЋР Р…РЎРЏРЎвЂљРЎРЉ РЎР‚Р С•Р В»РЎРЉ Р СР С•Р Т‘Р ВµРЎР‚Р В°РЎвЂљР С•РЎР‚Р В° РЎРѓ ${participant.displayName}?`)) {
       return;
     }
 
@@ -1569,7 +1570,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Р—Р°Р±Р»РѕРєРёСЂРѕРІР°С‚СЊ ${activeDirectParticipant.displayName}?`)) {
+    if (!window.confirm(`Р вЂ”Р В°Р В±Р В»Р С•Р С”Р С‘РЎР‚Р С•Р Р†Р В°РЎвЂљРЎРЉ ${activeDirectParticipant.displayName}?`)) {
       return;
     }
 
@@ -1583,7 +1584,7 @@ export function NorthMessengerWorkspace({
 
     const now = new Date().toISOString();
     createConferenceMutation.mutate({
-      title: `РЎРѕР·РІРѕРЅ СЃ ${activeDirectParticipant.displayName}`,
+      title: `Р РЋР С•Р В·Р Р†Р С•Р Р… РЎРѓ ${activeDirectParticipant.displayName}`,
       scheduledAt: now,
       participantUsernames: [activeDirectParticipant.username],
     });
@@ -2201,6 +2202,179 @@ export function NorthMessengerWorkspace({
     onClose: () => setIsMenuOpen(false),
     onAction: handleMenuAction,
   };
+  const activeChatConversationProps: ComponentProps<typeof ActiveChatConversation> | null =
+    (!activeConference || isConferenceMinimized) && activeChat
+      ? {
+          activeChat,
+          activeDirectParticipant,
+          archivedChatIdSet,
+          sessionUser: session.user,
+          conversationSubtitle,
+          showTypingIndicator,
+          activePinnedMessage,
+          timelineItems,
+          messagesLoading,
+          hasNextPage: Boolean(messagesQuery.hasNextPage),
+          isFetchingNextPage: messagesQuery.isFetchingNextPage,
+          replyingToMessage,
+          editingMessage,
+          activeDraft,
+          isChatMenuOpen,
+          isDirectChatBlocked: activeDirectBlockedByMe,
+          encryptionIdentityWarning: activeChatEncryptionWarning,
+          chatMenuButtonRef,
+          messageStreamRef,
+          composerTextareaRef,
+          onBack: () => setMobilePane("sidebar"),
+          onToggleChatMenu: () => {
+            setIsChatMembersOpen(false);
+            setIsChatMenuOpen((current) => !current);
+          },
+          onToggleArchive: () => toggleArchiveChat(activeChat.id, archivedChatIdSet),
+          onCloseChat: closeActiveChat,
+          onJumpToPinned: () => {
+            if (activePinnedMessage) {
+              scrollToMessage(activeChat.id, activePinnedMessage.id);
+            }
+          },
+          onUnpin: () =>
+            pinMessageMutation.mutate({
+              chatId: activeChat.id,
+              messageId: null,
+            }),
+          onLoadOlderMessages: loadOlderMessages,
+          onOpenMessageContextMenu: openMessageContextMenu,
+          onToggleReaction: toggleReactionForMessage,
+          onJumpToMessage: scrollToMessage,
+          onClearReply: () => clearComposerContext("reply"),
+          onClearEdit: () => clearComposerContext("edit"),
+          onRecoverEncryptionIdentity: handleRecoverEncryptionIdentity,
+          onRetryMessage: retryFailedMessage,
+          onComposerChange: handleComposerChange,
+          onSubmit: handleSubmitActiveDraft,
+          formatClock,
+          getMessageStatusClassName,
+          getMessageStatusGlyph,
+          getMessageStatusLabel,
+          getReactionOption,
+          buildMessagePreview,
+        }
+      : null;
+  const chatMenuPanelProps: ComponentProps<typeof ChatMenuPanel> | null =
+    (!activeConference || isConferenceMinimized) && activeChat && isChatMenuOpen
+      ? {
+          activeChat,
+          sessionUserId: session.user.id,
+          activeDirectParticipant,
+          activeDirectInContacts,
+          isDirectBlocked: activeDirectBlockedByMe,
+          groupDetailsTitle,
+          groupDetailsAvatarUrl,
+          groupInviteLinkUrl: activeGroupInviteUrl,
+          availableGroupInviteContacts,
+          selectedGroupInviteContacts,
+          isGroupInvitePickerOpen,
+          groupInviteLinkPending: createGroupInviteLinkMutation.isPending,
+          addGroupParticipantsPending: addGroupParticipantsMutation.isPending,
+          updateGroupPending: updateGroupMutation.isPending,
+          createChatPending: createChatMutation.isPending,
+          leaveGroupPending: leaveGroupMutation.isPending,
+          deleteGroupPending: deleteGroupMutation.isPending,
+          banGroupParticipantPending: banGroupParticipantMutation.isPending,
+          removeGroupParticipantPending: removeGroupParticipantMutation.isPending,
+          assignModeratorPending: assignGroupModeratorMutation.isPending,
+          revokeModeratorPending: revokeGroupModeratorMutation.isPending,
+          toggleBlockPending: blockUserMutation.isPending || unblockUserMutation.isPending,
+          canDeleteGroup: activeChatIsOwnedByCurrentUser,
+          canEditGroup: activeChatIsOwnedByCurrentUser,
+          canManageInviteLink: activeChatCanShareInviteLink,
+          canManageMembers: activeChatIsOwnedByCurrentUser,
+          canManageRoles: activeChatIsOwnedByCurrentUser,
+          canModerateMembers: activeChatCanModerateMembers,
+          onClose: () => setIsChatMenuOpen(false),
+          onOpenMembers: () => {
+            setIsChatMenuOpen(false);
+            setIsChatMembersOpen(true);
+          },
+          onGroupDetailsTitleChange: setGroupDetailsTitle,
+          onGroupAvatarSelected: (file) => void uploadGroupAvatarFromFile(file),
+          onRemoveGroupAvatar: () => setGroupDetailsAvatarUrl(null),
+          onSubmitUpdateGroup: handleSubmitUpdateGroup,
+          onGenerateGroupInviteLink: handleGenerateGroupInviteLink,
+          onCopyGroupInviteLink: (value) => void navigator.clipboard.writeText(value),
+          onToggleGroupInvitePicker: () => setIsGroupInvitePickerOpen((current) => !current),
+          onToggleGroupInviteParticipant: toggleGroupInviteParticipant,
+          onSubmitAddGroupParticipants: submitAddGroupParticipants,
+          onOpenGroupConferenceComposer: openGroupConferenceComposer,
+          onCreateChat: (username) => createChatMutation.mutate(username),
+          onLeaveGroup: handleLeaveGroup,
+          onDeleteGroup: handleDeleteGroup,
+          onBanParticipant: handleBanParticipantAction,
+          onRemoveParticipant: handleRemoveParticipantAction,
+          onAssignModerator: handleAssignModeratorAction,
+          onRevokeModerator: handleRevokeModeratorAction,
+          onAddToContacts: addActiveChatToContacts,
+          onStartDirectConference: handleStartDirectConference,
+          onToggleBlocked: handleToggleDirectBlock,
+        }
+      : null;
+  const chatMembersPanelProps: ComponentProps<typeof ChatMembersPanel> | null =
+    (!activeConference || isConferenceMinimized) && activeChat && isChatMembersOpen
+      ? {
+          activeChat,
+          sessionUserId: session.user.id,
+          createChatPending: createChatMutation.isPending,
+          addGroupParticipantsPending: addGroupParticipantsMutation.isPending,
+          banGroupParticipantPending: banGroupParticipantMutation.isPending,
+          removeGroupParticipantPending: removeGroupParticipantMutation.isPending,
+          assignModeratorPending: assignGroupModeratorMutation.isPending,
+          revokeModeratorPending: revokeGroupModeratorMutation.isPending,
+          canAddMembers: activeChatIsOwnedByCurrentUser,
+          canManageRoles: activeChatIsOwnedByCurrentUser,
+          canModerateMembers: activeChatCanModerateMembers,
+          availableGroupInviteContacts,
+          selectedGroupInviteContacts,
+          isGroupInvitePickerOpen,
+          groupInviteUsernames,
+          onClose: () => setIsChatMembersOpen(false),
+          onCreateChat: (username) => createChatMutation.mutate(username),
+          onToggleGroupInvitePicker: () => setIsGroupInvitePickerOpen((current) => !current),
+          onToggleGroupInviteParticipant: toggleGroupInviteParticipant,
+          onSubmitAddGroupParticipants: submitAddGroupParticipants,
+          onBanParticipant: handleBanParticipantAction,
+          onRemoveParticipant: handleRemoveParticipantAction,
+          onAssignModerator: handleAssignModeratorAction,
+          onRevokeModerator: handleRevokeModeratorAction,
+        }
+      : null;
+  const messageContextMenuProps: ComponentProps<typeof MessageContextMenu> | null = contextMenu
+    ? {
+        contextMenu,
+        contextMenuRef,
+        contextMenuStyle,
+        contextMenuMessage,
+        reactionOptions: MESSAGE_REACTION_OPTIONS,
+        getMessageReaction,
+        onToggleReaction: toggleReactionFromContextMenu,
+        canReactContextMenuMessage,
+        canEditContextMenuMessage,
+        canForwardContextMenuMessage,
+        canPinContextMenuMessage,
+        isPinnedContextMenuMessage,
+        canDeleteContextMenuMessageForSelf,
+        canDeleteContextMenuMessageForEveryone,
+        deleteForEveryoneLabel,
+        deleteForEveryoneHint,
+        onReply: replyToMessage,
+        onEdit: editMessageAction,
+        onForward: forwardMessageAction,
+        onTogglePinned: togglePinnedMessageAction,
+        onCopy: copyMessageText,
+        onDeleteForSelf: deleteMessageForSelf,
+        onDeleteForEveryone: deleteMessageForEveryone,
+        onDeleteChatForSelf: deleteChatForSelf,
+      }
+    : null;
 
   return (
     <main
@@ -2237,256 +2411,34 @@ export function NorthMessengerWorkspace({
         className="north-layout-divider"
         role="separator"
         aria-orientation="vertical"
-        aria-label="РР·РјРµРЅРёС‚СЊ С€РёСЂРёРЅСѓ СЃРїРёСЃРєР° РґРёР°Р»РѕРіРѕРІ"
+        aria-label="Р ВР В·Р СР ВµР Р…Р С‘РЎвЂљРЎРЉ РЎв‚¬Р С‘РЎР‚Р С‘Р Р…РЎС“ РЎРѓР С—Р С‘РЎРѓР С”Р В° Р Т‘Р С‘Р В°Р В»Р С•Р С–Р С•Р Р†"
         onPointerDown={startSidebarResize}
       />
 
-      <section className="conversation north-conversation">
-        {activeConference ? (
-          <div
-            ref={conferenceSurfaceRef}
-            className={
-              isConferenceMinimized
-                ? "conference-surface is-mini"
-                : "conference-surface is-full"
-            }
-            style={conferenceSurfaceStyle}
-            onClick={isConferenceMinimized ? handleConferenceMiniSurfaceClick : undefined}
-          >
-            {isConferenceMinimized ? (
-              <div
-                className={
-                  isConferenceMiniDragging
-                    ? "conference-mini-toolbar is-draggable is-dragging"
-                    : "conference-mini-toolbar is-draggable"
-                }
-                onPointerDown={startConferenceMiniDrag}
-              >
-                <div className="conference-mini-copy">
-                  <strong>{activeConference.title}</strong>
-                  <span>{activeConferenceStatusLabel ?? "РљРѕРЅС„РµСЂРµРЅС†РёСЏ Р°РєС‚РёРІРЅР°"}</span>
-                </div>
-              </div>
-            ) : null}
-            {conferenceConversation}
-          </div>
-        ) : null}
-
-        {(!activeConference || isConferenceMinimized) && activeChat ? (
-          <ActiveChatConversation
-            activeChat={activeChat}
-            activeDirectParticipant={activeDirectParticipant}
-            archivedChatIdSet={archivedChatIdSet}
-            sessionUser={session.user}
-            conversationSubtitle={conversationSubtitle}
-            showTypingIndicator={showTypingIndicator}
-            activePinnedMessage={activePinnedMessage}
-            timelineItems={timelineItems}
-            messagesLoading={messagesLoading}
-            hasNextPage={Boolean(messagesQuery.hasNextPage)}
-            isFetchingNextPage={messagesQuery.isFetchingNextPage}
-            replyingToMessage={replyingToMessage}
-            editingMessage={editingMessage}
-            activeDraft={activeDraft}
-            isChatMenuOpen={isChatMenuOpen}
-            isDirectChatBlocked={activeDirectBlockedByMe}
-            encryptionIdentityWarning={activeChatEncryptionWarning}
-            chatMenuButtonRef={chatMenuButtonRef}
-            messageStreamRef={messageStreamRef}
-            composerTextareaRef={composerTextareaRef}
-            onBack={() => setMobilePane("sidebar")}
-            onToggleChatMenu={() => {
-              setIsChatMembersOpen(false);
-              setIsChatMenuOpen((current) => !current);
-            }}
-            onToggleArchive={() => toggleArchiveChat(activeChat.id, archivedChatIdSet)}
-            onCloseChat={closeActiveChat}
-            onJumpToPinned={() => {
-              if (activePinnedMessage) {
-                scrollToMessage(activeChat.id, activePinnedMessage.id);
-              }
-            }}
-            onUnpin={() =>
-              pinMessageMutation.mutate({
-                chatId: activeChat.id,
-                messageId: null,
-              })
-            }
-            onLoadOlderMessages={loadOlderMessages}
-            onOpenMessageContextMenu={openMessageContextMenu}
-            onToggleReaction={toggleReactionForMessage}
-            onJumpToMessage={scrollToMessage}
-            onClearReply={() => clearComposerContext("reply")}
-            onClearEdit={() => clearComposerContext("edit")}
-            onRecoverEncryptionIdentity={handleRecoverEncryptionIdentity}
-            onRetryMessage={retryFailedMessage}
-            onComposerChange={handleComposerChange}
-            onSubmit={handleSubmitActiveDraft}
-            formatClock={formatClock}
-            getMessageStatusClassName={getMessageStatusClassName}
-            getMessageStatusGlyph={getMessageStatusGlyph}
-            getMessageStatusLabel={getMessageStatusLabel}
-            getReactionOption={getReactionOption}
-            buildMessagePreview={buildMessagePreview}
-          />
-        ) : !activeConference || isConferenceMinimized ? (
-          chatsLoading || conferencesLoading ? (
-          <div className="empty-state large north-empty-state">Р—Р°РіСЂСѓР¶Р°РµРј РґР°РЅРЅС‹Рµ...</div>
-        ) : (
-          <div className="conversation-empty">
-            <div className="conversation-empty-badge">
-              {activeListTab === "conferences"
-                ? "Р’С‹Р±РµСЂРёС‚Рµ РІРёРґРµРѕРєРѕРЅС„РµСЂРµРЅС†РёСЋ СЃР»РµРІР°"
-                : "Р’С‹Р±РµСЂРёС‚Рµ, РєРѕРјСѓ С…РѕС‚РµР»Рё Р±С‹ РЅР°РїРёСЃР°С‚СЊ"}
-            </div>
-          </div>
-          )
-        ) : null}
-
-        {(!activeConference || isConferenceMinimized) && activeChat && isChatMenuOpen ? (
-          <div className="chat-menu-panel-shell is-popover">
-            <div ref={chatMenuPanelRef} className="chat-menu-panel-frame">
-              <ChatMenuPanel
-                activeChat={activeChat}
-                sessionUserId={session.user.id}
-                activeDirectParticipant={activeDirectParticipant}
-                activeDirectInContacts={activeDirectInContacts}
-                isDirectBlocked={activeDirectBlockedByMe}
-                groupDetailsTitle={groupDetailsTitle}
-                groupDetailsAvatarUrl={groupDetailsAvatarUrl}
-                groupInviteLinkUrl={activeGroupInviteUrl}
-                availableGroupInviteContacts={availableGroupInviteContacts}
-                selectedGroupInviteContacts={selectedGroupInviteContacts}
-                isGroupInvitePickerOpen={isGroupInvitePickerOpen}
-                groupInviteLinkPending={createGroupInviteLinkMutation.isPending}
-                addGroupParticipantsPending={addGroupParticipantsMutation.isPending}
-                updateGroupPending={updateGroupMutation.isPending}
-                createChatPending={createChatMutation.isPending}
-                leaveGroupPending={leaveGroupMutation.isPending}
-                deleteGroupPending={deleteGroupMutation.isPending}
-                banGroupParticipantPending={banGroupParticipantMutation.isPending}
-                removeGroupParticipantPending={removeGroupParticipantMutation.isPending}
-                assignModeratorPending={assignGroupModeratorMutation.isPending}
-                revokeModeratorPending={revokeGroupModeratorMutation.isPending}
-                toggleBlockPending={blockUserMutation.isPending || unblockUserMutation.isPending}
-                canDeleteGroup={activeChatIsOwnedByCurrentUser}
-                canEditGroup={activeChatIsOwnedByCurrentUser}
-                canManageInviteLink={activeChatCanShareInviteLink}
-                canManageMembers={activeChatIsOwnedByCurrentUser}
-                canManageRoles={activeChatIsOwnedByCurrentUser}
-                canModerateMembers={activeChatCanModerateMembers}
-                onClose={() => setIsChatMenuOpen(false)}
-                onOpenMembers={() => {
-                  setIsChatMenuOpen(false);
-                  setIsChatMembersOpen(true);
-                }}
-                onGroupDetailsTitleChange={setGroupDetailsTitle}
-                onGroupAvatarSelected={(file) => void uploadGroupAvatarFromFile(file)}
-                onRemoveGroupAvatar={() => setGroupDetailsAvatarUrl(null)}
-                onSubmitUpdateGroup={handleSubmitUpdateGroup}
-                onGenerateGroupInviteLink={handleGenerateGroupInviteLink}
-                onCopyGroupInviteLink={(value) => void navigator.clipboard.writeText(value)}
-                onToggleGroupInvitePicker={() => setIsGroupInvitePickerOpen((current) => !current)}
-                onToggleGroupInviteParticipant={toggleGroupInviteParticipant}
-                onSubmitAddGroupParticipants={submitAddGroupParticipants}
-                onOpenGroupConferenceComposer={openGroupConferenceComposer}
-                onCreateChat={(username) => createChatMutation.mutate(username)}
-                onLeaveGroup={handleLeaveGroup}
-                onDeleteGroup={handleDeleteGroup}
-                onBanParticipant={handleBanParticipantAction}
-                onRemoveParticipant={handleRemoveParticipantAction}
-                onAssignModerator={handleAssignModeratorAction}
-                onRevokeModerator={handleRevokeModeratorAction}
-                onAddToContacts={addActiveChatToContacts}
-                onStartDirectConference={handleStartDirectConference}
-                onToggleBlocked={handleToggleDirectBlock}
-              />
-            </div>
-          </div>
-        ) : null}
-
-        {(!activeConference || isConferenceMinimized) && activeChat && isChatMembersOpen ? (
-          <div className="chat-menu-panel-shell is-modal">
-            <div ref={chatMembersPanelRef} className="chat-members-panel-frame">
-              <ChatMembersPanel
-                activeChat={activeChat}
-                sessionUserId={session.user.id}
-                createChatPending={createChatMutation.isPending}
-                addGroupParticipantsPending={addGroupParticipantsMutation.isPending}
-                banGroupParticipantPending={banGroupParticipantMutation.isPending}
-                removeGroupParticipantPending={removeGroupParticipantMutation.isPending}
-                assignModeratorPending={assignGroupModeratorMutation.isPending}
-                revokeModeratorPending={revokeGroupModeratorMutation.isPending}
-                canAddMembers={activeChatIsOwnedByCurrentUser}
-                canManageRoles={activeChatIsOwnedByCurrentUser}
-                canModerateMembers={activeChatCanModerateMembers}
-                availableGroupInviteContacts={availableGroupInviteContacts}
-                selectedGroupInviteContacts={selectedGroupInviteContacts}
-                isGroupInvitePickerOpen={isGroupInvitePickerOpen}
-                groupInviteUsernames={groupInviteUsernames}
-                onClose={() => setIsChatMembersOpen(false)}
-                onCreateChat={(username) => createChatMutation.mutate(username)}
-                onToggleGroupInvitePicker={() => setIsGroupInvitePickerOpen((current) => !current)}
-                onToggleGroupInviteParticipant={toggleGroupInviteParticipant}
-                onSubmitAddGroupParticipants={submitAddGroupParticipants}
-                onBanParticipant={handleBanParticipantAction}
-                onRemoveParticipant={handleRemoveParticipantAction}
-                onAssignModerator={handleAssignModeratorAction}
-                onRevokeModerator={handleRevokeModeratorAction}
-              />
-            </div>
-          </div>
-        ) : null}
-
-      {errorText ? <div className="floating-error">{errorText}</div> : null}
-      </section>
-      {contextMenu ? (
-        <MessageContextMenu
-          contextMenu={contextMenu}
-          contextMenuRef={contextMenuRef}
-          contextMenuStyle={contextMenuStyle}
-          contextMenuMessage={contextMenuMessage}
-          reactionOptions={MESSAGE_REACTION_OPTIONS}
-          getMessageReaction={getMessageReaction}
-          onToggleReaction={toggleReactionFromContextMenu}
-          canReactContextMenuMessage={canReactContextMenuMessage}
-          canEditContextMenuMessage={canEditContextMenuMessage}
-          canForwardContextMenuMessage={canForwardContextMenuMessage}
-          canPinContextMenuMessage={canPinContextMenuMessage}
-          isPinnedContextMenuMessage={isPinnedContextMenuMessage}
-          canDeleteContextMenuMessageForSelf={canDeleteContextMenuMessageForSelf}
-          canDeleteContextMenuMessageForEveryone={canDeleteContextMenuMessageForEveryone}
-          deleteForEveryoneLabel={deleteForEveryoneLabel}
-          deleteForEveryoneHint={deleteForEveryoneHint}
-          onReply={replyToMessage}
-          onEdit={editMessageAction}
-          onForward={forwardMessageAction}
-          onTogglePinned={togglePinnedMessageAction}
-          onCopy={copyMessageText}
-          onDeleteForSelf={deleteMessageForSelf}
-          onDeleteForEveryone={deleteMessageForEveryone}
-          onDeleteChatForSelf={deleteChatForSelf}
-        />
-      ) : null}
-
-      {incomingToasts.length > 0 ? (
-        <aside className="toast-stack" aria-live="polite">
-          {incomingToasts.map((toast) => (
-            <button
-              type="button"
-              key={toast.id}
-              className="incoming-toast"
-              onClick={() => openChat(toast.chatId)}
-            >
-              <div className="incoming-toast-title">
-                <strong>{toast.title}</strong>
-                <span>{toast.senderName}</span>
-              </div>
-              <p>{toast.preview}</p>
-            </button>
-          ))}
-        </aside>
-      ) : null}
+      <WorkspaceConversation
+        activeChatConversationProps={activeChatConversationProps}
+        activeConferenceTitle={activeConference?.title ?? null}
+        activeConferenceStatusLabel={activeConferenceStatusLabel}
+        activeListTab={activeListTab}
+        chatMembersPanelRef={chatMembersPanelRef}
+        chatMembersProps={chatMembersPanelProps}
+        chatMenuPanelRef={chatMenuPanelRef}
+        chatMenuProps={chatMenuPanelProps}
+        chatsLoading={chatsLoading}
+        conferenceConversation={conferenceConversation}
+        conferenceSurfaceRef={conferenceSurfaceRef}
+        conferenceSurfaceStyle={conferenceSurfaceStyle}
+        conferencesLoading={conferencesLoading}
+        contextMenuProps={messageContextMenuProps}
+        errorText={errorText}
+        incomingToasts={incomingToasts}
+        isConferenceMiniDragging={isConferenceMiniDragging}
+        isConferenceMinimized={isConferenceMinimized}
+        onConferenceMiniSurfaceClick={handleConferenceMiniSurfaceClick}
+        onOpenToastChat={openChat}
+        onStartConferenceMiniDrag={startConferenceMiniDrag}
+        showConference={Boolean(activeConference)}
+      />
     </main>
   );
 }
