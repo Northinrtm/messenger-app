@@ -14,10 +14,10 @@ jobs:
     timeout-minutes: 60
     environment: production
     env:
-      PROD_APP_DIR: ${{ vars.PROD_APP_DIR }}
-      PROD_SSH_HOST: ${{ vars.PROD_SSH_HOST }}
-      PROD_SSH_PORT: ${{ vars.PROD_SSH_PORT }}
-      PROD_SSH_USER: ${{ vars.PROD_SSH_USER }}
+      PROD_APP_DIR: ${{ vars.PROD_APP_DIR || secrets.PROD_APP_DIR || '/opt/messenger-app' }}
+      PROD_SSH_HOST: ${{ vars.PROD_SSH_HOST || secrets.PROD_SSH_HOST || '83.147.244.194' }}
+      PROD_SSH_PORT: ${{ vars.PROD_SSH_PORT || secrets.PROD_SSH_PORT || '22' }}
+      PROD_SSH_USER: ${{ vars.PROD_SSH_USER || secrets.PROD_SSH_USER || 'deploy' }}
     steps:
       - uses: actions/checkout@v4
 

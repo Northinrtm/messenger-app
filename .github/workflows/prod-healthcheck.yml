@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 5
     environment: production
     env:
-      PROD_PUBLIC_BASE_URL: ${{ vars.PROD_PUBLIC_BASE_URL }}
+      PROD_PUBLIC_BASE_URL: ${{ vars.PROD_PUBLIC_BASE_URL || secrets.PROD_PUBLIC_BASE_URL || 'https://pishi.ktsf.ru' }}
     steps:
       - name: Check homepage
         run: |

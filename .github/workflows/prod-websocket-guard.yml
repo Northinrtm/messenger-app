@@ -15,10 +15,10 @@ jobs:
     timeout-minutes: 5
     environment: production
     env:
-      PROD_APP_DIR: ${{ vars.PROD_APP_DIR }}
-      PROD_SSH_HOST: ${{ vars.PROD_SSH_HOST }}
-      PROD_SSH_PORT: ${{ vars.PROD_SSH_PORT }}
-      PROD_SSH_USER: ${{ vars.PROD_SSH_USER }}
+      PROD_APP_DIR: ${{ vars.PROD_APP_DIR || secrets.PROD_APP_DIR || '/opt/messenger-app' }}
+      PROD_SSH_HOST: ${{ vars.PROD_SSH_HOST || secrets.PROD_SSH_HOST || '83.147.244.194' }}
+      PROD_SSH_PORT: ${{ vars.PROD_SSH_PORT || secrets.PROD_SSH_PORT || '22' }}
+      PROD_SSH_USER: ${{ vars.PROD_SSH_USER || secrets.PROD_SSH_USER || 'deploy' }}
       WS_ALERT_WINDOW: 10m
       WS_ALERT_MAX_TOTAL: 180
       WS_ALERT_MAX_429: 30
@@ -29,16 +29,20 @@ jobs:
           PROD_SSH_KEY: ${{ secrets.PROD_SSH_KEY }}
           PROD_SSH_KNOWN_HOSTS: ${{ secrets.PROD_SSH_KNOWN_HOSTS }}
         run: |
-          test -n "$PROD_APP_DIR"
           test -n "$PROD_SSH_HOST"
-          test -n "$PROD_SSH_PORT"
           test -n "$PROD_SSH_USER"
           test -n "$PROD_SSH_KEY"
-          test -n "$PROD_SSH_KNOWN_HOSTS"
+          : "${PROD_SSH_PORT:=22}"
+          : "${PROD_APP_DIR:=/opt/messenger-app}"
           install -m 700 -d ~/.ssh
           printf '%s\n' "$PROD_SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          printf '%s\n' "$PROD_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          if [ -n "$PROD_SSH_KNOWN_HOSTS" ]; then
+            printf '%s\n' "$PROD_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            ssh-keyscan -p "${PROD_SSH_PORT}" -H "${PROD_SSH_HOST}" > ~/.ssh/known_hosts
+          fi
+          test -s ~/.ssh/known_hosts
 
       - name: Fetch websocket access logs
         run: |

@@ -34,11 +34,11 @@ Store these in GitHub `production` environment secrets:
 
 Store these in GitHub `production` environment variables:
 
-- `PROD_SSH_HOST` required
-- `PROD_SSH_USER` required
+- `PROD_SSH_HOST` optional; defaults to `83.147.244.194`
+- `PROD_SSH_USER` optional; defaults to `deploy`
 - `PROD_SSH_PORT` optional; defaults to `22`
 - `PROD_APP_DIR` optional; defaults to `/opt/messenger-app`
-- `PROD_PUBLIC_BASE_URL`
+- `PROD_PUBLIC_BASE_URL` optional; defaults to `https://pishi.ktsf.ru`
 
 Do not store `.env.prod` in GitHub. Keep app secrets on the server.
 
@@ -165,6 +165,6 @@ If that is not enough, reboot the server from the provider panel.
 3. Run `DEPLOY_PUBLIC_KEY='ssh-ed25519 ...' bash deploy/server-bootstrap.sh`.
 4. Verify key-based login as `deploy`.
 5. Run `bash deploy/disable-ssh-passwords.sh`.
-6. Configure GitHub `production` environment with required values `PROD_SSH_KEY`, `PROD_SSH_HOST`, and `PROD_SSH_USER`; add `PROD_SSH_KNOWN_HOSTS`, `PROD_SSH_PORT`, and `PROD_APP_DIR` only if you need to override the workflow defaults.
+6. Configure GitHub `production` environment with required value `PROD_SSH_KEY`; add `PROD_SSH_HOST`, `PROD_SSH_USER`, `PROD_SSH_KNOWN_HOSTS`, `PROD_SSH_PORT`, `PROD_APP_DIR`, and `PROD_PUBLIC_BASE_URL` only if you need to override the workflow defaults.
 7. Install backups with `bash deploy/install-backup-timer.sh`.
 8. Use the `Deploy Production` workflow for future deploys.
