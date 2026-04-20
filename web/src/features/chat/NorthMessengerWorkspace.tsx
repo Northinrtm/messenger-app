@@ -45,8 +45,7 @@ import {
   clearPinnedEncryptionIdentity,
   isEncryptionIdentityChangedError,
   isUnavailableEncryptedMessage,
-  primeEncryptedMessageRecipients,
-} from "../../lib/e2ee";
+} from "../../lib/e2eeShared";
 import type {
   AuthResponse,
   ChatMessage,
@@ -671,15 +670,21 @@ export function NorthMessengerWorkspace({
       return current;
     });
   });
+  const primeEncryptionRecipients = useEffectEvent(
+    async (participants: Participant[], forceRefresh = false) => {
+      const { primeEncryptedMessageRecipients } = await import("../../lib/e2ee");
+      return primeEncryptedMessageRecipients(session.token, participants, {
+        currentUserId: session.user.id,
+        session,
+        forceRefresh,
+      });
+    }
+  );
   const refreshEncryptionIdentityForChat = useEffectEvent(async (chat: ChatSummary) => {
     chat.members.forEach((participant) => {
       clearPinnedEncryptionIdentity(participant.id);
     });
-    await primeEncryptedMessageRecipients(session.token, chat.members, {
-      currentUserId: session.user.id,
-      session,
-      forceRefresh: true,
-    });
+    await primeEncryptionRecipients(chat.members, true);
   });
   const activeConferenceIsArchived = Boolean(activeConference?.endedAt);
   const activeConferenceCanJoin = Boolean(
@@ -845,10 +850,7 @@ export function NorthMessengerWorkspace({
     }
 
     let cancelled = false;
-    void primeEncryptedMessageRecipients(session.token, activeChat.members, {
-      currentUserId: session.user.id,
-      session,
-    })
+    void primeEncryptionRecipients(activeChat.members)
       .then(() => {
         if (cancelled) {
           return;
@@ -893,9 +895,8 @@ export function NorthMessengerWorkspace({
     activeChatMemberIdsKey,
     messagesLoading,
     onSessionChange,
+    primeEncryptionRecipients,
     session.sessionId,
-    session.token,
-    session.user.id,
   ]);
 
   useEffect(() => {

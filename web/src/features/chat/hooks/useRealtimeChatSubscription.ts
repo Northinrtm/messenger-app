@@ -1,6 +1,6 @@
 import { type InfiniteData, type QueryClient } from "@tanstack/react-query";
 import { useEffect, useEffectEvent, useRef } from "react";
-import { isUnavailableEncryptedMessage } from "../../../lib/e2ee";
+import { isUnavailableEncryptedMessage } from "../../../lib/e2eeShared";
 import { replaceSubscribedChatIds, subscribeToChats } from "../../../lib/realtime";
 import type {
   ChatMessage,

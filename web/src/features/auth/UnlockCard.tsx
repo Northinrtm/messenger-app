@@ -1,14 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { describeError, logout } from "../../lib/api";
-import {
-  clearUnlockedEncryptionState,
-  ensureEncryptionReady,
-  hasTrustedDeviceUnlock,
-  isTrustedDeviceUnlockSupported,
-  trustCurrentDeviceUnlock,
-  unlockWithTrustedDevice,
-} from "../../lib/e2ee";
+import { hasTrustedDeviceUnlock, isTrustedDeviceUnlockSupported } from "../../lib/e2eeTrustedDevice";
 import type { AuthResponse } from "../../lib/types";
 
 type Props = {
@@ -43,12 +36,14 @@ export function UnlockCard({
 
   const unlockMutation = useMutation({
     mutationFn: async () => {
+      const { ensureEncryptionReady } = await import("../../lib/e2ee");
       await ensureEncryptionReady(session, password);
       return session;
     },
     onSuccess: async (nextSession) => {
       if (canTrustThisDevice && !hasTrustedUnlock) {
         try {
+          const { trustCurrentDeviceUnlock } = await import("../../lib/e2ee");
           await trustCurrentDeviceUnlock(nextSession);
         } catch {
           // Keep password-based unlock as the fallback when device enrollment is skipped or canceled.
@@ -60,6 +55,7 @@ export function UnlockCard({
 
   const trustedUnlockMutation = useMutation({
     mutationFn: async () => {
+      const { unlockWithTrustedDevice } = await import("../../lib/e2ee");
       await unlockWithTrustedDevice(session);
       return session;
     },
@@ -73,6 +69,7 @@ export function UnlockCard({
 
   const trustThisDeviceMutation = useMutation({
     mutationFn: async () => {
+      const { ensureEncryptionReady, trustCurrentDeviceUnlock } = await import("../../lib/e2ee");
       await ensureEncryptionReady(session, password);
       await trustCurrentDeviceUnlock(session);
       return session;
@@ -84,7 +81,8 @@ export function UnlockCard({
 
   const signOutMutation = useMutation({
     mutationFn: () => logout(),
-    onSettled: () => {
+    onSettled: async () => {
+      const { clearUnlockedEncryptionState } = await import("../../lib/e2ee");
       clearUnlockedEncryptionState(session.user.id);
       onSignedOut();
     },

@@ -17,10 +17,6 @@ import {
   removeLocalPendingMessage,
   upsertLocalPendingMessage,
 } from "../../../lib/localPendingMessages";
-import {
-  sendEncryptedMessage,
-  updateEncryptedMessage,
-} from "../../../lib/e2ee";
 import type {
   AuthResponse,
   ChatMessage,
@@ -135,7 +131,8 @@ export function useMessageActions({
   const AUTO_RESEND_DELAY_MS = 1_500;
 
   const sendMessageMutation = useMutation({
-    mutationFn: (input: SendMessageInput) => {
+    mutationFn: async (input: SendMessageInput) => {
+      const { sendEncryptedMessage } = await import("../../../lib/e2ee");
       const targetChat = chats.find((chat) => chat.id === input.chatId) ?? activeChat;
       return sendEncryptedMessage(
         sessionToken,
@@ -393,7 +390,7 @@ export function useMessageActions({
   });
 
   const editMessageMutation = useMutation({
-    mutationFn: ({
+    mutationFn: async ({
       chatId,
       messageId,
       content,
@@ -403,8 +400,9 @@ export function useMessageActions({
       messageId: string;
       content: string;
       participants: Participant[];
-    }) =>
-      updateEncryptedMessage(
+    }) => {
+      const { updateEncryptedMessage } = await import("../../../lib/e2ee");
+      return updateEncryptedMessage(
         sessionToken,
         currentUser.id,
         chatId,
@@ -416,7 +414,8 @@ export function useMessageActions({
           isDirectChat: activeChat?.direct,
           session,
         }
-      ),
+      );
+    },
     onSuccess: (message, variables) => {
       queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
         getMessagesKey(variables.chatId),
@@ -455,6 +454,7 @@ export function useMessageActions({
       targetChatId?: string;
       targetUsername?: string;
     }) => {
+      const { sendEncryptedMessage } = await import("../../../lib/e2ee");
       let targetChat = targetChatId ? chats.find((chat) => chat.id === targetChatId) ?? null : null;
       if (!targetChat) {
         if (!targetUsername) {

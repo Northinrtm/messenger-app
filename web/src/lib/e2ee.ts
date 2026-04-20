@@ -16,18 +16,26 @@ import type {
   UserEncryptionDevice,
   UserEncryptionDeviceBundle,
 } from "./types";
+import {
+  ENCRYPTED_MESSAGE_UNAVAILABLE,
+  ENCRYPTION_IDENTITY_CHANGED_MESSAGE,
+  PINNED_DEVICE_BUNDLE_STORAGE_PREFIX,
+  clearPinnedEncryptionIdentity,
+  isEncryptionIdentityChangedError,
+  isUnavailableEncryptedMessage,
+} from "./e2eeShared";
+import {
+  TRUSTED_DEVICE_STORAGE_PREFIX,
+  hasTrustedDeviceUnlock,
+  isTrustedDeviceUnlockSupported,
+} from "./e2eeTrustedDevice";
 
 const MESSAGE_SCHEME_DEVICE = "X3DH-DEVICE-AES-GCM";
 const MESSAGE_SCHEME_GROUP_SENDER_KEY = "GROUP-SENDER-KEY-AES-GCM";
 const KDF_ITERATIONS = 250_000;
-const ENCRYPTED_MESSAGE_UNAVAILABLE = "[Encrypted message unavailable]";
-const ENCRYPTION_IDENTITY_CHANGED_MESSAGE =
-  "Encryption identity changed for this account in this browser. Re-establish trust before continuing";
 const UNLOCKED_IDENTITY_STORAGE_PREFIX = "north-messenger:unlocked-e2ee:";
 const AUTO_UNLOCKED_IDENTITY_STORAGE_PREFIX = "north-messenger:auto-unlocked-e2ee:";
 const REMEMBERED_UNLOCKED_IDENTITY_STORAGE_PREFIX = "north-messenger:remembered-e2ee:";
-const TRUSTED_DEVICE_STORAGE_PREFIX = "north-messenger:trusted-device-e2ee:";
-const PINNED_DEVICE_BUNDLE_STORAGE_PREFIX = "north-messenger:pinned-device-e2ee:";
 const ENCRYPTION_DEVICE_STORAGE_PREFIX = "north-messenger:device-e2ee:";
 const REMEMBERED_ENCRYPTION_DEVICE_STORAGE_PREFIX = "north-messenger:remembered-device-e2ee:";
 const ENCRYPTION_DEVICE_SESSION_STORAGE_PREFIX = "north-messenger:device-session-e2ee:";
@@ -68,6 +76,13 @@ const inFlightDevicePreparation = new Map<string, Promise<void>>();
 const completedDevicePreparation = new Map<string, number>();
 const inFlightMessageHydrationBatchByUserId = new Map<string, Promise<void>>();
 const inFlightMessageHydrationByUserId = new Map<string, Promise<void>>();
+
+export {
+  clearPinnedEncryptionIdentity,
+  isEncryptionIdentityChangedError,
+  isUnavailableEncryptedMessage,
+} from "./e2eeShared";
+export { hasTrustedDeviceUnlock, isTrustedDeviceUnlockSupported } from "./e2eeTrustedDevice";
 let decryptedMessageArchiveDbPromise: Promise<IDBDatabase> | null = null;
 
 function ensureE2eeTransportStorageSchema() {
@@ -352,51 +367,6 @@ export async function syncEncryptionDeviceState(session: AuthResponse) {
   }
 }
 
-export function isTrustedDeviceUnlockSupported() {
-  if (typeof window === "undefined") {
-    return false;
-  }
-
-  const credentialsContainer = navigator.credentials;
-  return Boolean(
-    window.isSecureContext &&
-      typeof PublicKeyCredential !== "undefined" &&
-      credentialsContainer &&
-      typeof credentialsContainer.create === "function" &&
-      typeof credentialsContainer.get === "function"
-  );
-}
-
-export function hasTrustedDeviceUnlock(userId: string) {
-  return readTrustedDeviceUnlockRecord(userId) !== null;
-}
-
-export function clearPinnedEncryptionIdentity(userId?: string) {
-  ensureE2eeTransportStorageSchema();
-
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  if (userId) {
-    clearPinnedDeviceBundleRecords(userId);
-    return;
-  }
-
-  const keysToRemove: string[] = [];
-  for (let index = 0; index < window.localStorage.length; index += 1) {
-    const currentKey = window.localStorage.key(index);
-    if (currentKey?.startsWith(PINNED_DEVICE_BUNDLE_STORAGE_PREFIX)) {
-      keysToRemove.push(currentKey);
-    }
-  }
-  keysToRemove.forEach((key) => window.localStorage.removeItem(key));
-}
-
-export function isUnavailableEncryptedMessage(content: string) {
-  return content === ENCRYPTED_MESSAGE_UNAVAILABLE;
-}
-
 export async function readLatestArchivedDecryptedChatMessage(userId: string, chatId: string) {
   const archivedMessage = await readLatestArchivedDecryptedMessageRecord(userId, chatId);
   if (!archivedMessage) {
@@ -411,14 +381,6 @@ export async function readLatestArchivedDecryptedChatMessage(userId: string, cha
     editedAt: archivedMessage.editedAt,
     replyTo: null,
   };
-}
-
-export function isEncryptionIdentityChangedError(error: unknown) {
-  return (
-    error instanceof ApiError &&
-    error.status === 409 &&
-    error.message === ENCRYPTION_IDENTITY_CHANGED_MESSAGE
-  );
 }
 
 function getRecoverableEncryptedEnvelopeErrorMode(error: unknown): "session" | "device" | null {

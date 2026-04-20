@@ -4,11 +4,6 @@ import { UnlockCard } from "../features/auth/UnlockCard";
 import { NorthMessengerWorkspace } from "../features/chat/NorthMessengerWorkspace";
 import { refreshSession } from "../lib/api";
 import {
-  hasUnlockedPrivateEncryptionKey,
-  lockUnlockedEncryptionState,
-  syncEncryptionDeviceState,
-} from "../lib/e2ee";
-import {
   getSessionRefreshDelay,
   isRefreshCompatible,
   isAccessTokenExpired,
@@ -64,6 +59,7 @@ export function App() {
   const [restoringSession, setRestoringSession] = useState(true);
   const [showRestoringSessionCard, setShowRestoringSessionCard] = useState(false);
   const [refreshingExpiredSession, setRefreshingExpiredSession] = useState(false);
+  const [sessionNeedsUnlock, setSessionNeedsUnlock] = useState(false);
   const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(() =>
     typeof window === "undefined" ? null : extractInviteCodeFromPath(window.location.pathname)
   );
@@ -144,15 +140,39 @@ export function App() {
     const nextUserId = session?.user.id ?? null;
 
     if (previousUserId && previousUserId !== nextUserId) {
-      lockUnlockedEncryptionState(previousUserId);
+      void import("../lib/e2ee").then(({ lockUnlockedEncryptionState }) => {
+        lockUnlockedEncryptionState(previousUserId);
+      });
     }
 
     if (!nextUserId && previousUserId) {
-      lockUnlockedEncryptionState(previousUserId);
+      void import("../lib/e2ee").then(({ lockUnlockedEncryptionState }) => {
+        lockUnlockedEncryptionState(previousUserId);
+      });
     }
 
     previousUserIdRef.current = nextUserId;
   }, [session?.user.id]);
+
+  useEffect(() => {
+    if (passwordResetToken || emailVerificationToken || restoringSession || !session) {
+      setSessionNeedsUnlock(false);
+      return;
+    }
+
+    let cancelled = false;
+    void import("../lib/e2ee").then(({ hasUnlockedPrivateEncryptionKey }) => {
+      if (cancelled) {
+        return;
+      }
+
+      setSessionNeedsUnlock(!hasUnlockedPrivateEncryptionKey(session.user.id));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [emailVerificationToken, passwordResetToken, restoringSession, session]);
 
   useEffect(() => {
     if (passwordResetToken || emailVerificationToken) {
@@ -188,7 +208,9 @@ export function App() {
       return;
     }
 
-    void syncEncryptionDeviceState(session);
+    void import("../lib/e2ee").then(({ syncEncryptionDeviceState }) => {
+      void syncEncryptionDeviceState(session);
+    });
   }, [emailVerificationToken, passwordResetToken, restoringSession, session]);
 
   useEffect(() => {
@@ -214,7 +236,9 @@ export function App() {
         void requestSessionRefresh(false);
       }
 
-      void syncEncryptionDeviceState(session);
+      void import("../lib/e2ee").then(({ syncEncryptionDeviceState }) => {
+        void syncEncryptionDeviceState(session);
+      });
     };
 
     window.addEventListener("focus", refreshOnReturn);
@@ -237,7 +261,6 @@ export function App() {
   const showSessionRestoreCard =
     (restoringSession && showRestoringSessionCard) ||
     Boolean(session && refreshingExpiredSession && isAccessTokenExpired(session));
-  const sessionNeedsUnlock = Boolean(session && !hasUnlockedPrivateEncryptionKey(session.user.id));
 
   return (
     <div className="app-shell">
@@ -289,9 +312,11 @@ export function App() {
               session={session}
               variant="overlay"
               onUnlocked={(nextSession) => {
+                setSessionNeedsUnlock(false);
                 setSession({ ...nextSession });
               }}
               onSignedOut={() => {
+                setSessionNeedsUnlock(false);
                 setSession(null);
               }}
             />

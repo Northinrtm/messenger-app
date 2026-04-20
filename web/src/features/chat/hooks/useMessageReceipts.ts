@@ -4,7 +4,7 @@ import {
   acknowledgeDelivered as acknowledgeDeliveredRequest,
   acknowledgeRead as acknowledgeReadRequest,
 } from "../../../lib/api";
-import { isUnavailableEncryptedMessage } from "../../../lib/e2ee";
+import { isUnavailableEncryptedMessage } from "../../../lib/e2eeShared";
 import type { ChatMessage, UserProfile } from "../../../lib/types";
 import { canAcknowledgeVisibleMessagesAsRead } from "./messageReadVisibility";
 

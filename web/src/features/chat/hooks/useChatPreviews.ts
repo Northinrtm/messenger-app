@@ -1,10 +1,7 @@
 import type { InfiniteData, QueryClient } from "@tanstack/react-query";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
-import {
-  isUnavailableEncryptedMessage,
-  readLatestArchivedDecryptedChatMessage,
-} from "../../../lib/e2ee";
 import { readLocalChatPreviews, writeLocalChatPreviews } from "../../../lib/chatPreviewCache";
+import { isUnavailableEncryptedMessage } from "../../../lib/e2eeShared";
 import type { ChatMessage, ChatSummary, MessageSnippet } from "../../../lib/types";
 import {
   applyChatMessageActivity,
@@ -165,6 +162,7 @@ export function useChatPreviews({
 
       previewHydrationInFlightRef.current.add(chatId);
       try {
+        const { readLatestArchivedDecryptedChatMessage } = await import("../../../lib/e2ee");
         const archivedMessage = await readLatestArchivedDecryptedChatMessage(userId, chatId);
         if (
           !archivedMessage ||

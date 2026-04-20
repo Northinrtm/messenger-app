@@ -10,7 +10,6 @@ import {
   requestPasswordReset,
   resendEmailVerification,
 } from "../../lib/api";
-import { ensureEncryptionReady } from "../../lib/e2ee";
 import type { AuthResponse } from "../../lib/types";
 
 type Props = {
@@ -65,6 +64,7 @@ export function AuthCard({
   const authMutation = useMutation<AuthResponse>({
     mutationFn: async () => {
       setInfoMessage(null);
+      const { ensureEncryptionReady } = await import("../../lib/e2ee");
       if (mode === "register") {
         const response = await register({ username, email, displayName, password });
         await ensureEncryptionReady(response, password);

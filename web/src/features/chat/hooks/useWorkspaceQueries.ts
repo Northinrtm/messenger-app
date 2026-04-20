@@ -14,10 +14,8 @@ import {
   searchUsers,
 } from "../../../lib/api";
 import {
-  getEncryptedMessagesSnapshot,
-  hydrateChatMessage,
   isUnavailableEncryptedMessage,
-} from "../../../lib/e2ee";
+} from "../../../lib/e2eeShared";
 import { recoverLocalPendingMessages, removeLocalPendingMessage, toRecoveredPendingChatMessage } from "../../../lib/localPendingMessages";
 import type { ApiChatMessage, ChatMessage, ChatSummary, UserProfile } from "../../../lib/types";
 import type { ConversationListTab, SidebarSheet } from "../chatUi";
@@ -308,6 +306,7 @@ export function useWorkspaceQueries({
   const messagesQuery = useInfiniteQuery({
     queryKey: buildMessagesQueryKey(userId, activeChat?.id),
     queryFn: async ({ pageParam }) => {
+      const { getEncryptedMessagesSnapshot } = await import("../../../lib/e2ee");
       const resolvedPageParam = {
         beforeServerOrder: pageParam?.beforeServerOrder ?? null,
         limit: pageParam?.limit ?? INITIAL_MESSAGE_PAGE_SIZE,
@@ -399,6 +398,7 @@ export function useWorkspaceQueries({
 
       messageHydrationWorkerRunningRef.current = true;
       try {
+        const { hydrateChatMessage } = await import("../../../lib/e2ee");
         while (messageHydrationQueueRef.current.size > 0) {
           const nextQueuedMessage = messageHydrationQueueRef.current.entries().next().value as
             | [string, { chatId: string; rawMessage: ApiChatMessage }]
