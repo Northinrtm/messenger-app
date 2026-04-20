@@ -26,16 +26,20 @@ jobs:
           PROD_SSH_KEY: ${{ secrets.PROD_SSH_KEY }}
           PROD_SSH_KNOWN_HOSTS: ${{ secrets.PROD_SSH_KNOWN_HOSTS }}
         run: |
-          test -n "$PROD_APP_DIR"
           test -n "$PROD_SSH_HOST"
-          test -n "$PROD_SSH_PORT"
           test -n "$PROD_SSH_USER"
           test -n "$PROD_SSH_KEY"
-          test -n "$PROD_SSH_KNOWN_HOSTS"
+          : "${PROD_SSH_PORT:=22}"
+          : "${PROD_APP_DIR:=/opt/messenger-app}"
           install -m 700 -d ~/.ssh
           printf '%s\n' "$PROD_SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          printf '%s\n' "$PROD_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          if [ -n "$PROD_SSH_KNOWN_HOSTS" ]; then
+            printf '%s\n' "$PROD_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            ssh-keyscan -p "${PROD_SSH_PORT}" -H "${PROD_SSH_HOST}" > ~/.ssh/known_hosts
+          fi
+          test -s ~/.ssh/known_hosts
 
       - name: Upload deploy script
         run: |
