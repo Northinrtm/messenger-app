@@ -3,12 +3,12 @@ import type {
   CSSProperties,
   MouseEventHandler,
   PointerEventHandler,
-  ReactNode,
   RefObject,
 } from "react";
 
 import type { IncomingToast } from "../hooks/useIncomingToasts";
 import type { ConversationListTab } from "../chatUi";
+import { ActiveConferenceConversation } from "./ActiveConferenceConversation";
 import { ActiveChatConversation } from "./ActiveChatConversation";
 import { ChatMembersPanel } from "./ChatMembersPanel.next";
 import { ChatMenuPanel } from "./ChatMenuPanel";
@@ -16,6 +16,7 @@ import { MessageContextMenu } from "./MessageContextMenu";
 
 type Props = {
   activeChatConversationProps: ComponentProps<typeof ActiveChatConversation> | null;
+  activeConferenceConversationProps: ComponentProps<typeof ActiveConferenceConversation> | null;
   activeConferenceTitle: string | null;
   activeConferenceStatusLabel: string | null;
   activeListTab: ConversationListTab;
@@ -24,7 +25,6 @@ type Props = {
   chatMenuPanelRef: RefObject<HTMLDivElement | null>;
   chatMenuProps: ComponentProps<typeof ChatMenuPanel> | null;
   chatsLoading: boolean;
-  conferenceConversation: ReactNode;
   conferenceSurfaceRef: RefObject<HTMLDivElement | null>;
   conferenceSurfaceStyle?: CSSProperties;
   conferencesLoading: boolean;
@@ -41,6 +41,7 @@ type Props = {
 
 export function WorkspaceConversation({
   activeChatConversationProps,
+  activeConferenceConversationProps,
   activeConferenceTitle,
   activeConferenceStatusLabel,
   activeListTab,
@@ -49,7 +50,6 @@ export function WorkspaceConversation({
   chatMenuPanelRef,
   chatMenuProps,
   chatsLoading,
-  conferenceConversation,
   conferenceSurfaceRef,
   conferenceSurfaceStyle,
   conferencesLoading,
@@ -92,7 +92,9 @@ export function WorkspaceConversation({
                 </div>
               </div>
             ) : null}
-            {conferenceConversation}
+            {activeConferenceConversationProps ? (
+              <ActiveConferenceConversation {...activeConferenceConversationProps} />
+            ) : null}
           </div>
         ) : null}
 

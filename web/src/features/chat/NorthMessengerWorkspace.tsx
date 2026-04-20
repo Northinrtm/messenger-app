@@ -120,7 +120,6 @@ import {
   toMessageSnippet,
 } from "./messagePresentation";
 import { type ConferenceRecordingState } from "./ManagedConferenceStage";
-import { ActiveConferenceConversation } from "./components/ActiveConferenceConversation";
 import { ActiveChatConversation } from "./components/ActiveChatConversation";
 import { ChatMembersPanel } from "./components/ChatMembersPanel.next";
 import { ChatMenuPanel } from "./components/ChatMenuPanel";
@@ -1994,48 +1993,6 @@ export function NorthMessengerWorkspace({
       visibleConferences,
     ]
   );
-  const conferenceConversation = activeConference ? (
-    <ActiveConferenceConversation
-      conference={activeConference}
-      jitsiBaseUrl={JITSI_BASE_URL}
-      profileDisplayName={profile.displayName}
-      organizerLabel={activeConferenceOrganizerLabel}
-      roleLabel={activeConferenceRoleLabel}
-      statusLabel={activeConferenceStatusLabel}
-      stageHint={activeConferenceStageHint}
-      canJoin={activeConferenceCanJoin}
-      canEditSchedule={activeConferenceCanEditSchedule}
-      canCancelSchedule={activeConferenceCanCancelSchedule}
-      canManageParticipants={activeConferenceCanManageParticipants}
-      canShareInviteLink={activeConferenceCanShareInviteLink}
-      conferenceActionPending={
-        updateConferenceMutation.isPending ||
-        cancelConferenceMutation.isPending ||
-        endConferenceMutation.isPending
-      }
-      localRecordingActive={activeConferenceLocalRecordingActive}
-      shareUrl={activeConferenceShareUrl}
-      shareUrlPending={createConferenceInviteLinkMutation.isPending}
-      isInfoOpen={isConferenceInfoOpen}
-      infoButtonRef={conferenceInfoButtonRef}
-      infoPanelRef={conferenceInfoPanelRef}
-      onBack={() => setMobilePane("sidebar")}
-      onEditConference={openConferenceEditorSheet}
-      onCancelConference={handleCancelScheduledConference}
-      onConferenceEndForAll={() => handleEndConference({ skipConfirm: true })}
-      onConferencePresenceTouch={handleConferencePresenceTouch}
-      onConferencePresenceLeave={handleConferencePresenceLeave}
-      onGenerateShareUrl={handleGenerateConferenceInviteLink}
-      onToggleInfo={() => setIsConferenceInfoOpen((current) => !current)}
-      onOpenMembers={openConferenceMembersSheet}
-      onCopyShareUrl={(value) => void navigator.clipboard.writeText(value)}
-      onRecordingStateChange={setConferenceRecordingState}
-      exitRequestToken={conferenceExitRequestToken}
-      onConferenceExit={handleConferenceStageExit}
-      formatConferenceSchedule={formatConferenceSchedule}
-      formatMemberCount={formatMemberCount}
-    />
-  ) : null;
   const isConferenceMinimized = activeConference !== null && conferenceViewportMode === "mini";
   const conferenceSurfaceStyle: CSSProperties | undefined =
     isConferenceMinimized && conferenceMiniPosition
@@ -2202,6 +2159,48 @@ export function NorthMessengerWorkspace({
     onClose: () => setIsMenuOpen(false),
     onAction: handleMenuAction,
   };
+  const activeConferenceConversationProps =
+    activeConference
+      ? {
+          conference: activeConference,
+          jitsiBaseUrl: JITSI_BASE_URL,
+          profileDisplayName: profile.displayName,
+          organizerLabel: activeConferenceOrganizerLabel,
+          roleLabel: activeConferenceRoleLabel,
+          statusLabel: activeConferenceStatusLabel,
+          stageHint: activeConferenceStageHint,
+          canJoin: activeConferenceCanJoin,
+          canEditSchedule: activeConferenceCanEditSchedule,
+          canCancelSchedule: activeConferenceCanCancelSchedule,
+          canManageParticipants: activeConferenceCanManageParticipants,
+          canShareInviteLink: activeConferenceCanShareInviteLink,
+          conferenceActionPending:
+            updateConferenceMutation.isPending ||
+            cancelConferenceMutation.isPending ||
+            endConferenceMutation.isPending,
+          localRecordingActive: activeConferenceLocalRecordingActive,
+          shareUrl: activeConferenceShareUrl,
+          shareUrlPending: createConferenceInviteLinkMutation.isPending,
+          isInfoOpen: isConferenceInfoOpen,
+          infoButtonRef: conferenceInfoButtonRef,
+          infoPanelRef: conferenceInfoPanelRef,
+          onBack: () => setMobilePane("sidebar"),
+          onEditConference: openConferenceEditorSheet,
+          onCancelConference: handleCancelScheduledConference,
+          onConferenceEndForAll: () => handleEndConference({ skipConfirm: true }),
+          onConferencePresenceTouch: handleConferencePresenceTouch,
+          onConferencePresenceLeave: handleConferencePresenceLeave,
+          onGenerateShareUrl: handleGenerateConferenceInviteLink,
+          onToggleInfo: () => setIsConferenceInfoOpen((current) => !current),
+          onOpenMembers: openConferenceMembersSheet,
+          onCopyShareUrl: (value: string) => void navigator.clipboard.writeText(value),
+          onRecordingStateChange: setConferenceRecordingState,
+          exitRequestToken: conferenceExitRequestToken,
+          onConferenceExit: handleConferenceStageExit,
+          formatConferenceSchedule,
+          formatMemberCount,
+        }
+      : null;
   const activeChatConversationProps: ComponentProps<typeof ActiveChatConversation> | null =
     (!activeConference || isConferenceMinimized) && activeChat
       ? {
@@ -2417,6 +2416,7 @@ export function NorthMessengerWorkspace({
 
       <WorkspaceConversation
         activeChatConversationProps={activeChatConversationProps}
+        activeConferenceConversationProps={activeConferenceConversationProps}
         activeConferenceTitle={activeConference?.title ?? null}
         activeConferenceStatusLabel={activeConferenceStatusLabel}
         activeListTab={activeListTab}
@@ -2425,7 +2425,6 @@ export function NorthMessengerWorkspace({
         chatMenuPanelRef={chatMenuPanelRef}
         chatMenuProps={chatMenuPanelProps}
         chatsLoading={chatsLoading}
-        conferenceConversation={conferenceConversation}
         conferenceSurfaceRef={conferenceSurfaceRef}
         conferenceSurfaceStyle={conferenceSurfaceStyle}
         conferencesLoading={conferencesLoading}
