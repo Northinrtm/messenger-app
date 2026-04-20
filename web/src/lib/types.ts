@@ -225,3 +225,10 @@ export type UserEncryptionDeviceBundle = {
   registeredAt: string;
   lastSeenAt: string;
 };
+
+export type UserEncryptionRecoverySnapshot = {
+  snapshotPayloadJson: string;
+  wrappedIdentityRecordJson: string;
+  createdAt: string;
+  updatedAt: string;
+};

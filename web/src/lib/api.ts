@@ -10,6 +10,7 @@ import type {
   Participant,
   UserEncryptionDevice,
   UserEncryptionDeviceBundle,
+  UserEncryptionRecoverySnapshot,
   VideoConference,
   UserProfile,
   UserSessionInfo,
@@ -680,6 +681,26 @@ export function resolveEncryptionDeviceBundles(
       deviceIds: options?.deviceIds,
       requesterDeviceId: options?.requesterDeviceId,
     },
+  });
+}
+
+export function getOwnEncryptionRecoverySnapshot(token: string) {
+  return request<UserEncryptionRecoverySnapshot>("/api/e2ee/recovery-snapshot/me", {
+    token,
+  });
+}
+
+export function upsertOwnEncryptionRecoverySnapshot(
+  token: string,
+  body: {
+    snapshotPayloadJson: string;
+    wrappedIdentityRecordJson: string;
+  }
+) {
+  return request<UserEncryptionRecoverySnapshot>("/api/e2ee/recovery-snapshot/me", {
+    method: "PUT",
+    token,
+    body,
   });
 }
 

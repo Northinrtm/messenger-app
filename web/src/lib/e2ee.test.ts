@@ -16,9 +16,11 @@ vi.mock("./api", () => {
   return {
     ApiError: MockApiError,
     getMessagesRaw: vi.fn(),
+    getOwnEncryptionRecoverySnapshot: vi.fn(),
     listOwnEncryptionDevices: vi.fn(),
     resolveEncryptionDeviceBundles: vi.fn(),
     updateMessage: vi.fn(),
+    upsertOwnEncryptionRecoverySnapshot: vi.fn(),
     upsertOwnEncryptionDevice: vi.fn(),
   };
 });
@@ -30,14 +32,17 @@ vi.mock("./realtime", () => ({
 import {
   ApiError,
   getMessagesRaw,
+  getOwnEncryptionRecoverySnapshot,
   listOwnEncryptionDevices,
   resolveEncryptionDeviceBundles,
+  upsertOwnEncryptionRecoverySnapshot,
   upsertOwnEncryptionDevice,
 } from "./api";
 import { sendMessageRaw } from "./realtime";
 import {
   clearPinnedEncryptionIdentity,
   clearUnlockedEncryptionState,
+  ensureEncryptionReady,
   getEncryptedMessages,
   getEncryptedMessagesSnapshot,
   hasUnlockedPrivateEncryptionKey,
@@ -1879,6 +1884,114 @@ describe("e2ee hardening", () => {
 
     await expect(hydrateChatMessage(incomingMessage, USER_ID)).resolves.toMatchObject({
       content: "archived fallback",
+    });
+  });
+
+  it("restores archived history from the remote recovery snapshot on a fresh unlock", async () => {
+    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "deriveKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "encrypt").mockImplementation(
+      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
+    );
+    vi.spyOn(window.crypto.subtle, "decrypt").mockImplementation(
+      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
+    );
+    window.sessionStorage.setItem(DEVICE_MATERIAL_KEY, JSON.stringify(readyLocalDeviceMaterial));
+    vi.mocked(listOwnEncryptionDevices).mockResolvedValue([currentRegisteredDevice]);
+
+    const archivedRecord = {
+      messageId: "remote-recovery-message-id",
+      chatId: "chat-id",
+      createdAt: "2026-04-09T10:31:00.000Z",
+      editedAt: null,
+      salt: utf8ToBase64("archive-salt"),
+      iv: utf8ToBase64("archive-iv"),
+      ciphertext: utf8ToBase64(
+        JSON.stringify({
+          content: "restored from remote snapshot",
+        })
+      ),
+      archivedAt: "2026-04-09T10:31:05.000Z",
+    };
+
+    const remoteSnapshot = {
+      snapshotPayloadJson: JSON.stringify({
+        salt: utf8ToBase64("snapshot-salt"),
+        iv: utf8ToBase64("snapshot-iv"),
+        ciphertext: utf8ToBase64(
+          JSON.stringify({
+            version: 1,
+            archivedMessages: [archivedRecord],
+          })
+        ),
+        createdAt: "2026-04-09T10:31:10.000Z",
+      }),
+      wrappedIdentityRecordJson: JSON.stringify({
+        salt: utf8ToBase64("identity-salt"),
+        iv: utf8ToBase64("identity-iv"),
+        ciphertext: utf8ToBase64(JSON.stringify(identity)),
+        createdAt: "2026-04-09T10:31:11.000Z",
+      }),
+      createdAt: "2026-04-09T10:31:12.000Z",
+      updatedAt: "2026-04-09T10:31:13.000Z",
+    };
+
+    vi.mocked(getOwnEncryptionRecoverySnapshot).mockResolvedValue(remoteSnapshot);
+    vi.mocked(upsertOwnEncryptionRecoverySnapshot).mockResolvedValue(remoteSnapshot);
+
+    await expect(ensureEncryptionReady(currentSession, "password")).resolves.toBeUndefined();
+
+    expect(window.localStorage.getItem(REMEMBERED_KEY)).not.toBeNull();
+    expect(vi.mocked(getOwnEncryptionRecoverySnapshot)).toHaveBeenCalledWith("token");
+    expect(vi.mocked(upsertOwnEncryptionRecoverySnapshot)).toHaveBeenCalledWith(
+      "token",
+      expect.objectContaining({
+        wrappedIdentityRecordJson: remoteSnapshot.wrappedIdentityRecordJson,
+      })
+    );
+
+    window.sessionStorage.removeItem(DEVICE_MATERIAL_KEY);
+    window.sessionStorage.removeItem(DEVICE_SESSION_KEY);
+    window.localStorage.removeItem(`north-messenger:remembered-device-e2ee:${USER_ID}`);
+    window.localStorage.removeItem(`north-messenger:remembered-device-session-e2ee:${USER_ID}`);
+
+    await expect(
+      hydrateChatMessage(
+        {
+          id: "remote-recovery-message-id",
+          chatId: "chat-id",
+          sender: participant,
+          createdAt: "2026-04-09T10:31:00.000Z",
+          editedAt: null,
+          status: null,
+          clientMessageId: null,
+          replyTo: null,
+          reactions: [],
+          encryptedPayload: {
+            scheme: "X3DH-DEVICE-AES-GCM",
+            encryptedKeysByRecipientId: {
+              "self-device": JSON.stringify({
+                aadVersion: 1,
+                senderUserId: REMOTE_USER_ID,
+                senderDeviceId: "device-id",
+                recipientDeviceId: "self-device",
+                senderIdentityKey: deviceBundle.identityKey,
+                senderIdentitySignatureKey: deviceBundle.identitySignatureKey,
+                initiatorEphemeralPublicKey: '{"kty":"OKP","crv":"X25519","x":"remote-ephemeral"}',
+                ratchetPublicKey: '{"kty":"OKP","crv":"X25519","x":"remote-ratchet"}',
+                recipientSignedPrekeyId: 9,
+                recipientOneTimePrekeyId: 21,
+                messageCounter: 0,
+                ciphertext: utf8ToBase64("restored fallback"),
+                iv: utf8ToBase64("123456789012"),
+              }),
+            },
+          },
+        },
+        USER_ID
+      )
+    ).resolves.toMatchObject({
+      content: "restored from remote snapshot",
     });
   });
 

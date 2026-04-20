@@ -4,7 +4,10 @@ import com.north.messenger.api.dto.ResolveEncryptionDeviceBundlesRequest;
 import com.north.messenger.api.dto.UserEncryptionDeviceBundleResponse;
 import com.north.messenger.api.dto.UserEncryptionDeviceRequest;
 import com.north.messenger.api.dto.UserEncryptionDeviceResponse;
+import com.north.messenger.api.dto.UserEncryptionRecoverySnapshotRequest;
+import com.north.messenger.api.dto.UserEncryptionRecoverySnapshotResponse;
 import com.north.messenger.application.e2ee.UserEncryptionDeviceService;
+import com.north.messenger.application.e2ee.UserEncryptionRecoverySnapshotService;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.HttpHeaders;
@@ -22,9 +25,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class UserEncryptionController {
 
     private final UserEncryptionDeviceService userEncryptionDeviceService;
+    private final UserEncryptionRecoverySnapshotService userEncryptionRecoverySnapshotService;
 
-    public UserEncryptionController(UserEncryptionDeviceService userEncryptionDeviceService) {
+    public UserEncryptionController(
+            UserEncryptionDeviceService userEncryptionDeviceService,
+            UserEncryptionRecoverySnapshotService userEncryptionRecoverySnapshotService
+    ) {
         this.userEncryptionDeviceService = userEncryptionDeviceService;
+        this.userEncryptionRecoverySnapshotService = userEncryptionRecoverySnapshotService;
     }
 
     @GetMapping("/devices/me")
@@ -52,6 +60,24 @@ public class UserEncryptionController {
             @Valid @RequestBody ResolveEncryptionDeviceBundlesRequest request
     ) {
         return userEncryptionDeviceService.resolveDeviceBundles(
+                authentication.getName(),
+                extractBearerToken(authorization),
+                request
+        );
+    }
+
+    @GetMapping("/recovery-snapshot/me")
+    public UserEncryptionRecoverySnapshotResponse getOwnRecoverySnapshot(Authentication authentication) {
+        return userEncryptionRecoverySnapshotService.getOwnRecoverySnapshot(authentication.getName());
+    }
+
+    @PutMapping("/recovery-snapshot/me")
+    public UserEncryptionRecoverySnapshotResponse upsertOwnRecoverySnapshot(
+            Authentication authentication,
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+            @Valid @RequestBody UserEncryptionRecoverySnapshotRequest request
+    ) {
+        return userEncryptionRecoverySnapshotService.upsertOwnRecoverySnapshot(
                 authentication.getName(),
                 extractBearerToken(authorization),
                 request

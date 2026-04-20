@@ -1,8 +1,10 @@
 import {
   ApiError,
   getMessagesRaw,
+  getOwnEncryptionRecoverySnapshot,
   listOwnEncryptionDevices,
   resolveEncryptionDeviceBundles,
+  upsertOwnEncryptionRecoverySnapshot,
   upsertOwnEncryptionDevice,
   updateMessage,
 } from "./api";
@@ -15,6 +17,7 @@ import type {
   Participant,
   UserEncryptionDevice,
   UserEncryptionDeviceBundle,
+  UserEncryptionRecoverySnapshot,
 } from "./types";
 import {
   ENCRYPTED_MESSAGE_UNAVAILABLE,
@@ -65,6 +68,8 @@ const GROUP_SHARED_ENVELOPE_AAD_VERSION = 1;
 const GROUP_SENDER_DISTRIBUTION_AAD_VERSION = 1;
 const DEVICE_REGISTRATION_CACHE_TTL_MS = 30_000;
 const DEVICE_PREPARATION_CACHE_TTL_MS = 30_000;
+const RECOVERY_SNAPSHOT_SYNC_DEBOUNCE_MS = 1_000;
+const RECOVERY_SNAPSHOT_PAYLOAD_VERSION = 1;
 const SIGNED_PREKEY_SIGNATURE_CONTEXT = "north-signed-prekey-v1";
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -76,6 +81,10 @@ const inFlightDevicePreparation = new Map<string, Promise<void>>();
 const completedDevicePreparation = new Map<string, number>();
 const inFlightMessageHydrationBatchByUserId = new Map<string, Promise<void>>();
 const inFlightMessageHydrationByUserId = new Map<string, Promise<void>>();
+const recoverySyncSessionByUserId = new Map<string, AuthResponse>();
+const scheduledRecoverySnapshotSyncByUserId = new Map<string, number>();
+const inFlightRecoverySnapshotSyncByUserId = new Map<string, Promise<void>>();
+const queuedRecoverySnapshotSyncByUserId = new Set<string>();
 
 export {
   clearPinnedEncryptionIdentity,
@@ -274,6 +283,18 @@ type ArchivedDecryptedMessagePayload = {
   content: string;
 };
 
+type EncryptedRecoverySnapshotPayloadRecord = {
+  salt: string;
+  iv: string;
+  ciphertext: string;
+  createdAt: string;
+};
+
+type RecoverySnapshotPayload = {
+  version: number;
+  archivedMessages: RememberedDecryptedMessageArchiveRecord[];
+};
+
 type DirectDeviceEnvelope = {
   aadVersion: number;
   senderUserId: string;
@@ -353,17 +374,130 @@ export function hasUnlockedPrivateEncryptionKey(userId: string) {
   return readUnlockedIdentity(userId) !== null;
 }
 
+function rememberRecoverySyncSession(session: AuthResponse) {
+  recoverySyncSessionByUserId.set(session.user.id, session);
+}
+
+function clearRecoverySnapshotSyncState(userId?: string) {
+  if (typeof window !== "undefined") {
+    if (userId) {
+      const timerId = scheduledRecoverySnapshotSyncByUserId.get(userId);
+      if (timerId !== undefined) {
+        window.clearTimeout(timerId);
+      }
+    } else {
+      scheduledRecoverySnapshotSyncByUserId.forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+    }
+  }
+
+  if (userId) {
+    recoverySyncSessionByUserId.delete(userId);
+    inFlightRecoverySnapshotSyncByUserId.delete(userId);
+    scheduledRecoverySnapshotSyncByUserId.delete(userId);
+    queuedRecoverySnapshotSyncByUserId.delete(userId);
+    return;
+  }
+
+  recoverySyncSessionByUserId.clear();
+  inFlightRecoverySnapshotSyncByUserId.clear();
+  scheduledRecoverySnapshotSyncByUserId.clear();
+  queuedRecoverySnapshotSyncByUserId.clear();
+}
+
+function scheduleEncryptionRecoverySnapshotSync(userId: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (!hasUnlockedPrivateEncryptionKey(userId) || !recoverySyncSessionByUserId.has(userId)) {
+    return;
+  }
+
+  const existingTimer = scheduledRecoverySnapshotSyncByUserId.get(userId);
+  if (existingTimer !== undefined) {
+    window.clearTimeout(existingTimer);
+  }
+
+  const timerId = window.setTimeout(() => {
+    scheduledRecoverySnapshotSyncByUserId.delete(userId);
+    const session = recoverySyncSessionByUserId.get(userId);
+    if (!session) {
+      return;
+    }
+    void syncEncryptionRecoverySnapshot(session);
+  }, RECOVERY_SNAPSHOT_SYNC_DEBOUNCE_MS);
+
+  scheduledRecoverySnapshotSyncByUserId.set(userId, timerId);
+}
+
+async function syncEncryptionRecoverySnapshot(session: AuthResponse) {
+  rememberRecoverySyncSession(session);
+
+  const userId = session.user.id;
+  const inFlightSync = inFlightRecoverySnapshotSyncByUserId.get(userId);
+  if (inFlightSync) {
+    queuedRecoverySnapshotSyncByUserId.add(userId);
+    await inFlightSync;
+    return;
+  }
+
+  const syncPromise = syncEncryptionRecoverySnapshotInternal(session);
+  inFlightRecoverySnapshotSyncByUserId.set(userId, syncPromise);
+  try {
+    await syncPromise;
+  } finally {
+    if (inFlightRecoverySnapshotSyncByUserId.get(userId) === syncPromise) {
+      inFlightRecoverySnapshotSyncByUserId.delete(userId);
+    }
+    if (queuedRecoverySnapshotSyncByUserId.delete(userId)) {
+      const latestSession = recoverySyncSessionByUserId.get(userId);
+      if (latestSession) {
+        void syncEncryptionRecoverySnapshot(latestSession);
+      }
+    }
+  }
+}
+
+async function syncEncryptionRecoverySnapshotInternal(session: AuthResponse) {
+  const userId = session.user.id;
+  if (typeof window === "undefined" || !hasUnlockedPrivateEncryptionKey(userId)) {
+    return;
+  }
+
+  const identity = readUnlockedIdentity(userId);
+  const rememberedIdentityRecord = readRememberedUnlockedIdentityRecord(userId);
+  if (!identity || !rememberedIdentityRecord) {
+    return;
+  }
+
+  const archivedMessages = await readAllStoredArchivedDecryptedMessageRecords(userId);
+  const snapshotPayloadRecord = await encryptRecoverySnapshotPayload(
+    identity.privateKey,
+    archivedMessages
+  );
+  await upsertOwnEncryptionRecoverySnapshot(session.token, {
+    snapshotPayloadJson: JSON.stringify(snapshotPayloadRecord),
+    wrappedIdentityRecordJson: JSON.stringify(rememberedIdentityRecord),
+  });
+}
+
 export async function syncEncryptionDeviceState(session: AuthResponse) {
   ensureE2eeTransportStorageSchema();
+  rememberRecoverySyncSession(session);
 
   if (!hasUnlockedPrivateEncryptionKey(session.user.id)) {
     return;
   }
 
   try {
-    await ensureRegisteredEncryptionDevice(session);
+    await Promise.all([
+      ensureRegisteredEncryptionDevice(session),
+      syncEncryptionRecoverySnapshot(session),
+    ]);
   } catch {
-    // Device sync is best-effort. Messaging should keep working on the last known good state.
+    // Device and recovery sync are best-effort. Messaging should keep working on the last known good state.
   }
 }
 
@@ -470,6 +604,7 @@ export function clearUnlockedEncryptionState(userId?: string) {
     removeGroupSenderChains(userId);
     clearCompletedEncryptionDeviceRegistration(userId);
     clearCompletedDevicePreparation(userId);
+    clearRecoverySnapshotSyncState(userId);
     return;
   }
 
@@ -488,6 +623,7 @@ export function clearUnlockedEncryptionState(userId?: string) {
   importedDevicePublicKeyCache.clear();
   completedEncryptionDeviceRegistration.clear();
   completedDevicePreparation.clear();
+  clearRecoverySnapshotSyncState();
   clearInFlightMessageHydration();
 }
 
@@ -504,6 +640,7 @@ export function lockUnlockedEncryptionState(userId?: string) {
     removeGroupSenderChains(userId);
     clearCompletedEncryptionDeviceRegistration(userId);
     clearCompletedDevicePreparation(userId);
+    clearRecoverySnapshotSyncState(userId);
     return;
   }
 
@@ -519,15 +656,22 @@ export function lockUnlockedEncryptionState(userId?: string) {
   unlockedIdentityByUserId.clear();
   completedEncryptionDeviceRegistration.clear();
   completedDevicePreparation.clear();
+  clearRecoverySnapshotSyncState();
   clearInFlightMessageHydration();
 }
 
 export async function ensureEncryptionReady(session: AuthResponse, password: string) {
   ensureE2eeTransportStorageSchema();
+  rememberRecoverySyncSession(session);
 
   const unlockedIdentity = readUnlockedIdentity(session.user.id);
   if (unlockedIdentity) {
     await ensureRegisteredEncryptionDevice(session);
+    try {
+      await syncEncryptionRecoverySnapshot(session);
+    } catch {
+      // Recovery snapshot upload is best-effort after a successful local unlock.
+    }
     return;
   }
 
@@ -535,6 +679,22 @@ export async function ensureEncryptionReady(session: AuthResponse, password: str
   if (rememberedIdentity) {
     writeUnlockedIdentity(session.user.id, rememberedIdentity);
     await ensureRegisteredEncryptionDevice(session);
+    try {
+      await syncEncryptionRecoverySnapshot(session);
+    } catch {
+      // Recovery snapshot upload is best-effort after a successful local unlock.
+    }
+    return;
+  }
+
+  const restoredIdentity = await restoreEncryptionRecoverySnapshot(session, password);
+  if (restoredIdentity) {
+    await ensureRegisteredEncryptionDevice(session);
+    try {
+      await syncEncryptionRecoverySnapshot(session);
+    } catch {
+      // Recovery snapshot upload is best-effort after a successful local unlock.
+    }
     return;
   }
 
@@ -542,6 +702,11 @@ export async function ensureEncryptionReady(session: AuthResponse, password: str
   writeUnlockedIdentity(session.user.id, localVaultIdentity);
   await rememberUnlockedIdentity(session.user.id, localVaultIdentity, password);
   await ensureRegisteredEncryptionDevice(session);
+  try {
+    await syncEncryptionRecoverySnapshot(session);
+  } catch {
+    // Recovery snapshot upload is best-effort after a successful local unlock.
+  }
 }
 
 export async function resecureLocalEncryptionStateForPasswordChange(
@@ -567,6 +732,7 @@ export async function resecureLocalEncryptionStateForPasswordChange(
 
 export async function trustCurrentDeviceUnlock(session: AuthResponse) {
   ensureE2eeTransportStorageSchema();
+  rememberRecoverySyncSession(session);
 
   if (!isTrustedDeviceUnlockSupported()) {
     throw new ApiError("This browser does not support secure device unlock for encrypted chats yet", 400);
@@ -604,6 +770,7 @@ export async function trustCurrentDeviceUnlock(session: AuthResponse) {
 
 export async function unlockWithTrustedDevice(session: AuthResponse) {
   ensureE2eeTransportStorageSchema();
+  rememberRecoverySyncSession(session);
 
   if (!isTrustedDeviceUnlockSupported()) {
     throw new ApiError("This browser does not support secure device unlock for encrypted chats yet", 400);
@@ -644,6 +811,11 @@ export async function unlockWithTrustedDevice(session: AuthResponse) {
     };
     writeUnlockedIdentity(session.user.id, identity);
     await ensureRegisteredEncryptionDevice(session);
+    try {
+      await syncEncryptionRecoverySnapshot(session);
+    } catch {
+      // Recovery snapshot upload is best-effort after a successful local unlock.
+    }
   } catch (error) {
     if (error instanceof ApiError) {
       throw error;
@@ -3010,10 +3182,31 @@ async function createGroupSharedEnvelope(
   };
 }
 
-async function readRememberedUnlockedIdentity(
-  userId: string,
-  password: string
-): Promise<LocalIdentity | null> {
+function normalizeRememberedUnlockedIdentityRecord(
+  value: unknown
+): RememberedUnlockedIdentityRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const candidate = value as Partial<RememberedUnlockedIdentityRecord>;
+  if (
+    typeof candidate.salt !== "string" ||
+    typeof candidate.iv !== "string" ||
+    typeof candidate.ciphertext !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    salt: candidate.salt,
+    iv: candidate.iv,
+    ciphertext: candidate.ciphertext,
+    createdAt: typeof candidate.createdAt === "string" ? candidate.createdAt : "",
+  };
+}
+
+function readRememberedUnlockedIdentityRecord(userId: string): RememberedUnlockedIdentityRecord | null {
   if (typeof window === "undefined") {
     return null;
   }
@@ -3024,28 +3217,47 @@ async function readRememberedUnlockedIdentity(
       return null;
     }
 
-    const parsedRecord = JSON.parse(rawValue) as Partial<RememberedUnlockedIdentityRecord>;
-    if (
-      typeof parsedRecord.salt !== "string" ||
-      typeof parsedRecord.iv !== "string" ||
-      typeof parsedRecord.ciphertext !== "string"
-    ) {
+    const parsedRecord = normalizeRememberedUnlockedIdentityRecord(JSON.parse(rawValue) as unknown);
+    if (!parsedRecord) {
       removeUnlockedIdentityFromPersistentStorage(userId);
       return null;
     }
 
-    const wrappingKey = await deriveWrappingKey(
-      password,
-      base64ToBytes(parsedRecord.salt),
-      KDF_ITERATIONS
-    );
+    return parsedRecord;
+  } catch {
+    removeUnlockedIdentityFromPersistentStorage(userId);
+    return null;
+  }
+}
+
+function writeRememberedUnlockedIdentityRecord(
+  userId: string,
+  record: RememberedUnlockedIdentityRecord
+) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(getRememberedUnlockedIdentityStorageKey(userId), JSON.stringify(record));
+  } catch {
+    return;
+  }
+}
+
+async function decryptRememberedUnlockedIdentityRecord(
+  record: RememberedUnlockedIdentityRecord,
+  password: string
+): Promise<LocalIdentity | null> {
+  try {
+    const wrappingKey = await deriveWrappingKey(password, base64ToBytes(record.salt), KDF_ITERATIONS);
     const plaintext = await window.crypto.subtle.decrypt(
       {
         name: "AES-GCM",
-        iv: base64ToBytes(parsedRecord.iv),
+        iv: base64ToBytes(record.iv),
       },
       wrappingKey,
-      base64ToBytes(parsedRecord.ciphertext)
+      base64ToBytes(record.ciphertext)
     );
     const parsedIdentity = JSON.parse(textDecoder.decode(plaintext)) as Partial<LocalIdentity>;
     if (
@@ -3054,7 +3266,6 @@ async function readRememberedUnlockedIdentity(
       typeof parsedIdentity.privateKey !== "string" ||
       parsedIdentity.privateKey.length === 0
     ) {
-      removeUnlockedIdentityFromPersistentStorage(userId);
       return null;
     }
 
@@ -3065,6 +3276,18 @@ async function readRememberedUnlockedIdentity(
   } catch {
     return null;
   }
+}
+
+async function readRememberedUnlockedIdentity(
+  userId: string,
+  password: string
+): Promise<LocalIdentity | null> {
+  const parsedRecord = readRememberedUnlockedIdentityRecord(userId);
+  if (!parsedRecord) {
+    return null;
+  }
+
+  return decryptRememberedUnlockedIdentityRecord(parsedRecord, password);
 }
 
 async function rememberUnlockedIdentity(
@@ -3088,15 +3311,66 @@ async function rememberUnlockedIdentity(
     textEncoder.encode(JSON.stringify(identity))
   );
 
-  window.localStorage.setItem(
-    getRememberedUnlockedIdentityStorageKey(userId),
-    JSON.stringify({
+  writeRememberedUnlockedIdentityRecord(userId, {
       salt: bytesToBase64(salt),
       iv: bytesToBase64(iv),
       ciphertext: bytesToBase64(new Uint8Array(ciphertext)),
       createdAt: new Date().toISOString(),
-    } satisfies RememberedUnlockedIdentityRecord)
+    } satisfies RememberedUnlockedIdentityRecord);
+}
+
+async function restoreEncryptionRecoverySnapshot(
+  session: AuthResponse,
+  password: string
+): Promise<LocalIdentity | null> {
+  let remoteSnapshot: UserEncryptionRecoverySnapshot;
+  try {
+    remoteSnapshot = await getOwnEncryptionRecoverySnapshot(session.token);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      return null;
+    }
+    throw error;
+  }
+
+  let wrappedIdentityRecord: RememberedUnlockedIdentityRecord | null = null;
+  let snapshotPayloadRecord: EncryptedRecoverySnapshotPayloadRecord | null = null;
+  try {
+    wrappedIdentityRecord = normalizeRememberedUnlockedIdentityRecord(
+      JSON.parse(remoteSnapshot.wrappedIdentityRecordJson) as unknown
+    );
+    snapshotPayloadRecord = normalizeEncryptedRecoverySnapshotPayloadRecord(
+      JSON.parse(remoteSnapshot.snapshotPayloadJson) as unknown
+    );
+  } catch {
+    wrappedIdentityRecord = null;
+    snapshotPayloadRecord = null;
+  }
+
+  if (!wrappedIdentityRecord || !snapshotPayloadRecord) {
+    throw new ApiError("Encryption recovery snapshot is invalid", 409);
+  }
+
+  const restoredIdentity = await decryptRememberedUnlockedIdentityRecord(
+    wrappedIdentityRecord,
+    password
   );
+  if (!restoredIdentity) {
+    throw new ApiError("Current password could not restore encrypted chats on this device", 409);
+  }
+
+  const snapshotPayload = await decryptRecoverySnapshotPayload(
+    restoredIdentity.privateKey,
+    snapshotPayloadRecord
+  );
+  if (!snapshotPayload) {
+    throw new ApiError("Encryption recovery snapshot could not be decrypted on this device", 409);
+  }
+
+  writeUnlockedIdentity(session.user.id, restoredIdentity);
+  writeRememberedUnlockedIdentityRecord(session.user.id, wrappedIdentityRecord);
+  await writeArchivedDecryptedMessageRecords(session.user.id, snapshotPayload.archivedMessages);
+  return restoredIdentity;
 }
 
 async function ensureRegisteredEncryptionDevice(session: AuthResponse) {
@@ -4656,6 +4930,7 @@ async function rememberArchivedDecryptedMessage(
   try {
     const record = await encryptArchivedDecryptedMessage(identity.privateKey, message);
     await writeArchivedDecryptedMessageRecord(userId, record);
+    scheduleEncryptionRecoverySnapshotSync(userId);
   } catch {
     return;
   }
@@ -4786,10 +5061,127 @@ async function decryptArchivedDecryptedMessage(
   }
 }
 
+function normalizeEncryptedRecoverySnapshotPayloadRecord(
+  value: unknown
+): EncryptedRecoverySnapshotPayloadRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const candidate = value as Partial<EncryptedRecoverySnapshotPayloadRecord>;
+  if (
+    typeof candidate.salt !== "string" ||
+    typeof candidate.iv !== "string" ||
+    typeof candidate.ciphertext !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    salt: candidate.salt,
+    iv: candidate.iv,
+    ciphertext: candidate.ciphertext,
+    createdAt: typeof candidate.createdAt === "string" ? candidate.createdAt : "",
+  };
+}
+
+function normalizeRecoverySnapshotPayload(value: unknown): RecoverySnapshotPayload | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const candidate = value as Partial<RecoverySnapshotPayload>;
+  if (
+    typeof candidate.version !== "number" ||
+    !Array.isArray(candidate.archivedMessages)
+  ) {
+    return null;
+  }
+
+  const archivedMessages = candidate.archivedMessages
+    .map((record) => normalizeArchivedDecryptedMessageRecord(record))
+    .filter((record): record is RememberedDecryptedMessageArchiveRecord => record !== null);
+  if (archivedMessages.length !== candidate.archivedMessages.length) {
+    return null;
+  }
+
+  return {
+    version: candidate.version,
+    archivedMessages,
+  };
+}
+
+async function encryptRecoverySnapshotPayload(
+  privateKey: string,
+  archivedMessages: RememberedDecryptedMessageArchiveRecord[]
+): Promise<EncryptedRecoverySnapshotPayloadRecord> {
+  const salt = randomBytes(16);
+  const iv = randomBytes(12);
+  const wrappingKey = await deriveWrappingKey(privateKey, salt, KDF_ITERATIONS);
+  const ciphertext = await window.crypto.subtle.encrypt(
+    {
+      name: "AES-GCM",
+      iv,
+    },
+    wrappingKey,
+    textEncoder.encode(
+      JSON.stringify({
+        version: RECOVERY_SNAPSHOT_PAYLOAD_VERSION,
+        archivedMessages: sortArchivedDecryptedMessageRecords(archivedMessages),
+      } satisfies RecoverySnapshotPayload)
+    )
+  );
+
+  return {
+    salt: bytesToBase64(salt),
+    iv: bytesToBase64(iv),
+    ciphertext: bytesToBase64(new Uint8Array(ciphertext)),
+    createdAt: new Date().toISOString(),
+  };
+}
+
+async function decryptRecoverySnapshotPayload(
+  privateKey: string,
+  record: EncryptedRecoverySnapshotPayloadRecord
+): Promise<RecoverySnapshotPayload | null> {
+  try {
+    const wrappingKey = await deriveWrappingKey(privateKey, base64ToBytes(record.salt), KDF_ITERATIONS);
+    const plaintext = await window.crypto.subtle.decrypt(
+      {
+        name: "AES-GCM",
+        iv: base64ToBytes(record.iv),
+      },
+      wrappingKey,
+      base64ToBytes(record.ciphertext)
+    );
+    const payload = normalizeRecoverySnapshotPayload(
+      JSON.parse(textDecoder.decode(plaintext)) as unknown
+    );
+    if (!payload || payload.version !== RECOVERY_SNAPSHOT_PAYLOAD_VERSION) {
+      return null;
+    }
+
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
 async function writeArchivedDecryptedMessageRecord(
   userId: string,
   record: RememberedDecryptedMessageArchiveRecord
 ) {
+  await writeArchivedDecryptedMessageRecords(userId, [record]);
+}
+
+async function writeArchivedDecryptedMessageRecords(
+  userId: string,
+  records: RememberedDecryptedMessageArchiveRecord[]
+) {
+  if (records.length === 0) {
+    return;
+  }
+
   if (supportsIndexedDbDecryptedMessageArchive()) {
     try {
       const db = await openDecryptedMessageArchiveDb();
@@ -4798,9 +5190,12 @@ async function writeArchivedDecryptedMessageRecord(
         transaction.oncomplete = () => resolve();
         transaction.onerror = () =>
           reject(transaction.error ?? new Error("Failed to write decrypted message archive entry"));
-        transaction.objectStore(DECRYPTED_MESSAGE_ARCHIVE_STORE_NAME).put({
-          userId,
-          ...record,
+        const store = transaction.objectStore(DECRYPTED_MESSAGE_ARCHIVE_STORE_NAME);
+        records.forEach((record) => {
+          store.put({
+            userId,
+            ...record,
+          });
         });
       });
       return;
@@ -4809,7 +5204,7 @@ async function writeArchivedDecryptedMessageRecord(
     }
   }
 
-  writeLocalArchivedDecryptedMessageRecord(userId, record);
+  writeLocalArchivedDecryptedMessageRecords(userId, records);
 }
 
 async function readStoredArchivedDecryptedMessageRecord(userId: string, messageId: string) {
@@ -4837,6 +5232,42 @@ async function readStoredArchivedDecryptedMessageRecord(userId: string, messageI
   }
 
   return readLocalArchivedDecryptedMessageRecord(userId, messageId);
+}
+
+async function readAllStoredArchivedDecryptedMessageRecords(userId: string) {
+  if (supportsIndexedDbDecryptedMessageArchive()) {
+    try {
+      const db = await openDecryptedMessageArchiveDb();
+      return await new Promise<RememberedDecryptedMessageArchiveRecord[]>((resolve, reject) => {
+        const transaction = db.transaction(DECRYPTED_MESSAGE_ARCHIVE_STORE_NAME, "readonly");
+        transaction.onerror = () =>
+          reject(transaction.error ?? new Error("Failed to read decrypted message archive snapshot"));
+        const store = transaction.objectStore(DECRYPTED_MESSAGE_ARCHIVE_STORE_NAME);
+        const range = IDBKeyRange.bound([userId, ""], [userId, "\uffff"]);
+        const request = store.openCursor(range);
+        const records: RememberedDecryptedMessageArchiveRecord[] = [];
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (!cursor) {
+            resolve(sortArchivedDecryptedMessageRecords(records));
+            return;
+          }
+
+          const normalizedRecord = normalizeArchivedDecryptedMessageRecord(cursor.value);
+          if (normalizedRecord) {
+            records.push(normalizedRecord);
+          }
+          cursor.continue();
+        };
+        request.onerror = () =>
+          reject(request.error ?? new Error("Failed to read decrypted message archive snapshot"));
+      });
+    } catch {
+      // Fall back to localStorage below when IndexedDB is unavailable or blocked.
+    }
+  }
+
+  return readLocalArchivedDecryptedMessageRecords(userId);
 }
 
 async function readLatestStoredArchivedDecryptedMessageRecord(userId: string, chatId: string) {
@@ -4901,6 +5332,14 @@ function normalizeArchivedDecryptedMessageRecord(value: unknown): RememberedDecr
   };
 }
 
+function sortArchivedDecryptedMessageRecords(records: RememberedDecryptedMessageArchiveRecord[]) {
+  return [...records].sort(
+    (left, right) =>
+      left.createdAt.localeCompare(right.createdAt) ||
+      left.messageId.localeCompare(right.messageId)
+  );
+}
+
 function supportsIndexedDbDecryptedMessageArchive() {
   return typeof window !== "undefined" && typeof window.indexedDB?.open === "function";
 }
@@ -4947,6 +5386,12 @@ function readLocalArchivedDecryptedMessageRecord(userId: string, messageId: stri
   return readLocalArchivedDecryptedMessageMap(userId)[messageId] ?? null;
 }
 
+function readLocalArchivedDecryptedMessageRecords(userId: string) {
+  return sortArchivedDecryptedMessageRecords(
+    Object.values(readLocalArchivedDecryptedMessageMap(userId))
+  );
+}
+
 function readLatestLocalArchivedDecryptedMessageRecord(userId: string, chatId: string) {
   const records = Object.values(readLocalArchivedDecryptedMessageMap(userId))
     .filter((record) => record.chatId === chatId)
@@ -4958,6 +5403,13 @@ function writeLocalArchivedDecryptedMessageRecord(
   userId: string,
   record: RememberedDecryptedMessageArchiveRecord
 ) {
+  writeLocalArchivedDecryptedMessageRecords(userId, [record]);
+}
+
+function writeLocalArchivedDecryptedMessageRecords(
+  userId: string,
+  records: RememberedDecryptedMessageArchiveRecord[]
+) {
   if (typeof window === "undefined") {
     return;
   }
@@ -4965,7 +5417,7 @@ function writeLocalArchivedDecryptedMessageRecord(
   try {
     const nextRecords = {
       ...readLocalArchivedDecryptedMessageMap(userId),
-      [record.messageId]: record,
+      ...Object.fromEntries(records.map((record) => [record.messageId, record])),
     };
     window.localStorage.setItem(
       getDecryptedMessageArchiveStorageKey(userId),
