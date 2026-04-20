@@ -28,7 +28,7 @@ import {
   updateProfileAvatar,
   updateVideoConference as updateVideoConferenceRequest,
 } from "../../../lib/api";
-import { resecureLocalEncryptionStateForPasswordChange } from "../../../lib/e2ee";
+import { clearUnlockedEncryptionState, resecureLocalEncryptionStateForPasswordChange } from "../../../lib/e2ee";
 import type {
   AuthResponse,
   ChatSummary,
@@ -297,6 +297,7 @@ export function useWorkspaceMutations({
   const signOutMutation = useMutation({
     mutationFn: () => logout(),
     onSettled: () => {
+      clearUnlockedEncryptionState(currentSession.user.id);
       onSessionChange(null);
     },
   });

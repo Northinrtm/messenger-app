@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { describeError, logout } from "../../lib/api";
 import {
+  clearUnlockedEncryptionState,
   ensureEncryptionReady,
   hasTrustedDeviceUnlock,
   isTrustedDeviceUnlockSupported,
@@ -84,6 +85,7 @@ export function UnlockCard({
   const signOutMutation = useMutation({
     mutationFn: () => logout(),
     onSettled: () => {
+      clearUnlockedEncryptionState(session.user.id);
       onSignedOut();
     },
   });

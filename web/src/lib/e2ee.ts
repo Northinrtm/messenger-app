@@ -24,6 +24,7 @@ const ENCRYPTED_MESSAGE_UNAVAILABLE = "[Encrypted message unavailable]";
 const ENCRYPTION_IDENTITY_CHANGED_MESSAGE =
   "Encryption identity changed for this account in this browser. Re-establish trust before continuing";
 const UNLOCKED_IDENTITY_STORAGE_PREFIX = "north-messenger:unlocked-e2ee:";
+const AUTO_UNLOCKED_IDENTITY_STORAGE_PREFIX = "north-messenger:auto-unlocked-e2ee:";
 const REMEMBERED_UNLOCKED_IDENTITY_STORAGE_PREFIX = "north-messenger:remembered-e2ee:";
 const TRUSTED_DEVICE_STORAGE_PREFIX = "north-messenger:trusted-device-e2ee:";
 const PINNED_DEVICE_BUNDLE_STORAGE_PREFIX = "north-messenger:pinned-device-e2ee:";
@@ -128,6 +129,12 @@ type TrustedDeviceUnlockRecord = {
   prfSalt: string;
   iv: string;
   ciphertext: string;
+  createdAt: string;
+};
+
+type AutoUnlockedIdentityRecord = {
+  publicKey: string;
+  privateKey: string;
   createdAt: string;
 };
 
@@ -2879,7 +2886,14 @@ function readUnlockedIdentity(userId: string): LocalIdentity | null {
 
   const sessionIdentity = readUnlockedIdentityFromSession(userId);
   if (!sessionIdentity) {
-    return null;
+    const persistentIdentity = readUnlockedIdentityFromPersistentAutoStorage(userId);
+    if (!persistentIdentity) {
+      return null;
+    }
+
+    unlockedIdentityByUserId.set(userId, persistentIdentity);
+    writeUnlockedIdentityToSession(userId, persistentIdentity);
+    return persistentIdentity;
   }
 
   unlockedIdentityByUserId.set(userId, sessionIdentity);
@@ -2889,6 +2903,7 @@ function readUnlockedIdentity(userId: string): LocalIdentity | null {
 function writeUnlockedIdentity(userId: string, identity: LocalIdentity) {
   unlockedIdentityByUserId.set(userId, identity);
   writeUnlockedIdentityToSession(userId, identity);
+  writeUnlockedIdentityToPersistentAutoStorage(userId, identity);
 }
 
 function createLocalVaultIdentity(): LocalIdentity {
@@ -5100,7 +5115,63 @@ function removeUnlockedIdentityFromPersistentStorage(userId: string) {
   }
 
   try {
+    window.localStorage.removeItem(getAutoUnlockedIdentityStorageKey(userId));
     window.localStorage.removeItem(getRememberedUnlockedIdentityStorageKey(userId));
+  } catch {
+    return;
+  }
+}
+
+function readUnlockedIdentityFromPersistentAutoStorage(userId: string): LocalIdentity | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(getAutoUnlockedIdentityStorageKey(userId));
+    if (!rawValue) {
+      return null;
+    }
+
+    const parsedIdentity = JSON.parse(rawValue) as Partial<AutoUnlockedIdentityRecord>;
+    if (
+      typeof parsedIdentity.publicKey !== "string" ||
+      parsedIdentity.publicKey.length === 0 ||
+      typeof parsedIdentity.privateKey !== "string" ||
+      parsedIdentity.privateKey.length === 0
+    ) {
+      window.localStorage.removeItem(getAutoUnlockedIdentityStorageKey(userId));
+      return null;
+    }
+
+    return {
+      publicKey: parsedIdentity.publicKey,
+      privateKey: parsedIdentity.privateKey,
+    };
+  } catch {
+    try {
+      window.localStorage.removeItem(getAutoUnlockedIdentityStorageKey(userId));
+    } catch {
+      return null;
+    }
+    return null;
+  }
+}
+
+function writeUnlockedIdentityToPersistentAutoStorage(userId: string, identity: LocalIdentity) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(
+      getAutoUnlockedIdentityStorageKey(userId),
+      JSON.stringify({
+        publicKey: identity.publicKey,
+        privateKey: identity.privateKey,
+        createdAt: new Date().toISOString(),
+      } satisfies AutoUnlockedIdentityRecord)
+    );
   } catch {
     return;
   }
@@ -5112,6 +5183,10 @@ function getUnlockedIdentityStorageKey(userId: string) {
 
 function getRememberedUnlockedIdentityStorageKey(userId: string) {
   return `${REMEMBERED_UNLOCKED_IDENTITY_STORAGE_PREFIX}${userId}`;
+}
+
+function getAutoUnlockedIdentityStorageKey(userId: string) {
+  return `${AUTO_UNLOCKED_IDENTITY_STORAGE_PREFIX}${userId}`;
 }
 
 function getDecryptedMessageArchiveStorageKey(userId: string) {

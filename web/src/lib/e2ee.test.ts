@@ -52,6 +52,7 @@ const USER_ID = "user-id";
 const REMOTE_USER_ID = "remote-user-id";
 const REMOTE_USER_ID_TWO = "remote-user-id-two";
 const SESSION_KEY = `north-messenger:unlocked-e2ee:${USER_ID}`;
+const AUTO_UNLOCKED_KEY = `north-messenger:auto-unlocked-e2ee:${USER_ID}`;
 const REMEMBERED_KEY = `north-messenger:remembered-e2ee:${USER_ID}`;
 const TRUSTED_DEVICE_KEY = `north-messenger:trusted-device-e2ee:${USER_ID}`;
 const DEVICE_MATERIAL_KEY = `north-messenger:device-e2ee:${USER_ID}`;
@@ -315,7 +316,27 @@ describe("e2ee hardening", () => {
     expect(window.sessionStorage.getItem(SESSION_KEY)).toBeNull();
   });
 
+  it("restores an unlocked identity from same-browser persistent storage", () => {
+    window.localStorage.setItem(
+      AUTO_UNLOCKED_KEY,
+      JSON.stringify({
+        ...identity,
+        createdAt: "2026-04-20T08:00:00.000Z",
+      })
+    );
+
+    expect(hasUnlockedPrivateEncryptionKey(USER_ID)).toBe(true);
+    expect(JSON.parse(window.sessionStorage.getItem(SESSION_KEY) ?? "{}")).toMatchObject(identity);
+  });
+
   it("removes remembered identity remnants when the encryption state is cleared", () => {
+    window.localStorage.setItem(
+      AUTO_UNLOCKED_KEY,
+      JSON.stringify({
+        ...identity,
+        createdAt: "2026-04-20T08:00:00.000Z",
+      })
+    );
     window.localStorage.setItem(TRUSTED_DEVICE_KEY, JSON.stringify(trustedDeviceRecord));
     window.localStorage.setItem(REMEMBERED_KEY, JSON.stringify(identity));
 
@@ -323,6 +344,7 @@ describe("e2ee hardening", () => {
 
     expect(hasUnlockedPrivateEncryptionKey(USER_ID)).toBe(false);
     expect(window.sessionStorage.getItem(SESSION_KEY)).toBeNull();
+    expect(window.localStorage.getItem(AUTO_UNLOCKED_KEY)).toBeNull();
     expect(window.localStorage.getItem(REMEMBERED_KEY)).toBeNull();
   });
 
