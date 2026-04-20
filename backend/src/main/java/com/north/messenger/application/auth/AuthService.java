@@ -78,7 +78,7 @@ public class AuthService {
             ApplicationEventPublisher eventPublisher,
             AvatarService avatarService,
             EmailVerificationService emailVerificationService,
-            @Value("${app.auth.registration.allowed-email-domains:gmail.com,googlemail.com,outlook.com,hotmail.com,live.com,msn.com,yahoo.com,icloud.com,me.com,mac.com,yandex.ru,yandex.com,ya.ru,mail.ru,bk.ru,inbox.ru,list.ru}") String[] allowedRegistrationEmailDomains
+            @Value("${app.auth.registration.allowed-email-domains:gmail.com,googlemail.com,outlook.com,hotmail.com,live.com,msn.com,yahoo.com,yahoo.co.uk,yahoo.co.jp,icloud.com,me.com,mac.com,yandex.ru,yandex.com,ya.ru,mail.ru,bk.ru,inbox.ru,list.ru,rambler.ru,lenta.ru,myrambler.ru,autorambler.ru,proton.me,protonmail.com,pm.me,aol.com,gmx.com,gmx.de,gmx.net,fastmail.com,zoho.com}") String[] allowedRegistrationEmailDomains
     ) {
         this.userAccountRepository = userAccountRepository;
         this.userContactRepository = userContactRepository;
