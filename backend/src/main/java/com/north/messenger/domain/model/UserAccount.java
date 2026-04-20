@@ -5,6 +5,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.Locale;
 import java.util.UUID;
 
 @Entity
@@ -16,6 +17,9 @@ public class UserAccount {
 
     @Column(name = "username", nullable = false, unique = true, length = 24)
     private String username;
+
+    @Column(name = "email", nullable = false, length = 320)
+    private String email;
 
     @Column(name = "display_name", nullable = false, length = 40)
     private String displayName;
@@ -32,40 +36,45 @@ public class UserAccount {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
-    protected UserAccount() {
-    }
+    @Column(name = "email_verified_at")
+    private Instant emailVerifiedAt;
 
-    public UserAccount(UUID id, String username, String displayName, String passwordHash, Instant createdAt) {
-        this(id, username, displayName, null, null, passwordHash, createdAt);
+    protected UserAccount() {
     }
 
     public UserAccount(
             UUID id,
             String username,
+            String email,
             String displayName,
             String profession,
             String avatarUrl,
             String passwordHash,
             Instant createdAt
     ) {
-        this.id = id;
-        this.username = username;
-        this.displayName = displayName;
-        this.profession = profession;
-        this.avatarUrl = avatarUrl;
-        this.passwordHash = passwordHash;
-        this.createdAt = createdAt;
+        this(id, username, email, displayName, profession, avatarUrl, passwordHash, createdAt, createdAt);
     }
 
     public UserAccount(
             UUID id,
             String username,
+            String email,
             String displayName,
+            String profession,
             String avatarUrl,
             String passwordHash,
-            Instant createdAt
+            Instant createdAt,
+            Instant emailVerifiedAt
     ) {
-        this(id, username, displayName, null, avatarUrl, passwordHash, createdAt);
+        this.id = id;
+        this.username = username;
+        this.email = normalizeRequiredEmail(email);
+        this.displayName = displayName;
+        this.profession = profession;
+        this.avatarUrl = avatarUrl;
+        this.passwordHash = passwordHash;
+        this.createdAt = createdAt;
+        this.emailVerifiedAt = emailVerifiedAt;
     }
 
     public UUID getId() {
@@ -74,6 +83,10 @@ public class UserAccount {
 
     public String getUsername() {
         return username;
+    }
+
+    public String getEmail() {
+        return email;
     }
 
     public String getDisplayName() {
@@ -96,6 +109,14 @@ public class UserAccount {
         return createdAt;
     }
 
+    public Instant getEmailVerifiedAt() {
+        return emailVerifiedAt;
+    }
+
+    public boolean isEmailVerified() {
+        return emailVerifiedAt != null;
+    }
+
     public void updateDisplayName(String displayName) {
         this.displayName = displayName;
     }
@@ -108,7 +129,22 @@ public class UserAccount {
         this.avatarUrl = avatarUrl;
     }
 
+    public void updateEmail(String email) {
+        this.email = normalizeRequiredEmail(email);
+    }
+
     public void updatePasswordHash(String passwordHash) {
         this.passwordHash = passwordHash;
+    }
+
+    public void markEmailVerified(Instant emailVerifiedAt) {
+        this.emailVerifiedAt = emailVerifiedAt;
+    }
+
+    private static String normalizeRequiredEmail(String email) {
+        if (email == null || email.isBlank()) {
+            throw new IllegalArgumentException("Email must not be blank");
+        }
+        return email.trim().toLowerCase(Locale.ROOT);
     }
 }

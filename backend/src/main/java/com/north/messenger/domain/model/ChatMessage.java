@@ -35,6 +35,9 @@ public class ChatMessage {
     @Column(name = "client_message_id", length = 120, updatable = false)
     private String clientMessageId;
 
+    @Column(name = "server_order", nullable = false, updatable = false, insertable = false)
+    private Long serverOrder;
+
     @Column(name = "reply_to_message_id")
     private UUID replyToMessageId;
 
@@ -118,6 +121,10 @@ public class ChatMessage {
 
     public String getClientMessageId() {
         return clientMessageId;
+    }
+
+    public Long getServerOrder() {
+        return serverOrder;
     }
 
     public UUID getReplyToMessageId() {

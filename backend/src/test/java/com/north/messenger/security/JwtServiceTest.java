@@ -6,6 +6,7 @@ import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
+import static com.north.messenger.support.TestUserAccounts.testUserAccount;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -23,7 +24,7 @@ class JwtServiceTest {
         );
         JwtService jwtService = new JwtService(properties);
 
-        UserAccount user = new UserAccount(
+        UserAccount user = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
@@ -52,7 +53,7 @@ class JwtServiceTest {
         );
         JwtService jwtService = new JwtService(properties);
 
-        UserAccount user = new UserAccount(
+        UserAccount user = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
@@ -88,7 +89,7 @@ class JwtServiceTest {
                 false
         ));
 
-        UserAccount user = new UserAccount(
+        UserAccount user = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
@@ -122,7 +123,7 @@ class JwtServiceTest {
                 false
         ));
 
-        UserAccount user = new UserAccount(
+        UserAccount user = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",

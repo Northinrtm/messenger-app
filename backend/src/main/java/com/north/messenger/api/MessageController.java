@@ -1,6 +1,5 @@
 package com.north.messenger.api;
 
-import com.north.messenger.api.dto.CreateMessageRequest;
 import com.north.messenger.api.dto.MessageReceiptRequest;
 import com.north.messenger.api.dto.MessageReactionEventResponse;
 import com.north.messenger.api.dto.MessageResponse;
@@ -9,10 +8,8 @@ import com.north.messenger.api.dto.UpdateMessageRequest;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.message.MessageService;
 import jakarta.validation.Valid;
-import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
-import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -44,34 +41,17 @@ public class MessageController {
     public List<MessageResponse> listMessages(
             Authentication authentication,
             @PathVariable UUID chatId,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant before,
-            @RequestParam(required = false) UUID beforeMessageId,
+            @RequestParam(required = false) Long beforeServerOrder,
             @RequestParam(defaultValue = "50") int limit,
             @RequestParam(defaultValue = "true") boolean acknowledgeDelivered
     ) {
         return messageService.listMessages(
                 chatId,
                 authentication.getName(),
-                before,
-                beforeMessageId,
+                beforeServerOrder,
                 limit,
                 acknowledgeDelivered
         );
-    }
-
-    @PostMapping
-    @ResponseStatus(HttpStatus.CREATED)
-    public MessageResponse sendMessage(
-            Authentication authentication,
-            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
-            @PathVariable UUID chatId,
-            @Valid @RequestBody CreateMessageRequest request
-    ) {
-        authService.requireAuthenticatedSession(
-                authentication.getName(),
-                extractBearerToken(authorization)
-        );
-        return messageService.sendMessage(chatId, authentication.getName(), request);
     }
 
     @PostMapping("/delivered")

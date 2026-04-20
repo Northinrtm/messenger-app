@@ -13,6 +13,7 @@ import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.MessageBuilder;
 
+import static com.north.messenger.support.TestUserAccounts.testUserAccount;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -41,7 +42,7 @@ class WebSocketOutboundSecurityInterceptorTest {
         UUID authSessionId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
         UUID chatId = UUID.randomUUID();
-        UserAccount user = new UserAccount(
+        UserAccount user = testUserAccount(
                 userId,
                 "north",
                 "North",
@@ -80,7 +81,7 @@ class WebSocketOutboundSecurityInterceptorTest {
         UUID authSessionId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
         UUID chatId = UUID.randomUUID();
-        UserAccount user = new UserAccount(
+        UserAccount user = testUserAccount(
                 userId,
                 "north",
                 "North",

@@ -6,9 +6,11 @@ import {
 } from "../../../lib/api";
 import { isUnavailableEncryptedMessage } from "../../../lib/e2ee";
 import type { ChatMessage, UserProfile } from "../../../lib/types";
+import { canAcknowledgeVisibleMessagesAsRead } from "./messageReadVisibility";
 
 type UseMessageReceiptsOptions = {
   activeChatId: string | null;
+  isActiveChatOpen: boolean;
   currentUser: UserProfile;
   messages: ChatMessage[];
   token: string;
@@ -18,6 +20,7 @@ type UseMessageReceiptsOptions = {
 
 export function useMessageReceipts({
   activeChatId,
+  isActiveChatOpen,
   currentUser,
   messages,
   token,
@@ -80,7 +83,12 @@ export function useMessageReceipts({
   });
 
   const acknowledgeVisibleMessagesAsRead = useEffectEvent(() => {
-    if (!activeChatId || !canAcknowledgeMessagesAsRead()) {
+    if (
+      !activeChatId ||
+      !canAcknowledgeMessagesAsRead({
+        isActiveChatOpen,
+      })
+    ) {
       return;
     }
 
@@ -105,14 +113,11 @@ export function useMessageReceipts({
   };
 }
 
-function canAcknowledgeMessagesAsRead() {
-  if (document.visibilityState !== "visible") {
-    return false;
-  }
-
-  if (typeof document.hasFocus === "function") {
-    return document.hasFocus();
-  }
-
-  return true;
+function canAcknowledgeMessagesAsRead(options: { isActiveChatOpen: boolean }) {
+  return canAcknowledgeVisibleMessagesAsRead({
+    isActiveChatOpen: options.isActiveChatOpen,
+    isDocumentVisible: document.visibilityState === "visible",
+    hasDocumentFocus:
+      typeof document.hasFocus === "function" ? document.hasFocus() : true,
+  });
 }

@@ -20,6 +20,7 @@ import {
   removeContact as removeContactRequest,
   revokeGroupModerator as revokeGroupModeratorRequest,
   revokeSession,
+  resendOwnEmailVerification,
   unblockUser as unblockUserRequest,
   updateArchivedChat,
   updateGroupChat as updateGroupChatRequest,
@@ -356,6 +357,10 @@ export function useWorkspaceMutations({
     },
   });
 
+  const resendOwnEmailVerificationMutation = useMutation({
+    mutationFn: () => resendOwnEmailVerification(token),
+  });
+
   const deleteAccountMutation = useMutation({
     mutationFn: () => deleteOwnAccountRequest(token),
     onSuccess: () => {
@@ -622,6 +627,7 @@ export function useWorkspaceMutations({
     removeContactMutation,
     revokeGroupModeratorMutation,
     revokeSessionMutation,
+    resendOwnEmailVerificationMutation,
     signOutMutation,
     submitAddConferenceParticipants,
     submitAddGroupParticipants,

@@ -4,8 +4,8 @@ import {
   TickerStrategy,
   type StompSubscription,
 } from "@stomp/stompjs";
+import { ApiError } from "./api";
 import { WS_URL } from "./config";
-import { hydrateChatMessage } from "./e2ee";
 import type {
   ApiChatMessage,
   ChatRemovalEvent,
@@ -13,6 +13,7 @@ import type {
   ChatSummary,
   MessageDeletionEvent,
   MessageReactionEvent,
+  MessageSendErrorEvent,
   MessageStatusEvent,
   SessionEvent,
   TypingEvent,
@@ -60,6 +61,12 @@ type RealtimeConnection = {
   disposeLifecycleHandlers: (() => void) | null;
 };
 
+type PendingSendRequest = {
+  timeoutId: number;
+  resolve: (message: ApiChatMessage) => void;
+  reject: (error: ApiError) => void;
+};
+
 const REALTIME_CONNECTION_TIMEOUT_MS = 10_000;
 const REALTIME_HEARTBEAT_INTERVAL_MS = 10_000;
 const REALTIME_RECONNECT_INITIAL_DELAY_MS = 2_000;
@@ -69,7 +76,9 @@ const REALTIME_RECONNECT_FAILURE_DEDUP_MS = 250;
 const REALTIME_RECONNECT_FAILURE_THRESHOLD = 5;
 const REALTIME_RECONNECT_COOLDOWN_MS = 60_000;
 const REALTIME_VISIBILITY_PAUSE_DELAY_MS = 15_000;
+const REALTIME_SEND_ACK_TIMEOUT_MS = 12_000;
 let activeConnection: RealtimeConnection | null = null;
+const pendingSendRequests = new Map<string, PendingSendRequest>();
 
 export function subscribeToChats({
   chatIds,
@@ -162,13 +171,25 @@ export function subscribeToChats({
     }
 
     connection.userSubscriptions.push(
+      client.subscribe("/user/queue/message-acks", (frame) => {
+        resolvePendingSendRequest(JSON.parse(frame.body) as ApiChatMessage);
+      })
+    );
+
+    connection.userSubscriptions.push(
+      client.subscribe("/user/queue/message-errors", (frame) => {
+        rejectPendingSendRequest(JSON.parse(frame.body) as MessageSendErrorEvent);
+      })
+    );
+
+    connection.userSubscriptions.push(
       client.subscribe("/user/queue/messages", (frame) => {
-        void hydrateChatMessage(
-          JSON.parse(frame.body) as ApiChatMessage,
-          connection.currentUserId
-        ).then((message) => {
-          connection.onMessage(message);
-        });
+        const payload = JSON.parse(frame.body) as ApiChatMessage;
+        void import("./e2ee").then(({ hydrateChatMessage }) =>
+          hydrateChatMessage(payload, connection.currentUserId).then((message) => {
+            connection.onMessage(message);
+          })
+        );
       })
     );
 
@@ -317,6 +338,7 @@ function handleConnectionFailure(connection: RealtimeConnection) {
   }
 
   clearSubscriptions(connection);
+  failPendingSendRequests("Realtime connection was interrupted before the message was confirmed.", 503);
   setConnectionState(connection, false);
 
   if (connection.pausedByLifecycle) {
@@ -383,6 +405,7 @@ function retireConnection(connection: RealtimeConnection) {
   clearReconnectCooldown(connection);
   clearVisibilityPause(connection);
   clearSubscriptions(connection);
+  failPendingSendRequests("Realtime connection closed before the message was confirmed.", 503);
   connection.connected = false;
   void connection.client.deactivate();
 }
@@ -446,6 +469,7 @@ function pauseConnectionForLifecycle(connection: RealtimeConnection) {
   connection.pausedByLifecycle = true;
   clearReconnectCooldown(connection);
   clearSubscriptions(connection);
+  failPendingSendRequests("Realtime connection paused before the message was confirmed.", 503);
   setConnectionState(connection, false);
   void connection.client.deactivate();
 }
@@ -466,4 +490,131 @@ function resolveWebSocketBaseUrl() {
   const url = new URL(baseUrl, window.location.origin);
   url.protocol = url.protocol === "https:" || url.protocol === "wss:" ? "wss:" : "ws:";
   return url.toString().replace(/\/+$/, "");
+}
+
+export function sendMessageRealtime(input: {
+  chatId: string;
+  clientMessageId: string;
+  replyToMessageId?: string | null;
+  encryptedPayload: {
+    scheme: string;
+    encryptedKeysByRecipientId: Record<string, string>;
+    sharedEnvelope?: string | null;
+  };
+  timeoutMs?: number;
+}) {
+  const connection = activeConnection;
+  if (!connection?.client.connected) {
+    return Promise.reject(
+      new ApiError("Realtime connection is unavailable. Retry after reconnect.", 503)
+    );
+  }
+
+  if (!input.clientMessageId.trim()) {
+    return Promise.reject(new ApiError("Client message id is required", 400));
+  }
+
+  if (pendingSendRequests.has(input.clientMessageId)) {
+    return Promise.reject(new ApiError("Message send is already pending", 409));
+  }
+
+  return new Promise<ApiChatMessage>((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      pendingSendRequests.delete(input.clientMessageId);
+      reject(
+        new ApiError("Message send confirmation timed out. Retry the same message.", 504)
+      );
+    }, input.timeoutMs ?? REALTIME_SEND_ACK_TIMEOUT_MS);
+
+    pendingSendRequests.set(input.clientMessageId, {
+      timeoutId,
+      resolve,
+      reject,
+    });
+
+    try {
+      connection.client.publish({
+        destination: `/app/chats/${input.chatId}/messages`,
+        body: JSON.stringify({
+          clientMessageId: input.clientMessageId,
+          replyToMessageId: input.replyToMessageId ?? null,
+          encryptedPayload: input.encryptedPayload,
+        }),
+      });
+    } catch {
+      clearPendingSendRequest(input.clientMessageId);
+      reject(new ApiError("Realtime message send failed before it left the client.", 503));
+    }
+  });
+}
+
+export function sendMessageRaw(
+  _token: string,
+  chatId: string,
+  body: {
+    clientMessageId?: string;
+    replyToMessageId?: string | null;
+    encryptedPayload: {
+      scheme: string;
+      encryptedKeysByRecipientId: Record<string, string>;
+      sharedEnvelope?: string | null;
+    };
+  }
+) {
+  return sendMessageRealtime({
+    chatId,
+    clientMessageId: body.clientMessageId ?? "",
+    replyToMessageId: body.replyToMessageId ?? null,
+    encryptedPayload: body.encryptedPayload,
+  });
+}
+
+function resolvePendingSendRequest(message: ApiChatMessage) {
+  const clientMessageId = message.clientMessageId?.trim();
+  if (!clientMessageId) {
+    return;
+  }
+
+  const pendingRequest = pendingSendRequests.get(clientMessageId);
+  if (!pendingRequest) {
+    return;
+  }
+
+  pendingSendRequests.delete(clientMessageId);
+  window.clearTimeout(pendingRequest.timeoutId);
+  pendingRequest.resolve(message);
+}
+
+function rejectPendingSendRequest(error: MessageSendErrorEvent) {
+  const clientMessageId = error.clientMessageId?.trim();
+  if (!clientMessageId) {
+    return;
+  }
+
+  const pendingRequest = pendingSendRequests.get(clientMessageId);
+  if (!pendingRequest) {
+    return;
+  }
+
+  pendingSendRequests.delete(clientMessageId);
+  window.clearTimeout(pendingRequest.timeoutId);
+  pendingRequest.reject(new ApiError(error.error, error.status, error.details));
+}
+
+function clearPendingSendRequest(clientMessageId: string) {
+  const pendingRequest = pendingSendRequests.get(clientMessageId);
+  if (!pendingRequest) {
+    return;
+  }
+
+  pendingSendRequests.delete(clientMessageId);
+  window.clearTimeout(pendingRequest.timeoutId);
+}
+
+function failPendingSendRequests(message: string, status: number) {
+  pendingSendRequests.forEach((pendingRequest, clientMessageId) => {
+    window.clearTimeout(pendingRequest.timeoutId);
+    pendingRequest.reject(new ApiError(message, status));
+    pendingSendRequests.delete(clientMessageId);
+  });
 }

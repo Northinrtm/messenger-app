@@ -14,6 +14,7 @@ public record ChatSummaryResponse(
         List<ParticipantResponse> members,
         String lastMessage,
         Instant lastMessageAt,
+        Long lastMessageServerOrder,
         Instant updatedAt,
         int unreadCount,
         MessageSnippetResponse pinnedMessage

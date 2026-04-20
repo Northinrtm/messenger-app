@@ -16,7 +16,7 @@ vi.mock("./e2ee", () => ({
 }));
 
 import { hydrateChatMessage } from "./e2ee";
-import { subscribeToChats } from "./realtime";
+import { sendMessageRaw, subscribeToChats } from "./realtime";
 
 const stompClients: MockClient[] = [];
 
@@ -293,6 +293,7 @@ describe("realtime reconnect protection", () => {
     emitFrame(client, "/user/queue/messages", incomingPayload);
     await Promise.resolve();
     await Promise.resolve();
+    await vi.dynamicImportSettled();
 
     expect(vi.mocked(hydrateChatMessage)).toHaveBeenCalledWith(incomingPayload, "user-1");
     expect(onMessage).toHaveBeenCalledWith(
@@ -303,6 +304,187 @@ describe("realtime reconnect protection", () => {
       })
     );
 
+    dispose();
+  });
+
+  it("sends messages over websocket and resolves from explicit sender ack", async () => {
+    const dispose = createSubscription();
+    const client = stompClients[0];
+    client.connected = true;
+    client.onConnect();
+
+    const sendPromise = sendMessageRaw("ignored", "chat-1", {
+      clientMessageId: "client-1",
+      encryptedPayload: {
+        scheme: "X3DH-DEVICE-AES-GCM",
+        encryptedKeysByRecipientId: {},
+      },
+    });
+
+    expect(client.publishCalls).toEqual([
+      {
+        destination: "/app/chats/chat-1/messages",
+        body: JSON.stringify({
+          clientMessageId: "client-1",
+          replyToMessageId: null,
+          encryptedPayload: {
+            scheme: "X3DH-DEVICE-AES-GCM",
+            encryptedKeysByRecipientId: {},
+          },
+        }),
+      },
+    ]);
+
+    const ackPayload = {
+      id: "server-1",
+      chatId: "chat-1",
+      sender: {
+        id: "user-1",
+        username: "north",
+        displayName: "North",
+        profession: null,
+        avatarUrl: null,
+        online: true,
+      },
+      content: null,
+      createdAt: "2026-04-13T12:00:00.000Z",
+      editedAt: null,
+      status: null,
+      clientMessageId: "client-1",
+      serverOrder: 42,
+      replyTo: null,
+      reactions: [],
+      encryptedPayload: {
+        scheme: "X3DH-DEVICE-AES-GCM",
+        encryptedKeysByRecipientId: {},
+      },
+    };
+
+    emitFrame(client, "/user/queue/message-acks", ackPayload);
+
+    await expect(sendPromise).resolves.toEqual(ackPayload);
+    dispose();
+  });
+
+  it("rejects pending sends from explicit sender error events", async () => {
+    const dispose = createSubscription();
+    const client = stompClients[0];
+    client.connected = true;
+    client.onConnect();
+
+    const sendPromise = sendMessageRaw("ignored", "chat-1", {
+      clientMessageId: "client-2",
+      encryptedPayload: {
+        scheme: "X3DH-DEVICE-AES-GCM",
+        encryptedKeysByRecipientId: {},
+      },
+    });
+
+    emitFrame(client, "/user/queue/message-errors", {
+      chatId: "chat-1",
+      clientMessageId: "client-2",
+      status: 403,
+      error: "Chat membership is required",
+      details: "forbidden",
+    });
+
+    await expect(sendPromise).rejects.toMatchObject({
+      status: 403,
+      message: "Chat membership is required",
+      details: "forbidden",
+    });
+    dispose();
+  });
+
+  it("allows retrying the same client message id after an explicit sender error", async () => {
+    const dispose = createSubscription();
+    const client = stompClients[0];
+    client.connected = true;
+    client.onConnect();
+
+    const failedSend = sendMessageRaw("ignored", "chat-1", {
+      clientMessageId: "client-retry",
+      encryptedPayload: {
+        scheme: "X3DH-DEVICE-AES-GCM",
+        encryptedKeysByRecipientId: {},
+      },
+    });
+
+    emitFrame(client, "/user/queue/message-errors", {
+      chatId: "chat-1",
+      clientMessageId: "client-retry",
+      status: 500,
+      error: "Unexpected server error",
+      details: ["IllegalStateException"],
+    });
+
+    await expect(failedSend).rejects.toMatchObject({
+      status: 500,
+      message: "Unexpected server error",
+    });
+
+    const retriedSend = sendMessageRaw("ignored", "chat-1", {
+      clientMessageId: "client-retry",
+      encryptedPayload: {
+        scheme: "X3DH-DEVICE-AES-GCM",
+        encryptedKeysByRecipientId: {},
+      },
+    });
+
+    emitFrame(client, "/user/queue/message-acks", {
+      id: "server-retry",
+      chatId: "chat-1",
+      sender: {
+        id: "user-1",
+        username: "north",
+        displayName: "North",
+        profession: null,
+        avatarUrl: null,
+        online: true,
+      },
+      content: null,
+      createdAt: "2026-04-13T12:01:00.000Z",
+      editedAt: null,
+      status: null,
+      clientMessageId: "client-retry",
+      serverOrder: 43,
+      replyTo: null,
+      reactions: [],
+      encryptedPayload: {
+        scheme: "X3DH-DEVICE-AES-GCM",
+        encryptedKeysByRecipientId: {},
+      },
+    });
+
+    await expect(retriedSend).resolves.toMatchObject({
+      id: "server-retry",
+      clientMessageId: "client-retry",
+      serverOrder: 43,
+    });
+    expect(client.publishCalls).toHaveLength(2);
+    dispose();
+  });
+
+  it("fails pending sends when the websocket closes before ack", async () => {
+    const dispose = createSubscription();
+    const client = stompClients[0];
+    client.connected = true;
+    client.onConnect();
+
+    const sendPromise = sendMessageRaw("ignored", "chat-1", {
+      clientMessageId: "client-3",
+      encryptedPayload: {
+        scheme: "X3DH-DEVICE-AES-GCM",
+        encryptedKeysByRecipientId: {},
+      },
+    });
+
+    client.onWebSocketClose();
+
+    await expect(sendPromise).rejects.toMatchObject({
+      status: 503,
+      message: "Realtime connection was interrupted before the message was confirmed.",
+    });
     dispose();
   });
 

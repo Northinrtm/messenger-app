@@ -5,6 +5,7 @@ import java.util.UUID;
 public record MessageDispatchEvent(
         UUID chatId,
         UUID messageId,
-        String clientMessageId
+        String clientMessageId,
+        MessageDispatchMode mode
 ) {
 }

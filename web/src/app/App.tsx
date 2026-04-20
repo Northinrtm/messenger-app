@@ -18,6 +18,8 @@ import type { AuthResponse } from "../lib/types";
 
 const SESSION_RESTORE_CARD_DELAY_MS = 180;
 const INVITE_PATH_PREFIX = "/j/";
+const PASSWORD_RESET_QUERY_PARAM = "resetToken";
+const EMAIL_VERIFICATION_QUERY_PARAM = "verifyEmailToken";
 let initialSessionRestorePromise: Promise<AuthResponse | null> | null = null;
 
 function restoreInitialSession() {
@@ -39,6 +41,24 @@ function extractInviteCodeFromPath(pathname: string) {
   return /^\+[A-Za-z0-9]{16}$/.test(code) ? code : null;
 }
 
+function extractPasswordResetTokenFromSearch(search: string) {
+  const value = new URLSearchParams(search).get(PASSWORD_RESET_QUERY_PARAM)?.trim() ?? "";
+  return value || null;
+}
+
+function extractEmailVerificationTokenFromSearch(search: string) {
+  const value = new URLSearchParams(search).get(EMAIL_VERIFICATION_QUERY_PARAM)?.trim() ?? "";
+  return value || null;
+}
+
+function clearQueryParamFromLocation(queryParam: string) {
+  const url = new URL(window.location.href);
+  url.searchParams.delete(queryParam);
+  const nextSearch = url.searchParams.toString();
+  const nextUrl = `${url.pathname}${nextSearch ? `?${nextSearch}` : ""}${url.hash}`;
+  window.history.replaceState({}, "", nextUrl);
+}
+
 export function App() {
   const [session, setSession] = useState<AuthResponse | null>(null);
   const [restoringSession, setRestoringSession] = useState(true);
@@ -46,6 +66,12 @@ export function App() {
   const [refreshingExpiredSession, setRefreshingExpiredSession] = useState(false);
   const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(() =>
     typeof window === "undefined" ? null : extractInviteCodeFromPath(window.location.pathname)
+  );
+  const [passwordResetToken, setPasswordResetToken] = useState<string | null>(() =>
+    typeof window === "undefined" ? null : extractPasswordResetTokenFromSearch(window.location.search)
+  );
+  const [emailVerificationToken, setEmailVerificationToken] = useState<string | null>(() =>
+    typeof window === "undefined" ? null : extractEmailVerificationTokenFromSearch(window.location.search)
   );
   const refreshInFlightRef = useRef(false);
   const previousUserIdRef = useRef<string | null>(null);
@@ -76,7 +102,13 @@ export function App() {
   });
 
   useEffect(() => {
+    if (passwordResetToken || emailVerificationToken) {
+      setRestoringSession(false);
+      return;
+    }
+
     let cancelled = false;
+    setRestoringSession(true);
 
     void restoreInitialSession().then((nextSession) => {
       if (cancelled) {
@@ -90,7 +122,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [emailVerificationToken, passwordResetToken]);
 
   useEffect(() => {
     if (!restoringSession) {
@@ -123,6 +155,10 @@ export function App() {
   }, [session?.user.id]);
 
   useEffect(() => {
+    if (passwordResetToken || emailVerificationToken) {
+      return;
+    }
+
     if (restoringSession || !session) {
       setRefreshingExpiredSession(false);
       return;
@@ -141,17 +177,25 @@ export function App() {
     return () => {
       window.clearTimeout(timer);
     };
-  }, [session, requestSessionRefresh]);
+  }, [emailVerificationToken, passwordResetToken, session, requestSessionRefresh]);
 
   useEffect(() => {
+    if (passwordResetToken || emailVerificationToken) {
+      return;
+    }
+
     if (restoringSession || !session) {
       return;
     }
 
     void syncEncryptionDeviceState(session);
-  }, [restoringSession, session]);
+  }, [emailVerificationToken, passwordResetToken, restoringSession, session]);
 
   useEffect(() => {
+    if (passwordResetToken || emailVerificationToken) {
+      return;
+    }
+
     if (restoringSession || !session) {
       return;
     }
@@ -179,7 +223,7 @@ export function App() {
       window.removeEventListener("focus", refreshOnReturn);
       document.removeEventListener("visibilitychange", refreshOnReturn);
     };
-  }, [session, requestSessionRefresh]);
+  }, [emailVerificationToken, passwordResetToken, session, requestSessionRefresh]);
 
   const handlePendingInviteHandled = useEffectEvent(() => {
     setPendingInviteCode(null);
@@ -209,6 +253,29 @@ export function App() {
             </section>
           ) : null}
         </main>
+      ) : passwordResetToken ? (
+        <AuthCard
+          onAuthenticated={setSession}
+          initialPasswordResetToken={passwordResetToken}
+          onPasswordResetHandled={() => {
+            setPasswordResetToken(null);
+            setSession(null);
+            if (typeof window !== "undefined") {
+              clearQueryParamFromLocation(PASSWORD_RESET_QUERY_PARAM);
+            }
+          }}
+        />
+      ) : emailVerificationToken ? (
+        <AuthCard
+          onAuthenticated={setSession}
+          initialEmailVerificationToken={emailVerificationToken}
+          onEmailVerificationHandled={() => {
+            setEmailVerificationToken(null);
+            if (typeof window !== "undefined") {
+              clearQueryParamFromLocation(EMAIL_VERIFICATION_QUERY_PARAM);
+            }
+          }}
+        />
       ) : session ? (
         <>
           <NorthMessengerWorkspace
@@ -236,4 +303,3 @@ export function App() {
     </div>
   );
 }
-

@@ -10,6 +10,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import static com.north.messenger.support.TestUserAccounts.testUserAccount;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -43,7 +44,7 @@ class TypingServiceTest {
     @Test
     void shouldBroadcastTypingEventToChatTopic() {
         UUID chatId = UUID.randomUUID();
-        UserAccount user = new UserAccount(
+        UserAccount user = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
@@ -69,14 +70,14 @@ class TypingServiceTest {
     @Test
     void shouldReturnOtherTypingParticipantsForChat() {
         UUID chatId = UUID.randomUUID();
-        UserAccount viewer = new UserAccount(
+        UserAccount viewer = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
                 "password-hash",
                 Instant.parse("2026-03-20T12:00:00Z")
         );
-        UserAccount otherUser = new UserAccount(
+        UserAccount otherUser = testUserAccount(
                 UUID.randomUUID(),
                 "user2",
                 "User 2",
@@ -103,14 +104,14 @@ class TypingServiceTest {
     @Test
     void shouldPurgeExpiredTypingEntriesWithoutReadingChat() {
         UUID chatId = UUID.randomUUID();
-        UserAccount viewer = new UserAccount(
+        UserAccount viewer = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
                 "password-hash",
                 Instant.parse("2026-03-20T12:00:00Z")
         );
-        UserAccount otherUser = new UserAccount(
+        UserAccount otherUser = testUserAccount(
                 UUID.randomUUID(),
                 "user2",
                 "User 2",

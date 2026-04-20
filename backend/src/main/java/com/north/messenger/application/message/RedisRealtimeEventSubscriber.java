@@ -15,6 +15,8 @@ import org.springframework.stereotype.Component;
 public class RedisRealtimeEventSubscriber {
 
     private static final Set<String> ALLOWED_USER_DESTINATIONS = Set.of(
+            "/queue/message-acks",
+            "/queue/message-errors",
             "/queue/messages",
             "/queue/message-statuses",
             "/queue/message-reactions",

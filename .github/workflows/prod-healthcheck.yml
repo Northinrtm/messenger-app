@@ -13,17 +13,24 @@ jobs:
   public-health:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    environment: production
+    env:
+      PROD_PUBLIC_BASE_URL: ${{ vars.PROD_PUBLIC_BASE_URL }}
     steps:
       - name: Check homepage
         run: |
+          test -n "$PROD_PUBLIC_BASE_URL"
+          base_url="${PROD_PUBLIC_BASE_URL%/}"
           body="$(mktemp)"
-          code="$(curl -fsS --max-time 15 --retry 2 --retry-delay 2 -o "$body" -w "%{http_code}" https://pishi.ktsf.ru/)"
+          code="$(curl -fsS --max-time 15 --retry 2 --retry-delay 2 -o "$body" -w "%{http_code}" "$base_url/")"
           test "$code" = "200"
           grep -qi "North Messenger" "$body"
 
       - name: Check auth refresh responds quickly
         run: |
+          test -n "$PROD_PUBLIC_BASE_URL"
+          base_url="${PROD_PUBLIC_BASE_URL%/}"
           body="$(mktemp)"
-          code="$(curl -sS --max-time 15 --retry 1 --retry-delay 2 -o "$body" -w "%{http_code}" -X POST https://pishi.ktsf.ru/api/auth/refresh)"
+          code="$(curl -sS --max-time 15 --retry 1 --retry-delay 2 -o "$body" -w "%{http_code}" -X POST "$base_url/api/auth/refresh")"
           test "$code" = "403"
           grep -q '"status":403' "$body"

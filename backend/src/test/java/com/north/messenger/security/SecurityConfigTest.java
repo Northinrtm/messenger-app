@@ -3,9 +3,15 @@ package com.north.messenger.security;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.north.messenger.api.AuthController;
 import com.north.messenger.api.dto.AuthResponse;
+import com.north.messenger.api.dto.EmailVerificationConfirmRequest;
+import com.north.messenger.api.dto.EmailVerificationResendRequest;
 import com.north.messenger.api.dto.LoginRequest;
+import com.north.messenger.api.dto.PasswordResetRequest;
+import com.north.messenger.api.dto.RegisterRequest;
 import com.north.messenger.api.dto.UserProfileResponse;
 import com.north.messenger.application.auth.AuthService;
+import com.north.messenger.application.auth.EmailVerificationService;
+import com.north.messenger.application.auth.PasswordResetService;
 import com.north.messenger.security.RefreshTokenCookieService;
 import java.time.Instant;
 import java.util.UUID;
@@ -21,7 +27,10 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -54,6 +63,12 @@ class SecurityConfigTest {
 
     @MockitoBean
     private RefreshTokenCookieService refreshTokenCookieService;
+
+    @MockitoBean
+    private PasswordResetService passwordResetService;
+
+    @MockitoBean
+    private EmailVerificationService emailVerificationService;
 
     @Test
     void shouldRejectAnonymousAccessToAuthenticatedAuthEndpoints() throws Exception {
@@ -89,12 +104,213 @@ class SecurityConfigTest {
     }
 
     @Test
+    void shouldAllowAnonymousRegistrationAndIssueSession() throws Exception {
+        when(authService.register(any(RegisterRequest.class), any())).thenReturn(new AuthService.IssuedAuthSession(
+                new AuthResponse(
+                        "access-token",
+                        Instant.parse("2026-03-22T12:00:00Z"),
+                        UUID.randomUUID(),
+                        new UserProfileResponse(
+                                UUID.randomUUID(),
+                                "north",
+                                "North",
+                                null,
+                                Instant.parse("2026-03-20T12:00:00Z"),
+                                null,
+                                true,
+                                "north@example.com",
+                                false,
+                                true
+                        )
+                ),
+                "session.secret"
+        ));
+
+        mockMvc.perform(post("/api/auth/register")
+                        .header("Origin", "http://localhost:5173")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new RegisterRequest(
+                                "north",
+                                "north@example.com",
+                                "North",
+                                "riverlantern"
+                        ))))
+                .andExpect(status().isOk());
+
+        verify(refreshTokenCookieService).write(any(), any());
+    }
+
+    @Test
+    void shouldAcceptCanonicalDisplayNameFieldOnRegistrationPayload() throws Exception {
+        when(authService.register(any(RegisterRequest.class), any())).thenReturn(new AuthService.IssuedAuthSession(
+                new AuthResponse(
+                        "access-token",
+                        Instant.parse("2026-03-22T12:00:00Z"),
+                        UUID.randomUUID(),
+                        new UserProfileResponse(
+                                UUID.randomUUID(),
+                                "north",
+                                "North",
+                                null,
+                                Instant.parse("2026-03-20T12:00:00Z"),
+                                null,
+                                true,
+                                "north@example.com",
+                                false,
+                                true
+                        )
+                ),
+                "session.secret"
+        ));
+
+        mockMvc.perform(post("/api/auth/register")
+                        .header("Origin", "http://localhost:5173")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "username": "north",
+                                  "email": "north@example.com",
+                                  "displayName": "North",
+                                  "password": "riverlantern"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        verify(authService).register(argThat(request -> "North".equals(request.displayName())), any());
+        verify(refreshTokenCookieService).write(any(), any());
+    }
+
+    @Test
+    void shouldRequireDisplayNameOnRegistrationUsingCanonicalFieldName() throws Exception {
+        mockMvc.perform(post("/api/auth/register")
+                        .header("Origin", "http://localhost:5173")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "username": "north",
+                                  "email": "north@example.com",
+                                  "password": "riverlantern"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(result -> {
+                    String responseBody = result.getResponse().getContentAsString();
+                    assertThat(responseBody).contains("displayName");
+                    assertThat(responseBody).doesNotContain("\"name\"");
+                });
+
+        verify(authService, never()).register(any(RegisterRequest.class), any());
+    }
+
+    @Test
     void shouldRejectCrossSiteLoginRequests() throws Exception {
         mockMvc.perform(post("/api/auth/login")
                         .header("Origin", "https://evil.example")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new LoginRequest("north", "password"))))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void shouldRequireEmailOnRegistration() throws Exception {
+        mockMvc.perform(post("/api/auth/register")
+                        .header("Origin", "http://localhost:5173")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "username": "north",
+                                  "displayName": "North",
+                                  "password": "riverlantern"
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void shouldAllowAnonymousPasswordResetRequests() throws Exception {
+        mockMvc.perform(post("/api/auth/password-reset/request")
+                        .header("Origin", "http://localhost:5173")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new PasswordResetRequest("north@example.com"))))
+                .andExpect(status().isAccepted());
+    }
+
+    @Test
+    void shouldAllowAnonymousEmailVerificationConfirmation() throws Exception {
+        mockMvc.perform(post("/api/auth/email-verification/confirm")
+                        .header("Origin", "http://localhost:5173")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new EmailVerificationConfirmRequest("verify-token"))))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void shouldAllowAuthenticatedOwnEmailVerificationResend() throws Exception {
+        when(jwtService.readAccessToken("access-token")).thenReturn(new JwtService.AccessTokenClaims(
+                "north",
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                Instant.now().plusSeconds(300)
+        ));
+        when(authService.authenticateAccessToken("access-token")).thenReturn(java.util.Optional.of(
+                new AuthService.AuthenticatedSession(
+                        com.north.messenger.support.TestUserAccounts.testUserAccount(
+                                UUID.randomUUID(),
+                                "north",
+                                "north@example.com",
+                                "North",
+                                null,
+                                null,
+                                "password-hash",
+                                Instant.now().minusSeconds(60),
+                                null
+                        ),
+                        UUID.randomUUID()
+                )
+        ));
+
+        mockMvc.perform(post("/api/auth/me/email-verification")
+                        .header("Origin", "http://localhost:5173")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isAccepted());
+    }
+
+    @Test
+    void shouldRateLimitRepeatedPasswordResetRequestsFromSameClient() throws Exception {
+        for (int attempt = 0; attempt < 5; attempt += 1) {
+            mockMvc.perform(post("/api/auth/password-reset/request")
+                            .header("Origin", "http://localhost:5173")
+                            .header("X-Forwarded-For", "203.0.113.20")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new PasswordResetRequest("north@example.com"))))
+                    .andExpect(status().isAccepted());
+        }
+
+        mockMvc.perform(post("/api/auth/password-reset/request")
+                        .header("Origin", "http://localhost:5173")
+                        .header("X-Forwarded-For", "203.0.113.20")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new PasswordResetRequest("north@example.com"))))
+                .andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void shouldRateLimitRepeatedEmailVerificationResendRequestsFromSameClient() throws Exception {
+        for (int attempt = 0; attempt < 5; attempt += 1) {
+            mockMvc.perform(post("/api/auth/email-verification/resend")
+                            .header("Origin", "http://localhost:5173")
+                            .header("X-Forwarded-For", "203.0.113.21")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new EmailVerificationResendRequest("north@example.com"))))
+                    .andExpect(status().isAccepted());
+        }
+
+        mockMvc.perform(post("/api/auth/email-verification/resend")
+                        .header("Origin", "http://localhost:5173")
+                        .header("X-Forwarded-For", "203.0.113.21")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new EmailVerificationResendRequest("north@example.com"))))
+                .andExpect(status().isTooManyRequests());
     }
 
     @Test

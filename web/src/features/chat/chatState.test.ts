@@ -11,9 +11,11 @@ import {
   replaceChatPreviewOverride,
   removeMessageByClientMessageId,
   upsertChatPreviewOverride,
+  updateMessageByClientMessageId,
   updateMessageReactionsPages,
   updateMessageStatusPages,
 } from "./chatState";
+import { ensureOwnMessageStatus as normalizeOwnMessageStatus } from "./messagePresentation";
 import type {
   ChatMessage,
   ChatSummary,
@@ -135,6 +137,42 @@ describe("chatState", () => {
     expect(merged.pages[0]).toEqual([confirmed]);
   });
 
+  it("replaces a failed optimistic message with a confirmed sent message after ack", () => {
+    const currentUser = {
+      id: "user-1",
+      username: "north",
+      displayName: "North",
+      createdAt: "2026-03-22T09:59:00.000Z",
+      profession: null,
+      avatarUrl: null,
+      online: true,
+    };
+    const current = {
+      pages: [[{
+        ...message("client-1", "2026-03-22T10:00:00.000Z"),
+        clientMessageId: "client-1",
+        status: {
+          state: "FAILED" as const,
+          recipientCount: 1,
+          deliveredCount: 0,
+          readCount: 0,
+        },
+      }]],
+      pageParams: [null],
+    };
+    const confirmed = normalizeOwnMessageStatus({
+      ...message("server-1", "2026-03-22T10:00:01.000Z"),
+      clientMessageId: "client-1",
+      status: null,
+    }, currentUser);
+
+    const merged = mergeMessagePages(current, confirmed);
+
+    expect(merged.pages[0]).toHaveLength(1);
+    expect(merged.pages[0][0]?.id).toBe("server-1");
+    expect(merged.pages[0][0]?.status?.state).toBe("SENT");
+  });
+
   it("orders equal timestamps deterministically by message identity", () => {
     const pages = [[
       message("b", "2026-03-22T10:00:00.000Z"),
@@ -142,6 +180,18 @@ describe("chatState", () => {
     ]];
 
     expect(flattenMessagePages(pages).map((item: ChatMessage) => item.id)).toEqual(["a", "b"]);
+  });
+
+  it("uses serverOrder as the authoritative order after realtime or refetch", () => {
+    const pages = [[
+      { ...message("server-2", "2026-03-22T10:00:05.000Z"), serverOrder: 2 },
+      { ...message("server-1", "2026-03-22T10:00:06.000Z"), serverOrder: 1 },
+    ]];
+
+    expect(flattenMessagePages(pages).map((item: ChatMessage) => item.id)).toEqual([
+      "server-1",
+      "server-2",
+    ]);
   });
 
   it("keeps rapid-send optimistic messages in local send order when timestamps match", () => {
@@ -323,6 +373,37 @@ describe("chatState", () => {
     const next = removeMessageByClientMessageId(current, "client-1");
 
     expect(next?.pages[0]).toEqual([]);
+  });
+
+  it("marks a pending optimistic message as failed without removing it", () => {
+    const current = {
+      pages: [[{
+        ...message("client-1", "2026-03-22T10:00:00.000Z"),
+        clientMessageId: "client-1",
+        localOrder: 1,
+        status: {
+          state: "SENDING" as const,
+          recipientCount: 1,
+          deliveredCount: 0,
+          readCount: 0,
+        },
+      }]],
+      pageParams: [null],
+    };
+
+    const next = updateMessageByClientMessageId(current, "client-1", (entry) => ({
+      ...entry,
+      status: {
+        state: "FAILED",
+        recipientCount: 1,
+        deliveredCount: 0,
+        readCount: 0,
+      },
+    }));
+
+    expect(next?.pages[0]).toHaveLength(1);
+    expect(next?.pages[0][0]?.status?.state).toBe("FAILED");
+    expect(next?.pages[0][0]?.id).toBe("client-1");
   });
 
   it("normalizes usernames for chat creation inputs", () => {

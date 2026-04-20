@@ -48,7 +48,7 @@ The current repository state is focused on direct chats, group chats, E2EE text 
 - optimistic send in the UI
 - delivered/read receipts
 - typing indicator
-- websocket-only typing signals
+- typing publish over `WebSocket/STOMP` with HTTP read fallback when realtime is unavailable
 - reactions: `LIKE`, `DISLIKE`, `EYES`, `OK`
 - reply to message
 - edit own message
@@ -59,7 +59,7 @@ The current repository state is focused on direct chats, group chats, E2EE text 
 - delete own message for everyone in groups
 - pinned message banner with jump-to-message behavior inside the chat stream
 - realtime delivery through `WebSocket/STOMP`
-- HTTP fallback kept only for the remaining sensitive flows where needed
+- HTTP endpoints remain authoritative for auth, message mutations, and recovery sync
 - Redis-backed websocket fan-out is available for production scale-out
 
 ### Video conferences
@@ -115,12 +115,13 @@ Important limitations:
 ## Realtime Model
 
 - one long-lived `WebSocket/STOMP` connection per client session
-- message send path is realtime-first
+- message creation is HTTP-authoritative
+- websocket delivers inbound chat updates, receipts, and typing broadcasts
 - message acknowledgement uses `clientMessageId`
 - Redis pub/sub can fan-out outbound websocket events across backend instances
 - typing state uses short-lived TTL entries and can be shared through Redis
 - chat list and message list still perform recovery sync, but polling has been reduced when realtime is healthy
-- typing is short-lived state with TTL and WebSocket-only transport
+- typing participant reads can fall back to `GET /api/chats/{chatId}/typing` when realtime is disconnected
 
 ## Observability
 
@@ -156,7 +157,6 @@ Important limitations:
   - message dispatch p95
   - backend HTTP p95
   - backend 5xx rate
-  - unexpected typing HTTP traffic
   - conference archive request rate
   - JVM heap
 - Prometheus alert rules cover:
@@ -165,7 +165,6 @@ Important limitations:
   - high message send p95
   - high dispatch p95
   - backend 5xx rate
-  - unexpected HTTP typing traffic
   - conference archive hot-path traffic
 - Alertmanager is included and can forward externally through `ALERTMANAGER_WEBHOOK_URL`
 
@@ -301,7 +300,7 @@ Run backend:
 
 ```bash
 cd backend
-mvn spring-boot:run
+SPRING_PROFILES_ACTIVE=dev mvn spring-boot:run
 ```
 
 Run frontend:
@@ -337,6 +336,18 @@ Important variables:
 - `APP_AUTH_REFRESH_COOKIE_PATH`
 - `APP_AUTH_REFRESH_COOKIE_SAME_SITE`
 - `APP_AUTH_REFRESH_COOKIE_SECURE`
+- `APP_AUTH_REGISTRATION_ALLOWED_EMAIL_DOMAINS`
+- `APP_AUTH_PASSWORD_RESET_ENABLED`
+- `APP_AUTH_PASSWORD_RESET_TOKEN_TTL`
+- `APP_AUTH_PASSWORD_RESET_URL_BASE`
+- `APP_AUTH_PASSWORD_RESET_FROM_ADDRESS`
+- `SPRING_MAIL_HOST`
+- `SPRING_MAIL_PORT`
+- `SPRING_MAIL_USERNAME`
+- `SPRING_MAIL_PASSWORD`
+- `SPRING_MAIL_SMTP_AUTH`
+- `SPRING_MAIL_SMTP_SSL_ENABLE`
+- `SPRING_MAIL_SMTP_STARTTLS_ENABLE`
 - `APP_MEDIA_CONFERENCE_RECORDINGS_DIRECTORY`
 - `APP_MEDIA_CONFERENCE_RECORDINGS_IMPORT_DIRECTORY`
 - `VITE_API_URL`
@@ -347,6 +358,165 @@ Use:
 
 - `.env.example` for base defaults
 - `.env.prod.example` for production-like deployment
+
+Registration only allows email domains listed in `APP_AUTH_REGISTRATION_ALLOWED_EMAIL_DOMAINS`.
+The default examples include common public providers and can be overridden with a comma-separated list.
+
+## Password Reset Email Setup
+
+Password reset emails now require a real SMTP mailbox. There is no built-in local mail sink anymore.
+
+Local setup:
+
+1. Copy `.env.example` to `.env`
+2. Fill in your real SMTP mailbox and password or app password
+3. Set `APP_AUTH_PASSWORD_RESET_ENABLED=true`
+4. Set `APP_AUTH_PASSWORD_RESET_URL_BASE` to the frontend URL you actually use
+
+Use:
+
+- `http://localhost:3000/` for the bundled web container
+- `http://localhost:5173/` for `npm run dev`
+
+Minimal local `.env` example:
+
+```bash
+APP_AUTH_PASSWORD_RESET_ENABLED=true
+APP_AUTH_PASSWORD_RESET_URL_BASE=http://localhost:3000/
+APP_AUTH_PASSWORD_RESET_FROM_ADDRESS=your-address@gmail.com
+SPRING_MAIL_HOST=smtp.gmail.com
+SPRING_MAIL_PORT=587
+SPRING_MAIL_USERNAME=your-address@gmail.com
+SPRING_MAIL_PASSWORD=YOUR_GOOGLE_APP_PASSWORD
+SPRING_MAIL_SMTP_AUTH=true
+SPRING_MAIL_SMTP_SSL_ENABLE=false
+SPRING_MAIL_SMTP_STARTTLS_ENABLE=true
+```
+
+Verification with Docker Compose:
+
+```bash
+docker compose up --build
+```
+
+Verification with local backend and local frontend:
+
+```bash
+cd backend
+SPRING_PROFILES_ACTIVE=dev mvn spring-boot:run
+```
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+Notes:
+
+- Docker Compose reads `.env` automatically
+- `mvn spring-boot:run` now also reads the repo-root `.env` automatically, so the same SMTP settings work for both Docker and local backend runs
+- the app sends through one configured SMTP mailbox; recipients can use any email provider
+- Thunderbird only shows the message after your SMTP provider accepts delivery to the target mailbox; the app does not send mail directly to Thunderbird
+- the reset request endpoint stays privacy-safe and always returns success-shaped responses, so delivery problems show up in backend logs instead of the API body
+- if the API says the reset request was accepted but no message arrives, check backend logs first for SMTP auth, connection, or disabled-feature warnings
+
+Production deployments should use real SMTP credentials and a public reset URL, for example:
+
+- `APP_AUTH_PASSWORD_RESET_ENABLED=true`
+- `APP_AUTH_PASSWORD_RESET_URL_BASE=https://your-domain.example/`
+- `APP_AUTH_PASSWORD_RESET_FROM_ADDRESS=no-reply@your-domain.example`
+- `SPRING_MAIL_HOST=smtp.example.com`
+- `SPRING_MAIL_PORT=587`
+- `SPRING_MAIL_USERNAME=no-reply@your-domain.example`
+- `SPRING_MAIL_PASSWORD=...`
+
+Important:
+
+- the app uses one configured outgoing mailbox for sending reset emails
+- recipients can use any email provider; you do not need per-user SMTP settings
+- for providers that require implicit SSL on port `465`, set `SPRING_MAIL_SMTP_SSL_ENABLE=true`
+- for providers that use STARTTLS on port `587`, set `SPRING_MAIL_SMTP_STARTTLS_ENABLE=true`
+
+Examples for common providers:
+
+Gmail or Google Workspace via `smtp.gmail.com`:
+
+```bash
+export APP_AUTH_PASSWORD_RESET_FROM_ADDRESS='your-address@gmail.com'
+export SPRING_MAIL_HOST='smtp.gmail.com'
+export SPRING_MAIL_PORT='587'
+export SPRING_MAIL_USERNAME='your-address@gmail.com'
+export SPRING_MAIL_PASSWORD='YOUR_GOOGLE_APP_PASSWORD'
+export SPRING_MAIL_SMTP_AUTH='true'
+export SPRING_MAIL_SMTP_SSL_ENABLE='false'
+export SPRING_MAIL_SMTP_STARTTLS_ENABLE='true'
+```
+
+Microsoft 365 / Outlook mailbox via `smtp.office365.com`:
+
+```bash
+export APP_AUTH_PASSWORD_RESET_FROM_ADDRESS='your-address@your-domain.example'
+export SPRING_MAIL_HOST='smtp.office365.com'
+export SPRING_MAIL_PORT='587'
+export SPRING_MAIL_USERNAME='your-address@your-domain.example'
+export SPRING_MAIL_PASSWORD='YOUR_SMTP_PASSWORD_OR_APP_PASSWORD'
+export SPRING_MAIL_SMTP_AUTH='true'
+export SPRING_MAIL_SMTP_SSL_ENABLE='false'
+export SPRING_MAIL_SMTP_STARTTLS_ENABLE='true'
+```
+
+Yahoo Mail via `smtp.mail.yahoo.com`:
+
+```bash
+export APP_AUTH_PASSWORD_RESET_FROM_ADDRESS='your-address@yahoo.com'
+export SPRING_MAIL_HOST='smtp.mail.yahoo.com'
+export SPRING_MAIL_PORT='587'
+export SPRING_MAIL_USERNAME='your-address@yahoo.com'
+export SPRING_MAIL_PASSWORD='YOUR_YAHOO_APP_PASSWORD'
+export SPRING_MAIL_SMTP_AUTH='true'
+export SPRING_MAIL_SMTP_SSL_ENABLE='false'
+export SPRING_MAIL_SMTP_STARTTLS_ENABLE='true'
+```
+
+Yandex Mail via `smtp.yandex.com`:
+
+```bash
+export APP_AUTH_PASSWORD_RESET_FROM_ADDRESS='your-address@yandex.ru'
+export SPRING_MAIL_HOST='smtp.yandex.com'
+export SPRING_MAIL_PORT='465'
+export SPRING_MAIL_USERNAME='your-address@yandex.ru'
+export SPRING_MAIL_PASSWORD='YOUR_YANDEX_PASSWORD_OR_APP_PASSWORD'
+export SPRING_MAIL_SMTP_AUTH='true'
+export SPRING_MAIL_SMTP_SSL_ENABLE='true'
+export SPRING_MAIL_SMTP_STARTTLS_ENABLE='false'
+```
+
+Mail.ru via `smtp.mail.ru`:
+
+```bash
+export APP_AUTH_PASSWORD_RESET_FROM_ADDRESS='your-address@mail.ru'
+export SPRING_MAIL_HOST='smtp.mail.ru'
+export SPRING_MAIL_PORT='465'
+export SPRING_MAIL_USERNAME='your-address@mail.ru'
+export SPRING_MAIL_PASSWORD='YOUR_MAIL_RU_APP_PASSWORD'
+export SPRING_MAIL_SMTP_AUTH='true'
+export SPRING_MAIL_SMTP_SSL_ENABLE='true'
+export SPRING_MAIL_SMTP_STARTTLS_ENABLE='false'
+```
+
+iCloud Mail via `smtp.mail.me.com`:
+
+```bash
+export APP_AUTH_PASSWORD_RESET_FROM_ADDRESS='your-address@icloud.com'
+export SPRING_MAIL_HOST='smtp.mail.me.com'
+export SPRING_MAIL_PORT='587'
+export SPRING_MAIL_USERNAME='your-address@icloud.com'
+export SPRING_MAIL_PASSWORD='YOUR_APP_SPECIFIC_PASSWORD'
+export SPRING_MAIL_SMTP_AUTH='true'
+export SPRING_MAIL_SMTP_SSL_ENABLE='false'
+export SPRING_MAIL_SMTP_STARTTLS_ENABLE='true'
+```
 
 ## Production Notes
 

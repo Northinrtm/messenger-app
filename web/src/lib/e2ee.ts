@@ -4,9 +4,9 @@ import {
   listOwnEncryptionDevices,
   resolveEncryptionDeviceBundles,
   upsertOwnEncryptionDevice,
-  sendMessageRaw,
   updateMessage,
 } from "./api";
+import { sendMessageRaw } from "./realtime";
 import type {
   ApiChatMessage,
   AuthResponse,
@@ -689,8 +689,7 @@ export async function getEncryptedMessages(
   userId: string,
   chatId: string,
   options: {
-    before?: string | null;
-    beforeMessageId?: string | null;
+    beforeServerOrder?: number | null;
     limit?: number;
     acknowledgeDelivered?: boolean;
   } = {}
@@ -747,8 +746,13 @@ export async function sendEncryptedMessage(
     const encryptedPayload = options.isDirectChat === false
       ? await encryptGroupMessage(token, chatId, currentUserId, normalizedContent, participants)
       : await encryptDirectDeviceMessage(token, currentUserId, normalizedContent, participants);
+    const resolvedClientMessageId = clientMessageId?.trim();
+    if (!resolvedClientMessageId) {
+      throw new ApiError("Client message id is required", 400);
+    }
+
     const response = await sendMessageRaw(token, chatId, {
-      clientMessageId,
+      clientMessageId: resolvedClientMessageId,
       replyToMessageId,
       encryptedPayload,
     });
@@ -756,12 +760,13 @@ export async function sendEncryptedMessage(
     const sentMessage = {
       id: response.id,
       chatId: response.chatId,
+      serverOrder: response.serverOrder ?? null,
       sender: response.sender,
       content: normalizedContent,
       createdAt: response.createdAt,
       editedAt: response.editedAt,
       status: response.status,
-      clientMessageId: response.clientMessageId ?? clientMessageId ?? null,
+      clientMessageId: response.clientMessageId ?? resolvedClientMessageId,
       replyTo: response.replyTo,
       reactions: response.reactions ?? [],
     } satisfies ChatMessage;
@@ -990,6 +995,7 @@ async function hydrateChatMessageInternal(
       ({
         id: message.id,
         chatId: message.chatId,
+        serverOrder: message.serverOrder ?? null,
         sender: message.sender,
         content,
         createdAt: message.createdAt,

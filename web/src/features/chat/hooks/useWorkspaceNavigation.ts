@@ -15,7 +15,6 @@ type UseWorkspaceNavigationParams = {
   activeConferenceId: string | null;
   chats: ChatSummary[];
   clearChatAttention: (chatId: string) => void;
-  clearChatUnreadIndicator: (chatId: string) => void;
   clearComposerContext: (mode?: "all" | "reply" | "edit" | "forward") => void;
   currentUsername: string;
   setActiveChatId: Dispatch<SetStateAction<string | null>>;
@@ -59,7 +58,6 @@ export function useWorkspaceNavigation({
   activeConferenceId,
   chats,
   clearChatAttention,
-  clearChatUnreadIndicator,
   clearComposerContext,
   currentUsername,
   setActiveChatId,
@@ -163,7 +161,6 @@ export function useWorkspaceNavigation({
     });
     clearComposerContext();
     clearChatAttention(chatId);
-    clearChatUnreadIndicator(chatId);
     if (tabHint && tabHint !== "conferences") {
       setActiveListTab(tabHint);
     } else {

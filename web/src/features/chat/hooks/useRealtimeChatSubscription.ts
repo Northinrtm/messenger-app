@@ -24,9 +24,11 @@ import {
   upsertChat,
 } from "../chatState";
 import { applyTypingEvent } from "../typingState";
+import { shouldAcknowledgeIncomingMessageAsRead } from "./messageReadVisibility";
 
 type UseRealtimeChatSubscriptionOptions = {
   activeChatId: string | null;
+  isActiveChatOpen: boolean;
   activeDraft: string;
   activePinnedMessageId: string | null;
   chatIdsKey: string;
@@ -79,6 +81,7 @@ export function useRealtimeChatSubscription({
   acknowledgeDelivered,
   acknowledgeRead,
   activeChatId,
+  isActiveChatOpen,
   activeDraft,
   activePinnedMessageId,
   applyChatPreviewMessage,
@@ -131,10 +134,14 @@ export function useRealtimeChatSubscription({
 
     const nextMessage = normalizeIncomingMessage(message);
     const ownMessage = isOwnMessage(nextMessage);
-    const isVisibleActiveChat =
-      nextMessage.chatId === activeChatId &&
-      document.visibilityState === "visible" &&
-      (typeof document.hasFocus !== "function" || document.hasFocus());
+    const isVisibleActiveChat = shouldAcknowledgeIncomingMessageAsRead({
+      activeChatId,
+      messageChatId: nextMessage.chatId,
+      isActiveChatOpen,
+      isDocumentVisible: document.visibilityState === "visible",
+      hasDocumentFocus:
+        typeof document.hasFocus !== "function" || document.hasFocus(),
+    });
     clearTypingParticipant(message.chatId, message.sender.id);
     rememberRealtimeMessage(message.id);
     applyChatPreviewMessage(nextMessage);

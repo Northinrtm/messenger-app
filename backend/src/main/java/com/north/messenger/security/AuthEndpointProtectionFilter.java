@@ -33,6 +33,10 @@ public class AuthEndpointProtectionFilter extends OncePerRequestFilter {
     private static final Set<String> PROTECTED_AUTH_PATHS = Set.of(
             "/api/auth/login",
             "/api/auth/register",
+            "/api/auth/email-verification/confirm",
+            "/api/auth/email-verification/resend",
+            "/api/auth/password-reset/request",
+            "/api/auth/password-reset/confirm",
             "/api/auth/refresh",
             "/api/auth/logout"
     );
@@ -49,6 +53,10 @@ public class AuthEndpointProtectionFilter extends OncePerRequestFilter {
     private final Map<String, RateLimitPolicy> policiesByPath = Map.of(
             "/api/auth/login", new RateLimitPolicy(20, Duration.ofMinutes(1)),
             "/api/auth/register", new RateLimitPolicy(10, Duration.ofMinutes(10)),
+            "/api/auth/email-verification/confirm", new RateLimitPolicy(20, Duration.ofMinutes(10)),
+            "/api/auth/email-verification/resend", new RateLimitPolicy(5, Duration.ofMinutes(30)),
+            "/api/auth/password-reset/request", new RateLimitPolicy(5, Duration.ofMinutes(30)),
+            "/api/auth/password-reset/confirm", new RateLimitPolicy(10, Duration.ofMinutes(10)),
             "/api/auth/refresh", new RateLimitPolicy(60, Duration.ofMinutes(1)),
             "/api/auth/logout", new RateLimitPolicy(30, Duration.ofMinutes(1))
     );

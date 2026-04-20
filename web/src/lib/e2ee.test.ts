@@ -18,20 +18,23 @@ vi.mock("./api", () => {
     getMessagesRaw: vi.fn(),
     listOwnEncryptionDevices: vi.fn(),
     resolveEncryptionDeviceBundles: vi.fn(),
-    sendMessageRaw: vi.fn(),
     updateMessage: vi.fn(),
     upsertOwnEncryptionDevice: vi.fn(),
   };
 });
+
+vi.mock("./realtime", () => ({
+  sendMessageRaw: vi.fn(),
+}));
 
 import {
   ApiError,
   getMessagesRaw,
   listOwnEncryptionDevices,
   resolveEncryptionDeviceBundles,
-  sendMessageRaw,
   upsertOwnEncryptionDevice,
 } from "./api";
+import { sendMessageRaw } from "./realtime";
 import {
   clearPinnedEncryptionIdentity,
   clearUnlockedEncryptionState,

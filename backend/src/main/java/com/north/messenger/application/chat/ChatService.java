@@ -32,7 +32,6 @@ import com.north.messenger.domain.repository.UserDeletedMessageRepository;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -132,7 +131,7 @@ public class ChatService {
             }
         }
 
-        chats.sort(Comparator.comparing(ChatSummaryResponse::updatedAt).reversed());
+        chats.sort(ChatService::compareChatSummaryActivity);
         return chats;
     }
 
@@ -675,10 +674,27 @@ public class ChatService {
                 members,
                 lastMessage != null ? summarizeLastMessage(lastMessage) : null,
                 lastMessage != null ? lastMessage.getCreatedAt() : null,
+                lastMessage != null ? lastMessage.getServerOrder() : null,
                 updatedAt,
                 unreadCount,
                 pinnedMessage
         );
+    }
+
+    private static int compareChatSummaryActivity(ChatSummaryResponse left, ChatSummaryResponse right) {
+        int updatedAtComparison = right.updatedAt().compareTo(left.updatedAt());
+        if (updatedAtComparison != 0) {
+            return updatedAtComparison;
+        }
+
+        long leftOrder = left.lastMessageServerOrder() != null ? left.lastMessageServerOrder() : Long.MIN_VALUE;
+        long rightOrder = right.lastMessageServerOrder() != null ? right.lastMessageServerOrder() : Long.MIN_VALUE;
+        int serverOrderComparison = Long.compare(rightOrder, leftOrder);
+        if (serverOrderComparison != 0) {
+            return serverOrderComparison;
+        }
+
+        return right.id().compareTo(left.id());
     }
 
     private List<ParticipantResponse> buildParticipantResponses(

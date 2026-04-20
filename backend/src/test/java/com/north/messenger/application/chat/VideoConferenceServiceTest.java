@@ -27,6 +27,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
 
+import static com.north.messenger.support.TestUserAccounts.testUserAccount;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -92,7 +93,7 @@ class VideoConferenceServiceTest {
 
     @Test
     void createConferenceShouldSupportEmptyParticipantList() {
-        UserAccount currentUser = new UserAccount(
+        UserAccount currentUser = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
@@ -143,7 +144,7 @@ class VideoConferenceServiceTest {
 
     @Test
     void endConferenceShouldMarkConferenceAsEndedForOrganizer() {
-        UserAccount organizer = new UserAccount(
+        UserAccount organizer = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
@@ -191,14 +192,14 @@ class VideoConferenceServiceTest {
 
     @Test
     void endConferenceShouldRejectNonOrganizer() {
-        UserAccount organizer = new UserAccount(
+        UserAccount organizer = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
                 "password-hash",
                 Instant.parse("2026-03-20T12:00:00Z")
         );
-        UserAccount participant = new UserAccount(
+        UserAccount participant = testUserAccount(
                 UUID.randomUUID(),
                 "south",
                 "South",
@@ -227,7 +228,7 @@ class VideoConferenceServiceTest {
 
     @Test
     void updateConferenceShouldRenameAndReschedulePlannedConference() {
-        UserAccount organizer = new UserAccount(
+        UserAccount organizer = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
@@ -281,7 +282,7 @@ class VideoConferenceServiceTest {
 
     @Test
     void cancelConferenceShouldDeletePlannedConferenceForOrganizer() {
-        UserAccount organizer = new UserAccount(
+        UserAccount organizer = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
@@ -309,7 +310,7 @@ class VideoConferenceServiceTest {
 
     @Test
     void cancelConferenceShouldRejectStartedConference() {
-        UserAccount organizer = new UserAccount(
+        UserAccount organizer = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
@@ -338,7 +339,7 @@ class VideoConferenceServiceTest {
 
     @Test
     void touchConferencePresenceShouldTrackActiveSession() {
-        UserAccount organizer = new UserAccount(
+        UserAccount organizer = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
@@ -371,7 +372,7 @@ class VideoConferenceServiceTest {
 
     @Test
     void clearConferencePresenceShouldMarkSessionAsLeft() {
-        UserAccount organizer = new UserAccount(
+        UserAccount organizer = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
@@ -400,7 +401,7 @@ class VideoConferenceServiceTest {
 
     @Test
     void activateScheduledConferencesShouldEndStartedConferenceWithoutParticipantsForTenMinutes() {
-        UserAccount organizer = new UserAccount(
+        UserAccount organizer = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
@@ -434,7 +435,7 @@ class VideoConferenceServiceTest {
 
     @Test
     void listConferencesShouldSkipEndedConferences() {
-        UserAccount currentUser = new UserAccount(
+        UserAccount currentUser = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
@@ -493,7 +494,7 @@ class VideoConferenceServiceTest {
 
     @Test
     void listArchivedConferencesShouldReturnEndedConferencesOrderedByEndedAtDesc() {
-        UserAccount currentUser = new UserAccount(
+        UserAccount currentUser = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
@@ -562,7 +563,7 @@ class VideoConferenceServiceTest {
 
     @Test
     void createConferenceShouldDelayRoomCreationUntilActivationWindow() {
-        UserAccount currentUser = new UserAccount(
+        UserAccount currentUser = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
@@ -604,14 +605,14 @@ class VideoConferenceServiceTest {
 
     @Test
     void listConferencesShouldRevealRoomFiveMinutesBeforeScheduledStart() {
-        UserAccount organizer = new UserAccount(
+        UserAccount organizer = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
                 "password-hash",
                 Instant.parse("2026-03-20T12:00:00Z")
         );
-        UserAccount participant = new UserAccount(
+        UserAccount participant = testUserAccount(
                 UUID.randomUUID(),
                 "south",
                 "South",
@@ -669,14 +670,14 @@ class VideoConferenceServiceTest {
 
     @Test
     void listConferencesShouldRevealRoomAfterAutomaticStart() {
-        UserAccount organizer = new UserAccount(
+        UserAccount organizer = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
                 "password-hash",
                 Instant.parse("2026-03-20T12:00:00Z")
         );
-        UserAccount participant = new UserAccount(
+        UserAccount participant = testUserAccount(
                 UUID.randomUUID(),
                 "south",
                 "South",
@@ -736,7 +737,7 @@ class VideoConferenceServiceTest {
 
     @Test
     void startConferenceShouldMarkConferenceAsStartedForOrganizer() {
-        UserAccount organizer = new UserAccount(
+        UserAccount organizer = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
@@ -784,21 +785,21 @@ class VideoConferenceServiceTest {
 
     @Test
     void addParticipantsShouldAppendOnlyNewUsers() {
-        UserAccount organizer = new UserAccount(
+        UserAccount organizer = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
                 "password-hash",
                 Instant.parse("2026-03-20T12:00:00Z")
         );
-        UserAccount existingParticipant = new UserAccount(
+        UserAccount existingParticipant = testUserAccount(
                 UUID.randomUUID(),
                 "south",
                 "South",
                 "password-hash",
                 Instant.parse("2026-03-20T12:10:00Z")
         );
-        UserAccount invitedParticipant = new UserAccount(
+        UserAccount invitedParticipant = testUserAccount(
                 UUID.randomUUID(),
                 "east",
                 "East",
@@ -882,14 +883,14 @@ class VideoConferenceServiceTest {
 
     @Test
     void joinConferenceViaInviteShouldAppendInvitedUser() {
-        UserAccount organizer = new UserAccount(
+        UserAccount organizer = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
                 "password-hash",
                 Instant.parse("2026-03-20T12:00:00Z")
         );
-        UserAccount invitedUser = new UserAccount(
+        UserAccount invitedUser = testUserAccount(
                 UUID.randomUUID(),
                 "guest",
                 "Guest",

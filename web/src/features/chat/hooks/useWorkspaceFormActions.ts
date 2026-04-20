@@ -15,7 +15,7 @@ type UseWorkspaceFormActionsOptions = {
   setContactSearch: Dispatch<SetStateAction<string>>;
   setGroupInviteUsernames: Dispatch<SetStateAction<string[]>>;
   setGroupParticipantUsernames: Dispatch<SetStateAction<string[]>>;
-  submitActiveDraft: (draft: string) => void;
+  submitActiveDraft: (draft: string) => boolean;
   submitCreateConference: (formatClock: (value: string) => string) => void;
   submitCreateConferenceNow: (formatClock: (value: string) => string) => void;
   submitCreateGroup: () => void;
@@ -56,7 +56,7 @@ export function useWorkspaceFormActions({
   });
 
   const handleSubmitActiveDraft = useEffectEvent((draft: string) => {
-    submitActiveDraft(draft);
+    return submitActiveDraft(draft);
   });
 
   const handleSubmitCreateGroup = useEffectEvent(() => {

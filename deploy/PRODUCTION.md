@@ -16,31 +16,31 @@ Keep production deploys short and avoid long-lived interactive `root` SSH sessio
 
 Repository helpers:
 
-- [server-bootstrap.sh](/d:/programs/coding/VSprojects/messenger-app/deploy/server-bootstrap.sh)
-- [disable-ssh-passwords.sh](/d:/programs/coding/VSprojects/messenger-app/deploy/disable-ssh-passwords.sh)
-- [backup.sh](/d:/programs/coding/VSprojects/messenger-app/deploy/backup.sh)
-- [install-backup-timer.sh](/d:/programs/coding/VSprojects/messenger-app/deploy/install-backup-timer.sh)
-- [BACKUPS.md](/d:/programs/coding/VSprojects/messenger-app/deploy/BACKUPS.md)
-- [10-messenger-hardening.conf](/d:/programs/coding/VSprojects/messenger-app/deploy/sshd_config.d/10-messenger-hardening.conf)
-- [20-disable-password-auth.conf](/d:/programs/coding/VSprojects/messenger-app/deploy/sshd_config.d/20-disable-password-auth.conf)
-- [messenger-sshd.local](/d:/programs/coding/VSprojects/messenger-app/deploy/fail2ban/jail.d/messenger-sshd.local)
+- `deploy/server-bootstrap.sh`
+- `deploy/disable-ssh-passwords.sh`
+- `deploy/backup.sh`
+- `deploy/install-backup-timer.sh`
+- `deploy/BACKUPS.md`
+- `deploy/sshd_config.d/10-messenger-hardening.conf`
+- `deploy/sshd_config.d/20-disable-password-auth.conf`
+- `deploy/fail2ban/jail.d/messenger-sshd.local`
 
 ## One-time GitHub Secrets
 
 Store these in GitHub `production` environment secrets:
 
 - `PROD_SSH_KEY`
+- `PROD_SSH_KNOWN_HOSTS`
+
+Store these in GitHub `production` environment variables:
+
+- `PROD_SSH_HOST`
+- `PROD_SSH_PORT`
+- `PROD_SSH_USER`
+- `PROD_APP_DIR`
+- `PROD_PUBLIC_BASE_URL`
 
 Do not store `.env.prod` in GitHub. Keep app secrets on the server.
-
-The current deploy workflow already has the production host, port, user, and app directory baked in:
-
-- host: `83.147.244.194`
-- port: `22`
-- user: `deploy`
-- app dir: `/opt/messenger-app`
-
-So the only secret you need in GitHub is the private key for that `deploy` user.
 
 ## Deploy flow
 
@@ -116,10 +116,10 @@ Recommended memory policy on a `2 GB RAM` VPS:
 
 The repository includes a local production backup path:
 
-- [backup.sh](/d:/programs/coding/VSprojects/messenger-app/deploy/backup.sh)
-- [install-backup-timer.sh](/d:/programs/coding/VSprojects/messenger-app/deploy/install-backup-timer.sh)
-- [backup.env.example](/d:/programs/coding/VSprojects/messenger-app/deploy/backup.env.example)
-- [BACKUPS.md](/d:/programs/coding/VSprojects/messenger-app/deploy/BACKUPS.md)
+- `deploy/backup.sh`
+- `deploy/install-backup-timer.sh`
+- `deploy/backup.env.example`
+- `deploy/BACKUPS.md`
 
 Default coverage:
 
@@ -165,6 +165,6 @@ If that is not enough, reboot the server from the provider panel.
 3. Run `DEPLOY_PUBLIC_KEY='ssh-ed25519 ...' bash deploy/server-bootstrap.sh`.
 4. Verify key-based login as `deploy`.
 5. Run `bash deploy/disable-ssh-passwords.sh`.
-6. Configure GitHub `production` environment secret `PROD_SSH_KEY`.
+6. Configure GitHub `production` environment secrets `PROD_SSH_KEY` and `PROD_SSH_KNOWN_HOSTS`, plus the required `PROD_*` environment variables.
 7. Install backups with `bash deploy/install-backup-timer.sh`.
 8. Use the `Deploy Production` workflow for future deploys.

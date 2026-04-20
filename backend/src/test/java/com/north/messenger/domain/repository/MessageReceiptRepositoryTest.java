@@ -25,6 +25,8 @@ class MessageReceiptRepositoryTest {
     @Autowired
     private TestEntityManager entityManager;
 
+    private long nextServerOrder = 1L;
+
     @Test
     void countUnreadByUserIdAndChatIdInShouldIgnoreMessagesDeletedForSelf() {
         UUID chatId = UUID.randomUUID();
@@ -71,18 +73,35 @@ class MessageReceiptRepositoryTest {
     }
 
     private ChatMessage persistEncryptedMessage(UUID chatId, UUID senderId, Instant createdAt) {
-        ChatMessage message = new ChatMessage(
-                UUID.randomUUID(),
-                chatId,
-                senderId,
-                "ciphertext",
-                "RSA-OAEP-256/AES-GCM",
-                "iv",
-                "{\"key\":\"value\"}",
-                createdAt
-        );
-        entityManager.persist(message);
-        return message;
+        UUID messageId = UUID.randomUUID();
+        long serverOrder = nextServerOrder++;
+        entityManager.getEntityManager()
+                .createNativeQuery("""
+                        insert into chat_messages (
+                            id,
+                            chat_id,
+                            sender_id,
+                            content,
+                            encryption_scheme,
+                            encryption_iv,
+                            encrypted_keys_json,
+                            client_message_id,
+                            server_order,
+                            created_at
+                        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """)
+                .setParameter(1, messageId)
+                .setParameter(2, chatId)
+                .setParameter(3, senderId)
+                .setParameter(4, "ciphertext")
+                .setParameter(5, "RSA-OAEP-256/AES-GCM")
+                .setParameter(6, "iv")
+                .setParameter(7, "{\"key\":\"value\"}")
+                .setParameter(8, "client-" + messageId)
+                .setParameter(9, serverOrder)
+                .setParameter(10, createdAt)
+                .executeUpdate();
+        return entityManager.find(ChatMessage.class, messageId);
     }
 
     private void persistReceipt(UUID messageId, UUID userId) {

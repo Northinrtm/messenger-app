@@ -7,7 +7,7 @@ import type {
   Participant,
   UserProfile,
 } from "../../../lib/types";
-import type { MouseEvent as ReactMouseEvent, RefObject } from "react";
+import { memo, useEffect, useState, type MouseEvent as ReactMouseEvent, type RefObject } from "react";
 import type { TimelineItem } from "../chatWorkspaceUtils";
 
 import { AvatarCircle } from "./AvatarCircle";
@@ -68,8 +68,9 @@ type Props = {
   onClearReply: () => void;
   onClearEdit: () => void;
   onRecoverEncryptionIdentity: () => void;
+  onRetryMessage: (message: ChatMessage) => void;
   onComposerChange: (value: string) => void;
-  onSubmit: () => void;
+  onSubmit: (draft: string) => boolean;
   formatClock: (value: string) => string;
   getMessageStatusClassName: (status: MessageStatus | null) => string;
   getMessageStatusGlyph: (status: MessageStatus | null) => string;
@@ -112,6 +113,7 @@ export function ActiveChatConversation({
   onClearReply,
   onClearEdit,
   onRecoverEncryptionIdentity,
+  onRetryMessage,
   onComposerChange,
   onSubmit,
   formatClock,
@@ -121,6 +123,12 @@ export function ActiveChatConversation({
   getReactionOption,
   buildMessagePreview,
 }: Props) {
+  const [composerValue, setComposerValue] = useState(activeDraft);
+
+  useEffect(() => {
+    setComposerValue(activeDraft);
+  }, [activeDraft]);
+
   const composerUnavailable = isDirectChatBlocked || Boolean(encryptionIdentityWarning);
   const composerPlaceholder = isDirectChatBlocked
     ? "Пользователь заблокирован"
@@ -273,29 +281,21 @@ export function ActiveChatConversation({
             </div>
           </div>
         ) : (
-          timelineItems.map((item) =>
-            item.type === "day" ? (
-              <div key={item.key} className="timeline-day">
-                <span>{item.label}</span>
-              </div>
-            ) : (
-              <MessageRow
-                key={item.key}
-                chatId={activeChat.id}
-                directChat={activeChat.direct}
-                message={item.message}
-                sessionUser={sessionUser}
-                onOpenContextMenu={onOpenMessageContextMenu}
-                onJumpToMessage={onJumpToMessage}
-                onToggleReaction={onToggleReaction}
-                formatClock={formatClock}
-                getMessageStatusClassName={getMessageStatusClassName}
-                getMessageStatusGlyph={getMessageStatusGlyph}
-                getMessageStatusLabel={getMessageStatusLabel}
-                getReactionOption={getReactionOption}
-              />
-            ),
-          )
+          <ConversationTimeline
+            activeChatId={activeChat.id}
+            directChat={activeChat.direct}
+            timelineItems={timelineItems}
+            sessionUser={sessionUser}
+            onOpenMessageContextMenu={onOpenMessageContextMenu}
+            onJumpToMessage={onJumpToMessage}
+            onToggleReaction={onToggleReaction}
+            onRetryMessage={onRetryMessage}
+            formatClock={formatClock}
+            getMessageStatusClassName={getMessageStatusClassName}
+            getMessageStatusGlyph={getMessageStatusGlyph}
+            getMessageStatusLabel={getMessageStatusLabel}
+            getReactionOption={getReactionOption}
+          />
         )}
 
         {showTypingIndicator ? (
@@ -314,7 +314,9 @@ export function ActiveChatConversation({
         className="composer north-composer"
         onSubmit={(event) => {
           event.preventDefault();
-          onSubmit();
+          if (onSubmit(composerValue)) {
+            setComposerValue("");
+          }
         }}
       >
         {replyingToMessage ? (
@@ -385,13 +387,19 @@ export function ActiveChatConversation({
         <div className="north-composer-body">
           <textarea
             ref={composerTextareaRef}
-            value={activeDraft}
+            value={composerValue}
             disabled={composerUnavailable}
-            onChange={(event) => onComposerChange(event.target.value)}
+            onChange={(event) => {
+              const nextValue = event.target.value;
+              setComposerValue(nextValue);
+              onComposerChange(nextValue);
+            }}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
-                onSubmit();
+                if (onSubmit(composerValue)) {
+                  setComposerValue("");
+                }
               }
             }}
             placeholder={composerPlaceholder}
@@ -400,7 +408,7 @@ export function ActiveChatConversation({
           <button
             type="submit"
             className="primary-button north-send-button"
-            disabled={!activeDraft.trim() || composerUnavailable}
+            disabled={!composerValue.trim() || composerUnavailable}
           >
             {editingMessage ? "✓" : ">"}
           </button>
@@ -410,6 +418,79 @@ export function ActiveChatConversation({
   );
 }
 
+type ConversationTimelineProps = {
+  activeChatId: string;
+  directChat: boolean;
+  timelineItems: TimelineItem[];
+  sessionUser: UserProfile;
+  onRender?: () => void;
+  onOpenMessageContextMenu: (
+    event: ReactMouseEvent<HTMLElement>,
+    chatId: string,
+    messageId: string,
+  ) => void;
+  onJumpToMessage: (chatId: string, messageId: string) => void;
+  onToggleReaction: (
+    chatId: string,
+    messageId: string,
+    key: MessageReaction["key"],
+  ) => void;
+  onRetryMessage: (message: ChatMessage) => void;
+  formatClock: (value: string) => string;
+  getMessageStatusClassName: (status: MessageStatus | null) => string;
+  getMessageStatusGlyph: (status: MessageStatus | null) => string;
+  getMessageStatusLabel: (status: MessageStatus | null) => string;
+  getReactionOption: (key: MessageReaction["key"]) => ReactionOption | null | undefined;
+};
+
+export const ConversationTimeline = memo(function ConversationTimeline({
+  activeChatId,
+  directChat,
+  timelineItems,
+  sessionUser,
+  onRender,
+  onOpenMessageContextMenu,
+  onJumpToMessage,
+  onToggleReaction,
+  onRetryMessage,
+  formatClock,
+  getMessageStatusClassName,
+  getMessageStatusGlyph,
+  getMessageStatusLabel,
+  getReactionOption,
+}: ConversationTimelineProps) {
+  onRender?.();
+  return (
+    <>
+      {timelineItems.map((item) =>
+        item.type === "day" ? (
+          <div key={item.key} className="timeline-day">
+            <span>{item.label}</span>
+          </div>
+        ) : (
+          <MessageRow
+            key={item.key}
+            chatId={activeChatId}
+            directChat={directChat}
+            message={item.message}
+            sessionUser={sessionUser}
+            onOpenContextMenu={onOpenMessageContextMenu}
+            onJumpToMessage={onJumpToMessage}
+            onToggleReaction={onToggleReaction}
+            formatClock={formatClock}
+            getMessageStatusClassName={getMessageStatusClassName}
+            getMessageStatusGlyph={getMessageStatusGlyph}
+            getMessageStatusLabel={getMessageStatusLabel}
+            getReactionOption={getReactionOption}
+            onRetryMessage={onRetryMessage}
+          />
+        ),
+      )}
+    </>
+  );
+});
+ConversationTimeline.displayName = "ConversationTimeline";
+
 type MessageRowProps = {
   chatId: string;
   directChat: boolean;
@@ -418,6 +499,7 @@ type MessageRowProps = {
   onOpenContextMenu: (event: ReactMouseEvent<HTMLElement>, chatId: string, messageId: string) => void;
   onJumpToMessage: (chatId: string, messageId: string) => void;
   onToggleReaction: (chatId: string, messageId: string, key: MessageReaction["key"]) => void;
+  onRetryMessage: (message: ChatMessage) => void;
   formatClock: (value: string) => string;
   getMessageStatusClassName: (status: MessageStatus | null) => string;
   getMessageStatusGlyph: (status: MessageStatus | null) => string;
@@ -425,7 +507,7 @@ type MessageRowProps = {
   getReactionOption: (key: MessageReaction["key"]) => ReactionOption | null | undefined;
 };
 
-function MessageRow({
+const MessageRow = memo(function MessageRow({
   chatId,
   directChat,
   message,
@@ -433,6 +515,7 @@ function MessageRow({
   onOpenContextMenu,
   onJumpToMessage,
   onToggleReaction,
+  onRetryMessage,
   formatClock,
   getMessageStatusClassName,
   getMessageStatusGlyph,
@@ -510,6 +593,15 @@ function MessageRow({
           </button>
         ) : null}
         <div className="message-body">{message.content}</div>
+        {ownMessage && message.status?.state === "FAILED" ? (
+          <button
+            type="button"
+            className="message-retry-button"
+            onClick={() => onRetryMessage(message)}
+          >
+            Retry
+          </button>
+        ) : null}
         {directChat ? (
           <div className="message-meta-clone message-meta is-compact is-bottom">{messageMetaTrailing}</div>
         ) : null}
@@ -542,5 +634,6 @@ function MessageRow({
       </article>
     </div>
   );
-}
+});
+MessageRow.displayName = "MessageRow";
 

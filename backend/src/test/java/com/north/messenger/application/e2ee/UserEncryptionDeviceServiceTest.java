@@ -29,6 +29,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import static com.north.messenger.support.TestUserAccounts.testUserAccount;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -81,7 +82,7 @@ class UserEncryptionDeviceServiceTest {
 
     @Test
     void upsertOwnDeviceShouldRejectInvalidSignedPrekeySignature() throws Exception {
-        UserAccount user = new UserAccount(
+        UserAccount user = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
@@ -115,7 +116,7 @@ class UserEncryptionDeviceServiceTest {
 
     @Test
     void upsertOwnDeviceShouldAcceptValidDeviceBundle() throws Exception {
-        UserAccount user = new UserAccount(
+        UserAccount user = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
@@ -156,7 +157,7 @@ class UserEncryptionDeviceServiceTest {
 
     @Test
     void upsertOwnDeviceShouldReuseRequestedDeviceAcrossNewSession() throws Exception {
-        UserAccount user = new UserAccount(
+        UserAccount user = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
@@ -212,7 +213,7 @@ class UserEncryptionDeviceServiceTest {
 
     @Test
     void upsertOwnDeviceShouldPreserveClaimedBootstrapPrekeys() throws Exception {
-        UserAccount user = new UserAccount(
+        UserAccount user = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
@@ -279,7 +280,7 @@ class UserEncryptionDeviceServiceTest {
 
     @Test
     void upsertOwnDeviceShouldRejectRequestedPrekeysThatReuseClaimedBootstrapIds() throws Exception {
-        UserAccount user = new UserAccount(
+        UserAccount user = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
@@ -332,7 +333,7 @@ class UserEncryptionDeviceServiceTest {
 
     @Test
     void listOwnDevicesShouldReturnDevicesWithoutSessionFiltering() {
-        UserAccount user = new UserAccount(
+        UserAccount user = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
@@ -353,7 +354,7 @@ class UserEncryptionDeviceServiceTest {
 
     @Test
     void listOwnDevicesShouldHideDevicesWithInvalidCurrentSignedPrekey() {
-        UserAccount user = new UserAccount(
+        UserAccount user = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
@@ -390,14 +391,14 @@ class UserEncryptionDeviceServiceTest {
 
     @Test
     void resolveDeviceBundlesShouldReturnDevicesForUsersWhoShareAChat() {
-        UserAccount currentUser = new UserAccount(
+        UserAccount currentUser = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
                 "hash",
                 Instant.parse("2026-04-10T10:00:00Z")
         );
-        UserAccount remoteUser = new UserAccount(
+        UserAccount remoteUser = testUserAccount(
                 UUID.randomUUID(),
                 "alice",
                 "Alice",
@@ -448,14 +449,14 @@ class UserEncryptionDeviceServiceTest {
 
     @Test
     void resolveDeviceBundlesShouldRejectUsersWithoutSharedChat() {
-        UserAccount currentUser = new UserAccount(
+        UserAccount currentUser = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
                 "hash",
                 Instant.parse("2026-04-10T10:00:00Z")
         );
-        UserAccount remoteUser = new UserAccount(
+        UserAccount remoteUser = testUserAccount(
                 UUID.randomUUID(),
                 "alice",
                 "Alice",
@@ -485,14 +486,14 @@ class UserEncryptionDeviceServiceTest {
 
     @Test
     void resolveDeviceBundlesShouldClaimOneTimePrekeyForRequesterDeviceWhenConsumptionIsRequested() {
-        UserAccount currentUser = new UserAccount(
+        UserAccount currentUser = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
                 "hash",
                 Instant.parse("2026-04-10T10:00:00Z")
         );
-        UserAccount remoteUser = new UserAccount(
+        UserAccount remoteUser = testUserAccount(
                 UUID.randomUUID(),
                 "alice",
                 "Alice",
@@ -545,14 +546,14 @@ class UserEncryptionDeviceServiceTest {
 
     @Test
     void resolveDeviceBundlesShouldRejectBlockedUsersBeforeLoadingBundles() {
-        UserAccount currentUser = new UserAccount(
+        UserAccount currentUser = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
                 "hash",
                 Instant.parse("2026-04-10T10:00:00Z")
         );
-        UserAccount remoteUser = new UserAccount(
+        UserAccount remoteUser = testUserAccount(
                 UUID.randomUUID(),
                 "alice",
                 "Alice",

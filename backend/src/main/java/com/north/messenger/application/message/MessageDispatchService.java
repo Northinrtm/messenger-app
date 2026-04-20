@@ -28,6 +28,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 class MessageDispatchService {
 
+    private static final String MESSAGE_ACK_DESTINATION = "/queue/message-acks";
+    private static final String MESSAGE_DELIVERY_DESTINATION = "/queue/messages";
+
     private final ChatService chatService;
     private final ChatMessageRepository chatMessageRepository;
     private final MessageReactionRepository messageReactionRepository;
@@ -61,6 +64,10 @@ class MessageDispatchService {
         ChatMessage message = chatMessageRepository.findById(event.messageId()).orElse(null);
         if (message == null) {
             telemetry.recordMessageDispatchMissing(event.chatId(), event.messageId(), "after_commit");
+            return;
+        }
+        if (event.mode() == MessageDispatchMode.ACK_ONLY) {
+            acknowledgeSender(message, event.clientMessageId(), "after_commit_ack_only");
             return;
         }
         broadcastMessage(message, event.clientMessageId(), "after_commit");
@@ -105,6 +112,18 @@ class MessageDispatchService {
                     .collect(Collectors.groupingBy(MessageReaction::getReactionKey));
             MessageSnippetResponse replyTo = repliesByMessageId.get(message.getId());
 
+            MessageResponse senderAck = messageSupport.toResponse(
+                    message,
+                    senderParticipant,
+                    sender.getId(),
+                    summary,
+                    messageSupport.summarizeReactions(reactionsByKey, sender.getId()),
+                    senderClientMessageId,
+                    replyTo,
+                    messageSupport.toEncryptedPayload(message, sender.getId(), encryptedKeysByUserId)
+            );
+            realtimeMessagingGateway.sendToUser(sender.getUsername(), MESSAGE_ACK_DESTINATION, senderAck);
+
             participants.forEach(participant -> {
                 List<MessageReactionSummaryResponse> reactions = messageSupport.summarizeReactions(
                         reactionsByKey,
@@ -118,10 +137,67 @@ class MessageDispatchService {
                 MessageResponse response = participant.getId().equals(sender.getId())
                         ? messageSupport.toResponse(message, senderParticipant, participant.getId(), summary, reactions, senderClientMessageId, replyTo, encryptedPayload)
                         : messageSupport.toResponse(message, senderParticipant, participant.getId(), summary, reactions, null, replyTo, encryptedPayload);
-                realtimeMessagingGateway.sendToUser(participant.getUsername(), "/queue/messages", response);
+                realtimeMessagingGateway.sendToUser(participant.getUsername(), MESSAGE_DELIVERY_DESTINATION, response);
             });
             telemetry.recordMessageDispatch(telemetrySample, room, participantCount, source, "sent", message.getChatId(), message.getId());
             chatService.notifyChatUpdated(message.getChatId());
+        } catch (RuntimeException exception) {
+            telemetry.recordMessageDispatch(telemetrySample, room, participantCount, source, "error", message.getChatId(), message.getId());
+            throw exception;
+        }
+    }
+
+    void acknowledgeSender(ChatMessage message, String senderClientMessageId, String source) {
+        Timer.Sample telemetrySample = telemetry.startSample();
+        ChatRoom room = chatService.getChatRoom(message.getChatId());
+        UserAccount sender = userAccountRepository.findById(message.getSenderId()).orElse(null);
+        if (sender == null || room == null) {
+            if (room != null) {
+                telemetry.recordMessageDispatch(
+                        telemetrySample,
+                        room,
+                        0,
+                        source,
+                        "missing_sender",
+                        message.getChatId(),
+                        message.getId()
+                );
+            } else {
+                telemetry.recordMessageDispatchMissing(message.getChatId(), message.getId(), source);
+            }
+            return;
+        }
+
+        int participantCount = 0;
+        try {
+            List<UserAccount> participants = chatService.findParticipants(message.getChatId());
+            participantCount = participants.size();
+            MessageSupport.MessageReceiptSummary summary = messageSupport.loadReceiptSummaries(List.of(message.getId()))
+                    .getOrDefault(message.getId(), MessageSupport.MessageReceiptSummary.empty());
+            Map<UUID, MessageSnippetResponse> repliesByMessageId = messageSupport.loadReplySnippetsByMessageId(
+                    List.of(message),
+                    participants.stream().collect(Collectors.toMap(UserAccount::getId, Function.identity()))
+            );
+            Map<String, List<MessageReaction>> reactionsByKey = messageReactionRepository.findAllByMessageIdIn(
+                            List.of(message.getId())
+                    ).stream()
+                    .collect(Collectors.groupingBy(MessageReaction::getReactionKey));
+            MessageResponse response = messageSupport.toResponse(
+                    message,
+                    authService.toParticipant(sender),
+                    sender.getId(),
+                    summary,
+                    messageSupport.summarizeReactions(reactionsByKey, sender.getId()),
+                    senderClientMessageId,
+                    repliesByMessageId.get(message.getId()),
+                    messageSupport.toEncryptedPayload(
+                            message,
+                            sender.getId(),
+                            messageSupport.deserializeEncryptedKeys(message)
+                    )
+            );
+            realtimeMessagingGateway.sendToUser(sender.getUsername(), MESSAGE_ACK_DESTINATION, response);
+            telemetry.recordMessageDispatch(telemetrySample, room, participantCount, source, "acked", message.getChatId(), message.getId());
         } catch (RuntimeException exception) {
             telemetry.recordMessageDispatch(telemetrySample, room, participantCount, source, "error", message.getChatId(), message.getId());
             throw exception;

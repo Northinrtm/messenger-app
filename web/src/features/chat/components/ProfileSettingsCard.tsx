@@ -16,6 +16,9 @@ type Props = {
   changePasswordPending: boolean;
   avatarPending: boolean;
   deleteAccountPending: boolean;
+  emailVerificationPending: boolean;
+  emailVerificationInfo: string | null;
+  emailVerificationError: string | null;
   onClose: () => void;
   onProfileDisplayNameChange: (value: string) => void;
   onProfileProfessionChange: (value: string) => void;
@@ -27,6 +30,7 @@ type Props = {
   onDeleteAccountConfirmationChange: (value: string) => void;
   onDeleteAccount: () => void;
   onAvatarSelected: (file: File) => void;
+  onResendEmailVerification: () => void;
 };
 
 export function ProfileSettingsCard({
@@ -42,6 +46,9 @@ export function ProfileSettingsCard({
   changePasswordPending,
   avatarPending,
   deleteAccountPending,
+  emailVerificationPending,
+  emailVerificationInfo,
+  emailVerificationError,
   onClose,
   onProfileDisplayNameChange,
   onProfileProfessionChange,
@@ -53,6 +60,7 @@ export function ProfileSettingsCard({
   onDeleteAccountConfirmationChange,
   onDeleteAccount,
   onAvatarSelected,
+  onResendEmailVerification,
 }: Props) {
   const [isPasswordFormOpen, setIsPasswordFormOpen] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
@@ -74,6 +82,10 @@ export function ProfileSettingsCard({
     normalizedProfileProfession.length > 0
       ? normalizedProfileProfession
       : (profile.profession ?? "");
+  const emailValue = profile.email ?? null;
+  const emailVerified = Boolean(profile.emailVerified);
+  const emailVerificationEnabled = Boolean(profile.emailVerificationEnabled);
+  const showUnverifiedEmailStatus = !emailVerified && !emailVerificationEnabled;
 
   useEffect(() => {
     setIsPasswordFormOpen(false);
@@ -178,6 +190,37 @@ export function ProfileSettingsCard({
           />
           <span className="profile-field-help">Короткое описание о себе.</span>
         </form>
+
+        <div className="profile-line profile-action-panel">
+          <div className="profile-action-row">
+            <div className="profile-action-copy">
+              <span className="profile-label">Почта</span>
+              <strong>{emailValue ?? "Email недоступен"}</strong>
+              <span>
+                {emailVerified
+                  ? "Почта подтверждена."
+                  : emailVerificationEnabled
+                    ? "Почта не подтверждена. Можно отправить письмо со ссылкой для подтверждения."
+                    : "Верификация почты отключена в этой среде."}
+              </span>
+              {showUnverifiedEmailStatus ? (
+                <span>{"\u041f\u043e\u0447\u0442\u0430 \u043d\u0435 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d\u0430."}</span>
+              ) : null}
+            </div>
+            {!emailVerified && emailVerificationEnabled && emailValue ? (
+              <button
+                type="button"
+                className="ghost-button compact"
+                onClick={onResendEmailVerification}
+                disabled={emailVerificationPending}
+              >
+                {emailVerificationPending ? "Отправляем..." : "Верифицировать почту"}
+              </button>
+            ) : null}
+          </div>
+          {emailVerificationInfo ? <div className="form-note">{emailVerificationInfo}</div> : null}
+          {emailVerificationError ? <div className="form-error">{emailVerificationError}</div> : null}
+        </div>
 
         <div className="profile-line profile-action-panel">
           <div className="profile-action-row">

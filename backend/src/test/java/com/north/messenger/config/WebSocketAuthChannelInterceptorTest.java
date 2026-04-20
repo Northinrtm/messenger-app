@@ -17,6 +17,7 @@ import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 
+import static com.north.messenger.support.TestUserAccounts.testUserAccount;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -42,7 +43,7 @@ class WebSocketAuthChannelInterceptorTest {
         UUID userId = UUID.randomUUID();
         UUID sessionId = UUID.randomUUID();
         UUID chatId = UUID.randomUUID();
-        UserAccount user = new UserAccount(
+        UserAccount user = testUserAccount(
                 userId,
                 "north",
                 "North",
@@ -71,7 +72,7 @@ class WebSocketAuthChannelInterceptorTest {
         UUID userId = UUID.randomUUID();
         UUID sessionId = UUID.randomUUID();
         UUID chatId = UUID.randomUUID();
-        UserAccount user = new UserAccount(
+        UserAccount user = testUserAccount(
                 userId,
                 "north",
                 "North",
@@ -99,7 +100,7 @@ class WebSocketAuthChannelInterceptorTest {
     void shouldRestorePrincipalFromConnectSessionForUserQueueSubscription() {
         UUID userId = UUID.randomUUID();
         UUID sessionId = UUID.randomUUID();
-        UserAccount user = new UserAccount(
+        UserAccount user = testUserAccount(
                 userId,
                 "north",
                 "North",
@@ -139,7 +140,7 @@ class WebSocketAuthChannelInterceptorTest {
     void shouldDropSendToBrokerDestination() {
         UUID userId = UUID.randomUUID();
         UUID sessionId = UUID.randomUUID();
-        UserAccount user = new UserAccount(
+        UserAccount user = testUserAccount(
                 userId,
                 "north",
                 "North",
@@ -165,7 +166,7 @@ class WebSocketAuthChannelInterceptorTest {
     void shouldAllowSendToApplicationDestinationForActiveSession() {
         UUID userId = UUID.randomUUID();
         UUID sessionId = UUID.randomUUID();
-        UserAccount user = new UserAccount(
+        UserAccount user = testUserAccount(
                 userId,
                 "north",
                 "North",

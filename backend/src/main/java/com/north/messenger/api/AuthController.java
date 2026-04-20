@@ -2,13 +2,19 @@ package com.north.messenger.api;
 
 import com.north.messenger.api.dto.AuthResponse;
 import com.north.messenger.api.dto.ChangePasswordRequest;
+import com.north.messenger.api.dto.EmailVerificationConfirmRequest;
+import com.north.messenger.api.dto.EmailVerificationResendRequest;
 import com.north.messenger.api.dto.LoginRequest;
+import com.north.messenger.api.dto.PasswordResetConfirmRequest;
+import com.north.messenger.api.dto.PasswordResetRequest;
 import com.north.messenger.api.dto.RegisterRequest;
 import com.north.messenger.api.dto.UpdateAvatarRequest;
 import com.north.messenger.api.dto.UpdateProfileRequest;
 import com.north.messenger.api.dto.UserSessionResponse;
 import com.north.messenger.api.dto.UserProfileResponse;
 import com.north.messenger.application.auth.AuthService;
+import com.north.messenger.application.auth.EmailVerificationService;
+import com.north.messenger.application.auth.PasswordResetService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -18,8 +24,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -33,15 +39,23 @@ import com.north.messenger.security.RefreshTokenCookieService;
 public class AuthController {
 
     private final AuthService authService;
+    private final EmailVerificationService emailVerificationService;
+    private final PasswordResetService passwordResetService;
     private final RefreshTokenCookieService refreshTokenCookieService;
 
-    public AuthController(AuthService authService, RefreshTokenCookieService refreshTokenCookieService) {
+    public AuthController(
+            AuthService authService,
+            EmailVerificationService emailVerificationService,
+            PasswordResetService passwordResetService,
+            RefreshTokenCookieService refreshTokenCookieService
+    ) {
         this.authService = authService;
+        this.emailVerificationService = emailVerificationService;
+        this.passwordResetService = passwordResetService;
         this.refreshTokenCookieService = refreshTokenCookieService;
     }
 
     @PostMapping("/register")
-    @ResponseStatus(HttpStatus.CREATED)
     public AuthResponse register(
             @Valid @RequestBody RegisterRequest request,
             HttpServletRequest httpRequest,
@@ -61,6 +75,40 @@ public class AuthController {
         AuthService.IssuedAuthSession issuedAuthSession = authService.login(request, httpRequest.getHeader("User-Agent"));
         refreshTokenCookieService.write(httpResponse, issuedAuthSession.refreshToken());
         return issuedAuthSession.response();
+    }
+
+    @PostMapping("/email-verification/confirm")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void confirmEmailVerification(@Valid @RequestBody EmailVerificationConfirmRequest request) {
+        emailVerificationService.verifyEmail(request.token());
+    }
+
+    @PostMapping("/email-verification/resend")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public void resendEmailVerification(@Valid @RequestBody EmailVerificationResendRequest request) {
+        emailVerificationService.resendVerificationEmail(request.email());
+    }
+
+    @PostMapping("/me/email-verification")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public void resendOwnEmailVerification(Authentication authentication) {
+        emailVerificationService.resendVerificationEmailForAuthenticatedUser(authentication.getName());
+    }
+
+    @PostMapping("/password-reset/request")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public void requestPasswordReset(@Valid @RequestBody PasswordResetRequest request) {
+        passwordResetService.requestPasswordReset(request.email());
+    }
+
+    @PostMapping("/password-reset/confirm")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void confirmPasswordReset(
+            @Valid @RequestBody PasswordResetConfirmRequest request,
+            HttpServletResponse httpResponse
+    ) {
+        passwordResetService.resetPassword(request.token(), request.newPassword());
+        refreshTokenCookieService.clear(httpResponse);
     }
 
     @PostMapping("/refresh")

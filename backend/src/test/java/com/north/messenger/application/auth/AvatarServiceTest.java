@@ -10,6 +10,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 
+import static com.north.messenger.support.TestUserAccounts.testUserAccount;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -27,7 +28,7 @@ class AvatarServiceTest {
 
     @Test
     void shouldResolveCompactAvatarUrlForInlineAvatar() {
-        UserAccount user = new UserAccount(
+        UserAccount user = testUserAccount(
                 UUID.fromString("fdcb84e9-689d-4b59-a23d-2e94301a771c"),
                 "north",
                 "North",
@@ -46,7 +47,7 @@ class AvatarServiceTest {
     void shouldDecodeStoredAvatarDataUrl() {
         UUID userId = UUID.randomUUID();
         byte[] avatarBytes = "avatar-image".getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        UserAccount user = new UserAccount(
+        UserAccount user = testUserAccount(
                 userId,
                 "north",
                 "North",

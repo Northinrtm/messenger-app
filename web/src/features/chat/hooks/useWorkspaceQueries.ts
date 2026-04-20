@@ -1,6 +1,6 @@
 import type { InfiniteData } from "@tanstack/react-query";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo } from "react";
 import {
   getArchivedChats,
   getArchivedVideoConferences,
@@ -13,8 +13,13 @@ import {
   getVideoConferences,
   searchUsers,
 } from "../../../lib/api";
-import { getEncryptedMessages } from "../../../lib/e2ee";
-import type { ChatMessage, ChatSummary } from "../../../lib/types";
+import { getEncryptedMessages, isUnavailableEncryptedMessage } from "../../../lib/e2ee";
+import {
+  recoverLocalPendingMessages,
+  removeLocalPendingMessage,
+  toRecoveredPendingChatMessage,
+} from "../../../lib/localPendingMessages";
+import type { ChatMessage, ChatSummary, UserProfile } from "../../../lib/types";
 import type { ConversationListTab, SidebarSheet } from "../chatUi";
 import {
   buildMessagesQueryKey,
@@ -28,6 +33,7 @@ type UseWorkspaceQueriesOptions = {
   activeConferenceId: string | null;
   activeListTab: ConversationListTab;
   activePendingOutgoingCount: number;
+  currentUser: UserProfile;
   deferredContactSearch: string;
   deferredSearch: string;
   isRealtimeConnected: boolean;
@@ -42,15 +48,13 @@ type UseWorkspaceQueriesOptions = {
 const INITIAL_MESSAGE_PAGE_SIZE = 30;
 
 export type MessagePageCursor = {
-  before: string | null;
-  beforeMessageId: string | null;
+  beforeServerOrder: number | null;
   limit: number;
 };
 
 export function createInitialMessagePageCursor(): MessagePageCursor {
   return {
-    before: null,
-    beforeMessageId: null,
+    beforeServerOrder: null,
     limit: INITIAL_MESSAGE_PAGE_SIZE,
   };
 }
@@ -82,10 +86,22 @@ export function getNextMessagePageCursor(
   }
 
   return {
-    before: lastPage[0].createdAt,
-    beforeMessageId: lastPage[0].id,
+    beforeServerOrder: lastPage[0].serverOrder ?? null,
     limit: MESSAGE_PAGE_SIZE,
   } satisfies MessagePageCursor;
+}
+
+export function getCleanupEligiblePendingMessageClientIds(messages: ChatMessage[]) {
+  return new Set(
+    messages
+      .filter(
+        (message) =>
+          message.clientMessageId &&
+          message.id !== message.clientMessageId &&
+          !isUnavailableEncryptedMessage(message.content)
+      )
+      .map((message) => message.clientMessageId as string)
+  );
 }
 
 export function useWorkspaceQueries({
@@ -93,6 +109,7 @@ export function useWorkspaceQueries({
   activeConferenceId,
   activeListTab,
   activePendingOutgoingCount,
+  currentUser,
   deferredContactSearch,
   deferredSearch,
   isRealtimeConnected,
@@ -103,6 +120,7 @@ export function useWorkspaceQueries({
   typingQueryGcTimeMs,
   userId,
 }: UseWorkspaceQueriesOptions) {
+  const queryClient = useQueryClient();
   const shouldFetchSessions = sidebarSheet === "sessions";
   const shouldAggressivelyRefreshConferences =
     activeListTab === "conferences" || Boolean(activeConferenceId);
@@ -189,13 +207,17 @@ export function useWorkspaceQueries({
   });
 
   const activeChat = (chatsQuery.data ?? []).find((chat) => chat.id === activeChatId) ?? null;
+  const pendingOutgoingMessagesQuery = useQuery({
+    queryKey: ["pending-outgoing-messages", userId],
+    queryFn: () => recoverLocalPendingMessages(userId),
+    staleTime: Infinity,
+  });
 
   const messagesQuery = useInfiniteQuery({
     queryKey: buildMessagesQueryKey(userId, activeChat?.id),
     queryFn: ({ pageParam }) =>
       getEncryptedMessages(sessionToken, userId, activeChat!.id, {
-        before: pageParam?.before,
-        beforeMessageId: pageParam?.beforeMessageId,
+        beforeServerOrder: pageParam?.beforeServerOrder,
         limit: pageParam?.limit ?? INITIAL_MESSAGE_PAGE_SIZE,
       }),
     enabled: Boolean(activeChat?.id),
@@ -215,10 +237,53 @@ export function useWorkspaceQueries({
       ),
   });
 
-  const messages = useMemo(
-    () => flattenMessagePages(messagesQuery.data?.pages),
-    [messagesQuery.data?.pages]
+  const recoveredPendingMessages = useMemo(
+    () =>
+      (pendingOutgoingMessagesQuery.data ?? [])
+        .filter((message) => message.chatId === activeChat?.id)
+        .map((message) => toRecoveredPendingChatMessage(currentUser, message)),
+    [activeChat?.id, currentUser, pendingOutgoingMessagesQuery.data]
   );
+
+  const mergedMessagePages = useMemo(() => {
+    if (!recoveredPendingMessages.length) {
+      return messagesQuery.data;
+    }
+
+    return {
+      pages: [...(messagesQuery.data?.pages ?? []), recoveredPendingMessages],
+      pageParams: [...(messagesQuery.data?.pageParams ?? []), null],
+    } satisfies InfiniteData<ChatMessage[]>;
+  }, [messagesQuery.data, recoveredPendingMessages]);
+
+  const messages = useMemo(
+    () => flattenMessagePages(mergedMessagePages?.pages),
+    [mergedMessagePages?.pages]
+  );
+
+  useEffect(() => {
+    const confirmedClientMessageIds = getCleanupEligiblePendingMessageClientIds(
+      flattenMessagePages(messagesQuery.data?.pages)
+    );
+
+    if (!confirmedClientMessageIds.size) {
+      return;
+    }
+
+    const recoveredMessages = pendingOutgoingMessagesQuery.data ?? [];
+    const staleRecoveredMessages = recoveredMessages.filter((message) =>
+      confirmedClientMessageIds.has(message.clientMessageId)
+    );
+    if (!staleRecoveredMessages.length) {
+      return;
+    }
+
+    let nextRecoveredMessages = recoveredMessages;
+    staleRecoveredMessages.forEach((message) => {
+      nextRecoveredMessages = removeLocalPendingMessage(userId, message.clientMessageId);
+    });
+    queryClient.setQueryData(["pending-outgoing-messages", userId], nextRecoveredMessages);
+  }, [messagesQuery.data?.pages, pendingOutgoingMessagesQuery.data, queryClient, userId]);
 
   return {
     activeTypingQuery,
@@ -231,6 +296,7 @@ export function useWorkspaceQueries({
     contactsSearchQuery,
     messages,
     messagesQuery,
+    pendingOutgoingMessagesQuery,
     profileQuery,
     sessionsQuery,
     userSearchQuery,

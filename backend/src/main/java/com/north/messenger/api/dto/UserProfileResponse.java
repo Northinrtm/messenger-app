@@ -10,8 +10,23 @@ public record UserProfileResponse(
         String profession,
         Instant createdAt,
         String avatarUrl,
-        boolean online
+        boolean online,
+        String email,
+        boolean emailVerified,
+        boolean emailVerificationEnabled
 ) {
+    public UserProfileResponse(
+            UUID id,
+            String username,
+            String displayName,
+            String profession,
+            Instant createdAt,
+            String avatarUrl,
+            boolean online
+    ) {
+        this(id, username, displayName, profession, createdAt, avatarUrl, online, null, false, false);
+    }
+
     public UserProfileResponse(
             UUID id,
             String username,
@@ -20,6 +35,6 @@ public record UserProfileResponse(
             String avatarUrl,
             boolean online
     ) {
-        this(id, username, displayName, null, createdAt, avatarUrl, online);
+        this(id, username, displayName, null, createdAt, avatarUrl, online, null, false, false);
     }
 }

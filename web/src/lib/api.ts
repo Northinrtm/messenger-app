@@ -128,11 +128,20 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     );
   }
 
-  if (response.status === 204) {
+  return parseSuccessResponse<T>(response);
+}
+
+async function parseSuccessResponse<T>(response: Response): Promise<T> {
+  if (response.status === 204 || response.status === 205) {
     return undefined as T;
   }
 
-  return (await response.json()) as T;
+  const rawBody = await response.text();
+  if (!rawBody.trim()) {
+    return undefined as T;
+  }
+
+  return JSON.parse(rawBody) as T;
 }
 
 function extractFileName(contentDisposition: string | null) {
@@ -181,6 +190,7 @@ function resolveHttpErrorMessage(status: number, statusText: string, fallbackMes
 
 export function register(input: {
   username: string;
+  email: string;
   displayName: string;
   password: string;
 }) {
@@ -193,6 +203,46 @@ export function register(input: {
 
 export function login(input: { username: string; password: string }) {
   return request<AuthResponse>("/api/auth/login", {
+    method: "POST",
+    body: input,
+    timeoutMs: 10000,
+  });
+}
+
+export function requestPasswordReset(input: { email: string }) {
+  return request<void>("/api/auth/password-reset/request", {
+    method: "POST",
+    body: input,
+    timeoutMs: 10000,
+  });
+}
+
+export function confirmEmailVerification(input: { token: string }) {
+  return request<void>("/api/auth/email-verification/confirm", {
+    method: "POST",
+    body: input,
+    timeoutMs: 10000,
+  });
+}
+
+export function resendEmailVerification(input: { email: string }) {
+  return request<void>("/api/auth/email-verification/resend", {
+    method: "POST",
+    body: input,
+    timeoutMs: 10000,
+  });
+}
+
+export function resendOwnEmailVerification(token: string) {
+  return request<void>("/api/auth/me/email-verification", {
+    method: "POST",
+    token,
+    timeoutMs: 10000,
+  });
+}
+
+export function confirmPasswordReset(input: { token: string; newPassword: string }) {
+  return request<void>("/api/auth/password-reset/confirm", {
     method: "POST",
     body: input,
     timeoutMs: 10000,
@@ -413,8 +463,7 @@ export function getMessagesRaw(
   token: string,
   chatId: string,
   options: {
-    before?: string | null;
-    beforeMessageId?: string | null;
+    beforeServerOrder?: number | null;
     limit?: number;
     acknowledgeDelivered?: boolean;
   } = {}
@@ -424,30 +473,9 @@ export function getMessagesRaw(
     query: {
       acknowledgeDelivered:
         options.acknowledgeDelivered === undefined ? undefined : options.acknowledgeDelivered ? 1 : 0,
-      before: options.before,
-      beforeMessageId: options.beforeMessageId,
+      beforeServerOrder: options.beforeServerOrder,
       limit: options.limit,
     },
-  });
-}
-
-export function sendMessageRaw(
-  token: string,
-  chatId: string,
-  body: {
-    clientMessageId?: string;
-    replyToMessageId?: string | null;
-    encryptedPayload: {
-      scheme: string;
-      encryptedKeysByRecipientId: Record<string, string>;
-      sharedEnvelope?: string | null;
-    };
-  }
-) {
-  return request<ApiChatMessage>(`/api/chats/${chatId}/messages`, {
-    method: "POST",
-    token,
-    body,
   });
 }
 
@@ -515,14 +543,6 @@ export function toggleMessageReaction(
 export function getTypingParticipants(token: string, chatId: string) {
   return request<Participant[]>(`/api/chats/${chatId}/typing`, {
     token,
-  });
-}
-
-export function sendTypingState(token: string, chatId: string, typing: boolean) {
-  return request<void>(`/api/chats/${chatId}/typing`, {
-    method: "POST",
-    token,
-    body: { typing },
   });
 }
 

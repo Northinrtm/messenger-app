@@ -226,6 +226,7 @@ class MessageSupport {
         return new MessageResponse(
                 message.getId(),
                 message.getChatId(),
+                message.getServerOrder(),
                 sender,
                 message.getCreatedAt(),
                 message.getEditedAt(),
@@ -339,11 +340,16 @@ class MessageSupport {
     }
 
     String normalizeClientMessageId(String clientMessageId) {
-        if (clientMessageId == null || clientMessageId.isBlank()) {
-            return null;
+        if (clientMessageId == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Client message id is required");
         }
 
-        return clientMessageId;
+        String normalized = clientMessageId.trim();
+        if (normalized.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Client message id is required");
+        }
+
+        return normalized;
     }
 
     UUID validateReplyTarget(UUID chatId, UUID replyToMessageId) {

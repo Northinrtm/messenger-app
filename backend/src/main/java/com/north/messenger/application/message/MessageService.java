@@ -6,7 +6,6 @@ import com.north.messenger.api.dto.MessageReactionEventResponse;
 import com.north.messenger.api.dto.MessageResponse;
 import com.north.messenger.api.dto.ToggleMessageReactionRequest;
 import com.north.messenger.api.dto.UpdateMessageRequest;
-import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -36,16 +35,14 @@ public class MessageService {
     public List<MessageResponse> listMessages(
             UUID chatId,
             String username,
-            Instant before,
-            UUID beforeMessageId,
+            Long beforeServerOrder,
             int limit,
             boolean acknowledgeDelivered
     ) {
         return messageQueryService.listMessages(
                 chatId,
                 username,
-                before,
-                beforeMessageId,
+                beforeServerOrder,
                 limit,
                 acknowledgeDelivered
         );

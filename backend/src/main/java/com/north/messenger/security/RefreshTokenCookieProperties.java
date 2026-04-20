@@ -9,4 +9,15 @@ public record RefreshTokenCookieProperties(
         String sameSite,
         boolean secure
 ) {
+    public RefreshTokenCookieProperties {
+        if (name == null || name.isBlank()) {
+            throw new IllegalStateException("app.auth.refresh-cookie.name must be configured");
+        }
+        if (path == null || path.isBlank()) {
+            throw new IllegalStateException("app.auth.refresh-cookie.path must be configured");
+        }
+        if (sameSite == null || sameSite.isBlank()) {
+            throw new IllegalStateException("app.auth.refresh-cookie.same-site must be configured");
+        }
+    }
 }

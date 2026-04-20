@@ -10,7 +10,6 @@ import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.repository.ChatMessageRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -58,8 +57,7 @@ class MessageQueryService {
     List<MessageResponse> listMessages(
             UUID chatId,
             String username,
-            Instant before,
-            UUID beforeMessageId,
+            Long beforeServerOrder,
             int limit,
             boolean acknowledgeDelivered
     ) {
@@ -69,27 +67,18 @@ class MessageQueryService {
         int safeLimit = Math.max(1, Math.min(limit, 100));
         PageRequest pageRequest = PageRequest.of(0, safeLimit);
         List<ChatMessage> recentMessages = new ArrayList<>(
-                before == null
-                        ? chatMessageRepository.findVisibleEncryptedByChatIdOrderByCreatedAtDesc(
+                beforeServerOrder == null
+                        ? chatMessageRepository.findVisibleEncryptedByChatIdOrderByServerOrderDesc(
                                 chatId,
                                 currentUser.getId(),
                                 pageRequest
                         )
-                        : beforeMessageId == null
-                                ? chatMessageRepository.findVisibleEncryptedByChatIdAndCreatedAtBeforeOrderByCreatedAtDesc(
-                                        chatId,
-                                        before,
-                                        currentUser.getId(),
-                                        pageRequest
-                                )
-                                : chatMessageRepository
-                                        .findVisibleEncryptedByChatIdAndCreatedAtBeforeOrAtAndIdBeforeOrderByCreatedAtDesc(
-                                                chatId,
-                                                before,
-                                                beforeMessageId,
-                                                currentUser.getId(),
-                                                pageRequest
-                                        )
+                        : chatMessageRepository.findVisibleEncryptedByChatIdAndServerOrderBeforeOrderByServerOrderDesc(
+                                chatId,
+                                beforeServerOrder,
+                                currentUser.getId(),
+                                pageRequest
+                        )
         );
         recentMessages.sort(MessageQueryService::compareMessageOrder);
 
@@ -142,12 +131,7 @@ class MessageQueryService {
     }
 
     private static int compareMessageOrder(ChatMessage left, ChatMessage right) {
-        int createdAtComparison = left.getCreatedAt().compareTo(right.getCreatedAt());
-        if (createdAtComparison != 0) {
-            return createdAtComparison;
-        }
-
-        return left.getId().compareTo(right.getId());
+        return Long.compare(left.getServerOrder(), right.getServerOrder());
     }
 
     private Optional<RenderedMessage> tryRenderMessage(
@@ -187,7 +171,7 @@ class MessageQueryService {
                             currentUser.getId(),
                             summariesByMessageId.getOrDefault(message.getId(), MessageSupport.MessageReceiptSummary.empty()),
                             reactionsByMessageId.getOrDefault(message.getId(), List.of()),
-                            null,
+                            message.getSenderId().equals(currentUser.getId()) ? message.getClientMessageId() : null,
                             repliesByMessageId.get(message.getId()),
                             encryptedPayload
                     )

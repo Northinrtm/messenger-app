@@ -1,4 +1,4 @@
-import type { MouseEvent as ReactMouseEvent, RefObject } from "react";
+import { memo, type MouseEvent as ReactMouseEvent, type RefObject } from "react";
 
 import type { ChatSummary, Participant, UserProfile, VideoConference } from "../../../lib/types";
 import type { ConversationListTab } from "../chatUi";
@@ -35,7 +35,7 @@ type Props = {
   formatMemberCount: (count: number) => string;
 };
 
-export function ChatListPanel({
+export const ChatListPanel = memo(function ChatListPanel({
   activeListTab,
   conferenceViewMode,
   onToggleConferenceViewMode,
@@ -244,4 +244,5 @@ export function ChatListPanel({
       })}
     </>
   );
-}
+});
+ChatListPanel.displayName = "ChatListPanel";

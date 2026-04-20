@@ -6,6 +6,9 @@ export type UserProfile = {
   createdAt: string;
   avatarUrl: string | null;
   online: boolean;
+  email?: string | null;
+  emailVerified?: boolean;
+  emailVerificationEnabled?: boolean;
 };
 
 export type Participant = {
@@ -25,7 +28,7 @@ export type AuthResponse = {
 };
 
 export type MessageStatus = {
-  state: "SENDING" | "SENT" | "DELIVERED" | "READ";
+  state: "SENDING" | "FAILED" | "SENT" | "DELIVERED" | "READ";
   recipientCount: number;
   deliveredCount: number;
   readCount: number;
@@ -60,6 +63,7 @@ export type ChatSummary = {
   members: Participant[];
   lastMessage: string | null;
   lastMessageAt: string | null;
+  lastMessageServerOrder?: number | null;
   updatedAt: string;
   unreadCount: number;
   pinnedMessage: MessageSnippet | null;
@@ -101,6 +105,7 @@ export type InviteAcceptance = {
 export type ApiChatMessage = {
   id: string;
   chatId: string;
+  serverOrder?: number | null;
   sender: Participant;
   createdAt: string;
   editedAt: string | null;
@@ -114,6 +119,7 @@ export type ApiChatMessage = {
 export type ChatMessage = {
   id: string;
   chatId: string;
+  serverOrder?: number | null;
   sender: Participant;
   content: string;
   createdAt: string;
@@ -123,6 +129,14 @@ export type ChatMessage = {
   localOrder?: number | null;
   replyTo: MessageSnippet | null;
   reactions: MessageReaction[];
+};
+
+export type MessageSendErrorEvent = {
+  chatId: string;
+  clientMessageId: string | null;
+  status: number;
+  error: string;
+  details: string[];
 };
 
 export type UserSessionInfo = {

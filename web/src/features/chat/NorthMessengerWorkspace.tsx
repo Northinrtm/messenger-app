@@ -352,6 +352,7 @@ export function NorthMessengerWorkspace({
     token: session.token,
     userId: session.user.id,
   });
+  const deferredDraftsByChatId = useDeferredValue(draftsByChatId);
   const {
     clearTypingParticipant,
     handleComposerChange,
@@ -372,6 +373,7 @@ export function NorthMessengerWorkspace({
   const activePendingOutgoingCount = activeChatId
     ? pendingOutgoingCountByChatId[activeChatId] ?? 0
     : 0;
+  const isActiveChatOpen = Boolean(activeChatId) && mobilePane === "conversation";
   const {
     activeTypingQuery,
     archivedChatsQuery,
@@ -383,6 +385,7 @@ export function NorthMessengerWorkspace({
     contactsSearchQuery,
     messages,
     messagesQuery,
+    pendingOutgoingMessagesQuery,
     profileQuery,
     sessionsQuery,
     userSearchQuery,
@@ -391,6 +394,7 @@ export function NorthMessengerWorkspace({
     activeConferenceId,
     activeListTab,
     activePendingOutgoingCount,
+    currentUser: session.user,
     deferredContactSearch,
     deferredSearch,
     isRealtimeConnected,
@@ -404,26 +408,39 @@ export function NorthMessengerWorkspace({
 
   const serverChats = chatsQuery.data ?? [];
   const archivedChatIds = archivedChatsQuery.data ?? [];
-  const archivedChatIdSet = new Set(archivedChatIds);
+  const archivedChatIdSet = useMemo(() => new Set(archivedChatIds), [archivedChatIds]);
   const normalizedSearch = deferredSearch.trim().toLowerCase();
-  const listedServerChats = serverChats.filter((chat) => !chat.direct || chat.lastMessageAt !== null);
-  const filteredServerChats = !normalizedSearch
-    ? listedServerChats
-    : listedServerChats.filter((chat) => {
-        return (
-          chat.title.toLowerCase().includes(normalizedSearch) ||
-          chat.members.some((member) =>
-            `${member.username} ${member.displayName}`.toLowerCase().includes(normalizedSearch)
-          )
-        );
-      });
-  const visibleServerChats = filteredServerChats.filter((chat) => !archivedChatIdSet.has(chat.id));
-  const previewHydrationChats =
-    sidebarSheet === "archive"
-      ? listedServerChats.filter((chat) => archivedChatIdSet.has(chat.id))
-      : activeListTab === "chats"
-        ? visibleServerChats
-        : [];
+  const listedServerChats = useMemo(
+    () => serverChats.filter((chat) => !chat.direct || chat.lastMessageAt !== null),
+    [serverChats]
+  );
+  const filteredServerChats = useMemo(
+    () =>
+      !normalizedSearch
+        ? listedServerChats
+        : listedServerChats.filter((chat) => {
+            return (
+              chat.title.toLowerCase().includes(normalizedSearch) ||
+              chat.members.some((member) =>
+                `${member.username} ${member.displayName}`.toLowerCase().includes(normalizedSearch)
+              )
+            );
+          }),
+    [listedServerChats, normalizedSearch]
+  );
+  const visibleServerChats = useMemo(
+    () => filteredServerChats.filter((chat) => !archivedChatIdSet.has(chat.id)),
+    [archivedChatIdSet, filteredServerChats]
+  );
+  const previewHydrationChats = useMemo(
+    () =>
+      sidebarSheet === "archive"
+        ? listedServerChats.filter((chat) => archivedChatIdSet.has(chat.id))
+        : activeListTab === "chats"
+          ? visibleServerChats
+          : [],
+    [activeListTab, archivedChatIdSet, listedServerChats, sidebarSheet, visibleServerChats]
+  );
   const {
     applyChatPreviewMessage,
     applyServerChatPreviewMessage,
@@ -440,7 +457,10 @@ export function NorthMessengerWorkspace({
     token: session.token,
     userId: session.user.id,
   });
-  const chats = applyChatPreviewOverrides(serverChats, chatPreviewOverrides);
+  const chats = useMemo(
+    () => applyChatPreviewOverrides(serverChats, chatPreviewOverrides),
+    [chatPreviewOverrides, serverChats]
+  );
   const sessions = sessionsQuery.data ?? [];
   const profile = profileQuery.data ?? session.user;
   const deleteAccountRequiresMatch =
@@ -459,48 +479,90 @@ export function NorthMessengerWorkspace({
   const conferencesLoading = conferencesQuery.data === undefined && conferencesQuery.isFetching;
   const archivedConferencesLoading =
     archivedConferencesQuery.data === undefined && archivedConferencesQuery.isFetching;
-  const allConferences = mergeVideoConferenceCollections(conferences, archivedConferences);
-  const listedConferences = conferences.filter((conference) =>
-    conference.participants.some((participant) => participant.id === session.user.id) && !conference.endedAt
+  const allConferences = useMemo(
+    () => mergeVideoConferenceCollections(conferences, archivedConferences),
+    [archivedConferences, conferences]
   );
-  const chatIds = chats.map((chat) => chat.id).sort();
-  const chatIdsKey = chatIds.join(",");
-  const listedChats = chats.filter((chat) => !chat.direct || chat.lastMessageAt !== null);
-  const filteredChats = !normalizedSearch
-    ? listedChats
-    : listedChats.filter((chat) => {
-        return (
-          chat.title.toLowerCase().includes(normalizedSearch) ||
-          chat.members.some((member) =>
-            `${member.username} ${member.displayName}`.toLowerCase().includes(normalizedSearch)
+  const listedConferences = useMemo(
+    () =>
+      conferences.filter(
+        (conference) =>
+          conference.participants.some((participant) => participant.id === session.user.id) &&
+          !conference.endedAt
+      ),
+    [conferences, session.user.id]
+  );
+  const chatIds = useMemo(() => chats.map((chat) => chat.id).sort(), [chats]);
+  const chatIdsKey = useMemo(() => chatIds.join(","), [chatIds]);
+  const listedChats = useMemo(
+    () => chats.filter((chat) => !chat.direct || chat.lastMessageAt !== null),
+    [chats]
+  );
+  const filteredChats = useMemo(
+    () =>
+      !normalizedSearch
+        ? listedChats
+        : listedChats.filter((chat) => {
+            return (
+              chat.title.toLowerCase().includes(normalizedSearch) ||
+              chat.members.some((member) =>
+                `${member.username} ${member.displayName}`.toLowerCase().includes(normalizedSearch)
+              )
+            );
+          }),
+    [listedChats, normalizedSearch]
+  );
+  const visibleChats = useMemo(
+    () => filteredChats.filter((chat) => !archivedChatIdSet.has(chat.id)),
+    [archivedChatIdSet, filteredChats]
+  );
+  const nonArchivedChats = useMemo(
+    () => listedChats.filter((chat) => !archivedChatIdSet.has(chat.id)),
+    [archivedChatIdSet, listedChats]
+  );
+  const archivedChats = useMemo(
+    () => listedChats.filter((chat) => archivedChatIdSet.has(chat.id)),
+    [archivedChatIdSet, listedChats]
+  );
+  const groupContacts = useMemo(
+    () => contacts.filter((contact) => contact.username !== session.user.username),
+    [contacts, session.user.username]
+  );
+  const directChatUsernames = useMemo(
+    () =>
+      new Set(
+        chats
+          .map((chat) =>
+            chat.direct ? getDirectParticipant(chat, session.user)?.username ?? null : null
           )
-        );
-      });
-  const visibleChats = filteredChats.filter((chat) => !archivedChatIdSet.has(chat.id));
-  const nonArchivedChats = listedChats.filter((chat) => !archivedChatIdSet.has(chat.id));
-  const archivedChats = listedChats.filter((chat) => archivedChatIdSet.has(chat.id));
-  const groupContacts = contacts.filter((contact) => contact.username !== session.user.username);
-  const directChatUsernames = new Set(
-    chats
-      .map((chat) => (chat.direct ? getDirectParticipant(chat, session.user)?.username ?? null : null))
-      .filter((username): username is string => Boolean(username))
+          .filter((username): username is string => Boolean(username))
+      ),
+    [chats, session.user]
   );
-  const forwardContactOptions = contacts.filter(
-    (contact) =>
-      contact.username !== session.user.username && !directChatUsernames.has(contact.username)
+  const forwardContactOptions = useMemo(
+    () =>
+      contacts.filter(
+        (contact) =>
+          contact.username !== session.user.username && !directChatUsernames.has(contact.username)
+      ),
+    [contacts, directChatUsernames, session.user.username]
   );
-  const visibleConferences = !normalizedSearch
-    ? listedConferences
-    : listedConferences.filter((conference) => {
-        const participantText = conference.participants
-          .map((participant) => `${participant.username} ${participant.displayName}`)
-          .join(" ")
-          .toLowerCase();
-        return (
-          conference.title.toLowerCase().includes(normalizedSearch) ||
-          participantText.includes(normalizedSearch)
-        );
-      });
+  const visibleConferences = useMemo(
+    () =>
+      !normalizedSearch
+        ? listedConferences
+        : listedConferences.filter((conference) => {
+            const participantText = conference.participants
+              .map((participant) => `${participant.username} ${participant.displayName}`)
+              .join(" ")
+              .toLowerCase();
+            return (
+              conference.title.toLowerCase().includes(normalizedSearch) ||
+              participantText.includes(normalizedSearch)
+            );
+          }),
+    [listedConferences, normalizedSearch]
+  );
   const latestUnreadChatActivityAt = getLatestUnreadChatActivityAt(nonArchivedChats);
   const currentConferenceActivitySnapshot = useMemo(
     () => buildConferenceActivitySnapshot(listedConferences),
@@ -514,25 +576,45 @@ export function NorthMessengerWorkspace({
     !isViewingConferencesSection &&
     hasConferenceActivitySinceSeen(currentConferenceActivitySnapshot, seenConferenceActivitySnapshot);
 
-  const activeChat = chats.find((chat) => chat.id === activeChatId) ?? null;
-  const activeConference =
-    allConferences.find((conference) => conference.id === activeConferenceId) ?? null;
+  const activeChat = useMemo(
+    () => chats.find((chat) => chat.id === activeChatId) ?? null,
+    [activeChatId, chats]
+  );
+  const activeConference = useMemo(
+    () => allConferences.find((conference) => conference.id === activeConferenceId) ?? null,
+    [activeConferenceId, allConferences]
+  );
   const activeGroupInviteUrl =
     activeChat && !activeChat.direct && groupInviteCodesByChatId[activeChat.id]
       ? buildInviteUrl(groupInviteCodesByChatId[activeChat.id]!)
       : null;
-  const conferenceCandidates = mergeConferenceCandidates(
-    groupContacts,
-    activeChat && !activeChat.direct ? activeChat.members : [],
-    session.user.username
+  const conferenceCandidates = useMemo(
+    () =>
+      mergeConferenceCandidates(
+        groupContacts,
+        activeChat && !activeChat.direct ? activeChat.members : [],
+        session.user.username
+      ),
+    [activeChat, groupContacts, session.user.username]
   );
-  const activeDirectParticipant = activeChat ? getDirectParticipant(activeChat, session.user) : null;
-  const activeDirectInContacts = activeDirectParticipant
-    ? contacts.some((contact) => contact.username === activeDirectParticipant.username)
-    : false;
-  const activeDirectBlockedByMe = activeDirectParticipant
-    ? blockedUsers.some((user) => user.username === activeDirectParticipant.username)
-    : false;
+  const activeDirectParticipant = useMemo(
+    () => (activeChat ? getDirectParticipant(activeChat, session.user) : null),
+    [activeChat, session.user]
+  );
+  const activeDirectInContacts = useMemo(
+    () =>
+      activeDirectParticipant
+        ? contacts.some((contact) => contact.username === activeDirectParticipant.username)
+        : false,
+    [activeDirectParticipant, contacts]
+  );
+  const activeDirectBlockedByMe = useMemo(
+    () =>
+      activeDirectParticipant
+        ? blockedUsers.some((user) => user.username === activeDirectParticipant.username)
+        : false,
+    [activeDirectParticipant, blockedUsers]
+  );
   const activeGroupOwnerUserId =
     activeChat && !activeChat.direct
       ? activeChat.ownerUserId
@@ -954,6 +1036,7 @@ export function NorthMessengerWorkspace({
     acknowledgeVisibleMessagesAsRead,
   } = useMessageReceipts({
     activeChatId,
+    isActiveChatOpen,
     clearChatUnreadIndicator,
     currentUser: session.user,
     messages,
@@ -995,7 +1078,6 @@ export function NorthMessengerWorkspace({
     activeConferenceId,
     chats,
     clearChatAttention,
-    clearChatUnreadIndicator,
     clearComposerContext,
     currentUsername: session.user.username,
     setActiveChatId,
@@ -1064,6 +1146,7 @@ export function NorthMessengerWorkspace({
     forwardMessageToContact,
     pinMessageMutation,
     replyToMessage,
+    retryFailedMessage,
     sendMessageMutation,
     submitActiveDraft,
     toggleMessageReactionMutation,
@@ -1086,8 +1169,10 @@ export function NorthMessengerWorkspace({
     forwardingMessage,
     incrementPendingOutgoing,
     decrementPendingOutgoing,
+    isRealtimeConnected,
     onOpenChat: openChat,
     onOpenForwardSheet: () => openSidebarSheet("forward"),
+    pendingOutgoingMessages: pendingOutgoingMessagesQuery.data ?? [],
     refreshChatPreviewFromServer,
     rememberRealtimeMessage,
     replyingToMessage,
@@ -1201,6 +1286,7 @@ export function NorthMessengerWorkspace({
     removeContactMutation,
     revokeGroupModeratorMutation,
     revokeSessionMutation,
+    resendOwnEmailVerificationMutation,
     signOutMutation,
     submitAddConferenceParticipants,
     submitAddGroupParticipants,
@@ -1261,8 +1347,16 @@ export function NorthMessengerWorkspace({
     setIsGroupInvitePickerOpen,
     setMobilePane,
     setProfileProfession,
-    setSidebarSheet,
-  });
+      setSidebarSheet,
+    });
+  const emailVerificationInfo = resendOwnEmailVerificationMutation.isSuccess
+    ? profile.email
+      ? `Письмо для подтверждения отправлено на ${profile.email}.`
+      : "Письмо для подтверждения отправлено."
+    : null;
+  const emailVerificationError = resendOwnEmailVerificationMutation.error
+    ? describeError(resendOwnEmailVerificationMutation.error)
+    : null;
 
   useEffect(() => {
     if (sidebarSheet === "profile") {
@@ -1697,6 +1791,7 @@ export function NorthMessengerWorkspace({
     acknowledgeVisibleMessagesAsRead,
     activeChat,
     activeChatId,
+    isActiveChatOpen,
     activeConferenceId,
     applyChatPreviewMessage,
     applyServerChatPreviewMessage,
@@ -1706,7 +1801,6 @@ export function NorthMessengerWorkspace({
     hasArchivedConferencesData: archivedConferencesQuery.data !== undefined,
     hasConferencesData: conferencesQuery.data !== undefined,
     clearChatAttention,
-    clearChatUnreadIndicator,
     editingMessageId,
     extractImageFromClipboard,
     forwardingMessageId,
@@ -1745,6 +1839,7 @@ export function NorthMessengerWorkspace({
     acknowledgeDelivered,
     acknowledgeRead,
     activeChatId,
+    isActiveChatOpen,
     activeDraft,
     activePinnedMessageId: activeChat?.pinnedMessage?.id ?? null,
     applyChatPreviewMessage,
@@ -1784,6 +1879,9 @@ export function NorthMessengerWorkspace({
     preserveOlderMessagesOffset();
     void messagesQuery.fetchNextPage();
   };
+  const toggleConferenceViewMode = useEffectEvent(() => {
+    setConferenceBrowserMode((current) => (current === "calendar" ? "list" : "calendar"));
+  });
 
   const { errorText, showContactSearchResults, tabChats, tabChatsEmptyText } = useWorkspaceStatus({
     activeListTab,
@@ -1842,38 +1940,57 @@ export function NorthMessengerWorkspace({
     visibleChats,
   });
   const showTopSearchResults = deferredSearch.trim().length > 0;
-  const chatListContent = (
-    <ChatListPanel
-      activeListTab={activeListTab}
-      conferenceViewMode={conferenceBrowserMode}
-      onToggleConferenceViewMode={() =>
-        setConferenceBrowserMode((current) => (current === "calendar" ? "list" : "calendar"))
-      }
-      normalizedSearch={normalizedSearch}
-      conferencesLoading={conferencesLoading}
-      visibleConferences={visibleConferences}
-      activeConferenceId={activeConference?.id ?? null}
-      conferenceListScrollRef={conferenceListScrollRef}
-      sessionUser={session.user}
-      chatsLoading={chatsLoading}
-      tabChats={tabChats}
-      tabChatsEmptyText={tabChatsEmptyText}
-      activeChatId={activeChat?.id ?? null}
-      typingByChatId={typingByChatId}
-      draftsByChatId={draftsByChatId}
-      openConference={openConference}
-      openChat={openChat}
-      openChatContextMenu={openChatContextMenu}
-      formatConferenceListPreview={formatConferenceListPreview}
-      formatConferenceTileTime={formatConferenceTileTime}
-      formatConferenceSchedule={formatConferenceSchedule}
-      trimPreview={trimPreview}
-      getDirectParticipant={getDirectParticipant}
-      formatTypingParticipants={formatTypingParticipants}
-      formatChatTimestamp={formatChatTimestamp}
-      describeChat={describeChat}
-      formatMemberCount={formatMemberCount}
-    />
+  const chatListContent = useMemo(
+    () => (
+      <ChatListPanel
+        activeListTab={activeListTab}
+        conferenceViewMode={conferenceBrowserMode}
+        onToggleConferenceViewMode={toggleConferenceViewMode}
+        normalizedSearch={normalizedSearch}
+        conferencesLoading={conferencesLoading}
+        visibleConferences={visibleConferences}
+        activeConferenceId={activeConference?.id ?? null}
+        conferenceListScrollRef={conferenceListScrollRef}
+        sessionUser={session.user}
+        chatsLoading={chatsLoading}
+        tabChats={tabChats}
+        tabChatsEmptyText={tabChatsEmptyText}
+        activeChatId={activeChat?.id ?? null}
+        typingByChatId={typingByChatId}
+        draftsByChatId={deferredDraftsByChatId}
+        openConference={openConference}
+        openChat={openChat}
+        openChatContextMenu={openChatContextMenu}
+        formatConferenceListPreview={formatConferenceListPreview}
+        formatConferenceTileTime={formatConferenceTileTime}
+        formatConferenceSchedule={formatConferenceSchedule}
+        trimPreview={trimPreview}
+        getDirectParticipant={getDirectParticipant}
+        formatTypingParticipants={formatTypingParticipants}
+        formatChatTimestamp={formatChatTimestamp}
+        describeChat={describeChat}
+        formatMemberCount={formatMemberCount}
+      />
+    ),
+    [
+      activeChat?.id,
+      activeConference?.id,
+      activeListTab,
+      chatsLoading,
+      conferenceBrowserMode,
+      conferencesLoading,
+      deferredDraftsByChatId,
+      normalizedSearch,
+      openChat,
+      openChatContextMenu,
+      openConference,
+      session.user,
+      tabChats,
+      tabChatsEmptyText,
+      toggleConferenceViewMode,
+      typingByChatId,
+      visibleConferences,
+    ]
   );
   const conferenceConversation = activeConference ? (
     <ActiveConferenceConversation
@@ -2154,6 +2271,9 @@ export function NorthMessengerWorkspace({
               changePasswordPending={changePasswordMutation.isPending}
               avatarPending={avatarMutation.isPending}
               deleteAccountPending={deleteAccountMutation.isPending}
+              emailVerificationPending={resendOwnEmailVerificationMutation.isPending}
+              emailVerificationInfo={emailVerificationInfo}
+              emailVerificationError={emailVerificationError}
               revokeSessionPending={revokeSessionMutation.isPending}
               contactSearchFetching={contactsSearchQuery.isFetching}
               onClose={() => setSidebarSheet(null)}
@@ -2168,6 +2288,7 @@ export function NorthMessengerWorkspace({
               onDeleteAccount={() => deleteAccountMutation.mutate()}
               onRemoveAvatar={() => avatarMutation.mutate(null)}
               onAvatarSelected={(file) => void uploadAvatarFromFile(file)}
+              onResendEmailVerification={() => resendOwnEmailVerificationMutation.mutate()}
               onGroupTitleChange={setGroupTitle}
               onGroupDetailsTitleChange={setGroupDetailsTitle}
               onGroupAvatarSelected={(file) => void uploadGroupAvatarFromFile(file)}
@@ -2299,8 +2420,9 @@ export function NorthMessengerWorkspace({
             onClearReply={() => clearComposerContext("reply")}
             onClearEdit={() => clearComposerContext("edit")}
             onRecoverEncryptionIdentity={handleRecoverEncryptionIdentity}
+            onRetryMessage={retryFailedMessage}
             onComposerChange={handleComposerChange}
-            onSubmit={() => handleSubmitActiveDraft(activeDraft)}
+            onSubmit={handleSubmitActiveDraft}
             formatClock={formatClock}
             getMessageStatusClassName={getMessageStatusClassName}
             getMessageStatusGlyph={getMessageStatusGlyph}

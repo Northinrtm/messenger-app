@@ -63,6 +63,9 @@ type Props = {
   changePasswordPending: boolean;
   avatarPending: boolean;
   deleteAccountPending: boolean;
+  emailVerificationPending: boolean;
+  emailVerificationInfo: string | null;
+  emailVerificationError: string | null;
   revokeSessionPending: boolean;
   contactSearchFetching: boolean;
   onClose: () => void;
@@ -77,6 +80,7 @@ type Props = {
   onDeleteAccount: () => void;
   onRemoveAvatar: () => void;
   onAvatarSelected: (file: File) => void;
+  onResendEmailVerification: () => void;
   onGroupTitleChange: (value: string) => void;
   onGroupDetailsTitleChange: (value: string) => void;
   onGroupAvatarSelected: (file: File) => void;
@@ -148,6 +152,9 @@ export function SidebarManagementSheets({
   changePasswordPending,
   avatarPending,
   deleteAccountPending,
+  emailVerificationPending,
+  emailVerificationInfo,
+  emailVerificationError,
   revokeSessionPending,
   contactSearchFetching,
   onClose,
@@ -162,6 +169,7 @@ export function SidebarManagementSheets({
   onDeleteAccount,
   onRemoveAvatar,
   onAvatarSelected,
+  onResendEmailVerification,
   onGroupTitleChange,
   onGroupDetailsTitleChange,
   onGroupAvatarSelected,
@@ -217,6 +225,9 @@ export function SidebarManagementSheets({
         changePasswordPending={changePasswordPending}
         avatarPending={avatarPending}
         deleteAccountPending={deleteAccountPending}
+        emailVerificationPending={emailVerificationPending}
+        emailVerificationInfo={emailVerificationInfo}
+        emailVerificationError={emailVerificationError}
         onClose={onClose}
         onProfileDisplayNameChange={onProfileDisplayNameChange}
         onProfileProfessionChange={onProfileProfessionChange}
@@ -228,6 +239,7 @@ export function SidebarManagementSheets({
         onDeleteAccountConfirmationChange={onDeleteAccountConfirmationChange}
         onDeleteAccount={onDeleteAccount}
         onAvatarSelected={onAvatarSelected}
+        onResendEmailVerification={onResendEmailVerification}
       />
     );
   }

@@ -8,6 +8,7 @@ import com.north.messenger.api.dto.MessageSnippetResponse;
 import com.north.messenger.api.dto.UpdateMessageRequest;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.chat.ChatService;
+import jakarta.persistence.EntityManager;
 import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.MessageReceipt;
@@ -46,6 +47,7 @@ class MessageCommandService {
     private final MessengerTelemetry telemetry;
     private final MessageSupport messageSupport;
     private final MessageDispatchService messageDispatchService;
+    private final EntityManager entityManager;
 
     MessageCommandService(
             AuthService authService,
@@ -58,7 +60,8 @@ class MessageCommandService {
             ApplicationEventPublisher eventPublisher,
             MessengerTelemetry telemetry,
             MessageSupport messageSupport,
-            MessageDispatchService messageDispatchService
+            MessageDispatchService messageDispatchService,
+            EntityManager entityManager
     ) {
         this.authService = authService;
         this.chatService = chatService;
@@ -71,6 +74,7 @@ class MessageCommandService {
         this.telemetry = telemetry;
         this.messageSupport = messageSupport;
         this.messageDispatchService = messageDispatchService;
+        this.entityManager = entityManager;
     }
 
     @Transactional
@@ -85,6 +89,17 @@ class MessageCommandService {
 
         MessageResponse existingResponse = messageSupport.findExistingMessageResponse(chatId, currentUser, clientMessageId);
         if (existingResponse != null) {
+            ChatMessage existingMessage = chatMessageRepository
+                    .findByChatIdAndSenderIdAndClientMessageId(chatId, currentUser.getId(), clientMessageId)
+                    .orElse(null);
+            if (existingMessage != null) {
+                eventPublisher.publishEvent(new MessageDispatchEvent(
+                        chatId,
+                        existingMessage.getId(),
+                        clientMessageId,
+                        MessageDispatchMode.ACK_ONLY
+                ));
+            }
             telemetry.recordMessageSend(
                     telemetrySample,
                     room,
@@ -122,13 +137,14 @@ class MessageCommandService {
                     replyToMessageId,
                     Instant.now()
             );
-            chatMessageRepository.saveAndFlush(message);
+            ChatMessage persistedMessage = chatMessageRepository.saveAndFlush(message);
+            entityManager.refresh(persistedMessage);
 
             List<MessageReceipt> receipts = participants.stream()
                     .filter(participant -> !participant.getId().equals(currentUser.getId()))
                     .map(participant -> new MessageReceipt(
                             UUID.randomUUID(),
-                            message.getId(),
+                            persistedMessage.getId(),
                             participant.getId(),
                             null,
                             null
@@ -145,11 +161,11 @@ class MessageCommandService {
 
             MessageSupport.MessageReceiptSummary summary = messageSupport.summarizeReceipts(receipts);
             MessageSnippetResponse replyTo = messageSupport.loadReplySnippetsByMessageId(
-                    List.of(message),
+                    List.of(persistedMessage),
                     Map.of(currentUser.getId(), currentUser)
-            ).get(message.getId());
+            ).get(persistedMessage.getId());
             MessageResponse responseForSender = messageSupport.toResponse(
-                    message,
+                    persistedMessage,
                     currentUser,
                     currentUser.getId(),
                     summary,
@@ -158,7 +174,12 @@ class MessageCommandService {
                     replyTo
             );
 
-            eventPublisher.publishEvent(new MessageDispatchEvent(chatId, message.getId(), clientMessageId));
+            eventPublisher.publishEvent(new MessageDispatchEvent(
+                    chatId,
+                    persistedMessage.getId(),
+                    clientMessageId,
+                    MessageDispatchMode.FULL
+            ));
             telemetry.recordMessageSend(
                     telemetrySample,
                     room,
@@ -169,8 +190,19 @@ class MessageCommandService {
             );
             return responseForSender;
         } catch (DataIntegrityViolationException exception) {
+            ChatMessage existingMessage = chatMessageRepository
+                    .findByChatIdAndSenderIdAndClientMessageId(chatId, currentUser.getId(), clientMessageId)
+                    .orElse(null);
             MessageResponse deduplicatedResponse = messageSupport.findExistingMessageResponse(chatId, currentUser, clientMessageId);
             if (deduplicatedResponse != null) {
+                if (existingMessage != null) {
+                    eventPublisher.publishEvent(new MessageDispatchEvent(
+                            chatId,
+                            existingMessage.getId(),
+                            clientMessageId,
+                            MessageDispatchMode.ACK_ONLY
+                    ));
+                }
                 telemetry.recordMessageSend(
                         telemetrySample,
                         room,

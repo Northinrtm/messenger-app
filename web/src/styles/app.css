@@ -388,6 +388,14 @@ textarea {
   color: #ffd8d2;
 }
 
+.form-note {
+  border-radius: 1rem;
+  padding: 0.85rem 1rem;
+  background: rgba(84, 128, 214, 0.14);
+  border: 1px solid rgba(110, 172, 255, 0.24);
+  color: #dbe8ff;
+}
+
 .sidebar,
 .conversation {
   border-radius: 1.8rem;
@@ -1007,6 +1015,10 @@ textarea {
 
 .message-status.is-read {
   color: #7dc2ff;
+}
+
+.message-status.is-failed {
+  color: #ff9a76;
 }
 
 .message-bubble p {
@@ -3093,6 +3105,26 @@ textarea {
 
 .north-workspace .message-status.is-read {
   color: #8bd0ff;
+}
+
+.north-workspace .message-status.is-failed {
+  color: #ffb08c;
+}
+
+.message-retry-button {
+  margin-top: 0.65rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #ffb08c;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.message-retry-button:hover {
+  color: #ffd0b9;
 }
 
 .north-message-stream .typing-indicator {

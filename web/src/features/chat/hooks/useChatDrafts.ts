@@ -1,5 +1,6 @@
 import { useQuery, type QueryClient } from "@tanstack/react-query";
 import {
+  startTransition,
   useEffect,
   useEffectEvent,
   useRef,
@@ -38,10 +39,11 @@ export function useChatDrafts({
   token,
   userId,
 }: UseChatDraftsParams): UseChatDraftsResult {
-  const [draftsByChatId, setDraftsByChatId] = useState<Record<string, string>>({});
+  const [draftsByChatId, setDraftsByChatIdState] = useState<Record<string, string>>({});
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const draftSaveTimeoutsRef = useRef(new Map<string, number>());
   const draftSyncLocksRef = useRef(new Set<string>());
+  const draftsByChatIdRef = useRef<Record<string, string>>({});
 
   const draftsQuery = useQuery({
     queryKey: ["drafts", token],
@@ -59,6 +61,41 @@ export function useChatDrafts({
       }
     }
   });
+
+  const flushPendingDraftSaves = useEffectEvent(() => {
+    const pendingChatIds = [...draftSaveTimeoutsRef.current.keys()];
+    if (!pendingChatIds.length) {
+      return;
+    }
+
+    let nextDrafts: ChatDraft[] | null = null;
+    pendingChatIds.forEach((chatId) => {
+      const timeoutId = draftSaveTimeoutsRef.current.get(chatId);
+      if (timeoutId !== undefined) {
+        window.clearTimeout(timeoutId);
+      }
+      draftSaveTimeoutsRef.current.delete(chatId);
+      draftSyncLocksRef.current.delete(chatId);
+      nextDrafts = writeLocalDraft(userId, chatId, draftsByChatIdRef.current[chatId] ?? "");
+    });
+
+    if (nextDrafts) {
+      queryClient.setQueryData<ChatDraft[]>(["drafts", token], nextDrafts);
+    }
+  });
+
+  const setDraftsByChatId = useEffectEvent(
+    (updater: SetStateAction<Record<string, string>>) => {
+      setDraftsByChatIdState((current) => {
+        const next =
+          typeof updater === "function"
+            ? (updater as (value: Record<string, string>) => Record<string, string>)(current)
+            : updater;
+        draftsByChatIdRef.current = next;
+        return next;
+      });
+    }
+  );
 
   const scheduleDraftSave = useEffectEvent((chatId: string, content: string) => {
     draftSyncLocksRef.current.add(chatId);
@@ -79,10 +116,12 @@ export function useChatDrafts({
       return;
     }
 
-    setDraftsByChatId((current) => ({
-      ...current,
-      [chatId]: nextValue,
-    }));
+    startTransition(() => {
+      setDraftsByChatId((current) => ({
+        ...current,
+        [chatId]: nextValue,
+      }));
+    });
     scheduleDraftSave(chatId, nextValue);
   });
 
@@ -147,11 +186,18 @@ export function useChatDrafts({
   }, [draftsQuery.data]);
 
   useEffect(() => {
-    return () => {
-      draftSaveTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
-      draftSaveTimeoutsRef.current.clear();
+    const handlePageHide = () => {
+      flushPendingDraftSaves();
     };
-  }, []);
+
+    window.addEventListener("pagehide", handlePageHide);
+    window.addEventListener("beforeunload", handlePageHide);
+    return () => {
+      window.removeEventListener("pagehide", handlePageHide);
+      window.removeEventListener("beforeunload", handlePageHide);
+      flushPendingDraftSaves();
+    };
+  }, [flushPendingDraftSaves]);
 
   return {
     activeDraft: activeChatId ? draftsByChatId[activeChatId] ?? "" : "",

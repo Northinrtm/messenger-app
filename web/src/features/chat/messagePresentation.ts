@@ -34,6 +34,7 @@ export function createOptimisticOutgoingMessage(
   return {
     id: input.clientMessageId,
     chatId: input.chatId,
+    serverOrder: null,
     sender: currentUser,
     content: input.content,
     createdAt: new Date().toISOString(),
@@ -109,6 +110,8 @@ export function isOwnMessage(message: ChatMessage, currentUser: UserProfile) {
 
 export function getMessageStatusClassName(status: MessageStatus | null) {
   switch (status?.state) {
+    case "FAILED":
+      return "message-status is-failed";
     case "SENDING":
     case "SENT":
       return "message-status is-sent";
@@ -123,6 +126,8 @@ export function getMessageStatusClassName(status: MessageStatus | null) {
 
 export function getMessageStatusGlyph(status: MessageStatus | null) {
   switch (status?.state) {
+    case "FAILED":
+      return "!";
     case "SENDING":
       return "\u2026";
     case "READ":
@@ -136,6 +141,8 @@ export function getMessageStatusGlyph(status: MessageStatus | null) {
 
 export function getMessageStatusLabel(status: MessageStatus | null) {
   switch (status?.state) {
+    case "FAILED":
+      return "\u041D\u0435 \u043E\u0442\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u043E";
     case "SENDING":
       return "\u041E\u0442\u043F\u0440\u0430\u0432\u043B\u044F\u0435\u0442\u0441\u044F";
     case "READ":

@@ -8,8 +8,8 @@ import com.north.messenger.api.dto.RegisterRequest;
 import com.north.messenger.api.dto.UserSessionResponse;
 import com.north.messenger.api.dto.UserProfileResponse;
 import com.north.messenger.domain.model.UserAccount;
-import com.north.messenger.domain.model.UserContact;
 import com.north.messenger.domain.model.UserBlock;
+import com.north.messenger.domain.model.UserContact;
 import com.north.messenger.domain.model.UserSession;
 import com.north.messenger.domain.repository.ChatRoomRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
@@ -23,6 +23,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collection;
 import java.util.HexFormat;
@@ -35,9 +36,10 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import org.springframework.http.HttpStatus;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -61,6 +63,8 @@ public class AuthService {
     private final JwtService jwtService;
     private final ApplicationEventPublisher eventPublisher;
     private final AvatarService avatarService;
+    private final EmailVerificationService emailVerificationService;
+    private final Set<String> allowedRegistrationEmailDomains;
 
     public AuthService(
             UserAccountRepository userAccountRepository,
@@ -72,7 +76,9 @@ public class AuthService {
             PasswordPolicyService passwordPolicyService,
             JwtService jwtService,
             ApplicationEventPublisher eventPublisher,
-            AvatarService avatarService
+            AvatarService avatarService,
+            EmailVerificationService emailVerificationService,
+            @Value("${app.auth.registration.allowed-email-domains:gmail.com,googlemail.com,outlook.com,hotmail.com,live.com,msn.com,yahoo.com,icloud.com,me.com,mac.com,yandex.ru,yandex.com,ya.ru,mail.ru,bk.ru,inbox.ru,list.ru}") String[] allowedRegistrationEmailDomains
     ) {
         this.userAccountRepository = userAccountRepository;
         this.userContactRepository = userContactRepository;
@@ -84,39 +90,45 @@ public class AuthService {
         this.jwtService = jwtService;
         this.eventPublisher = eventPublisher;
         this.avatarService = avatarService;
-    }
-
-    @Transactional
-    public IssuedAuthSession register(RegisterRequest request) {
-        return register(request, null);
+        this.emailVerificationService = emailVerificationService;
+        this.allowedRegistrationEmailDomains = Arrays.stream(allowedRegistrationEmailDomains)
+                .map(domain -> domain == null ? "" : domain.trim().toLowerCase(Locale.ROOT))
+                .filter(domain -> !domain.isBlank())
+                .collect(Collectors.toUnmodifiableSet());
     }
 
     @Transactional
     public IssuedAuthSession register(RegisterRequest request, String userAgent) {
         String username = normalizeUsername(request.username());
+        String email = normalizeEmail(request.email());
         String displayName = normalizeDisplayName(request.displayName());
+        validateRegistrationEmailDomain(email);
         if (userAccountRepository.existsByUsernameIgnoreCase(username)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Username is already taken");
+        }
+        if (userAccountRepository.existsByEmailIgnoreCase(email)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Email is already in use");
         }
         if (userAccountRepository.existsByDisplayNameIgnoreCase(displayName)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Display name is already taken");
         }
         passwordPolicyService.validatePassword(username, displayName, request.password());
 
+        Instant now = Instant.now();
         UserAccount user = new UserAccount(
                 UUID.randomUUID(),
                 username,
+                email,
                 displayName,
+                null,
+                null,
                 passwordEncoder.encode(request.password()),
-                Instant.now()
+                now,
+                null
         );
         userAccountRepository.save(user);
+        emailVerificationService.issueVerificationForRegisteredUser(user);
         return createSessionResponse(user, userAgent);
-    }
-
-    @Transactional
-    public IssuedAuthSession login(LoginRequest request) {
-        return login(request, null);
     }
 
     @Transactional
@@ -493,7 +505,18 @@ public class AuthService {
     }
 
     private UserProfileResponse toProfile(UserAccount user) {
-        return toProfile(user, isUserOnline(user.getId()));
+        return new UserProfileResponse(
+                user.getId(),
+                user.getUsername(),
+                user.getDisplayName(),
+                user.getProfession(),
+                user.getCreatedAt(),
+                avatarService.resolveAvatarUrl(user),
+                isUserOnline(user.getId()),
+                user.getEmail(),
+                user.isEmailVerified(),
+                emailVerificationService.isEnabled()
+        );
     }
 
     private UserProfileResponse toProfile(UserAccount user, boolean online) {
@@ -504,7 +527,10 @@ public class AuthService {
                 user.getProfession(),
                 user.getCreatedAt(),
                 avatarService.resolveAvatarUrl(user),
-                online
+                online,
+                null,
+                false,
+                false
         );
     }
 
@@ -524,6 +550,25 @@ public class AuthService {
 
     private String normalizeDisplayName(String displayName) {
         return displayName.trim();
+    }
+
+    private String normalizeEmail(String email) {
+        return email.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private void validateRegistrationEmailDomain(String email) {
+        int separatorIndex = email.lastIndexOf('@');
+        if (separatorIndex < 0 || separatorIndex == email.length() - 1) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Email must be valid");
+        }
+
+        String domain = email.substring(separatorIndex + 1);
+        if (!allowedRegistrationEmailDomains.contains(domain)) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Email domain is not supported for registration"
+            );
+        }
     }
 
     private String normalizeProfession(String profession) {
@@ -768,4 +813,5 @@ public class AuthService {
             String refreshToken
     ) {
     }
+
 }

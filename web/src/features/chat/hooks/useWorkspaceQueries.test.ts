@@ -4,6 +4,7 @@ import type { ChatMessage } from "../../../lib/types";
 import {
   getConferenceQueryRefreshStrategy,
   createInitialMessagePageCursor,
+  getCleanupEligiblePendingMessageClientIds,
   getChatsQueryRefreshStrategy,
   getNextMessagePageCursor,
 } from "./useWorkspaceQueries";
@@ -12,6 +13,7 @@ function message(id: string, createdAt: string): ChatMessage {
   return {
     id,
     chatId: "chat-id",
+    serverOrder: Number(id.replace("message-", "")) + 1,
     sender: {
       id: "sender-id",
       username: "north",
@@ -63,8 +65,7 @@ describe("useWorkspaceQueries pagination helpers", () => {
 
   it("uses a smaller initial page cursor for faster first chat paint", () => {
     expect(createInitialMessagePageCursor()).toEqual({
-      before: null,
-      beforeMessageId: null,
+      beforeServerOrder: null,
       limit: 30,
     });
   });
@@ -79,13 +80,11 @@ describe("useWorkspaceQueries pagination helpers", () => {
 
     expect(
       getNextMessagePageCursor(lastPage, {
-        before: null,
-        beforeMessageId: null,
+        beforeServerOrder: null,
         limit: 30,
       })
     ).toEqual({
-      before: lastPage[0]?.createdAt,
-      beforeMessageId: lastPage[0]?.id,
+      beforeServerOrder: lastPage[0]?.serverOrder,
       limit: 50,
     });
   });
@@ -95,11 +94,28 @@ describe("useWorkspaceQueries pagination helpers", () => {
       getNextMessagePageCursor(
         [message("message-1", "2026-04-17T10:00:00.000Z")],
         {
-          before: "2026-04-17T10:05:00.000Z",
-          beforeMessageId: "message-5",
+          beforeServerOrder: 5,
           limit: 50,
         }
       )
     ).toBeUndefined();
+  });
+
+  it("keeps local recovered plaintext until the confirmed server copy is decryptable", () => {
+    const cleanupEligibleIds = getCleanupEligiblePendingMessageClientIds([
+      {
+        ...message("server-1", "2026-04-17T10:00:00.000Z"),
+        clientMessageId: "client-1",
+        content: "[Encrypted message unavailable]",
+      },
+      {
+        ...message("server-2", "2026-04-17T10:01:00.000Z"),
+        clientMessageId: "client-2",
+        content: "confirmed plaintext",
+      },
+    ]);
+
+    expect(cleanupEligibleIds.has("client-1")).toBe(false);
+    expect(cleanupEligibleIds.has("client-2")).toBe(true);
   });
 });

@@ -28,9 +28,7 @@ export function getMessageIdentityKey(message: Pick<ChatMessage, "id" | "clientM
 export function upsertChat(current: ChatSummary[] | undefined, nextChat: ChatSummary) {
   const list = current ?? [];
   const withoutCurrent = list.filter((chat) => chat.id !== nextChat.id);
-  return [nextChat, ...withoutCurrent].sort((left, right) =>
-    right.updatedAt.localeCompare(left.updatedAt)
-  );
+  return [nextChat, ...withoutCurrent].sort(compareChatActivity);
 }
 
 export function applyChatPreviewOverrides(
@@ -155,11 +153,12 @@ export function applyChatMessageActivity(
         ...chat,
         lastMessage: message.content,
         lastMessageAt: message.createdAt,
+        lastMessageServerOrder: message.serverOrder ?? chat.lastMessageServerOrder,
         updatedAt: message.createdAt,
         unreadCount: unreadMode === "clear" ? 0 : chat.unreadCount,
       };
     })
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    .sort(compareChatActivity);
 
   return changed ? next : current;
 }
@@ -400,6 +399,36 @@ export function updateMessageById(
     : current;
 }
 
+export function updateMessageByClientMessageId(
+  current: InfiniteData<ChatMessage[]> | undefined,
+  clientMessageId: string,
+  updater: (message: ChatMessage) => ChatMessage
+): InfiniteData<ChatMessage[]> | undefined {
+  if (!current) {
+    return current;
+  }
+
+  let changed = false;
+  const pages = current.pages.map((page) =>
+    page.map((message) => {
+      if (message.clientMessageId !== clientMessageId) {
+        return message;
+      }
+
+      const nextMessage = updater(message);
+      changed = changed || nextMessage !== message;
+      return nextMessage;
+    })
+  );
+
+  return changed
+    ? {
+        ...current,
+        pages,
+      }
+    : current;
+}
+
 export function updateMessageReactionsPages(
   current: InfiniteData<ChatMessage[]> | undefined,
   event: MessageReactionEvent
@@ -541,8 +570,13 @@ export function removeChatById(current: ChatSummary[] | undefined, chatId: strin
 
 function compareMessages(left: ChatMessage, right: ChatMessage) {
   const localOrderComparison = compareLocalMessageOrder(left, right);
-  if (localOrderComparison !== 0) {
+  if (localOrderComparison !== 0 && shouldPreferLocalOrder(left, right)) {
     return localOrderComparison;
+  }
+
+  const serverOrderComparison = compareServerMessageOrder(left, right);
+  if (serverOrderComparison !== 0) {
+    return serverOrderComparison;
   }
 
   const createdAtComparison = left.createdAt.localeCompare(right.createdAt);
@@ -584,6 +618,14 @@ function shouldPreferMessage(current: ChatMessage, incoming: ChatMessage) {
     return true;
   }
 
+  if (
+    typeof incoming.serverOrder === "number" &&
+    typeof current.serverOrder === "number" &&
+    incoming.serverOrder > current.serverOrder
+  ) {
+    return true;
+  }
+
   return isOptimisticClientMessage(current) && !isOptimisticClientMessage(incoming);
 }
 
@@ -609,6 +651,7 @@ function reconcileChatMessage(current: ChatMessage, incoming: ChatMessage): Chat
   const nextStatus = pickPreferredMessageStatus(current.status, incoming.status);
   const nextEditedAt = pickLatestTimestamp(current.editedAt, incoming.editedAt);
   const nextClientMessageId = incoming.clientMessageId ?? current.clientMessageId ?? null;
+  const nextServerOrder = incoming.serverOrder ?? current.serverOrder ?? null;
   const nextLocalOrder = incoming.localOrder ?? current.localOrder ?? null;
 
   if (
@@ -617,6 +660,7 @@ function reconcileChatMessage(current: ChatMessage, incoming: ChatMessage): Chat
     nextStatus === incoming.status &&
     nextEditedAt === incoming.editedAt &&
     nextClientMessageId === (incoming.clientMessageId ?? null) &&
+    nextServerOrder === (incoming.serverOrder ?? null) &&
     nextLocalOrder === (incoming.localOrder ?? null)
   ) {
     return incoming;
@@ -629,6 +673,7 @@ function reconcileChatMessage(current: ChatMessage, incoming: ChatMessage): Chat
     status: nextStatus,
     editedAt: nextEditedAt,
     clientMessageId: nextClientMessageId,
+    serverOrder: nextServerOrder,
     localOrder: nextLocalOrder,
   };
 }
@@ -642,6 +687,28 @@ function compareLocalMessageOrder(
   }
 
   return left.localOrder - right.localOrder;
+}
+
+function shouldPreferLocalOrder(
+  left: Pick<ChatMessage, "localOrder" | "serverOrder">,
+  right: Pick<ChatMessage, "localOrder" | "serverOrder">
+) {
+  return (
+    typeof left.localOrder === "number" &&
+    typeof right.localOrder === "number" &&
+    (typeof left.serverOrder !== "number" || typeof right.serverOrder !== "number")
+  );
+}
+
+function compareServerMessageOrder(
+  left: Pick<ChatMessage, "serverOrder">,
+  right: Pick<ChatMessage, "serverOrder">
+) {
+  if (typeof left.serverOrder !== "number" || typeof right.serverOrder !== "number") {
+    return 0;
+  }
+
+  return left.serverOrder - right.serverOrder;
 }
 
 function reconcileMessageSnippet(current: MessageSnippet | null, incoming: MessageSnippet | null) {
@@ -682,6 +749,23 @@ function pickPreferredMessageStatus(current: ChatMessage["status"], incoming: Ch
   }
 
   return current;
+}
+
+function compareChatActivity(left: ChatSummary, right: ChatSummary) {
+  const updatedAtComparison = right.updatedAt.localeCompare(left.updatedAt);
+  if (updatedAtComparison !== 0) {
+    return updatedAtComparison;
+  }
+
+  const leftOrder =
+    typeof left.lastMessageServerOrder === "number" ? left.lastMessageServerOrder : Number.MIN_SAFE_INTEGER;
+  const rightOrder =
+    typeof right.lastMessageServerOrder === "number" ? right.lastMessageServerOrder : Number.MIN_SAFE_INTEGER;
+  if (rightOrder !== leftOrder) {
+    return rightOrder - leftOrder;
+  }
+
+  return right.id.localeCompare(left.id);
 }
 
 function getMessageStatusRank(state: NonNullable<ChatMessage["status"]>["state"]) {

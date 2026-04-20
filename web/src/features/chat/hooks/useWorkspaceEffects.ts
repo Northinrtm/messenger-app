@@ -9,6 +9,7 @@ type UseWorkspaceEffectsOptions = {
   acknowledgeVisibleMessagesAsRead: () => void;
   activeChat: ChatSummary | null;
   activeChatId: string | null;
+  isActiveChatOpen: boolean;
   activeConferenceId: string | null;
   applyChatPreviewMessage: (message: ChatMessage) => void;
   applyServerChatPreviewMessage: (message: ChatMessage, mode?: ChatMessageActivityMode) => void;
@@ -18,7 +19,6 @@ type UseWorkspaceEffectsOptions = {
   hasArchivedConferencesData: boolean;
   hasConferencesData: boolean;
   clearChatAttention: (chatId: string) => void;
-  clearChatUnreadIndicator: (chatId: string) => void;
   editingMessageId: string | null;
   extractImageFromClipboard: (clipboardData: DataTransfer | null) => File | null;
   forwardingMessageId: string | null;
@@ -57,6 +57,7 @@ export function useWorkspaceEffects({
   acknowledgeVisibleMessagesAsRead,
   activeChat,
   activeChatId,
+  isActiveChatOpen,
   activeConferenceId,
   applyChatPreviewMessage,
   applyServerChatPreviewMessage,
@@ -66,7 +67,6 @@ export function useWorkspaceEffects({
   hasArchivedConferencesData,
   hasConferencesData,
   clearChatAttention,
-  clearChatUnreadIndicator,
   editingMessageId,
   extractImageFromClipboard,
   forwardingMessageId,
@@ -121,8 +121,7 @@ export function useWorkspaceEffects({
     }
 
     clearChatAttention(activeChatId);
-    clearChatUnreadIndicator(activeChatId);
-  }, [activeChatId, clearChatAttention, clearChatUnreadIndicator]);
+  }, [activeChatId, clearChatAttention]);
 
   useEffect(() => {
     setProfileDisplayName(profileDisplayName);
@@ -246,7 +245,7 @@ export function useWorkspaceEffects({
 
   useEffect(() => {
     acknowledgeVisibleMessagesAsRead();
-  }, [acknowledgeVisibleMessagesAsRead, activeChatId, lastMessageId, messageCount]);
+  }, [acknowledgeVisibleMessagesAsRead, activeChatId, isActiveChatOpen, lastMessageId, messageCount]);
 
   useEffect(() => {
     if (!activeChatId || !lastMessage) {

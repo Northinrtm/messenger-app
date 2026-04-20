@@ -14,27 +14,28 @@ jobs:
     timeout-minutes: 60
     environment: production
     env:
-      PROD_APP_DIR: /opt/messenger-app
-      PROD_SSH_HOST: 83.147.244.194
-      PROD_SSH_PORT: 22
-      PROD_SSH_USER: deploy
+      PROD_APP_DIR: ${{ vars.PROD_APP_DIR }}
+      PROD_SSH_HOST: ${{ vars.PROD_SSH_HOST }}
+      PROD_SSH_PORT: ${{ vars.PROD_SSH_PORT }}
+      PROD_SSH_USER: ${{ vars.PROD_SSH_USER }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Prepare SSH
         env:
           PROD_SSH_KEY: ${{ secrets.PROD_SSH_KEY }}
+          PROD_SSH_KNOWN_HOSTS: ${{ secrets.PROD_SSH_KNOWN_HOSTS }}
         run: |
+          test -n "$PROD_APP_DIR"
           test -n "$PROD_SSH_HOST"
+          test -n "$PROD_SSH_PORT"
+          test -n "$PROD_SSH_USER"
           test -n "$PROD_SSH_KEY"
+          test -n "$PROD_SSH_KNOWN_HOSTS"
           install -m 700 -d ~/.ssh
           printf '%s\n' "$PROD_SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          printf '%s\n' \
-            '83.147.244.194 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK2cHhiEos88Xey5dTe+zCoD7Nqua+A2sVKOeWc9ePAc' \
-            '83.147.244.194 ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCXLMXPJs0AAOzGKamBedFOfXYBewLzAExeIBAa+oGH3fsr5LEmJU/IcvmdLlEHrpSYy6oWWX/EI2dAMsDQQfPIbJSGUWMiF4xsQylHwnptaaNMGzJhXc6fcQRQxgaEE+gV2dCIVvPbVrDJs4Tg60441jREhlcnEnWJwoKgGFuXCqqZTQPPgYLaRPvflTWFdLjeQHJdqJztIVZ4Oqy726hAnYxjIc4BW0fl90EanKLqkiiG4wn18Gl7JtK5m9skhIT96ZOM/ZyCwbocgEh5GMxNUXxCdrhCiIn138ECnylhYD+Cf1dNK1puN1S6AQaLg8dvYqFu2NHPpQmC6YwFYUF2E/aXVLRPKT9XXi8DnXNC5+l1hM06BPwZoT3WzUN2L1cxfw8UgzX0QtZve09BfeAh1STeUanzhwx4pErw/Ii7mnLBqEMOYhhpZenLO7uMSvk4t0wTdjyq1++2ty1rYgqbBL5TJYEKBT4yH/Yr9kadtTKQfy4VanYS96DR3yHVTKE=' \
-            '83.147.244.194 ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBDtanlCse8EodihyNRiMMNUjhGy9sZ2X23CRAwGcLIkJUOGIThhSqGbdGAJLZDU/BURltxL5I7uLhLGm9mtuHrc=' \
-            >> ~/.ssh/known_hosts
+          printf '%s\n' "$PROD_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
 
       - name: Upload deploy script
         run: |

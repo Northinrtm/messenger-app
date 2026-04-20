@@ -34,6 +34,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.data.domain.Pageable;
 
+import static com.north.messenger.support.TestUserAccounts.testUserAccount;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -98,7 +99,7 @@ class ChatServiceTest {
 
     @Test
     void updateArchivedChatStateShouldPersistMembershipScopedArchive() {
-        UserAccount user = new UserAccount(
+        UserAccount user = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
@@ -117,14 +118,14 @@ class ChatServiceTest {
 
     @Test
     void listChatsShouldIncludeUnreadCountFromReceipts() {
-        UserAccount user = new UserAccount(
+        UserAccount user = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
                 "password-hash",
                 Instant.parse("2026-03-20T12:00:00Z")
         );
-        UserAccount peer = new UserAccount(
+        UserAccount peer = testUserAccount(
                 UUID.randomUUID(),
                 "alice",
                 "Alice",
@@ -164,14 +165,14 @@ class ChatServiceTest {
 
     @Test
     void listChatsShouldMaskEncryptedLastMessagePreview() {
-        UserAccount user = new UserAccount(
+        UserAccount user = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
                 "password-hash",
                 Instant.parse("2026-03-20T12:00:00Z")
         );
-        UserAccount peer = new UserAccount(
+        UserAccount peer = testUserAccount(
                 UUID.randomUUID(),
                 "alice",
                 "Alice",
@@ -220,7 +221,7 @@ class ChatServiceTest {
 
     @Test
     void deleteChatForSelfShouldPersistUserScopedDeletion() {
-        UserAccount user = new UserAccount(
+        UserAccount user = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
@@ -248,14 +249,14 @@ class ChatServiceTest {
 
     @Test
     void notifyChatUpdatedShouldSkipUsersWhoDeletedChatForSelf() {
-        UserAccount user = new UserAccount(
+        UserAccount user = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
                 "password-hash",
                 Instant.parse("2026-03-20T12:00:00Z")
         );
-        UserAccount peer = new UserAccount(
+        UserAccount peer = testUserAccount(
                 UUID.randomUUID(),
                 "alice",
                 "Alice",
@@ -292,14 +293,14 @@ class ChatServiceTest {
 
     @Test
     void joinGroupViaInviteShouldAddMembershipAndRestoreVisibility() {
-        UserAccount invitedUser = new UserAccount(
+        UserAccount invitedUser = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
                 "password-hash",
                 Instant.parse("2026-03-20T12:00:00Z")
         );
-        UserAccount existingMember = new UserAccount(
+        UserAccount existingMember = testUserAccount(
                 UUID.randomUUID(),
                 "alice",
                 "Alice",
@@ -360,7 +361,7 @@ class ChatServiceTest {
 
     @Test
     void createGroupChatShouldAllowCreatingGroupWithoutAdditionalParticipants() {
-        UserAccount currentUser = new UserAccount(
+        UserAccount currentUser = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
@@ -416,7 +417,7 @@ class ChatServiceTest {
 
     @Test
     void updateGroupChatShouldRenameAndUpdateAvatar() {
-        UserAccount currentUser = new UserAccount(
+        UserAccount currentUser = testUserAccount(
                 UUID.randomUUID(),
                 "north",
                 "North",
@@ -469,7 +470,7 @@ class ChatServiceTest {
 
     @Test
     void leaveGroupShouldRejectOwner() {
-        UserAccount owner = new UserAccount(UUID.randomUUID(), "north", "North", "hash", Instant.now());
+        UserAccount owner = testUserAccount(UUID.randomUUID(), "north", "North", "hash", Instant.now());
         UUID chatId = UUID.randomUUID();
         ChatRoom room = new ChatRoom(chatId, "Project", false, Instant.now());
         room.updateOwnerUserId(owner.getId());
@@ -488,8 +489,8 @@ class ChatServiceTest {
 
     @Test
     void assignGroupModeratorShouldAllowOwnerToGrantModeratorRole() {
-        UserAccount owner = new UserAccount(UUID.randomUUID(), "north", "North", "hash", Instant.now());
-        UserAccount member = new UserAccount(UUID.randomUUID(), "alice", "Alice", "hash", Instant.now());
+        UserAccount owner = testUserAccount(UUID.randomUUID(), "north", "North", "hash", Instant.now());
+        UserAccount member = testUserAccount(UUID.randomUUID(), "alice", "Alice", "hash", Instant.now());
         UUID chatId = UUID.randomUUID();
         ChatRoom room = new ChatRoom(chatId, "Project", false, Instant.now());
         room.updateOwnerUserId(owner.getId());
@@ -528,8 +529,8 @@ class ChatServiceTest {
 
     @Test
     void updateGroupChatShouldRepairLegacyOwnerAndAllowEarliestMemberToEdit() {
-        UserAccount creator = new UserAccount(UUID.randomUUID(), "north", "North", "hash", Instant.now());
-        UserAccount member = new UserAccount(UUID.randomUUID(), "alice", "Alice", "hash", Instant.now());
+        UserAccount creator = testUserAccount(UUID.randomUUID(), "north", "North", "hash", Instant.now());
+        UserAccount member = testUserAccount(UUID.randomUUID(), "alice", "Alice", "hash", Instant.now());
         UUID chatId = UUID.randomUUID();
         ChatRoom room = new ChatRoom(chatId, "Legacy group", false, Instant.now());
         ChatParticipant creatorMembership = new ChatParticipant(
@@ -580,9 +581,9 @@ class ChatServiceTest {
 
     @Test
     void removeGroupParticipantShouldAllowModeratorToRemoveRegularMember() {
-        UserAccount owner = new UserAccount(UUID.randomUUID(), "owner", "Owner", "hash", Instant.now());
-        UserAccount moderator = new UserAccount(UUID.randomUUID(), "north", "North", "hash", Instant.now());
-        UserAccount member = new UserAccount(UUID.randomUUID(), "alice", "Alice", "hash", Instant.now());
+        UserAccount owner = testUserAccount(UUID.randomUUID(), "owner", "Owner", "hash", Instant.now());
+        UserAccount moderator = testUserAccount(UUID.randomUUID(), "north", "North", "hash", Instant.now());
+        UserAccount member = testUserAccount(UUID.randomUUID(), "alice", "Alice", "hash", Instant.now());
         UUID chatId = UUID.randomUUID();
         ChatRoom room = new ChatRoom(chatId, "Project", false, Instant.now());
         room.updateOwnerUserId(owner.getId());
@@ -622,8 +623,8 @@ class ChatServiceTest {
 
     @Test
     void listChatsShouldKeepStoredOwnerWhenOwnerIsStillMember() {
-        UserAccount creator = new UserAccount(UUID.randomUUID(), "north", "North", "hash", Instant.now());
-        UserAccount other = new UserAccount(UUID.randomUUID(), "alice", "Alice", "hash", Instant.now());
+        UserAccount creator = testUserAccount(UUID.randomUUID(), "north", "North", "hash", Instant.now());
+        UserAccount other = testUserAccount(UUID.randomUUID(), "alice", "Alice", "hash", Instant.now());
         UUID chatId = UUID.randomUUID();
         ChatRoom room = new ChatRoom(chatId, "Project", false, Instant.now());
         room.updateOwnerUserId(other.getId());
@@ -669,8 +670,8 @@ class ChatServiceTest {
 
     @Test
     void listChatsShouldRepairMissingOwnerToEarliestParticipant() {
-        UserAccount creator = new UserAccount(UUID.randomUUID(), "north", "North", "hash", Instant.now());
-        UserAccount other = new UserAccount(UUID.randomUUID(), "alice", "Alice", "hash", Instant.now());
+        UserAccount creator = testUserAccount(UUID.randomUUID(), "north", "North", "hash", Instant.now());
+        UserAccount other = testUserAccount(UUID.randomUUID(), "alice", "Alice", "hash", Instant.now());
         UUID chatId = UUID.randomUUID();
         ChatRoom room = new ChatRoom(chatId, "Project", false, Instant.now());
         ChatParticipant creatorMembership = new ChatParticipant(
@@ -715,9 +716,9 @@ class ChatServiceTest {
 
     @Test
     void listChatsShouldRepairOwnerWhenStoredOwnerIsNoLongerMember() {
-        UserAccount creator = new UserAccount(UUID.randomUUID(), "north", "North", "hash", Instant.now());
-        UserAccount other = new UserAccount(UUID.randomUUID(), "alice", "Alice", "hash", Instant.now());
-        UserAccount removedOwner = new UserAccount(UUID.randomUUID(), "ghost", "Ghost", "hash", Instant.now());
+        UserAccount creator = testUserAccount(UUID.randomUUID(), "north", "North", "hash", Instant.now());
+        UserAccount other = testUserAccount(UUID.randomUUID(), "alice", "Alice", "hash", Instant.now());
+        UserAccount removedOwner = testUserAccount(UUID.randomUUID(), "ghost", "Ghost", "hash", Instant.now());
         UUID chatId = UUID.randomUUID();
         ChatRoom room = new ChatRoom(chatId, "Project", false, Instant.now());
         room.updateOwnerUserId(removedOwner.getId());

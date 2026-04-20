@@ -53,16 +53,6 @@ groups:
           summary: Backend 5xx rate is elevated
           description: Backend is returning more than 0.1 5xx responses per second over the last 10 minutes.
 
-      - alert: MessengerTypingHttpFallbackDetected
-        expr: sum(rate(http_server_requests_seconds_count{uri="/api/chats/{chatId}/typing",method="POST"}[10m])) > 0.05
-        for: 10m
-        labels:
-          severity: warning
-          service: messenger-web
-        annotations:
-          summary: HTTP typing fallback traffic detected
-          description: POST /api/chats/{chatId}/typing traffic is still hitting the backend. Typing should stay on WebSocket-only flow.
-
       - alert: MessengerConferenceArchiveHotPath
         expr: sum(rate(http_server_requests_seconds_count{uri="/api/conferences/archive",method="GET"}[10m])) > 0.02
         for: 15m

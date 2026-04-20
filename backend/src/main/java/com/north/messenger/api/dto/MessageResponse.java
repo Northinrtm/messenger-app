@@ -7,6 +7,7 @@ import java.util.UUID;
 public record MessageResponse(
         UUID id,
         UUID chatId,
+        Long serverOrder,
         ParticipantResponse sender,
         Instant createdAt,
         Instant editedAt,

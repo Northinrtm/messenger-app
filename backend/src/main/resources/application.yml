@@ -4,6 +4,8 @@ server:
 spring:
   application:
     name: messenger-backend
+  config:
+    import: "optional:file:.env[.properties],optional:file:../.env[.properties]"
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/messenger}
     username: ${DB_USERNAME:messenger}
@@ -41,6 +43,22 @@ spring:
   jackson:
     serialization:
       write-dates-as-timestamps: false
+  mail:
+    host: ${SPRING_MAIL_HOST:}
+    port: ${SPRING_MAIL_PORT:587}
+    username: ${SPRING_MAIL_USERNAME:}
+    password: ${SPRING_MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: ${SPRING_MAIL_SMTP_AUTH:true}
+          connectiontimeout: ${SPRING_MAIL_SMTP_CONNECTION_TIMEOUT_MS:5000}
+          timeout: ${SPRING_MAIL_SMTP_TIMEOUT_MS:10000}
+          writetimeout: ${SPRING_MAIL_SMTP_WRITE_TIMEOUT_MS:10000}
+          ssl:
+            enable: ${SPRING_MAIL_SMTP_SSL_ENABLE:false}
+          starttls:
+            enable: ${SPRING_MAIL_SMTP_STARTTLS_ENABLE:true}
 
 management:
   endpoints:
@@ -62,6 +80,24 @@ app:
     scrape:
       username: ${APP_ACTUATOR_SCRAPE_USERNAME:}
       password: ${APP_ACTUATOR_SCRAPE_PASSWORD:}
+  auth:
+    registration:
+      allowed-email-domains: ${APP_AUTH_REGISTRATION_ALLOWED_EMAIL_DOMAINS:gmail.com,googlemail.com,outlook.com,hotmail.com,live.com,msn.com,yahoo.com,icloud.com,me.com,mac.com,yandex.ru,yandex.com,ya.ru,mail.ru,bk.ru,inbox.ru,list.ru}
+    email-verification:
+      enabled: ${APP_AUTH_EMAIL_VERIFICATION_ENABLED:false}
+      token-ttl: ${APP_AUTH_EMAIL_VERIFICATION_TOKEN_TTL:PT24H}
+      url-base: ${APP_AUTH_EMAIL_VERIFICATION_URL_BASE:}
+      from-address: ${APP_AUTH_EMAIL_VERIFICATION_FROM_ADDRESS:${SPRING_MAIL_USERNAME:}}
+    refresh-cookie:
+      name: ${APP_AUTH_REFRESH_COOKIE_NAME:north_refresh_token}
+      path: ${APP_AUTH_REFRESH_COOKIE_PATH:/api/auth}
+      same-site: ${APP_AUTH_REFRESH_COOKIE_SAME_SITE:Lax}
+      secure: ${APP_AUTH_REFRESH_COOKIE_SECURE:false}
+    password-reset:
+      enabled: ${APP_AUTH_PASSWORD_RESET_ENABLED:false}
+      token-ttl: ${APP_AUTH_PASSWORD_RESET_TOKEN_TTL:PT30M}
+      url-base: ${APP_AUTH_PASSWORD_RESET_URL_BASE:}
+      from-address: ${APP_AUTH_PASSWORD_RESET_FROM_ADDRESS:${SPRING_MAIL_USERNAME:}}
   cors:
     allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:5173}
   realtime:
@@ -69,12 +105,6 @@ app:
       enabled: ${APP_REALTIME_REDIS_ENABLED:false}
       mac-secret: ${APP_REALTIME_REDIS_MAC_SECRET:}
     typing-active-window-ms: ${APP_TYPING_ACTIVE_WINDOW_MS:10000}
-  auth:
-    refresh-cookie:
-      name: ${APP_AUTH_REFRESH_COOKIE_NAME:north_refresh_token}
-      path: ${APP_AUTH_REFRESH_COOKIE_PATH:/api/auth}
-      same-site: ${APP_AUTH_REFRESH_COOKIE_SAME_SITE:Lax}
-      secure: ${APP_AUTH_REFRESH_COOKIE_SECURE:false}
   jwt:
     issuer: north-messenger
     audience: north-messenger-clients
