@@ -32,7 +32,6 @@ type Mode =
 type VerificationViewState =
   | { kind: "idle"; message: null }
   | { kind: "pending"; message: string }
-  | { kind: "success"; message: string }
   | { kind: "invalid"; message: string }
   | { kind: "expired"; message: string }
   | { kind: "alreadyVerified"; message: string };
@@ -125,13 +124,16 @@ export function AuthCard({
       setInfoMessage(null);
     },
     onSuccess: () => {
-      setVerificationViewState({
-        kind: "success",
-        message: "Email verified. Sign in to continue.",
-      });
+      returnToLogin("Email verified. Sign in to continue.");
     },
     onError: (error) => {
-      setVerificationViewState(resolveVerificationViewState(error));
+      const nextState = resolveVerificationViewState(error);
+      if (nextState.kind === "alreadyVerified") {
+        returnToLogin(nextState.message);
+        return;
+      }
+
+      setVerificationViewState(nextState);
     },
   });
 
@@ -155,6 +157,14 @@ export function AuthCard({
     setResetPassword("");
     switchMode("confirmReset", "Choose a new password for this reset link.");
   }, [initialPasswordResetToken]);
+
+  useEffect(() => {
+    if (initialEmailVerificationToken) {
+      return;
+    }
+
+    verifiedTokenRef.current = null;
+  }, [initialEmailVerificationToken]);
 
   useEffect(() => {
     if (!initialEmailVerificationToken) {
@@ -214,17 +224,15 @@ export function AuthCard({
         ? "Verify your email."
         : "Realtime chat for serious products.";
 
-  const returnToLogin = (nextInfoMessage: string | null = null) => {
-    verifiedTokenRef.current = null;
+  function returnToLogin(nextInfoMessage: string | null = null) {
     onEmailVerificationHandled?.();
     switchMode("login", nextInfoMessage);
-  };
+  }
 
-  const openResendVerification = () => {
-    verifiedTokenRef.current = null;
+  function openResendVerification() {
     onEmailVerificationHandled?.();
     switchMode("resendVerification", "Enter your email to receive a fresh verification link.");
-  };
+  }
 
   return (
     <main className="auth-shell">
@@ -456,19 +464,7 @@ export function AuthCard({
 
           {mode === "verifyEmail" ? (
             <>
-              {verificationViewState.kind === "success" ? (
-                <button
-                  type="button"
-                  className="primary-button"
-                  onClick={() => returnToLogin("Email verified. Sign in to continue.")}
-                  disabled={isBusy}
-                >
-                  Continue to sign in
-                </button>
-              ) : null}
-              {verificationViewState.kind === "invalid" ||
-              verificationViewState.kind === "expired" ||
-              verificationViewState.kind === "alreadyVerified" ? (
+              {verificationViewState.kind === "invalid" || verificationViewState.kind === "expired" ? (
                 <button
                   type="button"
                   className="ghost-button auth-secondary-button"
@@ -482,15 +478,7 @@ export function AuthCard({
                 type="button"
                 className="ghost-button auth-secondary-button"
                 onClick={() => {
-                  if (verificationViewState.kind === "success") {
-                    returnToLogin("Email verified. Sign in to continue.");
-                    return;
-                  }
-                  returnToLogin(
-                    verificationViewState.kind === "alreadyVerified"
-                      ? "Email already verified. Sign in to continue."
-                      : null
-                  );
+                  returnToLogin();
                 }}
                 disabled={isBusy}
               >

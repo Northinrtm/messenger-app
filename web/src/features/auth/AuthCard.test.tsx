@@ -245,7 +245,7 @@ describe("AuthCard auth flow", () => {
     expect(authenticatedSpy).toHaveBeenCalledWith(response);
   });
 
-  it("shows success state after opening a valid verification link", async () => {
+  it("returns to sign in immediately after opening a valid verification link", async () => {
     vi.mocked(confirmEmailVerification).mockResolvedValueOnce(undefined);
     const handledSpy = vi.fn();
 
@@ -262,22 +262,36 @@ describe("AuthCard auth flow", () => {
     });
 
     expect(confirmEmailVerification).toHaveBeenCalledWith({ token: "verify-token" });
+    expect(handledSpy).toHaveBeenCalledTimes(1);
     expect(container.textContent).toContain("Email verified. Sign in to continue.");
+    expect(container.textContent).toContain("Username");
+    expect(container.textContent).toContain("Password");
+    expect(container.textContent).not.toContain("Continue to sign in");
+  });
 
-    const buttons = Array.from(container.querySelectorAll("button"));
-    const continueButton = buttons.find((button) =>
-      button.textContent?.includes("Continue to sign in")
+  it("returns to sign in when the email is already verified", async () => {
+    vi.mocked(confirmEmailVerification).mockRejectedValueOnce(
+      new ApiError("Email is already verified", 409)
     );
-    if (!continueButton) {
-      throw new Error("Continue button is missing");
-    }
+    const handledSpy = vi.fn();
 
     await act(async () => {
-      continueButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      renderAuthCard(
+        root!,
+        <AuthCard
+          onAuthenticated={vi.fn()}
+          initialEmailVerificationToken="verify-token"
+          onEmailVerificationHandled={handledSpy}
+        />
+      );
       await flushMicrotasks();
     });
 
+    expect(confirmEmailVerification).toHaveBeenCalledWith({ token: "verify-token" });
     expect(handledSpy).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain("This email is already verified. You can sign in now.");
+    expect(container.textContent).toContain("Username");
+    expect(container.textContent).toContain("Password");
   });
 
   it("shows expired verification state for an expired link", async () => {
