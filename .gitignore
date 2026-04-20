@@ -5,6 +5,8 @@
 .project
 .env
 .env.local
+.env.prod
+.env.production
 backend/target/
 web/node_modules/
 web/dist/
