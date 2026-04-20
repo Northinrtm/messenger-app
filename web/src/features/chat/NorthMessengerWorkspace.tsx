@@ -4,6 +4,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import {
+  type ComponentProps,
   useDeferredValue,
   useEffect,
   useEffectEvent,
@@ -121,7 +122,6 @@ import {
 import { type ConferenceRecordingState } from "./ManagedConferenceStage";
 import { ActiveConferenceConversation } from "./components/ActiveConferenceConversation";
 import { ActiveChatConversation } from "./components/ActiveChatConversation";
-import { AvatarCircle } from "./components/AvatarCircle";
 import { ChatMembersPanel } from "./components/ChatMembersPanel.next";
 import { ChatMenuPanel } from "./components/ChatMenuPanel";
 import { ChatListPanel } from "./components/ChatListPanel";
@@ -129,6 +129,7 @@ import { MessageContextMenu } from "./components/MessageContextMenu";
 import { SidebarManagementSheets } from "./components/SidebarManagementSheets";
 import { SidebarMenuOverlay } from "./components/SidebarMenuOverlay";
 import { SidebarUtilitySheets } from "./components/SidebarUtilitySheets";
+import { WorkspaceSidebar } from "./components/WorkspaceSidebar";
 import { MENU_ACTIONS, type ConversationListTab, type MenuActionId, type SidebarSheet } from "./chatUi";
 import { useContextMenu } from "./hooks/useContextMenu";
 import { useChatPreviews } from "./hooks/useChatPreviews";
@@ -630,11 +631,11 @@ export function NorthMessengerWorkspace({
     chatEncryptionIdentityWarning?.chatId === activeChat.id &&
     chatEncryptionIdentityWarning.isVisible
       ? {
-          title: "Нужно обновить чат",
+          title: "РќСѓР¶РЅРѕ РѕР±РЅРѕРІРёС‚СЊ С‡Р°С‚",
           description:
-            "Данные чата изменились. Обновите чат, чтобы снова отправлять и редактировать сообщения.",
+            "Р”Р°РЅРЅС‹Рµ С‡Р°С‚Р° РёР·РјРµРЅРёР»РёСЃСЊ. РћР±РЅРѕРІРёС‚Рµ С‡Р°С‚, С‡С‚РѕР±С‹ СЃРЅРѕРІР° РѕС‚РїСЂР°РІР»СЏС‚СЊ Рё СЂРµРґР°РєС‚РёСЂРѕРІР°С‚СЊ СЃРѕРѕР±С‰РµРЅРёСЏ.",
           errorText: chatEncryptionIdentityWarning.errorText,
-          actionLabel: "Обновить чат",
+          actionLabel: "РћР±РЅРѕРІРёС‚СЊ С‡Р°С‚",
           isPending: isRecoveringEncryptionIdentity,
         }
       : null;
@@ -823,10 +824,10 @@ export function NorthMessengerWorkspace({
   );
   const isPinnedContextMenuMessage =
     Boolean(contextMenuMessage && activeChat?.pinnedMessage?.id === contextMenuMessage.id);
-  const deleteForEveryoneLabel = activeChat?.direct ? "Удалить для обоих" : "Удалить для всех";
+  const deleteForEveryoneLabel = activeChat?.direct ? "РЈРґР°Р»РёС‚СЊ РґР»СЏ РѕР±РѕРёС…" : "РЈРґР°Р»РёС‚СЊ РґР»СЏ РІСЃРµС…";
   const deleteForEveryoneHint = activeChat?.direct
-    ? "Сообщение исчезнет у вас обоих"
-    : "Сообщение исчезнет у всех участников";
+    ? "РЎРѕРѕР±С‰РµРЅРёРµ РёСЃС‡РµР·РЅРµС‚ Сѓ РІР°СЃ РѕР±РѕРёС…"
+    : "РЎРѕРѕР±С‰РµРЅРёРµ РёСЃС‡РµР·РЅРµС‚ Сѓ РІСЃРµС… СѓС‡Р°СЃС‚РЅРёРєРѕРІ";
 
   useEffect(() => {
     if (isRealtimeConnected || !activeChatId || activeTypingQuery.data === undefined) {
@@ -1223,7 +1224,7 @@ export function NorthMessengerWorkspace({
         current && current.chatId === activeChat.id
           ? {
               ...current,
-              errorText: "Не удалось обновить чат. Попробуйте ещё раз.",
+              errorText: "РќРµ СѓРґР°Р»РѕСЃСЊ РѕР±РЅРѕРІРёС‚СЊ С‡Р°С‚. РџРѕРїСЂРѕР±СѓР№С‚Рµ РµС‰С‘ СЂР°Р·.",
             }
           : current
       );
@@ -1351,8 +1352,8 @@ export function NorthMessengerWorkspace({
     });
   const emailVerificationInfo = resendOwnEmailVerificationMutation.isSuccess
     ? profile.email
-      ? `Письмо для подтверждения отправлено на ${profile.email}.`
-      : "Письмо для подтверждения отправлено."
+      ? `РџРёСЃСЊРјРѕ РґР»СЏ РїРѕРґС‚РІРµСЂР¶РґРµРЅРёСЏ РѕС‚РїСЂР°РІР»РµРЅРѕ РЅР° ${profile.email}.`
+      : "РџРёСЃСЊРјРѕ РґР»СЏ РїРѕРґС‚РІРµСЂР¶РґРµРЅРёСЏ РѕС‚РїСЂР°РІР»РµРЅРѕ."
     : null;
   const emailVerificationError = resendOwnEmailVerificationMutation.error
     ? describeError(resendOwnEmailVerificationMutation.error)
@@ -1479,7 +1480,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Выйти из группы "${activeChat.title}"?`)) {
+    if (!window.confirm(`Р’С‹Р№С‚Рё РёР· РіСЂСѓРїРїС‹ "${activeChat.title}"?`)) {
       return;
     }
 
@@ -1491,7 +1492,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Удалить группу "${activeChat.title}" для всех участников?`)) {
+    if (!window.confirm(`РЈРґР°Р»РёС‚СЊ РіСЂСѓРїРїСѓ "${activeChat.title}" РґР»СЏ РІСЃРµС… СѓС‡Р°СЃС‚РЅРёРєРѕРІ?`)) {
       return;
     }
 
@@ -1503,7 +1504,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Забанить ${participant.displayName} и убрать из группы?`)) {
+    if (!window.confirm(`Р—Р°Р±Р°РЅРёС‚СЊ ${participant.displayName} Рё СѓР±СЂР°С‚СЊ РёР· РіСЂСѓРїРїС‹?`)) {
       return;
     }
 
@@ -1515,7 +1516,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Забанить ${participant.displayName} и убрать из группы?`)) {
+    if (!window.confirm(`Р—Р°Р±Р°РЅРёС‚СЊ ${participant.displayName} Рё СѓР±СЂР°С‚СЊ РёР· РіСЂСѓРїРїС‹?`)) {
       return;
     }
 
@@ -1527,7 +1528,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Исключить ${participant.displayName} из группы?`)) {
+    if (!window.confirm(`РСЃРєР»СЋС‡РёС‚СЊ ${participant.displayName} РёР· РіСЂСѓРїРїС‹?`)) {
       return;
     }
 
@@ -1539,7 +1540,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Назначить ${participant.displayName} модератором группы?`)) {
+    if (!window.confirm(`РќР°Р·РЅР°С‡РёС‚СЊ ${participant.displayName} РјРѕРґРµСЂР°С‚РѕСЂРѕРј РіСЂСѓРїРїС‹?`)) {
       return;
     }
 
@@ -1551,7 +1552,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Снять роль модератора с ${participant.displayName}?`)) {
+    if (!window.confirm(`РЎРЅСЏС‚СЊ СЂРѕР»СЊ РјРѕРґРµСЂР°С‚РѕСЂР° СЃ ${participant.displayName}?`)) {
       return;
     }
 
@@ -1568,7 +1569,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Заблокировать ${activeDirectParticipant.displayName}?`)) {
+    if (!window.confirm(`Р—Р°Р±Р»РѕРєРёСЂРѕРІР°С‚СЊ ${activeDirectParticipant.displayName}?`)) {
       return;
     }
 
@@ -1582,7 +1583,7 @@ export function NorthMessengerWorkspace({
 
     const now = new Date().toISOString();
     createConferenceMutation.mutate({
-      title: `Созвон с ${activeDirectParticipant.displayName}`,
+      title: `РЎРѕР·РІРѕРЅ СЃ ${activeDirectParticipant.displayName}`,
       scheduledAt: now,
       participantUsernames: [activeDirectParticipant.username],
     });
@@ -2047,6 +2048,159 @@ export function NorthMessengerWorkspace({
   const workspaceStyle: CSSProperties = {
     ["--north-sidebar-width" as string]: `${sidebarWidth}px`,
   };
+  const sidebarUtilitySheetProps: ComponentProps<typeof SidebarUtilitySheets> = {
+    sheet:
+      sidebarSheet === "conference" ||
+      sidebarSheet === "archive" ||
+      sidebarSheet === "forward"
+        ? sidebarSheet
+        : null,
+    sessionUser: session.user,
+    conferenceComposerMode,
+    conferenceEditingId,
+    conferenceTitle,
+    conferenceScheduledAt,
+    conferenceCandidates,
+    conferenceParticipantUsernames,
+    contactsLoading,
+    createConferencePending: createConferenceMutation.isPending,
+    updateConferencePending: updateConferenceMutation.isPending,
+    archivedChatsLoading,
+    archivedChats,
+    forwardingMessage,
+    forwardableChats,
+    forwardContactOptions,
+    forwardPending: forwardMessageMutation.isPending,
+    onClose: () => setSidebarSheet(null),
+    onCloseConferenceComposer: () => {
+      resetConferenceComposer();
+      setSidebarSheet(null);
+    },
+    onOpenConferenceComposer: openConferenceComposer,
+    onConferenceTitleChange: setConferenceTitle,
+    onConferenceScheduledAtChange: setConferenceScheduledAt,
+    onToggleConferenceParticipant: toggleConferenceParticipant,
+    onSubmitCreateConferenceNow: () => handleSubmitCreateConferenceNow(formatClock),
+    onSubmitCreateConference: () => handleSubmitCreateConference(formatClock),
+    onSubmitUpdateConference: () => handleSubmitCreateConference(formatClock),
+    onOpenChatContextMenu: openChatContextMenu,
+    onOpenChat: openChat,
+    onToggleArchiveChat: (chatId) => toggleArchiveChat(chatId, archivedChatIdSet),
+    onCloseForward: () => clearComposerContext("forward"),
+    onJumpToReplyTarget: scrollToMessage,
+    onForwardToChat: forwardMessageToChat,
+    onForwardToContact: forwardMessageToContact,
+    createMinimumConferenceDateTime,
+    buildMessagePreview,
+    describeChat,
+    formatMemberCount,
+    getDirectParticipant,
+  };
+  const sidebarManagementSheetProps: ComponentProps<typeof SidebarManagementSheets> = {
+    sheet:
+      sidebarSheet === "profile" ||
+      sidebarSheet === "group" ||
+      sidebarSheet === "groupInfo" ||
+      sidebarSheet === "groupMembers" ||
+      sidebarSheet === "conferenceMembers" ||
+      sidebarSheet === "contacts" ||
+      sidebarSheet === "sessions"
+        ? sidebarSheet
+        : null,
+    profile,
+    sessionUser: session.user,
+    currentSessionId: session.sessionId,
+    profileDisplayName,
+    profileProfession,
+    passwordChangeCurrent,
+    passwordChangeNext,
+    passwordChangeConfirm,
+    deleteAccountConfirmation,
+    deleteAccountRequiresMatch,
+    groupTitle,
+    groupDetailsTitle,
+    groupDetailsAvatarUrl,
+    contactSearch,
+    showContactSearchResults,
+    contactSearchResults,
+    contacts,
+    contactsLoading,
+    sessions,
+    sessionsLoading,
+    activeChat,
+    activeConference,
+    groupInviteLinkUrl: activeGroupInviteUrl,
+    groupInviteLinkVisible: activeChatCanShareInviteLink,
+    groupContacts,
+    selectedGroupContacts,
+    isGroupCreatePickerOpen,
+    groupParticipantUsernames,
+    availableGroupInviteContacts,
+    selectedGroupInviteContacts,
+    isGroupInvitePickerOpen,
+    groupInviteUsernames,
+    availableConferenceInviteContacts,
+    conferenceInviteUsernames,
+    createGroupPending: createGroupMutation.isPending,
+    groupInviteLinkPending: createGroupInviteLinkMutation.isPending,
+    addGroupParticipantsPending: addGroupParticipantsMutation.isPending,
+    addConferenceParticipantsPending: addConferenceParticipantsMutation.isPending,
+    updateGroupPending: updateGroupMutation.isPending,
+    createChatPending: createChatMutation.isPending,
+    updateProfilePending: updateProfileMutation.isPending,
+    changePasswordPending: changePasswordMutation.isPending,
+    avatarPending: avatarMutation.isPending,
+    deleteAccountPending: deleteAccountMutation.isPending,
+    emailVerificationPending: resendOwnEmailVerificationMutation.isPending,
+    emailVerificationInfo,
+    emailVerificationError,
+    revokeSessionPending: revokeSessionMutation.isPending,
+    contactSearchFetching: contactsSearchQuery.isFetching,
+    onClose: () => setSidebarSheet(null),
+    onProfileDisplayNameChange: setProfileDisplayName,
+    onProfileProfessionChange: setProfileProfession,
+    onSubmitProfileDisplayName: handleSubmitProfileDisplayName,
+    onPasswordChangeCurrentChange: setPasswordChangeCurrent,
+    onPasswordChangeNextChange: setPasswordChangeNext,
+    onPasswordChangeConfirmChange: setPasswordChangeConfirm,
+    onSubmitPasswordChange: submitPasswordChange,
+    onDeleteAccountConfirmationChange: setDeleteAccountConfirmation,
+    onDeleteAccount: () => deleteAccountMutation.mutate(),
+    onRemoveAvatar: () => avatarMutation.mutate(null),
+    onAvatarSelected: (file) => void uploadAvatarFromFile(file),
+    onResendEmailVerification: () => resendOwnEmailVerificationMutation.mutate(),
+    onGroupTitleChange: setGroupTitle,
+    onGroupDetailsTitleChange: setGroupDetailsTitle,
+    onGroupAvatarSelected: (file) => void uploadGroupAvatarFromFile(file),
+    onRemoveGroupAvatar: () => setGroupDetailsAvatarUrl(null),
+    onToggleGroupCreatePicker: () => setIsGroupCreatePickerOpen((current) => !current),
+    onToggleGroupParticipant: toggleGroupParticipant,
+    onSubmitCreateGroup: handleSubmitCreateGroup,
+    onSubmitUpdateGroup: handleSubmitUpdateGroup,
+    onOpenGroupMembers: openGroupMembersSheet,
+    onToggleGroupInvitePicker: () => setIsGroupInvitePickerOpen((current) => !current),
+    onToggleGroupInviteParticipant: toggleGroupInviteParticipant,
+    onSubmitAddGroupParticipants: submitAddGroupParticipants,
+    onGenerateGroupInviteLink: handleGenerateGroupInviteLink,
+    onCopyGroupInviteLink: (value) => void navigator.clipboard.writeText(value),
+    onToggleConferenceInviteParticipant: toggleConferenceInviteParticipant,
+    onSubmitAddConferenceParticipants: submitAddConferenceParticipants,
+    onContactSearchChange: setContactSearch,
+    onAddContact: handleAddContact,
+    onRemoveContact: removeContact,
+    onCreateChat: (username) => createChatMutation.mutate(username),
+    onRevokeSession: (sessionId) => revokeSessionMutation.mutate(sessionId),
+    formatProfileDate,
+    formatSessionTime,
+  };
+  const sidebarMenuOverlayProps: ComponentProps<typeof SidebarMenuOverlay> = {
+    profile,
+    menuActions: MENU_ACTIONS,
+    menuPanelRef,
+    isSigningOut: signOutMutation.isPending,
+    onClose: () => setIsMenuOpen(false),
+    onAction: handleMenuAction,
+  };
 
   return (
     <main
@@ -2054,291 +2208,36 @@ export function NorthMessengerWorkspace({
       data-mobile-pane={mobilePane}
       style={workspaceStyle}
     >
-      <aside className="sidebar north-sidebar">
-        <div className="north-sidebar-top">
-          <button
-            type="button"
-            ref={menuButtonRef}
-            className={isMenuOpen ? "sidebar-menu-button is-active" : "sidebar-menu-button"}
-            onClick={() => setIsMenuOpen((current) => !current)}
-            aria-expanded={isMenuOpen}
-            aria-label="Открыть меню"
-          >
-            <span />
-            <span />
-            <span />
-          </button>
-
-          <div className="north-search-shell">
-          <input
-            className="north-search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Поиск"
-          />
-
-          {showTopSearchResults ? (
-            <div className="search-dropdown top-search-dropdown">
-              {userSearchQuery.isFetching ? (
-                <div className="search-result-empty">Ищем пользователей...</div>
-              ) : userSearchResults.length === 0 ? (
-                <div className="search-result-empty">Ничего не найдено.</div>
-              ) : (
-                userSearchResults.map((user) => (
-                  <button
-                    type="button"
-                    key={user.id}
-                    className="search-result-row"
-                    onClick={() => {
-                      createChatMutation.mutate(user.username);
-                      setSearch("");
-                    }}
-                  >
-                    <AvatarCircle
-                      className="menu-row-avatar"
-                      name={user.displayName}
-                      avatarUrl={user.avatarUrl}
-                      online={user.online}
-                    />
-                    <div className="search-result-copy">
-                      <strong>{user.displayName}</strong>
-                      <span>@{user.username}</span>
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
-          ) : null}
-          </div>
-        </div>
-
-        {!sidebarSheet ? (
-          <div className="conversation-list-tabs">
-            <button
-              type="button"
-              className={
-                [
-                  activeListTab === "chats"
-                    ? "conversation-list-tab is-active"
-                    : "conversation-list-tab",
-                  showChatsTabIndicator ? "has-indicator" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")
-              }
-              data-tab="chats"
-              aria-label={"\u0427\u0430\u0442\u044B"}
-              onClick={() => activateListTab("chats")}
-            >
-              Диалоги
-            </button>
-            {/* <button
-              type="button"
-              className={
-                activeListTab === "chats"
-                  ? "conversation-list-tab is-active"
-                  : "conversation-list-tab"
-              }
-              onClick={() => activateListTab("chats")}
-            >
-              Группы
-            </button> */}
-            <button
-              type="button"
-              className={
-                [
-                  activeListTab === "conferences"
-                    ? "conversation-list-tab is-active"
-                    : "conversation-list-tab",
-                  showConferencesTabIndicator ? "has-indicator" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")
-              }
-              data-tab="conferences"
-              aria-label={"\u0412\u0438\u0434\u0435\u043E\u043A\u043E\u043D\u0444\u0435\u0440\u0435\u043D\u0446\u0438\u0438"}
-              onClick={() => activateListTab("conferences")}
-            >
-              Видеоконференции
-            </button>
-          </div>
-        ) : null}
-
-        {sidebarSheet ? (
-          <section className="north-sidebar-sheet">
-            <SidebarUtilitySheets
-              sheet={
-                sidebarSheet === "conference" ||
-                sidebarSheet === "archive" ||
-                sidebarSheet === "forward"
-                  ? sidebarSheet
-                  : null
-              }
-              sessionUser={session.user}
-              conferenceComposerMode={conferenceComposerMode}
-              conferenceEditingId={conferenceEditingId}
-              conferenceTitle={conferenceTitle}
-              conferenceScheduledAt={conferenceScheduledAt}
-              conferenceCandidates={conferenceCandidates}
-              conferenceParticipantUsernames={conferenceParticipantUsernames}
-              contactsLoading={contactsLoading}
-              createConferencePending={createConferenceMutation.isPending}
-              updateConferencePending={updateConferenceMutation.isPending}
-              archivedChatsLoading={archivedChatsLoading}
-              archivedChats={archivedChats}
-              forwardingMessage={forwardingMessage}
-              forwardableChats={forwardableChats}
-              forwardContactOptions={forwardContactOptions}
-              forwardPending={forwardMessageMutation.isPending}
-              onClose={() => setSidebarSheet(null)}
-              onCloseConferenceComposer={() => {
-                resetConferenceComposer();
-                setSidebarSheet(null);
-              }}
-              onOpenConferenceComposer={openConferenceComposer}
-              onConferenceTitleChange={setConferenceTitle}
-              onConferenceScheduledAtChange={setConferenceScheduledAt}
-              onToggleConferenceParticipant={toggleConferenceParticipant}
-              onSubmitCreateConferenceNow={() => handleSubmitCreateConferenceNow(formatClock)}
-              onSubmitCreateConference={() => handleSubmitCreateConference(formatClock)}
-              onSubmitUpdateConference={() => handleSubmitCreateConference(formatClock)}
-              onOpenChatContextMenu={openChatContextMenu}
-              onOpenChat={openChat}
-              onToggleArchiveChat={(chatId) => toggleArchiveChat(chatId, archivedChatIdSet)}
-              onCloseForward={() => clearComposerContext("forward")}
-              onJumpToReplyTarget={scrollToMessage}
-              onForwardToChat={forwardMessageToChat}
-              onForwardToContact={forwardMessageToContact}
-              createMinimumConferenceDateTime={createMinimumConferenceDateTime}
-              buildMessagePreview={buildMessagePreview}
-              describeChat={describeChat}
-              formatMemberCount={formatMemberCount}
-              getDirectParticipant={getDirectParticipant}
-            />
-            <SidebarManagementSheets
-              sheet={
-                sidebarSheet === "profile" ||
-                sidebarSheet === "group" ||
-                sidebarSheet === "groupInfo" ||
-                sidebarSheet === "groupMembers" ||
-                sidebarSheet === "conferenceMembers" ||
-                sidebarSheet === "contacts" ||
-                sidebarSheet === "sessions"
-                  ? sidebarSheet
-                  : null
-              }
-              profile={profile}
-              sessionUser={session.user}
-              currentSessionId={session.sessionId}
-              profileDisplayName={profileDisplayName}
-              profileProfession={profileProfession}
-              passwordChangeCurrent={passwordChangeCurrent}
-              passwordChangeNext={passwordChangeNext}
-              passwordChangeConfirm={passwordChangeConfirm}
-              deleteAccountConfirmation={deleteAccountConfirmation}
-              deleteAccountRequiresMatch={deleteAccountRequiresMatch}
-              groupTitle={groupTitle}
-              groupDetailsTitle={groupDetailsTitle}
-              groupDetailsAvatarUrl={groupDetailsAvatarUrl}
-              contactSearch={contactSearch}
-              showContactSearchResults={showContactSearchResults}
-              contactSearchResults={contactSearchResults}
-              contacts={contacts}
-              contactsLoading={contactsLoading}
-              sessions={sessions}
-              sessionsLoading={sessionsLoading}
-              activeChat={activeChat}
-              activeConference={activeConference}
-              groupInviteLinkUrl={activeGroupInviteUrl}
-              groupInviteLinkVisible={activeChatCanShareInviteLink}
-              groupContacts={groupContacts}
-              selectedGroupContacts={selectedGroupContacts}
-              isGroupCreatePickerOpen={isGroupCreatePickerOpen}
-              groupParticipantUsernames={groupParticipantUsernames}
-              availableGroupInviteContacts={availableGroupInviteContacts}
-              selectedGroupInviteContacts={selectedGroupInviteContacts}
-              isGroupInvitePickerOpen={isGroupInvitePickerOpen}
-              groupInviteUsernames={groupInviteUsernames}
-              availableConferenceInviteContacts={availableConferenceInviteContacts}
-              conferenceInviteUsernames={conferenceInviteUsernames}
-              createGroupPending={createGroupMutation.isPending}
-              groupInviteLinkPending={createGroupInviteLinkMutation.isPending}
-              addGroupParticipantsPending={addGroupParticipantsMutation.isPending}
-              addConferenceParticipantsPending={addConferenceParticipantsMutation.isPending}
-              updateGroupPending={updateGroupMutation.isPending}
-              createChatPending={createChatMutation.isPending}
-              updateProfilePending={updateProfileMutation.isPending}
-              changePasswordPending={changePasswordMutation.isPending}
-              avatarPending={avatarMutation.isPending}
-              deleteAccountPending={deleteAccountMutation.isPending}
-              emailVerificationPending={resendOwnEmailVerificationMutation.isPending}
-              emailVerificationInfo={emailVerificationInfo}
-              emailVerificationError={emailVerificationError}
-              revokeSessionPending={revokeSessionMutation.isPending}
-              contactSearchFetching={contactsSearchQuery.isFetching}
-              onClose={() => setSidebarSheet(null)}
-              onProfileDisplayNameChange={setProfileDisplayName}
-              onProfileProfessionChange={setProfileProfession}
-              onSubmitProfileDisplayName={handleSubmitProfileDisplayName}
-              onPasswordChangeCurrentChange={setPasswordChangeCurrent}
-              onPasswordChangeNextChange={setPasswordChangeNext}
-              onPasswordChangeConfirmChange={setPasswordChangeConfirm}
-              onSubmitPasswordChange={submitPasswordChange}
-              onDeleteAccountConfirmationChange={setDeleteAccountConfirmation}
-              onDeleteAccount={() => deleteAccountMutation.mutate()}
-              onRemoveAvatar={() => avatarMutation.mutate(null)}
-              onAvatarSelected={(file) => void uploadAvatarFromFile(file)}
-              onResendEmailVerification={() => resendOwnEmailVerificationMutation.mutate()}
-              onGroupTitleChange={setGroupTitle}
-              onGroupDetailsTitleChange={setGroupDetailsTitle}
-              onGroupAvatarSelected={(file) => void uploadGroupAvatarFromFile(file)}
-              onRemoveGroupAvatar={() => setGroupDetailsAvatarUrl(null)}
-              onToggleGroupCreatePicker={() => setIsGroupCreatePickerOpen((current) => !current)}
-              onToggleGroupParticipant={toggleGroupParticipant}
-              onSubmitCreateGroup={handleSubmitCreateGroup}
-              onSubmitUpdateGroup={handleSubmitUpdateGroup}
-              onOpenGroupMembers={openGroupMembersSheet}
-              onToggleGroupInvitePicker={() => setIsGroupInvitePickerOpen((current) => !current)}
-              onToggleGroupInviteParticipant={toggleGroupInviteParticipant}
-              onSubmitAddGroupParticipants={submitAddGroupParticipants}
-              onGenerateGroupInviteLink={handleGenerateGroupInviteLink}
-              onCopyGroupInviteLink={(value) => void navigator.clipboard.writeText(value)}
-              onToggleConferenceInviteParticipant={toggleConferenceInviteParticipant}
-              onSubmitAddConferenceParticipants={submitAddConferenceParticipants}
-              onContactSearchChange={setContactSearch}
-              onAddContact={handleAddContact}
-              onRemoveContact={removeContact}
-              onCreateChat={(username) => createChatMutation.mutate(username)}
-              onRevokeSession={(sessionId) => revokeSessionMutation.mutate(sessionId)}
-              formatProfileDate={formatProfileDate}
-              formatSessionTime={formatSessionTime}
-            />
-          </section>
-        ) : null}
-
-        {!sidebarSheet ? (
-          <div ref={conferenceListScrollRef} className="chat-list north-chat-list">
-            {chatListContent}
-          </div>
-        ) : null}
-
-        {isMenuOpen ? (
-          <SidebarMenuOverlay
-            profile={profile}
-            menuActions={MENU_ACTIONS}
-            menuPanelRef={menuPanelRef}
-            isSigningOut={signOutMutation.isPending}
-            onClose={() => setIsMenuOpen(false)}
-            onAction={handleMenuAction}
-          />
-        ) : null}
-      </aside>
+      <WorkspaceSidebar
+        activeListTab={activeListTab}
+        chatListContent={chatListContent}
+        conferenceListScrollRef={conferenceListScrollRef}
+        isMenuOpen={isMenuOpen}
+        menuButtonRef={menuButtonRef}
+        menuOverlayProps={sidebarMenuOverlayProps}
+        onActivateListTab={activateListTab}
+        onSearchChange={setSearch}
+        onSelectSearchUser={(user) => {
+          createChatMutation.mutate(user.username);
+          setSearch("");
+        }}
+        onToggleMenu={() => setIsMenuOpen((current) => !current)}
+        search={search}
+        showChatsTabIndicator={showChatsTabIndicator}
+        showConferencesTabIndicator={showConferencesTabIndicator}
+        showTopSearchResults={showTopSearchResults}
+        sidebarManagementSheetProps={sidebarManagementSheetProps}
+        sidebarSheet={sidebarSheet}
+        sidebarUtilitySheetProps={sidebarUtilitySheetProps}
+        userSearchIsFetching={userSearchQuery.isFetching}
+        userSearchResults={userSearchResults}
+      />
 
       <div
         className="north-layout-divider"
         role="separator"
         aria-orientation="vertical"
-        aria-label="Изменить ширину списка диалогов"
+        aria-label="РР·РјРµРЅРёС‚СЊ С€РёСЂРёРЅСѓ СЃРїРёСЃРєР° РґРёР°Р»РѕРіРѕРІ"
         onPointerDown={startSidebarResize}
       />
 
@@ -2365,7 +2264,7 @@ export function NorthMessengerWorkspace({
               >
                 <div className="conference-mini-copy">
                   <strong>{activeConference.title}</strong>
-                  <span>{activeConferenceStatusLabel ?? "Конференция активна"}</span>
+                  <span>{activeConferenceStatusLabel ?? "РљРѕРЅС„РµСЂРµРЅС†РёСЏ Р°РєС‚РёРІРЅР°"}</span>
                 </div>
               </div>
             ) : null}
@@ -2432,13 +2331,13 @@ export function NorthMessengerWorkspace({
           />
         ) : !activeConference || isConferenceMinimized ? (
           chatsLoading || conferencesLoading ? (
-          <div className="empty-state large north-empty-state">Загружаем данные...</div>
+          <div className="empty-state large north-empty-state">Р—Р°РіСЂСѓР¶Р°РµРј РґР°РЅРЅС‹Рµ...</div>
         ) : (
           <div className="conversation-empty">
             <div className="conversation-empty-badge">
               {activeListTab === "conferences"
-                ? "Выберите видеоконференцию слева"
-                : "Выберите, кому хотели бы написать"}
+                ? "Р’С‹Р±РµСЂРёС‚Рµ РІРёРґРµРѕРєРѕРЅС„РµСЂРµРЅС†РёСЋ СЃР»РµРІР°"
+                : "Р’С‹Р±РµСЂРёС‚Рµ, РєРѕРјСѓ С…РѕС‚РµР»Рё Р±С‹ РЅР°РїРёСЃР°С‚СЊ"}
             </div>
           </div>
           )
