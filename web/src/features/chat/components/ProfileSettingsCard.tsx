@@ -109,7 +109,6 @@ export function ProfileSettingsCard({
       <div className="sheet-head">
         <div>
           <div className="section-title">Мой профиль</div>
-          <p className="sheet-copy">Настройки текущего аккаунта.</p>
         </div>
         <button type="button" className="ghost-button compact" onClick={onClose}>
           Закрыть
@@ -188,7 +187,6 @@ export function ProfileSettingsCard({
             maxLength={160}
             rows={3}
           />
-          <span className="profile-field-help">Короткое описание о себе.</span>
         </form>
 
         <div className="profile-line profile-action-panel">

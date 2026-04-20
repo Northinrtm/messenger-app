@@ -1829,15 +1829,11 @@ textarea {
 }
 
 .profile-about-input {
+  height: 5.25rem;
   min-height: 5.25rem;
-  resize: vertical;
+  max-height: 5.25rem;
+  resize: none;
   line-height: 1.45;
-}
-
-.profile-field-help {
-  color: #8aa0b6;
-  font-size: 0.82rem;
-  line-height: 1.4;
 }
 
 .profile-about-value {
