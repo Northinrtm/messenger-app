@@ -9,6 +9,7 @@ import {
   createDirectChat,
   deleteChat as deleteChatRequest,
   deleteMessage as deleteMessageRequest,
+  describeError,
   toggleMessageReaction as toggleMessageReactionRequest,
   updatePinnedMessage as updatePinnedMessageRequest,
 } from "../../../lib/api";
@@ -20,6 +21,7 @@ import {
 import type {
   AuthResponse,
   ChatMessage,
+  ChatMessageAttachment,
   ChatSummary,
   MessageReaction,
   MessageSnippet,
@@ -38,10 +40,13 @@ import {
 import type { ContextMenuState, ConversationListTab } from "../chatUi";
 import {
   createOptimisticOutgoingMessage,
+  buildAttachmentOnlyMessageText,
   ensureOwnMessageStatus,
   isOwnMessage,
   toMessageSnippet,
 } from "../messagePresentation";
+
+const MAX_ATTACHMENT_SIZE_BYTES = 25 * 1024 * 1024;
 
 type SendMessageInput = {
   chatId: string;
@@ -50,6 +55,7 @@ type SendMessageInput = {
   localOrder: number;
   participants: Participant[];
   replyTo?: MessageSnippet | null;
+  attachments?: ChatMessageAttachment[];
 };
 
 type UseMessageActionsOptions = {
@@ -145,6 +151,7 @@ export function useMessageActions({
           currentUserId: currentUser.id,
           isDirectChat: targetChat?.direct,
           session,
+          attachments: input.attachments ?? [],
         },
       );
     },
@@ -161,6 +168,7 @@ export function useMessageActions({
         recipientCount: Math.max(0, input.participants.length - 1),
         replyTo: input.replyTo ?? null,
         status: "SENDING",
+        attachments: input.attachments ?? [],
       });
       queryClient.setQueryData(["pending-outgoing-messages", currentUser.id], nextPendingMessages);
       applyChatPreviewMessage(optimisticMessage);
@@ -208,6 +216,7 @@ export function useMessageActions({
         recipientCount: Math.max(0, input.participants.length - 1),
         replyTo: input.replyTo ?? null,
         status: nextPendingStatus,
+        attachments: input.attachments ?? [],
       });
       queryClient.setQueryData(["pending-outgoing-messages", currentUser.id], nextPendingMessages);
       if (isTransientSendFailure(error)) {
@@ -301,6 +310,7 @@ export function useMessageActions({
         localOrder: message.localOrder ?? ++nextLocalMessageOrderRef.current,
         participants: targetChat.members,
         replyTo: message.replyTo,
+        attachments: message.attachments ?? [],
       });
     });
   }, [chats, isRealtimeConnected, pendingOutgoingMessages]);
@@ -395,11 +405,13 @@ export function useMessageActions({
       messageId,
       content,
       participants,
+      attachments,
     }: {
       chatId: string;
       messageId: string;
       content: string;
       participants: Participant[];
+      attachments?: ChatMessageAttachment[];
     }) => {
       const { updateEncryptedMessage } = await import("../../../lib/e2ee");
       return updateEncryptedMessage(
@@ -413,6 +425,7 @@ export function useMessageActions({
           currentUserId: currentUser.id,
           isDirectChat: activeChat?.direct,
           session,
+          attachments: attachments ?? [],
         }
       );
     },
@@ -620,9 +633,9 @@ export function useMessageActions({
     });
   };
 
-  const submitActiveDraft = (draft: string) => {
+  const submitActiveDraft = async (draft: string, files: File[] = []) => {
     const trimmed = draft.trim();
-    if (!trimmed || !activeChat) {
+    if ((!trimmed && files.length === 0) || !activeChat) {
       return false;
     }
 
@@ -633,17 +646,39 @@ export function useMessageActions({
         messageId: editingMessage.id,
         content: trimmed,
         participants: activeChat.members,
+        attachments: editingMessage.attachments ?? [],
       });
       return true;
     }
 
+    let attachments: ChatMessageAttachment[] = [];
+    if (files.length > 0) {
+      const oversizedFile = files.find((file) => file.size > MAX_ATTACHMENT_SIZE_BYTES);
+      if (oversizedFile) {
+        window.alert(
+          `Файл "${oversizedFile.name}" больше 25 MB. Выберите файл меньшего размера.`
+        );
+        return false;
+      }
+
+      try {
+        const { prepareEncryptedMessageAttachments } = await import("../../../lib/e2ee");
+        attachments = await prepareEncryptedMessageAttachments(sessionToken, activeChat.id, files);
+      } catch (error) {
+        window.alert(describeError(error));
+        return false;
+      }
+    }
+    const content = trimmed || buildAttachmentOnlyMessageText(attachments);
+
     return sendOutgoingMessage({
       chatId: activeChat.id,
       clientMessageId: `client-${window.crypto.randomUUID()}`,
-      content: trimmed,
+      content,
       localOrder: ++nextLocalMessageOrderRef.current,
       participants: activeChat.members,
       replyTo: replyingToMessage ? toMessageSnippet(replyingToMessage) : null,
+      attachments,
     });
   };
 
@@ -659,6 +694,7 @@ export function useMessageActions({
       localOrder: message.localOrder ?? ++nextLocalMessageOrderRef.current,
       participants: activeChat.members,
       replyTo: message.replyTo,
+      attachments: message.attachments ?? [],
     });
   };
 

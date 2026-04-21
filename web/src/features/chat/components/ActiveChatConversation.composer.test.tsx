@@ -114,6 +114,8 @@ describe("ActiveChatConversation composer", () => {
           onClearEdit={() => {}}
           onRecoverEncryptionIdentity={() => {}}
           onRetryMessage={(_message: ChatMessage) => {}}
+          onDownloadAttachment={() => {}}
+          onLoadAttachmentPreview={() => Promise.resolve(new Blob())}
           onComposerChange={composerChangeSpy}
           onSubmit={submitSpy}
           formatClock={(value) => value}
@@ -140,18 +142,19 @@ describe("ActiveChatConversation composer", () => {
     expect(textarea.value).toBe("qweeeee");
     expect(composerChangeSpy).toHaveBeenLastCalledWith("qweeeee");
 
+    const submitButton = container.querySelector(".north-send-button") as HTMLButtonElement | null;
+    if (!submitButton) {
+      throw new Error("Composer submit button is missing");
+    }
+
     await act(async () => {
-      textarea.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          bubbles: true,
-          cancelable: true,
-          key: "Enter",
-        }),
-      );
-      await Promise.resolve();
+      submitButton.focus();
+      submitButton.click();
+      await new Promise((resolve) => window.setTimeout(resolve, 20));
     });
 
-    expect(submitSpy).toHaveBeenCalledWith("qweeeee");
+    expect(submitSpy).toHaveBeenCalledWith("qweeeee", []);
     expect(textarea.value).toBe("");
+    expect(document.activeElement).toBe(textarea);
   });
 });

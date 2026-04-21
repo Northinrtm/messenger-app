@@ -49,6 +49,7 @@ import {
 import type {
   AuthResponse,
   ChatMessage,
+  ChatMessageAttachment,
   MessageReaction,
   ChatSummary,
   Participant,
@@ -1234,6 +1235,33 @@ export function NorthMessengerWorkspace({
     }
   });
 
+  const handleDownloadAttachment = useEffectEvent(
+    async (chatId: string, attachment: ChatMessageAttachment) => {
+      try {
+        const { downloadDecryptedMessageAttachment } = await import("../../lib/e2ee");
+        const download = await downloadDecryptedMessageAttachment(session.token, chatId, attachment);
+        const url = window.URL.createObjectURL(download.blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = download.fileName;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 1_000);
+      } catch (error) {
+        window.alert(describeError(error));
+      }
+    }
+  );
+
+  const handleLoadAttachmentPreview = useEffectEvent(
+    async (chatId: string, attachment: ChatMessageAttachment) => {
+      const { downloadDecryptedMessageAttachment } = await import("../../lib/e2ee");
+      const download = await downloadDecryptedMessageAttachment(session.token, chatId, attachment);
+      return download.blob;
+    }
+  );
+
   useEffect(() => {
     if (!activeChat) {
       return;
@@ -2250,6 +2278,8 @@ export function NorthMessengerWorkspace({
           onClearEdit: () => clearComposerContext("edit"),
           onRecoverEncryptionIdentity: handleRecoverEncryptionIdentity,
           onRetryMessage: retryFailedMessage,
+          onDownloadAttachment: handleDownloadAttachment,
+          onLoadAttachmentPreview: handleLoadAttachmentPreview,
           onComposerChange: handleComposerChange,
           onSubmit: handleSubmitActiveDraft,
           formatClock,

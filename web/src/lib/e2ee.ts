@@ -1,5 +1,6 @@
 import {
   ApiError,
+  downloadEncryptedChatAttachment,
   getMessagesRaw,
   getOwnGroupHistoryKeys,
   getOwnEncryptionRecoverySnapshot,
@@ -8,6 +9,7 @@ import {
   upsertGroupHistoryKey,
   upsertOwnEncryptionRecoverySnapshot,
   upsertOwnEncryptionDevice,
+  uploadEncryptedChatAttachment,
   updateMessage,
 } from "./api";
 import { sendMessageRaw } from "./realtime";
@@ -15,6 +17,7 @@ import type {
   ApiChatMessage,
   AuthResponse,
   ChatMessage,
+  ChatMessageAttachment,
   EncryptedMessagePayload,
   Participant,
   UserEncryptionDevice,
@@ -37,6 +40,7 @@ import {
 
 const MESSAGE_SCHEME_DEVICE = "X3DH-DEVICE-AES-GCM";
 const MESSAGE_SCHEME_GROUP_SENDER_KEY = "GROUP-SENDER-KEY-AES-GCM";
+const MESSAGE_CONTENT_ENVELOPE_TYPE = "north.message.v1";
 const KDF_ITERATIONS = 250_000;
 const UNLOCKED_IDENTITY_STORAGE_PREFIX = "north-messenger:unlocked-e2ee:";
 const AUTO_UNLOCKED_IDENTITY_STORAGE_PREFIX = "north-messenger:auto-unlocked-e2ee:";
@@ -90,6 +94,15 @@ const recoverySyncSessionByUserId = new Map<string, AuthResponse>();
 const scheduledRecoverySnapshotSyncByUserId = new Map<string, number>();
 const inFlightRecoverySnapshotSyncByUserId = new Map<string, Promise<void>>();
 const queuedRecoverySnapshotSyncByUserId = new Set<string>();
+const DECRYPTED_ATTACHMENT_CACHE_MAX_BYTES = 64 * 1024 * 1024;
+const decryptedAttachmentCache = new Map<
+  string,
+  {
+    blob: Blob;
+    fileName: string;
+  }
+>();
+let decryptedAttachmentCacheSizeBytes = 0;
 
 export {
   clearPinnedEncryptionIdentity,
@@ -287,6 +300,13 @@ type RememberedDecryptedMessageArchiveRecord = {
 
 type ArchivedDecryptedMessagePayload = {
   content: string;
+  attachments?: ChatMessageAttachment[];
+};
+
+type MessageContentEnvelope = {
+  type: typeof MESSAGE_CONTENT_ENVELOPE_TYPE;
+  text: string;
+  attachments?: ChatMessageAttachment[];
 };
 
 type EncryptedRecoverySnapshotPayloadRecord = {
@@ -548,6 +568,7 @@ export async function readLatestArchivedDecryptedChatMessage(userId: string, cha
     createdAt: archivedMessage.createdAt,
     editedAt: archivedMessage.editedAt,
     replyTo: null,
+    attachments: archivedMessage.attachments,
   };
 }
 
@@ -569,6 +590,7 @@ function getRecoverableEncryptedEnvelopeErrorMode(error: unknown): "session" | "
       "Encrypted group envelope message counter is stale",
       "Encrypted group envelope must start at counter zero",
       "Encrypted group envelope message counter advanced too far",
+      "Group history key recipient prekey is stale",
       "Encrypted payload contains unknown recipient devices",
       "Encrypted payload must include every active participant device",
       "Encrypted device envelope recipient device is invalid",
@@ -915,6 +937,82 @@ export async function getEncryptedMessagesSnapshot(
   };
 }
 
+export async function prepareEncryptedMessageAttachments(
+  token: string,
+  chatId: string,
+  files: File[]
+): Promise<ChatMessageAttachment[]> {
+  const attachments: ChatMessageAttachment[] = [];
+  for (const file of files) {
+    const fileName = normalizeAttachmentFileName(file.name);
+    const mimeType = normalizeAttachmentMimeType(file.type);
+    const keyBytes = randomBytes(32);
+    const iv = randomBytes(12);
+    const key = await window.crypto.subtle.importKey(
+      "raw",
+      toArrayBuffer(keyBytes),
+      { name: "AES-GCM" },
+      false,
+      ["encrypt"]
+    );
+    const ciphertext = await window.crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      key,
+      await file.arrayBuffer()
+    );
+    const upload = await uploadEncryptedChatAttachment(
+      token,
+      chatId,
+      new Blob([ciphertext], { type: "application/octet-stream" })
+    );
+    rememberDecryptedAttachment(
+      chatId,
+      upload.id,
+      fileName,
+      file.slice(0, file.size, mimeType)
+    );
+    attachments.push({
+      id: upload.id,
+      fileName,
+      mimeType,
+      sizeBytes: file.size,
+      ciphertextSizeBytes: upload.ciphertextSizeBytes,
+      key: bytesToBase64(keyBytes),
+      iv: bytesToBase64(iv),
+    });
+  }
+  return attachments;
+}
+
+export async function downloadDecryptedMessageAttachment(
+  token: string,
+  chatId: string,
+  attachment: ChatMessageAttachment
+) {
+  const cachedAttachment = readDecryptedAttachment(chatId, attachment.id);
+  if (cachedAttachment) {
+    return cachedAttachment;
+  }
+
+  const ciphertext = await downloadEncryptedChatAttachment(token, chatId, attachment.id);
+  const key = await window.crypto.subtle.importKey(
+    "raw",
+    toArrayBuffer(base64ToBytes(attachment.key)),
+    { name: "AES-GCM" },
+    false,
+    ["decrypt"]
+  );
+  const plaintext = await window.crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: base64ToBytes(attachment.iv) },
+    key,
+    ciphertext
+  );
+  const blob = new Blob([plaintext], { type: normalizeAttachmentMimeType(attachment.mimeType) });
+  const fileName = normalizeAttachmentFileName(attachment.fileName);
+  rememberDecryptedAttachment(chatId, attachment.id, fileName, blob);
+  return { blob, fileName };
+}
+
 export async function sendEncryptedMessage(
   token: string,
   chatId: string,
@@ -926,12 +1024,14 @@ export async function sendEncryptedMessage(
     currentUserId?: string;
     isDirectChat?: boolean;
     session?: AuthResponse;
+    attachments?: ChatMessageAttachment[];
   }
 ) {
   ensureE2eeTransportStorageSchema();
 
-  const normalizedContent = content.trim();
-  if (!normalizedContent) {
+  const attachments = normalizeChatMessageAttachments(options?.attachments ?? []);
+  const normalizedContent = content.trim() || buildAttachmentOnlyContent(attachments);
+  if (!normalizedContent && attachments.length === 0) {
     throw new ApiError("Message content cannot be blank", 400);
   }
 
@@ -949,9 +1049,10 @@ export async function sendEncryptedMessage(
     session: options.session,
   });
   const dispatchMessage = async () => {
+    const encryptedContent = serializeMessageContent(normalizedContent, attachments);
     const encryptedPayload = options.isDirectChat === false
-      ? await encryptGroupMessage(token, chatId, currentUserId, normalizedContent, participants)
-      : await encryptDirectDeviceMessage(token, currentUserId, normalizedContent, participants);
+      ? await encryptGroupMessage(token, chatId, currentUserId, encryptedContent, participants)
+      : await encryptDirectDeviceMessage(token, currentUserId, encryptedContent, participants);
     const resolvedClientMessageId = clientMessageId?.trim();
     if (!resolvedClientMessageId) {
       throw new ApiError("Client message id is required", 400);
@@ -960,6 +1061,7 @@ export async function sendEncryptedMessage(
     const response = await sendMessageRaw(token, chatId, {
       clientMessageId: resolvedClientMessageId,
       replyToMessageId,
+      attachmentIds: attachments.map((attachment) => attachment.id),
       encryptedPayload,
     });
 
@@ -975,6 +1077,7 @@ export async function sendEncryptedMessage(
       clientMessageId: response.clientMessageId ?? resolvedClientMessageId,
       replyTo: response.replyTo,
       reactions: response.reactions ?? [],
+      attachments,
     } satisfies ChatMessage;
     void rememberArchivedDecryptedMessage(currentUserId, sentMessage);
     return sentMessage;
@@ -1005,12 +1108,18 @@ export async function updateEncryptedMessage(
   messageId: string,
   content: string,
   participants: Participant[],
-  options?: { currentUserId?: string; isDirectChat?: boolean; session?: AuthResponse }
+  options?: {
+    currentUserId?: string;
+    isDirectChat?: boolean;
+    session?: AuthResponse;
+    attachments?: ChatMessageAttachment[];
+  }
 ) {
   ensureE2eeTransportStorageSchema();
 
-  const normalizedContent = content.trim();
-  if (!normalizedContent) {
+  const attachments = normalizeChatMessageAttachments(options?.attachments ?? []);
+  const normalizedContent = content.trim() || buildAttachmentOnlyContent(attachments);
+  if (!normalizedContent && attachments.length === 0) {
     throw new ApiError("Message content cannot be blank", 400);
   }
 
@@ -1028,18 +1137,19 @@ export async function updateEncryptedMessage(
     session: options?.session,
   });
   const dispatchUpdate = async () => {
+    const encryptedContent = serializeMessageContent(normalizedContent, attachments);
     const encryptedPayload = options?.isDirectChat === false
       ? await encryptGroupMessage(
           token,
           chatId,
           currentUserId,
-          normalizedContent,
+          encryptedContent,
           participants
         )
       : await encryptDirectDeviceMessage(
           token,
           currentUserId,
-          normalizedContent,
+          encryptedContent,
           participants
         );
     const response = await updateMessage(token, chatId, messageId, {
@@ -1049,6 +1159,7 @@ export async function updateEncryptedMessage(
     const hydratedMessage = {
       ...(await hydrateChatMessage(response, userId)),
       content: normalizedContent,
+      attachments,
     } satisfies ChatMessage;
     await rememberArchivedDecryptedMessage(currentUserId, hydratedMessage);
     return hydratedMessage;
@@ -1200,7 +1311,8 @@ export async function hydrateChatMessageSnapshot(
   return buildHydratedChatMessage(
     message,
     archivedMessage?.content ?? ENCRYPTED_MESSAGE_UNAVAILABLE,
-    archivedMessage?.editedAt ?? message.editedAt
+    archivedMessage?.editedAt ?? message.editedAt,
+    archivedMessage?.attachments
   );
 }
 
@@ -1214,7 +1326,12 @@ async function hydrateChatMessageInternal(
     if (!message.encryptedPayload) {
       const archivedMessage = await readArchivedDecryptedMessageRecord(userId, message.id);
       return archivedMessage
-        ? buildHydratedChatMessage(message, archivedMessage.content, archivedMessage.editedAt)
+        ? buildHydratedChatMessage(
+            message,
+            archivedMessage.content,
+            archivedMessage.editedAt,
+            archivedMessage.attachments
+          )
         : buildHydratedChatMessage(message, ENCRYPTED_MESSAGE_UNAVAILABLE);
     }
 
@@ -1226,7 +1343,12 @@ async function hydrateChatMessageInternal(
     } catch {
       const archivedMessage = await readArchivedDecryptedMessageRecord(userId, message.id);
       return archivedMessage
-        ? buildHydratedChatMessage(message, archivedMessage.content, archivedMessage.editedAt)
+        ? buildHydratedChatMessage(
+            message,
+            archivedMessage.content,
+            archivedMessage.editedAt,
+            archivedMessage.attachments
+          )
         : buildHydratedChatMessage(message, ENCRYPTED_MESSAGE_UNAVAILABLE);
     }
   });
@@ -1260,21 +1382,170 @@ async function waitForPendingMessageHydrationBatch(userId: string) {
 function buildHydratedChatMessage(
   message: ApiChatMessage,
   content: string,
-  editedAt = message.editedAt
+  editedAt = message.editedAt,
+  archivedAttachments?: ChatMessageAttachment[]
 ) {
+  const decodedContent = archivedAttachments
+    ? { content, attachments: archivedAttachments }
+    : parseMessageContent(content);
   return {
     id: message.id,
     chatId: message.chatId,
     serverOrder: message.serverOrder ?? null,
     sender: message.sender,
-    content,
+    content: decodedContent.content,
     createdAt: message.createdAt,
     editedAt,
     status: message.status,
     clientMessageId: message.clientMessageId ?? null,
     replyTo: message.replyTo,
     reactions: message.reactions ?? [],
+    attachments: decodedContent.attachments,
   } satisfies ChatMessage;
+}
+
+function serializeMessageContent(content: string, attachments: ChatMessageAttachment[]) {
+  if (attachments.length === 0) {
+    return content;
+  }
+
+  return JSON.stringify({
+    type: MESSAGE_CONTENT_ENVELOPE_TYPE,
+    text: content,
+    attachments,
+  } satisfies MessageContentEnvelope);
+}
+
+function parseMessageContent(value: string): Pick<ChatMessage, "content" | "attachments"> {
+  if (!value.trim() || isUnavailableEncryptedMessage(value)) {
+    return { content: value, attachments: [] };
+  }
+
+  try {
+    const parsed = JSON.parse(value) as Partial<MessageContentEnvelope>;
+    if (parsed.type !== MESSAGE_CONTENT_ENVELOPE_TYPE || typeof parsed.text !== "string") {
+      return { content: value, attachments: [] };
+    }
+
+    return {
+      content: parsed.text,
+      attachments: normalizeChatMessageAttachments(parsed.attachments ?? []),
+    };
+  } catch {
+    return { content: value, attachments: [] };
+  }
+}
+
+function normalizeChatMessageAttachments(value: unknown): ChatMessageAttachment[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((attachment) => normalizeChatMessageAttachment(attachment))
+    .filter((attachment): attachment is ChatMessageAttachment => attachment !== null);
+}
+
+function normalizeChatMessageAttachment(value: unknown): ChatMessageAttachment | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const candidate = value as Partial<ChatMessageAttachment>;
+  if (
+    typeof candidate.id !== "string" ||
+    typeof candidate.fileName !== "string" ||
+    typeof candidate.mimeType !== "string" ||
+    typeof candidate.sizeBytes !== "number" ||
+    typeof candidate.ciphertextSizeBytes !== "number" ||
+    typeof candidate.key !== "string" ||
+    typeof candidate.iv !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    id: candidate.id,
+    fileName: normalizeAttachmentFileName(candidate.fileName),
+    mimeType: normalizeAttachmentMimeType(candidate.mimeType),
+    sizeBytes: Math.max(0, Math.trunc(candidate.sizeBytes)),
+    ciphertextSizeBytes: Math.max(0, Math.trunc(candidate.ciphertextSizeBytes)),
+    key: candidate.key,
+    iv: candidate.iv,
+  };
+}
+
+function normalizeAttachmentFileName(value: string) {
+  const normalized = value.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").trim();
+  return normalized.slice(0, 180) || "attachment";
+}
+
+function normalizeAttachmentMimeType(value: string | null | undefined) {
+  const normalized = value?.trim();
+  return normalized || "application/octet-stream";
+}
+
+function buildAttachmentOnlyContent(attachments: ChatMessageAttachment[]) {
+  if (attachments.length === 0) {
+    return "";
+  }
+
+  if (attachments.length === 1) {
+    return `\u0424\u0430\u0439\u043B: ${attachments[0].fileName}`;
+  }
+
+  return `\u0424\u0430\u0439\u043B\u044B: ${attachments.length}`;
+}
+
+function getDecryptedAttachmentCacheKey(chatId: string, attachmentId: string) {
+  return `${chatId}:${attachmentId}`;
+}
+
+function readDecryptedAttachment(chatId: string, attachmentId: string) {
+  const cacheKey = getDecryptedAttachmentCacheKey(chatId, attachmentId);
+  const cachedAttachment = decryptedAttachmentCache.get(cacheKey);
+  if (!cachedAttachment) {
+    return null;
+  }
+
+  decryptedAttachmentCache.delete(cacheKey);
+  decryptedAttachmentCache.set(cacheKey, cachedAttachment);
+  return {
+    blob: cachedAttachment.blob,
+    fileName: cachedAttachment.fileName,
+  };
+}
+
+function rememberDecryptedAttachment(
+  chatId: string,
+  attachmentId: string,
+  fileName: string,
+  blob: Blob
+) {
+  const cacheKey = getDecryptedAttachmentCacheKey(chatId, attachmentId);
+  const existingAttachment = decryptedAttachmentCache.get(cacheKey);
+  if (existingAttachment) {
+    decryptedAttachmentCacheSizeBytes -= existingAttachment.blob.size;
+    decryptedAttachmentCache.delete(cacheKey);
+  }
+
+  if (blob.size > DECRYPTED_ATTACHMENT_CACHE_MAX_BYTES) {
+    return;
+  }
+
+  decryptedAttachmentCache.set(cacheKey, { blob, fileName });
+  decryptedAttachmentCacheSizeBytes += blob.size;
+
+  while (decryptedAttachmentCacheSizeBytes > DECRYPTED_ATTACHMENT_CACHE_MAX_BYTES) {
+    const oldestCacheKey = decryptedAttachmentCache.keys().next().value;
+    if (!oldestCacheKey) {
+      break;
+    }
+
+    const oldestAttachment = decryptedAttachmentCache.get(oldestCacheKey);
+    decryptedAttachmentCache.delete(oldestCacheKey);
+    decryptedAttachmentCacheSizeBytes -= oldestAttachment?.blob.size ?? 0;
+  }
 }
 
 function serializeMessageHydration<T>(userId: string, task: () => Promise<T>): Promise<T> {
@@ -5488,7 +5759,7 @@ function isValidDeviceSessionCollection(value: unknown): value is Record<string,
 
 async function rememberArchivedDecryptedMessage(
   userId: string,
-  message: Pick<ChatMessage, "id" | "chatId" | "content" | "createdAt" | "editedAt">
+  message: Pick<ChatMessage, "id" | "chatId" | "content" | "createdAt" | "editedAt" | "attachments">
 ) {
   if (
     typeof window === "undefined" ||
@@ -5539,6 +5810,7 @@ async function readArchivedDecryptedMessageRecord(userId: string, messageId: str
       createdAt: record.createdAt,
       editedAt: record.editedAt,
       content: payload.content,
+      attachments: normalizeChatMessageAttachments(payload.attachments ?? []),
     };
   } catch {
     return null;
@@ -5572,6 +5844,7 @@ async function readLatestArchivedDecryptedMessageRecord(userId: string, chatId: 
       createdAt: record.createdAt,
       editedAt: record.editedAt,
       content: payload.content,
+      attachments: normalizeChatMessageAttachments(payload.attachments ?? []),
     };
   } catch {
     return null;
@@ -5580,7 +5853,7 @@ async function readLatestArchivedDecryptedMessageRecord(userId: string, chatId: 
 
 async function encryptArchivedDecryptedMessage(
   privateKey: string,
-  message: Pick<ChatMessage, "id" | "chatId" | "content" | "createdAt" | "editedAt">
+  message: Pick<ChatMessage, "id" | "chatId" | "content" | "createdAt" | "editedAt" | "attachments">
 ): Promise<RememberedDecryptedMessageArchiveRecord> {
   const salt = randomBytes(16);
   const iv = randomBytes(12);
@@ -5594,6 +5867,7 @@ async function encryptArchivedDecryptedMessage(
     textEncoder.encode(
       JSON.stringify({
         content: message.content,
+        attachments: normalizeChatMessageAttachments(message.attachments ?? []),
       } satisfies ArchivedDecryptedMessagePayload)
     )
   );
@@ -5631,6 +5905,7 @@ async function decryptArchivedDecryptedMessage(
 
     return {
       content: payload.content,
+      attachments: normalizeChatMessageAttachments(payload.attachments ?? []),
     };
   } catch {
     return null;

@@ -2755,6 +2755,164 @@ textarea {
   line-height: 1.22;
 }
 
+.message-link {
+  color: #bfe6ff;
+  font-weight: 650;
+  text-decoration: underline;
+  text-decoration-color: rgba(191, 230, 255, 0.55);
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.16em;
+}
+
+.message-link:hover {
+  color: #ffffff;
+  text-decoration-color: rgba(255, 255, 255, 0.84);
+}
+
+.message-attachments {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.55rem;
+}
+
+.message-attachment-card {
+  width: min(100%, 22rem);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.65rem;
+  align-items: center;
+  padding: 0.58rem 0.7rem;
+  border: 1px solid rgba(226, 239, 251, 0.1);
+  border-radius: 0.82rem;
+  background: rgba(7, 19, 30, 0.24);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.message-attachment-card:hover {
+  border-color: rgba(139, 208, 255, 0.35);
+  background: rgba(18, 39, 58, 0.38);
+}
+
+.message-attachment-icon {
+  width: 2rem;
+  height: 2rem;
+  display: grid;
+  place-items: center;
+  border-radius: 0.7rem;
+  background: rgba(139, 208, 255, 0.14);
+  color: #a9dfff;
+  font-weight: 700;
+}
+
+.message-attachment-icon svg {
+  width: 1.12rem;
+  height: 1.12rem;
+}
+
+.message-attachment-copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.08rem;
+}
+
+.message-attachment-copy strong {
+  overflow: hidden;
+  color: #f4fbff;
+  font-size: 0.91rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-attachment-copy span,
+.message-attachment-action {
+  color: #9eb7ce;
+  font-size: 0.78rem;
+}
+
+.message-attachment-action {
+  color: #a9dfff;
+  font-weight: 700;
+}
+
+.message-image-attachment {
+  position: relative;
+  width: min(18rem, 100%);
+  min-height: 10rem;
+  display: grid;
+  align-items: end;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid rgba(226, 239, 251, 0.1);
+  border-radius: 1rem;
+  background: rgba(7, 19, 30, 0.28);
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.message-image-attachment:hover {
+  border-color: rgba(139, 208, 255, 0.35);
+}
+
+.message-image-preview {
+  width: 100%;
+  max-height: 20rem;
+  display: block;
+  background: rgba(5, 13, 22, 0.62);
+  object-fit: contain;
+}
+
+.message-image-preview.is-loading {
+  min-height: 10rem;
+  opacity: 0;
+}
+
+.message-image-placeholder {
+  min-height: 10rem;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  color: #a8bed4;
+  font-size: 0.9rem;
+}
+
+.message-image-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: rgba(7, 19, 30, 0.28);
+}
+
+.message-image-caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  display: grid;
+  gap: 0.08rem;
+  padding: 1.35rem 0.75rem 0.58rem;
+  background: linear-gradient(180deg, rgba(5, 13, 22, 0), rgba(5, 13, 22, 0.82));
+  color: #d8eafa;
+  pointer-events: none;
+}
+
+.message-image-name {
+  overflow: hidden;
+  color: #ffffff;
+  font-size: 0.86rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-image-caption span:last-child {
+  color: #b7d4ed;
+  font-size: 0.74rem;
+}
+
 .message-edited-label {
   font-size: 0.73rem;
   letter-spacing: 0.02em;
@@ -2908,11 +3066,86 @@ textarea {
 
 .north-composer-body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 0.75rem;
   align-items: center;
   width: min(100%, 78rem);
   justify-self: center;
+}
+
+.composer-file-input {
+  display: none;
+}
+
+.composer-attachment-button {
+  min-width: 3rem;
+  min-height: 3rem;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(139, 208, 255, 0.12);
+  background: #182638;
+  color: #b9d8f5;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.composer-attachment-button:hover:not(:disabled) {
+  border-color: rgba(139, 208, 255, 0.34);
+  background: #203248;
+  color: #f4fbff;
+}
+
+.composer-attachment-button svg {
+  width: 1.28rem;
+  height: 1.28rem;
+}
+
+.composer-attachments {
+  width: min(100%, 78rem);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  justify-self: center;
+}
+
+.composer-attachment-chip {
+  min-width: 0;
+  max-width: min(100%, 22rem);
+  display: inline-grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0.45rem;
+  align-items: center;
+  padding: 0.48rem 0.55rem 0.48rem 0.75rem;
+  border: 1px solid rgba(139, 208, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(19, 38, 55, 0.78);
+  color: #dceaf7;
+}
+
+.composer-attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-attachment-size {
+  color: #8ea2b6;
+  font-size: 0.78rem;
+}
+
+.composer-attachment-remove {
+  width: 1.55rem;
+  height: 1.55rem;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #dceaf7;
+  cursor: pointer;
+}
+
+.composer-attachment-remove:hover {
+  background: rgba(255, 255, 255, 0.14);
 }
 
 .composer-context {

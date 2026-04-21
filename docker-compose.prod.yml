@@ -281,6 +281,8 @@ services:
       MANAGEMENT_OTLP_TRACING_ENDPOINT: ${MANAGEMENT_OTLP_TRACING_ENDPOINT:-http://otel-collector:4318/v1/traces}
       APP_MEDIA_CONFERENCE_RECORDINGS_DIRECTORY: /app/storage/conference-recordings
       APP_MEDIA_CONFERENCE_RECORDINGS_IMPORT_DIRECTORY: /jibri-recordings
+      APP_MEDIA_MESSAGE_ATTACHMENTS_DIRECTORY: /app/storage/message-attachments
+      APP_MEDIA_MESSAGE_ATTACHMENTS_MAX_SIZE_BYTES: ${APP_MEDIA_MESSAGE_ATTACHMENTS_MAX_SIZE_BYTES:-26214400}
     depends_on:
       postgres:
         condition: service_healthy
@@ -294,6 +296,7 @@ services:
       start_period: 90s
     volumes:
       - conference_recordings_archive:/app/storage/conference-recordings
+      - message_attachments:/app/storage/message-attachments
       - conference_recordings_raw:/jibri-recordings:ro
 
   postgres-exporter:
@@ -520,4 +523,5 @@ volumes:
   tempo_data:
   conference_recordings_raw:
   conference_recordings_archive:
+  message_attachments:
   promtail_positions:

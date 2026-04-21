@@ -653,6 +653,11 @@ function reconcileChatMessage(current: ChatMessage, incoming: ChatMessage): Chat
   const nextClientMessageId = incoming.clientMessageId ?? current.clientMessageId ?? null;
   const nextServerOrder = incoming.serverOrder ?? current.serverOrder ?? null;
   const nextLocalOrder = incoming.localOrder ?? current.localOrder ?? null;
+  const nextAttachments =
+    isEncryptedMessageUnavailable(incoming.content) &&
+    !isEncryptedMessageUnavailable(current.content)
+      ? current.attachments
+      : incoming.attachments;
 
   if (
     nextContent === incoming.content &&
@@ -661,7 +666,8 @@ function reconcileChatMessage(current: ChatMessage, incoming: ChatMessage): Chat
     nextEditedAt === incoming.editedAt &&
     nextClientMessageId === (incoming.clientMessageId ?? null) &&
     nextServerOrder === (incoming.serverOrder ?? null) &&
-    nextLocalOrder === (incoming.localOrder ?? null)
+    nextLocalOrder === (incoming.localOrder ?? null) &&
+    nextAttachments === incoming.attachments
   ) {
     return incoming;
   }
@@ -675,6 +681,7 @@ function reconcileChatMessage(current: ChatMessage, incoming: ChatMessage): Chat
     clientMessageId: nextClientMessageId,
     serverOrder: nextServerOrder,
     localOrder: nextLocalOrder,
+    attachments: nextAttachments,
   };
 }
 

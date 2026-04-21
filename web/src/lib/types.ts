@@ -47,6 +47,16 @@ export type MessageSnippet = {
   preview: string;
 };
 
+export type ChatMessageAttachment = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  ciphertextSizeBytes: number;
+  key: string;
+  iv: string;
+};
+
 export type EncryptedMessagePayload = {
   scheme: string;
   encryptedKeysByRecipientId: Record<string, string>;
@@ -130,6 +140,7 @@ export type ChatMessage = {
   localOrder?: number | null;
   replyTo: MessageSnippet | null;
   reactions: MessageReaction[];
+  attachments?: ChatMessageAttachment[];
 };
 
 export type MessageSendErrorEvent = {

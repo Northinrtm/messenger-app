@@ -500,7 +500,9 @@ export function sendMessageRealtime(input: {
     scheme: string;
     encryptedKeysByRecipientId: Record<string, string>;
     sharedEnvelope?: string | null;
+    historyEnvelope?: string | null;
   };
+  attachmentIds?: string[];
   timeoutMs?: number;
 }) {
   const connection = activeConnection;
@@ -538,6 +540,7 @@ export function sendMessageRealtime(input: {
         body: JSON.stringify({
           clientMessageId: input.clientMessageId,
           replyToMessageId: input.replyToMessageId ?? null,
+          attachmentIds: input.attachmentIds ?? [],
           encryptedPayload: input.encryptedPayload,
         }),
       });
@@ -560,6 +563,7 @@ export function sendMessageRaw(
       sharedEnvelope?: string | null;
       historyEnvelope?: string | null;
     };
+    attachmentIds?: string[];
   }
 ) {
   return sendMessageRealtime({
@@ -567,6 +571,7 @@ export function sendMessageRaw(
     clientMessageId: body.clientMessageId ?? "",
     replyToMessageId: body.replyToMessageId ?? null,
     encryptedPayload: body.encryptedPayload,
+    attachmentIds: body.attachmentIds ?? [],
   });
 }
 

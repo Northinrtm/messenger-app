@@ -1,4 +1,4 @@
-import type { ChatMessage, MessageSnippet, UserProfile } from "./types";
+import type { ChatMessage, ChatMessageAttachment, MessageSnippet, UserProfile } from "./types";
 
 const PENDING_MESSAGE_STORAGE_PREFIX = "north-messenger-local-pending-messages:";
 
@@ -14,6 +14,7 @@ export type LocalPendingMessage = {
   replyTo: MessageSnippet | null;
   status: LocalPendingMessageStatus;
   updatedAt: string;
+  attachments?: ChatMessageAttachment[];
 };
 
 type StoredPendingMessageMap = Record<string, LocalPendingMessage>;
@@ -31,6 +32,7 @@ export function upsertLocalPendingMessage(userId: string, message: {
   recipientCount: number;
   replyTo?: MessageSnippet | null;
   status: LocalPendingMessageStatus;
+  attachments?: ChatMessageAttachment[];
 }) {
   const messages = readPendingMessageMap(userId);
   const existingMessage = messages[message.clientMessageId];
@@ -44,6 +46,7 @@ export function upsertLocalPendingMessage(userId: string, message: {
     replyTo: message.replyTo ?? null,
     status: message.status,
     updatedAt: new Date().toISOString(),
+    attachments: message.attachments ?? existingMessage?.attachments ?? [],
   };
   writePendingMessageMap(userId, messages);
   return sortPendingMessages(Object.values(messages));
@@ -86,6 +89,7 @@ export function toRecoveredPendingChatMessage(
     localOrder: message.localOrder,
     replyTo: message.replyTo,
     reactions: [],
+    attachments: message.attachments ?? [],
   };
 }
 

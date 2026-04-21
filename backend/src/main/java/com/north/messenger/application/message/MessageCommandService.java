@@ -49,6 +49,7 @@ class MessageCommandService {
     private final MessageSupport messageSupport;
     private final MessageDispatchService messageDispatchService;
     private final ChatGroupHistoryKeyService chatGroupHistoryKeyService;
+    private final ChatAttachmentService chatAttachmentService;
     private final EntityManager entityManager;
 
     MessageCommandService(
@@ -64,6 +65,7 @@ class MessageCommandService {
             MessageSupport messageSupport,
             MessageDispatchService messageDispatchService,
             ChatGroupHistoryKeyService chatGroupHistoryKeyService,
+            ChatAttachmentService chatAttachmentService,
             EntityManager entityManager
     ) {
         this.authService = authService;
@@ -78,6 +80,7 @@ class MessageCommandService {
         this.messageSupport = messageSupport;
         this.messageDispatchService = messageDispatchService;
         this.chatGroupHistoryKeyService = chatGroupHistoryKeyService;
+        this.chatAttachmentService = chatAttachmentService;
         this.entityManager = entityManager;
     }
 
@@ -147,6 +150,12 @@ class MessageCommandService {
             );
             ChatMessage persistedMessage = chatMessageRepository.saveAndFlush(message);
             entityManager.refresh(persistedMessage);
+            chatAttachmentService.attachUploadedAttachments(
+                    currentUser,
+                    chatId,
+                    persistedMessage.getId(),
+                    request.attachmentIds()
+            );
 
             List<MessageReceipt> receipts = participants.stream()
                     .filter(participant -> !participant.getId().equals(currentUser.getId()))
@@ -282,6 +291,7 @@ class MessageCommandService {
             room.clearPinnedMessage();
         }
 
+        chatAttachmentService.deleteAttachmentsForMessage(messageId);
         List<UserAccount> participants = chatService.findParticipants(chatId);
         chatMessageRepository.delete(message);
         participants.forEach(participant -> realtimeMessagingGateway.sendToUser(

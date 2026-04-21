@@ -89,6 +89,7 @@ const timelineItems: TimelineItem[] = [
 
 const timelineSessionUser = userProfile();
 const noop = () => undefined;
+const loadAttachmentPreview = () => Promise.resolve(new Blob());
 const formatClock = (value: string) => value;
 const getMessageStatusClassName = () => "status";
 const getMessageStatusGlyph = () => "✓";
@@ -120,6 +121,8 @@ function TimelineHarness({ onReady, onTimelineRender }: HarnessProps) {
         onJumpToMessage={noop}
         onToggleReaction={noop}
         onRetryMessage={noop}
+        onDownloadAttachment={noop}
+        onLoadAttachmentPreview={loadAttachmentPreview}
         formatClock={formatClock}
         getMessageStatusClassName={getMessageStatusClassName}
         getMessageStatusGlyph={getMessageStatusGlyph}

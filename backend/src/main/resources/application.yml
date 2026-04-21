@@ -116,6 +116,9 @@ app:
     conference-recordings:
       directory: ${APP_MEDIA_CONFERENCE_RECORDINGS_DIRECTORY:./storage/conference-recordings}
       import-directory: ${APP_MEDIA_CONFERENCE_RECORDINGS_IMPORT_DIRECTORY:./storage/jibri-recordings}
+    message-attachments:
+      directory: ${APP_MEDIA_MESSAGE_ATTACHMENTS_DIRECTORY:./storage/message-attachments}
+      max-size-bytes: ${APP_MEDIA_MESSAGE_ATTACHMENTS_MAX_SIZE_BYTES:26214400}
 
 logging:
   pattern:

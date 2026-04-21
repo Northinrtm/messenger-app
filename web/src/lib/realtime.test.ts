@@ -327,6 +327,7 @@ describe("realtime reconnect protection", () => {
         body: JSON.stringify({
           clientMessageId: "client-1",
           replyToMessageId: null,
+          attachmentIds: [],
           encryptedPayload: {
             scheme: "X3DH-DEVICE-AES-GCM",
             encryptedKeysByRecipientId: {},

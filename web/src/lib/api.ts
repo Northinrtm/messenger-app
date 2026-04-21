@@ -50,6 +50,12 @@ type RequestOptions = {
   timeoutMs?: number;
 };
 
+type ChatAttachmentUploadResponse = {
+  id: string;
+  ciphertextSizeBytes: number;
+  createdAt: string;
+};
+
 function buildRequestUrl(path: string, query?: Record<string, string | number | undefined | null>) {
   const normalizedBaseUrl =
     API_URL === "/"
@@ -407,6 +413,75 @@ export async function downloadConferenceRecording(token: string, conferenceId: s
     fileName: extractFileName(response.headers.get("content-disposition")),
     mimeType: response.headers.get("content-type") ?? "application/octet-stream",
   };
+}
+
+export async function uploadEncryptedChatAttachment(
+  token: string,
+  chatId: string,
+  ciphertext: Blob
+) {
+  const formData = new FormData();
+  formData.set("file", ciphertext, "attachment.bin");
+  const response = await fetch(buildRequestUrl(`/api/chats/${chatId}/attachments`), {
+    method: "POST",
+    cache: "no-store",
+    credentials: "include",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    let payload: ApiErrorResponse | null = null;
+    try {
+      payload = (await response.json()) as ApiErrorResponse;
+    } catch {
+      payload = null;
+    }
+
+    throw new ApiError(
+      payload?.error ?? resolveHttpErrorMessage(response.status, response.statusText, ""),
+      response.status,
+      payload?.details ?? []
+    );
+  }
+
+  return (await response.json()) as ChatAttachmentUploadResponse;
+}
+
+export async function downloadEncryptedChatAttachment(
+  token: string,
+  chatId: string,
+  attachmentId: string
+) {
+  const response = await fetch(
+    buildRequestUrl(`/api/chats/${chatId}/attachments/${attachmentId}`),
+    {
+      cache: "no-store",
+      credentials: "include",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    let payload: ApiErrorResponse | null = null;
+    try {
+      payload = (await response.json()) as ApiErrorResponse;
+    } catch {
+      payload = null;
+    }
+
+    throw new ApiError(
+      payload?.error ?? resolveHttpErrorMessage(response.status, response.statusText, ""),
+      response.status,
+      payload?.details ?? []
+    );
+  }
+
+  return response.arrayBuffer();
 }
 
 export function endVideoConference(token: string, conferenceId: string) {

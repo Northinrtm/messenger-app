@@ -21,7 +21,7 @@ type ReactActEnvironment = typeof globalThis & {
 
 type HarnessState = {
   draftsByChatId: Record<string, string>;
-  submitActiveDraft: (draft: string) => void;
+  submitActiveDraft: (draft: string) => boolean | Promise<boolean>;
   queryClient: QueryClient;
 };
 
@@ -308,6 +308,7 @@ describe("useMessageActions send failure recovery", () => {
       clientMessageId: "client-queued",
       replyTo: null,
       reactions: [],
+      attachments: [],
     });
 
     root = createRoot(container);

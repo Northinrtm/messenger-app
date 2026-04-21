@@ -8,6 +8,7 @@
 .env.prod
 .env.production
 backend/target/
+backend/.m2/
 web/node_modules/
 web/dist/
 .codex-jshell-prefs

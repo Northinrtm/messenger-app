@@ -85,6 +85,7 @@ class MessageServiceTest {
     private MessengerTelemetry telemetry;
     private EntityManager entityManager;
     private ChatGroupHistoryKeyService chatGroupHistoryKeyService;
+    private ChatAttachmentService chatAttachmentService;
     private MessageService messageService;
     private ObjectMapper objectMapper;
     private Map<UUID, KeyPair> deviceSignatureKeyPairs;
@@ -108,6 +109,7 @@ class MessageServiceTest {
         telemetry = mock(MessengerTelemetry.class);
         entityManager = mock(EntityManager.class);
         chatGroupHistoryKeyService = mock(ChatGroupHistoryKeyService.class);
+        chatAttachmentService = mock(ChatAttachmentService.class);
         objectMapper = new ObjectMapper();
         deviceSignatureKeyPairs = new HashMap<>();
         DeviceKeyValidationService deviceKeyValidationService = new DeviceKeyValidationService(objectMapper);
@@ -174,6 +176,7 @@ class MessageServiceTest {
                 messageSupport,
                 messageDispatchService,
                 chatGroupHistoryKeyService,
+                chatAttachmentService,
                 entityManager
         );
         messageService = new MessageService(

@@ -1,5 +1,6 @@
 import type {
   ChatMessage,
+  ChatMessageAttachment,
   MessageReaction,
   MessageSnippet,
   MessageStatus,
@@ -25,6 +26,7 @@ type SendMessageInput = {
   localOrder: number;
   participants: Participant[];
   replyTo?: MessageSnippet | null;
+  attachments?: ChatMessageAttachment[];
 };
 
 export function createOptimisticOutgoingMessage(
@@ -43,6 +45,7 @@ export function createOptimisticOutgoingMessage(
     localOrder: input.localOrder,
     replyTo: input.replyTo ?? null,
     reactions: [],
+    attachments: input.attachments ?? [],
     status: {
       state: "SENDING",
       recipientCount: Math.max(0, input.participants.length - 1),
@@ -83,6 +86,18 @@ export function buildMessagePreview(content: string, maxLength = 96) {
   }
 
   return `${collapsedText.slice(0, maxLength - 3)}...`;
+}
+
+export function buildAttachmentOnlyMessageText(attachments: ChatMessageAttachment[]) {
+  if (attachments.length === 0) {
+    return "";
+  }
+
+  if (attachments.length === 1) {
+    return `\u0424\u0430\u0439\u043B: ${attachments[0].fileName}`;
+  }
+
+  return `\u0424\u0430\u0439\u043B\u044B: ${attachments.length}`;
 }
 
 export function buildChatListPreviewText(message: Pick<ChatMessage, "content" | "replyTo">) {
