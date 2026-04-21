@@ -16,12 +16,22 @@ public record EncryptedMessagePayloadRequest(
                 @NotBlank @Size(max = 12000) String
                 > encryptedKeysByRecipientId,
         @Size(max = 20000)
-        String sharedEnvelope
+        String sharedEnvelope,
+        @Size(max = 20000)
+        String historyEnvelope
 ) {
     public EncryptedMessagePayloadRequest(
             String scheme,
             Map<String, String> encryptedKeysByRecipientId
     ) {
-        this(scheme, encryptedKeysByRecipientId, null);
+        this(scheme, encryptedKeysByRecipientId, null, null);
+    }
+
+    public EncryptedMessagePayloadRequest(
+            String scheme,
+            Map<String, String> encryptedKeysByRecipientId,
+            String sharedEnvelope
+    ) {
+        this(scheme, encryptedKeysByRecipientId, sharedEnvelope, null);
     }
 }

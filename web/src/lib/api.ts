@@ -4,6 +4,7 @@ import type {
   ApiChatMessage,
   AuthResponse,
   ChatSummary,
+  GroupHistoryKeyAccess,
   InviteAcceptance,
   InviteLink,
   MessageReactionEvent,
@@ -489,6 +490,7 @@ export function updateMessage(
       scheme: string;
       encryptedKeysByRecipientId: Record<string, string>;
       sharedEnvelope?: string | null;
+      historyEnvelope?: string | null;
     };
   }
 ) {
@@ -688,6 +690,31 @@ export function getOwnEncryptionRecoverySnapshot(token: string) {
   return request<UserEncryptionRecoverySnapshot>("/api/e2ee/recovery-snapshot/me", {
     token,
   });
+}
+
+export function getOwnGroupHistoryKeys(token: string, chatId: string, deviceId: string) {
+  return request<GroupHistoryKeyAccess[]>(`/api/e2ee/group-history/chats/${chatId}/keys/me`, {
+    token,
+    query: { deviceId },
+  });
+}
+
+export function upsertGroupHistoryKey(
+  token: string,
+  chatId: string,
+  body: {
+    historyKeyId: string;
+    wrappedKeysByRecipientDeviceId: Record<string, string>;
+  }
+) {
+  return request<{ historyKeyId: string; createdAt: string }>(
+    `/api/e2ee/group-history/chats/${chatId}/keys`,
+    {
+      method: "PUT",
+      token,
+      body,
+    }
+  );
 }
 
 export function upsertOwnEncryptionRecoverySnapshot(

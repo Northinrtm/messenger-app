@@ -32,6 +32,12 @@ public class ChatMessage {
     @Column(name = "encrypted_keys_json", columnDefinition = "text")
     private String encryptedKeysJson;
 
+    @Column(name = "history_key_id")
+    private UUID historyKeyId;
+
+    @Column(name = "history_envelope_json", columnDefinition = "text")
+    private String historyEnvelopeJson;
+
     @Column(name = "client_message_id", length = 120, updatable = false)
     private String clientMessageId;
 
@@ -51,7 +57,7 @@ public class ChatMessage {
     }
 
     public ChatMessage(UUID id, UUID chatId, UUID senderId, String content, Instant createdAt) {
-        this(id, chatId, senderId, content, null, null, null, null, null, createdAt);
+        this(id, chatId, senderId, content, null, null, null, null, null, null, null, createdAt);
     }
 
     public ChatMessage(
@@ -64,7 +70,20 @@ public class ChatMessage {
             String encryptedKeysJson,
             Instant createdAt
     ) {
-        this(id, chatId, senderId, content, encryptionScheme, encryptionIv, encryptedKeysJson, null, null, createdAt);
+        this(
+                id,
+                chatId,
+                senderId,
+                content,
+                encryptionScheme,
+                encryptionIv,
+                encryptedKeysJson,
+                null,
+                null,
+                null,
+                null,
+                createdAt
+        );
     }
 
     public ChatMessage(
@@ -79,6 +98,36 @@ public class ChatMessage {
             UUID replyToMessageId,
             Instant createdAt
     ) {
+        this(
+                id,
+                chatId,
+                senderId,
+                content,
+                encryptionScheme,
+                encryptionIv,
+                encryptedKeysJson,
+                null,
+                null,
+                clientMessageId,
+                replyToMessageId,
+                createdAt
+        );
+    }
+
+    public ChatMessage(
+            UUID id,
+            UUID chatId,
+            UUID senderId,
+            String content,
+            String encryptionScheme,
+            String encryptionIv,
+            String encryptedKeysJson,
+            UUID historyKeyId,
+            String historyEnvelopeJson,
+            String clientMessageId,
+            UUID replyToMessageId,
+            Instant createdAt
+    ) {
         this.id = id;
         this.chatId = chatId;
         this.senderId = senderId;
@@ -86,6 +135,8 @@ public class ChatMessage {
         this.encryptionScheme = encryptionScheme;
         this.encryptionIv = encryptionIv;
         this.encryptedKeysJson = encryptedKeysJson;
+        this.historyKeyId = historyKeyId;
+        this.historyEnvelopeJson = historyEnvelopeJson;
         this.clientMessageId = clientMessageId;
         this.replyToMessageId = replyToMessageId;
         this.createdAt = createdAt;
@@ -119,6 +170,14 @@ public class ChatMessage {
         return encryptedKeysJson;
     }
 
+    public UUID getHistoryKeyId() {
+        return historyKeyId;
+    }
+
+    public String getHistoryEnvelopeJson() {
+        return historyEnvelopeJson;
+    }
+
     public String getClientMessageId() {
         return clientMessageId;
     }
@@ -150,12 +209,16 @@ public class ChatMessage {
             String ciphertext,
             String encryptionScheme,
             String encryptionIv,
-            String encryptedKeysJson
+            String encryptedKeysJson,
+            UUID historyKeyId,
+            String historyEnvelopeJson
     ) {
         this.content = ciphertext;
         this.encryptionScheme = encryptionScheme;
         this.encryptionIv = encryptionIv;
         this.encryptedKeysJson = encryptedKeysJson;
+        this.historyKeyId = historyKeyId;
+        this.historyEnvelopeJson = historyEnvelopeJson;
     }
 
     public void updateEncryptedContent(
@@ -163,9 +226,11 @@ public class ChatMessage {
             String encryptionScheme,
             String encryptionIv,
             String encryptedKeysJson,
+            UUID historyKeyId,
+            String historyEnvelopeJson,
             Instant editedAt
     ) {
-        encrypt(ciphertext, encryptionScheme, encryptionIv, encryptedKeysJson);
+        encrypt(ciphertext, encryptionScheme, encryptionIv, encryptedKeysJson, historyKeyId, historyEnvelopeJson);
         this.editedAt = editedAt;
     }
 }

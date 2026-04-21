@@ -16,10 +16,12 @@ vi.mock("./api", () => {
   return {
     ApiError: MockApiError,
     getMessagesRaw: vi.fn(),
+    getOwnGroupHistoryKeys: vi.fn(),
     getOwnEncryptionRecoverySnapshot: vi.fn(),
     listOwnEncryptionDevices: vi.fn(),
     resolveEncryptionDeviceBundles: vi.fn(),
     updateMessage: vi.fn(),
+    upsertGroupHistoryKey: vi.fn(),
     upsertOwnEncryptionRecoverySnapshot: vi.fn(),
     upsertOwnEncryptionDevice: vi.fn(),
   };
@@ -32,9 +34,11 @@ vi.mock("./realtime", () => ({
 import {
   ApiError,
   getMessagesRaw,
+  getOwnGroupHistoryKeys,
   getOwnEncryptionRecoverySnapshot,
   listOwnEncryptionDevices,
   resolveEncryptionDeviceBundles,
+  upsertGroupHistoryKey,
   upsertOwnEncryptionRecoverySnapshot,
   upsertOwnEncryptionDevice,
 } from "./api";
@@ -64,6 +68,7 @@ const TRUSTED_DEVICE_KEY = `north-messenger:trusted-device-e2ee:${USER_ID}`;
 const DEVICE_MATERIAL_KEY = `north-messenger:device-e2ee:${USER_ID}`;
 const DEVICE_SESSION_KEY = `north-messenger:device-session-e2ee:${USER_ID}`;
 const GROUP_SENDER_CHAIN_KEY = `north-messenger:group-sender-chain-e2ee:${USER_ID}`;
+const GROUP_HISTORY_KEY = `north-messenger:group-history-key-e2ee:${USER_ID}`;
 const PINNED_DEVICE_KEY = `north-messenger:pinned-device-e2ee:${REMOTE_USER_ID}:device-id`;
 const STORAGE_SCHEMA_KEY = "north-messenger:e2ee-storage-schema-version";
 const testTextEncoder = new TextEncoder();
@@ -304,7 +309,12 @@ describe("e2ee hardening", () => {
     window.localStorage.clear();
     window.localStorage.setItem(STORAGE_SCHEMA_KEY, "5");
     vi.restoreAllMocks();
+    vi.mocked(getOwnGroupHistoryKeys).mockResolvedValue([]);
     vi.mocked(resolveEncryptionDeviceBundles).mockResolvedValue([]);
+    vi.mocked(upsertGroupHistoryKey).mockResolvedValue({
+      historyKeyId: "history-key-id",
+      createdAt: "2026-04-20T10:00:00.000Z",
+    });
   });
 
   afterEach(() => {
@@ -3517,6 +3527,69 @@ describe("e2ee hardening", () => {
     );
 
     expect(hydrated.content).toBe("hello group after refresh");
+  });
+
+  it("hydrates post-patch group history for a later participant via the group history key fallback", async () => {
+    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "decrypt").mockImplementation(
+      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
+    );
+    window.sessionStorage.setItem(DEVICE_MATERIAL_KEY, JSON.stringify(localDeviceMaterial));
+    window.sessionStorage.setItem(
+      GROUP_HISTORY_KEY,
+      JSON.stringify({
+        currentKeyIdsByChatId: {
+          "group-chat-id": "group-history-key-id",
+        },
+        keysById: {
+          "group-history-key-id": {
+            historyKeyId: "group-history-key-id",
+            chatId: "group-chat-id",
+            keyMaterial: utf8ToBase64("group-history-key-material"),
+            createdAt: "2026-04-20T10:00:00.000Z",
+            updatedAt: "2026-04-20T10:00:00.000Z",
+          },
+        },
+      })
+    );
+
+    const hydrated = await hydrateChatMessage(
+      {
+        id: "late-joiner-group-history-message-id",
+        chatId: "group-chat-id",
+        sender: participant,
+        createdAt: "2026-04-20T10:05:00.000Z",
+        editedAt: null,
+        status: null,
+        clientMessageId: null,
+        replyTo: null,
+        reactions: [],
+        encryptedPayload: {
+          scheme: "GROUP-SENDER-KEY-AES-GCM",
+          sharedEnvelope: JSON.stringify({
+            aadVersion: 1,
+            chatId: "group-chat-id",
+            senderUserId: REMOTE_USER_ID,
+            senderDeviceId: "device-id",
+            senderKeyId: "group-sender-key",
+            messageCounter: 3,
+            ciphertext: utf8ToBase64("live payload unavailable to late joiner"),
+            iv: utf8ToBase64("groupsharediv"),
+            signature: "c2ln",
+          }),
+          historyEnvelope: JSON.stringify({
+            aadVersion: 1,
+            historyKeyId: "group-history-key-id",
+            ciphertext: utf8ToBase64("visible after joining later"),
+            iv: utf8ToBase64("grouphistory"),
+          }),
+          encryptedKeysByRecipientId: {},
+        },
+      },
+      USER_ID
+    );
+
+    expect(hydrated.content).toBe("visible after joining later");
   });
 
   it("keeps older group sender-chain keys after a newer counter advances the chain", async () => {

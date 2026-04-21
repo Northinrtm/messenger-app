@@ -51,6 +51,7 @@ export type EncryptedMessagePayload = {
   scheme: string;
   encryptedKeysByRecipientId: Record<string, string>;
   sharedEnvelope?: string | null;
+  historyEnvelope?: string | null;
 };
 
 export type ChatSummary = {
@@ -229,6 +230,13 @@ export type UserEncryptionDeviceBundle = {
 export type UserEncryptionRecoverySnapshot = {
   snapshotPayloadJson: string;
   wrappedIdentityRecordJson: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type GroupHistoryKeyAccess = {
+  historyKeyId: string;
+  wrappedKeyPayloadJson: string;
   createdAt: string;
   updatedAt: string;
 };

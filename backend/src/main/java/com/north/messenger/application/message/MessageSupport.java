@@ -1071,7 +1071,8 @@ class MessageSupport {
                             deviceId -> deviceId,
                             encryptedKeysByRecipientId::get
                     ));
-            if (matchingDevicePayloads.isEmpty()) {
+            if (matchingDevicePayloads.isEmpty()
+                    && (message.getHistoryEnvelopeJson() == null || message.getHistoryEnvelopeJson().isBlank())) {
                 throw new IllegalStateException(
                         "Encrypted group transport payload is missing for recipient devices of " + currentUserId
                 );
@@ -1083,7 +1084,8 @@ class MessageSupport {
             return new EncryptedMessagePayloadResponse(
                     message.getEncryptionScheme(),
                     matchingDevicePayloads,
-                    message.getContent()
+                    message.getContent(),
+                    message.getHistoryEnvelopeJson()
             );
         }
 

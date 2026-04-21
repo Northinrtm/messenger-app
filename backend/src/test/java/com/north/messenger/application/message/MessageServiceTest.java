@@ -11,6 +11,7 @@ import com.north.messenger.api.dto.MessageStatusEventResponse;
 import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.chat.ChatService;
+import com.north.messenger.application.e2ee.ChatGroupHistoryKeyService;
 import com.north.messenger.application.e2ee.DeviceKeyValidationService;
 import com.north.messenger.observability.MessengerTelemetry;
 import com.north.messenger.domain.model.ChatMessage;
@@ -83,6 +84,7 @@ class MessageServiceTest {
     private ApplicationEventPublisher eventPublisher;
     private MessengerTelemetry telemetry;
     private EntityManager entityManager;
+    private ChatGroupHistoryKeyService chatGroupHistoryKeyService;
     private MessageService messageService;
     private ObjectMapper objectMapper;
     private Map<UUID, KeyPair> deviceSignatureKeyPairs;
@@ -105,6 +107,7 @@ class MessageServiceTest {
         eventPublisher = mock(ApplicationEventPublisher.class);
         telemetry = mock(MessengerTelemetry.class);
         entityManager = mock(EntityManager.class);
+        chatGroupHistoryKeyService = mock(ChatGroupHistoryKeyService.class);
         objectMapper = new ObjectMapper();
         deviceSignatureKeyPairs = new HashMap<>();
         DeviceKeyValidationService deviceKeyValidationService = new DeviceKeyValidationService(objectMapper);
@@ -170,6 +173,7 @@ class MessageServiceTest {
                 telemetry,
                 messageSupport,
                 messageDispatchService,
+                chatGroupHistoryKeyService,
                 entityManager
         );
         messageService = new MessageService(

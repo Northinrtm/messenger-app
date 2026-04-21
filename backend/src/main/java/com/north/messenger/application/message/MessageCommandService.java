@@ -8,6 +8,7 @@ import com.north.messenger.api.dto.MessageSnippetResponse;
 import com.north.messenger.api.dto.UpdateMessageRequest;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.chat.ChatService;
+import com.north.messenger.application.e2ee.ChatGroupHistoryKeyService;
 import jakarta.persistence.EntityManager;
 import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.model.ChatRoom;
@@ -47,6 +48,7 @@ class MessageCommandService {
     private final MessengerTelemetry telemetry;
     private final MessageSupport messageSupport;
     private final MessageDispatchService messageDispatchService;
+    private final ChatGroupHistoryKeyService chatGroupHistoryKeyService;
     private final EntityManager entityManager;
 
     MessageCommandService(
@@ -61,6 +63,7 @@ class MessageCommandService {
             MessengerTelemetry telemetry,
             MessageSupport messageSupport,
             MessageDispatchService messageDispatchService,
+            ChatGroupHistoryKeyService chatGroupHistoryKeyService,
             EntityManager entityManager
     ) {
         this.authService = authService;
@@ -74,6 +77,7 @@ class MessageCommandService {
         this.telemetry = telemetry;
         this.messageSupport = messageSupport;
         this.messageDispatchService = messageDispatchService;
+        this.chatGroupHistoryKeyService = chatGroupHistoryKeyService;
         this.entityManager = entityManager;
     }
 
@@ -123,6 +127,8 @@ class MessageCommandService {
                 messageSupport.validateEncryptedPayload(encryptedPayload, room, currentUser, participants)
         );
         MessageSupport.StoredEncryptedEnvelope storedEnvelope = messageSupport.extractStoredEnvelope(encryptedPayload);
+        ChatGroupHistoryKeyService.ValidatedGroupMessageHistoryEnvelope historyEnvelope =
+                chatGroupHistoryKeyService.validateMessageHistoryEnvelope(room, encryptedPayload.historyEnvelope());
 
         try {
             ChatMessage message = new ChatMessage(
@@ -133,6 +139,8 @@ class MessageCommandService {
                     encryptedPayload.scheme(),
                     storedEnvelope.iv(),
                     encryptedKeysJson,
+                    historyEnvelope == null ? null : historyEnvelope.historyKeyId(),
+                    historyEnvelope == null ? null : historyEnvelope.serializedEnvelope(),
                     clientMessageId,
                     replyToMessageId,
                     Instant.now()
@@ -309,11 +317,15 @@ class MessageCommandService {
                 messageSupport.validateEncryptedPayload(encryptedPayload, room, currentUser, participants)
         );
         MessageSupport.StoredEncryptedEnvelope storedEnvelope = messageSupport.extractStoredEnvelope(encryptedPayload);
+        ChatGroupHistoryKeyService.ValidatedGroupMessageHistoryEnvelope historyEnvelope =
+                chatGroupHistoryKeyService.validateMessageHistoryEnvelope(room, encryptedPayload.historyEnvelope());
         message.updateEncryptedContent(
                 storedEnvelope.ciphertext(),
                 encryptedPayload.scheme(),
                 storedEnvelope.iv(),
                 encryptedKeysJson,
+                historyEnvelope == null ? null : historyEnvelope.historyKeyId(),
+                historyEnvelope == null ? null : historyEnvelope.serializedEnvelope(),
                 Instant.now()
         );
         chatMessageRepository.saveAndFlush(message);

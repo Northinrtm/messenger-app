@@ -558,6 +558,7 @@ export function sendMessageRaw(
       scheme: string;
       encryptedKeysByRecipientId: Record<string, string>;
       sharedEnvelope?: string | null;
+      historyEnvelope?: string | null;
     };
   }
 ) {

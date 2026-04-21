@@ -240,7 +240,18 @@ export function useWorkspaceMutations({
   const addGroupParticipantsMutation = useMutation({
     mutationFn: (participantUsernames: string[]) =>
       addGroupParticipants(token, activeChat!.id, { participantUsernames }),
-    onSuccess: (chat) => {
+    onSuccess: async (chat) => {
+      if (!chat.direct) {
+        try {
+          const { grantGroupHistoryAccessForParticipants } = await import("../../../lib/e2ee");
+          await grantGroupHistoryAccessForParticipants(token, chat.id, chat.members, {
+            currentUserId: currentSession.user.id,
+            session: currentSession,
+          });
+        } catch {
+          // History-key grant is best-effort here; the regular live E2EE flow still remains usable.
+        }
+      }
       queryClient.setQueryData<ChatSummary[]>(["chats", token], (current) => upsertChat(current, chat));
       setGroupInviteUsernames([]);
       setIsGroupInvitePickerOpen(false);
