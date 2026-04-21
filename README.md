@@ -1,6 +1,6 @@
 # Messenger App
 
-Realtime messenger monolith with:
+Production-oriented realtime messenger monolith with:
 
 - `Spring Boot 3.5` backend
 - `React 19 + TypeScript + Vite` web client
@@ -8,6 +8,7 @@ Realtime messenger monolith with:
 - `WebSocket/STOMP` realtime delivery
 - optional `Redis` fan-out for multi-instance realtime
 - embedded `Jitsi` stack for in-app conferences
+- `Caddy` edge, production runbooks, local backups, and optional observability
 - `Docker Compose` for local and production deployment
 
 ## Current Status
@@ -21,12 +22,15 @@ The repository currently supports:
 - reply, edit, forward, pin/unpin, delete for self/everyone where allowed
 - encrypted file attachments and image previews in chats
 - Web Push notifications with plaintext-safe browser-side previews
+- contacts, user search, blocking, archive, and per-chat drafts
 - group ownership, moderators, bans, invite links, participant management
 - scheduled and instant video conferences with Jitsi
 - conference recordings import/download path
 - registration, login, active sessions, profile editing, avatar update
 - email verification and password reset by email
 - trusted-device / passkey-based encrypted chat unlock
+- server-side E2EE coverage diagnostics for support without plaintext access
+- production deploy, backup, healthcheck, websocket storm guard, and optional observability
 - CI on `push`/`pull_request` and production auto-deploy from `main`
 
 ## Architecture
@@ -45,6 +49,7 @@ Core backend areas:
 - `application.chat`
 - `application.message`
 - `application.e2ee`
+- `application.push`
 - `security`
 - `config`
 
@@ -53,6 +58,7 @@ Core backend areas:
 ### Auth and account
 
 - username + password registration and login
+- registration email-domain allowlist
 - JWT access token + refresh token in `HttpOnly` cookie
 - session restore after reload
 - active session/device list
@@ -64,8 +70,10 @@ Core backend areas:
 
 ### Chats and messaging
 
+- user search, contacts, and blocks
 - direct chats
 - group chats
+- per-chat drafts restored after reload
 - unread counters
 - archive for self
 - delete chat for self
@@ -78,6 +86,15 @@ Core backend areas:
 - Web Push subscriptions for offline generic notifications
 - browser-side notification previews when an open unlocked client already decrypted the message
 
+### Attachments and media
+
+- encrypted file attachments for direct and group messages
+- image previews inside the message stream
+- native-size image open flow from the chat
+- default attachment size limit controlled by `APP_MEDIA_MESSAGE_ATTACHMENTS_MAX_SIZE_BYTES`
+- orphan attachment cleanup for uploads that never get attached to a sent message
+- Docker volume-backed local/prod storage for message attachments
+
 ### E2EE
 
 - direct chats use `X3DH-DEVICE-AES-GCM`
@@ -87,6 +104,8 @@ Core backend areas:
 - trusted-device unlock supports `WebAuthn` / passkeys / Windows Hello / Touch ID where available
 - browser-local encrypted state is restored across normal tab closes/reopens in the same browser profile
 - decrypted message archive is used for recovery and fast history hydration
+- group history-key fallback supports post-patch history access for later group participants where a grant exists
+- production diagnostic script reports E2EE metadata coverage without decrypting or printing plaintext
 
 ### Groups
 
@@ -108,10 +127,32 @@ Core backend areas:
 
 ## What Is Not Implemented
 
+- full-text search across message history
+- media/file gallery per chat
 - plaintext previews in server-sent push payloads
 - separate distributed presence/last-seen service
 - external event bus such as Kafka
+- object storage for attachments and recordings
+- off-site backup replication
+- automated end-to-end browser smoke tests
 - hardened high-assurance metadata protection
+
+## Development Roadmap
+
+Recommended next work, in priority order:
+
+1. Production confidence:
+   add a smoke-test script that verifies health, login, direct chat, group chat, attachment upload, push config, and E2EE diagnostics after each deploy.
+2. Search and media UX:
+   add full-text message search, a per-chat media/file gallery, and quick navigation to the first unread message.
+3. E2EE device management:
+   expose encryption devices in the UI, support device revoke, and show actionable explanations for `Encrypted message unavailable`.
+4. Push notification hardening:
+   add stable VAPID key generation docs/script and later implement encrypted push payload previews that can be decrypted by the service worker.
+5. Storage and backup hardening:
+   move attachments/recordings to S3-compatible object storage and add off-site backup replication with restore rehearsal.
+6. Scale path:
+   split realtime/push fan-out behind Redis or a broker, then introduce Kafka/NATS only if async delivery volume justifies it.
 
 ## Local Run With Docker
 
@@ -227,6 +268,9 @@ Important app variables:
 - `APP_AUTH_PASSWORD_RESET_ENABLED`
 - `APP_AUTH_PASSWORD_RESET_URL_BASE`
 - `APP_AUTH_PASSWORD_RESET_FROM_ADDRESS`
+- `APP_MEDIA_MESSAGE_ATTACHMENTS_MAX_SIZE_BYTES`
+- `APP_MEDIA_MESSAGE_ATTACHMENTS_ORPHAN_TTL`
+- `APP_MEDIA_MESSAGE_ATTACHMENTS_ORPHAN_CLEANUP_FIXED_DELAY_MS`
 - `APP_PUSH_ENABLED`
 - `APP_PUSH_SUBJECT`
 - `APP_PUSH_VAPID_PUBLIC_KEY`
@@ -321,8 +365,23 @@ Built-in health and telemetry:
 - Prometheus metrics: `/actuator/prometheus`
 - structured JSON logs in production
 - optional observability stack: Prometheus, Grafana, Tempo, Loki, Alertmanager, OTEL Collector, `postgres-exporter`
+- scheduled production healthcheck workflow
+- scheduled websocket storm guard workflow for `/ws` and `429` spikes
 
 For small hosts, observability is intended to stay off by default and be enabled only when needed for diagnostics.
+
+### E2EE diagnostics
+
+When a user reports `Encrypted message unavailable`, use:
+
+```bash
+cd /opt/messenger-app
+deploy/e2ee-coverage-diagnostic.sh --chat-id <chat-uuid>
+deploy/e2ee-coverage-diagnostic.sh --chat-id <chat-uuid> --message-id <message-uuid>
+```
+
+The script prints only metadata: active participant devices, message envelope coverage, history-key grants, and missing device coverage.
+It does not read, decrypt, or print plaintext.
 
 ## CI/CD
 
@@ -387,5 +446,9 @@ mvn test
 3. Create a direct chat and send the first message.
 4. Create a group chat and add participants.
 5. Verify typing, receipts, reactions, reply, edit, forward, pin, and delete flows.
-6. Reopen the browser and verify encrypted chats restore correctly for the same browser profile.
-7. Start or schedule a conference and verify joinability near the scheduled time.
+6. Upload an image and a non-image file in direct and group chats.
+7. Reopen the browser and verify encrypted chats restore correctly for the same browser profile.
+8. Log in from another browser profile and verify trusted-device unlock and group history behavior.
+9. Enable push notifications and verify generic closed-app push plus hidden-tab browser-side preview.
+10. Start or schedule a conference and verify joinability near the scheduled time.
+11. Run `deploy/e2ee-coverage-diagnostic.sh` for a known group chat without exposing plaintext.

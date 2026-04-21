@@ -7,7 +7,7 @@ This repository is a production-style MVP for a direct-message messenger:
 - `backend`: Spring Boot monolith with modular packages
 - `web`: React + TypeScript client
 - `postgres`: source of truth for users, chats, memberships and messages
-- `redis`: reserved for presence, fan-out and future scale-out work
+- `redis`: optional realtime fan-out path and future presence/scale-out foundation
 
 ## Backend modules
 
@@ -16,6 +16,7 @@ This repository is a production-style MVP for a direct-message messenger:
 - `application.chat`: chat listing, direct/group chats, video conferences and recording import
 - `application.message`: message history, sending, receipts, typing state and encrypted attachments
 - `application.e2ee`: user encryption key bundles and public key resolution
+- `application.push`: Web Push subscriptions and generic notification delivery
 - `domain`: entities and repositories
 - `security`: stateless JWT auth for HTTP requests
 - `config`: CORS, WebSocket STOMP broker and exception handling
@@ -31,6 +32,7 @@ This repository is a production-style MVP for a direct-message messenger:
 7. Sending a message goes through WebSocket/STOMP `SEND /app/chats/{chatId}/messages` with a required stable `clientMessageId`.
 8. Backend persists the message, emits an explicit sender ack to `/user/queue/message-acks`, and emits explicit sender errors to `/user/queue/message-errors`.
 9. Recipient realtime delivery stays on `/user/queue/messages`, and history/chat summaries use authoritative `serverOrder` from persistence.
+10. If Web Push is enabled, recipients with saved subscriptions receive a generic no-plaintext notification outside the websocket path.
 
 ## Why the backend is a modular monolith
 
@@ -46,9 +48,10 @@ The scaling boundary is still clear: auth, chat metadata, realtime fan-out, noti
 ## Production hardening path
 
 - move the simple broker to a dedicated broker or websocket cluster
-- add Redis-backed presence, typing indicators and fan-out
+- expand Redis-backed realtime fan-out and add distributed presence/last-seen
 - add Kafka or NATS for async delivery pipelines
 - move attachment/recording blobs from Docker volumes to object storage
+- add encrypted service-worker push previews without exposing plaintext to the backend
 - add moderation events and richer media workflows
 - expand integration tests for conference recording import and delivery flows
 - expand integration tests with Testcontainers and enforce CI pipelines
