@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   getRealtimeUnreadMode,
+  shouldGrantRealtimeGroupHistoryAccess,
   shouldRefreshChatListOnRealtimeConnect,
   shouldRefreshActiveChatOnRealtimeConnect,
 } from "./useRealtimeChatSubscription";
+import type { ChatSummary } from "../../../lib/types";
 
 describe("shouldRefreshActiveChatOnRealtimeConnect", () => {
   it("skips the redundant initial active chat refetch on first websocket connect", () => {
@@ -88,5 +90,27 @@ describe("getRealtimeUnreadMode", () => {
         isVisibleActiveChat: false,
       })
     ).toBe("clear");
+  });
+});
+
+describe("shouldGrantRealtimeGroupHistoryAccess", () => {
+  const groupChat = {
+    id: "chat-1",
+    direct: false,
+    members: [
+      { id: "user-1" },
+      { id: "user-2" },
+    ],
+  } as ChatSummary;
+
+  it("grants for group chat updates where the current user is a member", () => {
+    expect(shouldGrantRealtimeGroupHistoryAccess(groupChat, "user-1")).toBe(true);
+  });
+
+  it("skips direct chats and unrelated chat updates", () => {
+    expect(
+      shouldGrantRealtimeGroupHistoryAccess({ ...groupChat, direct: true }, "user-1")
+    ).toBe(false);
+    expect(shouldGrantRealtimeGroupHistoryAccess(groupChat, "user-3")).toBe(false);
   });
 });

@@ -83,6 +83,13 @@ export function shouldRefreshChatListOnRealtimeConnect(
   return hasEstablishedRealtimeConnection;
 }
 
+export function shouldGrantRealtimeGroupHistoryAccess(
+  chat: ChatSummary,
+  currentUserId: string
+) {
+  return !chat.direct && chat.members.some((member) => member.id === currentUserId);
+}
+
 export function useRealtimeChatSubscription({
   acknowledgeDelivered,
   acknowledgeRead,
@@ -189,6 +196,10 @@ export function useRealtimeChatSubscription({
 
     if (chat.lastMessageAt && chat.lastMessage === "Encrypted message") {
       void refreshChatPreviewFromServer(chat.id);
+    }
+
+    if (shouldGrantRealtimeGroupHistoryAccess(chat, currentUser.id)) {
+      void grantRealtimeGroupHistoryAccess(sessionToken, currentUser.id, chat);
     }
   });
 
@@ -330,6 +341,22 @@ export function useRealtimeChatSubscription({
     };
     void queryClient.invalidateQueries({ queryKey: ["typing", sessionToken, activeChatId] });
   }, [activeChatId, isRealtimeConnected, queryClient, sessionToken]);
+}
+
+async function grantRealtimeGroupHistoryAccess(
+  token: string,
+  currentUserId: string,
+  chat: ChatSummary
+) {
+  try {
+    const { grantGroupHistoryAccessForParticipants } = await import("../../../lib/e2ee");
+    await grantGroupHistoryAccessForParticipants(token, chat.id, chat.members, {
+      currentUserId,
+    });
+  } catch {
+    // Best-effort: existing online members grant post-patch group history to
+    // invite-link joiners, but live E2EE should not fail if this device lacks the key.
+  }
 }
 
 export function shouldRefreshActiveChatOnRealtimeConnect(
