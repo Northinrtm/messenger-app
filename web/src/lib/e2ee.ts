@@ -1850,9 +1850,13 @@ async function prepareGroupRecipientEncryptionContext(
   token: string,
   currentUserId: string,
   participants: Participant[]
-) {
+): Promise<{
+  ownMaterial: RegisteredDeviceEncryptionMaterial;
+  targetBundles: UserEncryptionDeviceBundle[];
+  nextSessions: Record<string, DeviceSessionRecord>;
+}> {
   const ownMaterial = await readEncryptionDeviceMaterial(currentUserId);
-  if (!ownMaterial?.deviceId) {
+  if (!isRegisteredEncryptionDeviceMaterialAvailable(ownMaterial)) {
     throw new ApiError("Encrypted chat is still initializing on this device. Try again.", 409);
   }
 
