@@ -19,6 +19,7 @@ The repository currently supports:
 - message history, pagination, optimistic send, retry
 - delivered/read receipts, typing indicators, reactions
 - reply, edit, forward, pin/unpin, delete for self/everyone where allowed
+- encrypted file attachments and image previews in chats
 - group ownership, moderators, bans, invite links, participant management
 - scheduled and instant video conferences with Jitsi
 - conference recordings import/download path
@@ -72,6 +73,7 @@ Core backend areas:
 - reactions: `LIKE`, `DISLIKE`, `EYES`, `OK`
 - replies, edits, forwards, pinned messages
 - typing indicator with HTTP fallback
+- encrypted file attachments with upload progress, cancel, retry-safe orphan cleanup, and image previews
 
 ### E2EE
 
@@ -103,7 +105,6 @@ Core backend areas:
 
 ## What Is Not Implemented
 
-- file attachments and media uploads
 - push notifications
 - separate distributed presence/last-seen service
 - external event bus such as Kafka
@@ -331,6 +332,7 @@ Repository backup helpers cover:
 - `.env.prod`, `docker-compose.prod.yml`, `deploy/Caddyfile`
 - `caddy_data`
 - conference recording volumes
+- encrypted chat attachment volume
 
 See:
 

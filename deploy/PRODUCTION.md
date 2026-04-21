@@ -148,6 +148,7 @@ Default coverage:
 - `caddy_data`
 - `conference_recordings_archive`
 - `conference_recordings_raw`
+- `message_attachments`
 
 Default schedule:
 

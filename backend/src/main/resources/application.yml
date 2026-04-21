@@ -119,6 +119,8 @@ app:
     message-attachments:
       directory: ${APP_MEDIA_MESSAGE_ATTACHMENTS_DIRECTORY:./storage/message-attachments}
       max-size-bytes: ${APP_MEDIA_MESSAGE_ATTACHMENTS_MAX_SIZE_BYTES:26214400}
+      orphan-ttl: ${APP_MEDIA_MESSAGE_ATTACHMENTS_ORPHAN_TTL:PT1H}
+      orphan-cleanup-fixed-delay-ms: ${APP_MEDIA_MESSAGE_ATTACHMENTS_ORPHAN_CLEANUP_FIXED_DELAY_MS:900000}
 
 logging:
   pattern:

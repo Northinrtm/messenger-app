@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.UUID;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -120,6 +121,33 @@ public class ChatAttachmentService {
 
         attachments.forEach(attachment -> chatAttachmentStorage.deleteQuietly(attachment.getStorageKey()));
         chatAttachmentRepository.deleteAll(attachments);
+    }
+
+    @Scheduled(
+            fixedDelayString = "${app.media.message-attachments.orphan-cleanup-fixed-delay-ms:900000}",
+            initialDelayString = "${app.media.message-attachments.orphan-cleanup-fixed-delay-ms:900000}"
+    )
+    @Transactional
+    public void cleanupOrphanedAttachments() {
+        cleanupOrphanedAttachments(Instant.now());
+    }
+
+    int cleanupOrphanedAttachments(Instant now) {
+        if (storageProperties.orphanTtl() == null || storageProperties.orphanTtl().isZero()
+                || storageProperties.orphanTtl().isNegative()) {
+            return 0;
+        }
+
+        Instant cutoff = now.minus(storageProperties.orphanTtl());
+        List<ChatAttachment> orphanedAttachments =
+                chatAttachmentRepository.findAllByMessageIdIsNullAndCreatedAtBefore(cutoff);
+        if (orphanedAttachments.isEmpty()) {
+            return 0;
+        }
+
+        orphanedAttachments.forEach(attachment -> chatAttachmentStorage.deleteQuietly(attachment.getStorageKey()));
+        chatAttachmentRepository.deleteAll(orphanedAttachments);
+        return orphanedAttachments.size();
     }
 
     private void validateUpload(MultipartFile file) {

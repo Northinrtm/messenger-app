@@ -11,6 +11,7 @@ The production backup script stores local timestamped snapshots with:
   - `caddy_data`
   - `conference_recordings_archive`
   - `conference_recordings_raw`
+  - `message_attachments`
 - metadata files with timestamp, current git revision, and `docker compose ps`
 
 Default backup root:
@@ -61,7 +62,7 @@ High-level restore flow on a fresh server:
 3. Start only `postgres`.
 4. Restore globals from `postgres-globals.sql.gz`.
 5. Restore the main database from `postgres.dump`.
-6. Restore `caddy_data` and conference recording volume archives if needed.
+6. Restore `caddy_data`, conference recording, and `message_attachments` volume archives if needed.
 7. Start the rest of the stack.
 
 Example database restore:

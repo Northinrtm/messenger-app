@@ -8,6 +8,7 @@ import type {
   Participant,
   UserProfile,
 } from "../../../lib/types";
+import type { AttachmentUploadProgress } from "../../../lib/e2ee";
 import {
   memo,
   useEffect,
@@ -19,6 +20,7 @@ import {
   type RefObject,
 } from "react";
 import type { TimelineItem } from "../chatWorkspaceUtils";
+import type { SubmitDraftOptions } from "../hooks/useMessageActions";
 
 import { AvatarCircle } from "./AvatarCircle";
 
@@ -82,7 +84,7 @@ type Props = {
   onDownloadAttachment: (chatId: string, attachment: ChatMessageAttachment) => void;
   onLoadAttachmentPreview: (chatId: string, attachment: ChatMessageAttachment) => Promise<Blob>;
   onComposerChange: (value: string) => void;
-  onSubmit: (draft: string, files?: File[]) => boolean | Promise<boolean>;
+  onSubmit: (draft: string, files?: File[], options?: SubmitDraftOptions) => boolean | Promise<boolean>;
   formatClock: (value: string) => string;
   getMessageStatusClassName: (status: MessageStatus | null) => string;
   getMessageStatusGlyph: (status: MessageStatus | null) => string;
@@ -140,8 +142,11 @@ export function ActiveChatConversation({
   const [composerValue, setComposerValue] = useState(activeDraft);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isSubmittingComposer, setIsSubmittingComposer] = useState(false);
+  const [attachmentUploadProgress, setAttachmentUploadProgress] =
+    useState<AttachmentUploadProgress | null>(null);
   const [shouldRestoreComposerFocus, setShouldRestoreComposerFocus] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadAbortControllerRef = useRef<AbortController | null>(null);
   const composerUnavailable = isDirectChatBlocked || Boolean(encryptionIdentityWarning);
 
   useEffect(() => {
@@ -149,8 +154,17 @@ export function ActiveChatConversation({
   }, [activeDraft]);
 
   useEffect(() => {
+    uploadAbortControllerRef.current?.abort();
+    uploadAbortControllerRef.current = null;
     setSelectedFiles([]);
+    setAttachmentUploadProgress(null);
   }, [activeChat.id, editingMessage?.id]);
+
+  useEffect(() => {
+    return () => {
+      uploadAbortControllerRef.current?.abort();
+    };
+  }, []);
 
   useLayoutEffect(() => {
     if (!shouldRestoreComposerFocus || isSubmittingComposer || composerUnavailable) {
@@ -191,14 +205,29 @@ export function ActiveChatConversation({
       return;
     }
 
+    const submitFiles = editingMessage ? [] : selectedFiles;
+    const uploadAbortController = submitFiles.length > 0 ? new AbortController() : null;
+    uploadAbortControllerRef.current = uploadAbortController;
+    setAttachmentUploadProgress(
+      uploadAbortController ? buildInitialAttachmentUploadProgress(submitFiles) : null
+    );
     setIsSubmittingComposer(true);
     try {
-      const submitted = await onSubmit(composerValue, editingMessage ? [] : selectedFiles);
+      const submitted = uploadAbortController
+        ? await onSubmit(composerValue, submitFiles, {
+            signal: uploadAbortController.signal,
+            onAttachmentProgress: setAttachmentUploadProgress,
+          })
+        : await onSubmit(composerValue, submitFiles);
       if (submitted) {
         setComposerValue("");
         setSelectedFiles([]);
       }
     } finally {
+      if (uploadAbortControllerRef.current === uploadAbortController) {
+        uploadAbortControllerRef.current = null;
+      }
+      setAttachmentUploadProgress(null);
       setIsSubmittingComposer(false);
       composerTextareaRef.current?.focus();
       setShouldRestoreComposerFocus(true);
@@ -479,6 +508,26 @@ export function ActiveChatConversation({
                 </button>
               </span>
             ))}
+          </div>
+        ) : null}
+        {attachmentUploadProgress ? (
+          <div className="composer-upload-progress" role="status" aria-live="polite">
+            <div className="composer-upload-progress-copy">
+              <span>{formatAttachmentUploadProgress(attachmentUploadProgress)}</span>
+              <button
+                type="button"
+                className="ghost-button compact composer-upload-cancel"
+                onClick={() => uploadAbortControllerRef.current?.abort()}
+              >
+                Отменить
+              </button>
+            </div>
+            <div className="composer-upload-progress-track" aria-hidden="true">
+              <span
+                className="composer-upload-progress-bar"
+                style={{ width: `${Math.round(attachmentUploadProgress.ratio * 100)}%` }}
+              />
+            </div>
           </div>
         ) : null}
         <div className="north-composer-body">
@@ -1108,6 +1157,29 @@ function isAttachmentOnlyFallback(content: string, attachments: ChatMessageAttac
 
 function isImageAttachment(attachment: ChatMessageAttachment) {
   return attachment.mimeType.toLowerCase().startsWith("image/");
+}
+
+function buildInitialAttachmentUploadProgress(files: File[]): AttachmentUploadProgress {
+  const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+  return {
+    fileIndex: 0,
+    fileCount: files.length,
+    fileName: files[0]?.name ?? "attachment",
+    loadedBytes: 0,
+    phase: "encrypting",
+    ratio: 0,
+    totalBytes,
+  };
+}
+
+function formatAttachmentUploadProgress(progress: AttachmentUploadProgress) {
+  const phase = progress.phase === "encrypting" ? "Шифруем" : "Загружаем";
+  const percent = Math.round(progress.ratio * 100);
+  const filePosition =
+    progress.fileCount > 1 ? ` ${progress.fileIndex + 1}/${progress.fileCount}` : "";
+  return `${phase}${filePosition}: ${progress.fileName} · ${percent}% · ${formatFileSize(
+    progress.loadedBytes
+  )}/${formatFileSize(progress.totalBytes)}`;
 }
 
 function formatFileSize(sizeBytes: number) {

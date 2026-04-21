@@ -1,4 +1,4 @@
-import { act } from "react";
+import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatMessage, ChatSummary, MessageSnippet, Participant, UserProfile } from "../../../lib/types";
@@ -52,6 +52,66 @@ function setTextareaValue(input: HTMLTextAreaElement, value: string) {
   input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
+function setInputFiles(input: HTMLInputElement, files: File[]) {
+  Object.defineProperty(input, "files", {
+    configurable: true,
+    value: files,
+  });
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function conversationProps(
+  overrides: Partial<ComponentProps<typeof ActiveChatConversation>> = {}
+): ComponentProps<typeof ActiveChatConversation> {
+  return {
+    activeChat: chatSummary(),
+    activeDirectParticipant: participant({ id: "user-2", username: "anna", displayName: "Anna" }),
+    archivedChatIdSet: new Set(),
+    sessionUser: userProfile(),
+    conversationSubtitle: "subtitle",
+    showTypingIndicator: false,
+    activePinnedMessage: null,
+    timelineItems: [],
+    messagesLoading: false,
+    hasNextPage: false,
+    isFetchingNextPage: false,
+    replyingToMessage: null,
+    editingMessage: null,
+    activeDraft: "",
+    isChatMenuOpen: false,
+    isDirectChatBlocked: false,
+    encryptionIdentityWarning: null,
+    chatMenuButtonRef: { current: null },
+    messageStreamRef: { current: null },
+    composerTextareaRef: { current: null },
+    onBack: () => {},
+    onToggleChatMenu: () => {},
+    onToggleArchive: () => {},
+    onCloseChat: () => {},
+    onJumpToPinned: () => {},
+    onUnpin: () => {},
+    onLoadOlderMessages: () => {},
+    onOpenMessageContextMenu: () => {},
+    onToggleReaction: () => {},
+    onJumpToMessage: () => {},
+    onClearReply: () => {},
+    onClearEdit: () => {},
+    onRecoverEncryptionIdentity: () => {},
+    onRetryMessage: (_message: ChatMessage) => {},
+    onDownloadAttachment: () => {},
+    onLoadAttachmentPreview: () => Promise.resolve(new Blob()),
+    onComposerChange: () => {},
+    onSubmit: () => true,
+    formatClock: (value) => value,
+    getMessageStatusClassName: () => "status",
+    getMessageStatusGlyph: () => "sent",
+    getMessageStatusLabel: () => "sent",
+    getReactionOption: () => null,
+    buildMessagePreview: (content) => content,
+    ...overrides,
+  };
+}
+
 describe("ActiveChatConversation composer", () => {
   let container: HTMLDivElement;
   let root: Root | null;
@@ -80,50 +140,10 @@ describe("ActiveChatConversation composer", () => {
     await act(async () => {
       root!.render(
         <ActiveChatConversation
-          activeChat={chatSummary()}
-          activeDirectParticipant={participant({ id: "user-2", username: "anna", displayName: "Anna" })}
-          archivedChatIdSet={new Set()}
-          sessionUser={userProfile()}
-          conversationSubtitle="subtitle"
-          showTypingIndicator={false}
-          activePinnedMessage={null}
-          timelineItems={[]}
-          messagesLoading={false}
-          hasNextPage={false}
-          isFetchingNextPage={false}
-          replyingToMessage={null}
-          editingMessage={null}
-          activeDraft=""
-          isChatMenuOpen={false}
-          isDirectChatBlocked={false}
-          encryptionIdentityWarning={null}
-          chatMenuButtonRef={{ current: null }}
-          messageStreamRef={{ current: null }}
-          composerTextareaRef={{ current: null }}
-          onBack={() => {}}
-          onToggleChatMenu={() => {}}
-          onToggleArchive={() => {}}
-          onCloseChat={() => {}}
-          onJumpToPinned={() => {}}
-          onUnpin={() => {}}
-          onLoadOlderMessages={() => {}}
-          onOpenMessageContextMenu={() => {}}
-          onToggleReaction={() => {}}
-          onJumpToMessage={() => {}}
-          onClearReply={() => {}}
-          onClearEdit={() => {}}
-          onRecoverEncryptionIdentity={() => {}}
-          onRetryMessage={(_message: ChatMessage) => {}}
-          onDownloadAttachment={() => {}}
-          onLoadAttachmentPreview={() => Promise.resolve(new Blob())}
-          onComposerChange={composerChangeSpy}
-          onSubmit={submitSpy}
-          formatClock={(value) => value}
-          getMessageStatusClassName={() => "status"}
-          getMessageStatusGlyph={() => "sent"}
-          getMessageStatusLabel={() => "sent"}
-          getReactionOption={() => null}
-          buildMessagePreview={(content) => content}
+          {...conversationProps({
+            onComposerChange: composerChangeSpy,
+            onSubmit: submitSpy,
+          })}
         />
       );
       await Promise.resolve();
@@ -156,5 +176,84 @@ describe("ActiveChatConversation composer", () => {
     expect(submitSpy).toHaveBeenCalledWith("qweeeee", []);
     expect(textarea.value).toBe("");
     expect(document.activeElement).toBe(textarea);
+  });
+
+  it("shows upload progress and can abort an in-flight attachment upload", async () => {
+    let submitOptions: Parameters<
+      NonNullable<ComponentProps<typeof ActiveChatConversation>["onSubmit"]>
+    >[2];
+    let resolveSubmit: ((value: boolean) => void) | null = null;
+    const submitSpy = vi.fn(
+      (_draft: string, _files: File[] | undefined, options: typeof submitOptions) => {
+        submitOptions = options;
+        options?.onAttachmentProgress?.({
+          fileIndex: 0,
+          fileCount: 1,
+          fileName: "image.png",
+          loadedBytes: 512,
+          phase: "uploading",
+          ratio: 0.5,
+          totalBytes: 1024,
+        });
+        return new Promise<boolean>((resolve) => {
+          resolveSubmit = resolve;
+        });
+      }
+    );
+
+    await act(async () => {
+      root!.render(
+        <ActiveChatConversation
+          {...conversationProps({
+            onSubmit: submitSpy,
+          })}
+        />
+      );
+      await Promise.resolve();
+    });
+
+    const fileInput = container.querySelector(".composer-file-input") as HTMLInputElement | null;
+    if (!fileInput) {
+      throw new Error("Composer file input is missing");
+    }
+
+    const imageFile = new File(["image-bytes"], "image.png", { type: "image/png" });
+    await act(async () => {
+      setInputFiles(fileInput, [imageFile]);
+      await Promise.resolve();
+    });
+
+    const submitButton = container.querySelector(".north-send-button") as HTMLButtonElement | null;
+    if (!submitButton) {
+      throw new Error("Composer submit button is missing");
+    }
+
+    await act(async () => {
+      submitButton.click();
+      await Promise.resolve();
+    });
+
+    expect(submitSpy).toHaveBeenCalledWith("", [imageFile], expect.any(Object));
+    expect(container.querySelector(".composer-upload-progress")?.textContent).toContain("50%");
+
+    const cancelButton = container.querySelector(".composer-upload-cancel") as HTMLButtonElement | null;
+    if (!cancelButton) {
+      throw new Error("Composer upload cancel button is missing");
+    }
+
+    await act(async () => {
+      cancelButton.click();
+      await Promise.resolve();
+    });
+
+    expect(submitOptions?.signal?.aborted).toBe(true);
+
+    await act(async () => {
+      resolveSubmit?.(false);
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector(".composer-upload-progress")).toBeNull();
+    expect(container.querySelector(".composer-attachment-chip")?.textContent).toContain("image.png");
   });
 });

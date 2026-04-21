@@ -10,9 +10,11 @@ import {
   deleteChat as deleteChatRequest,
   deleteMessage as deleteMessageRequest,
   describeError,
+  isAbortError,
   toggleMessageReaction as toggleMessageReactionRequest,
   updatePinnedMessage as updatePinnedMessageRequest,
 } from "../../../lib/api";
+import type { AttachmentUploadProgress } from "../../../lib/e2ee";
 import {
   type LocalPendingMessage,
   removeLocalPendingMessage,
@@ -47,6 +49,11 @@ import {
 } from "../messagePresentation";
 
 const MAX_ATTACHMENT_SIZE_BYTES = 25 * 1024 * 1024;
+
+export type SubmitDraftOptions = {
+  signal?: AbortSignal;
+  onAttachmentProgress?: (progress: AttachmentUploadProgress) => void;
+};
 
 type SendMessageInput = {
   chatId: string;
@@ -631,7 +638,11 @@ export function useMessageActions({
     });
   };
 
-  const submitActiveDraft = async (draft: string, files: File[] = []) => {
+  const submitActiveDraft = async (
+    draft: string,
+    files: File[] = [],
+    options: SubmitDraftOptions = {}
+  ) => {
     const trimmed = draft.trim();
     if ((!trimmed && files.length === 0) || !activeChat) {
       return false;
@@ -661,9 +672,18 @@ export function useMessageActions({
 
       try {
         const { prepareEncryptedMessageAttachments } = await import("../../../lib/e2ee");
-        attachments = await prepareEncryptedMessageAttachments(sessionToken, activeChat.id, files);
+        attachments = await prepareEncryptedMessageAttachments(sessionToken, activeChat.id, files, {
+          signal: options.signal,
+          onProgress: options.onAttachmentProgress,
+        });
       } catch (error) {
+        if (isAbortError(error)) {
+          return false;
+        }
         window.alert(describeError(error));
+        return false;
+      }
+      if (options.signal?.aborted) {
         return false;
       }
     }

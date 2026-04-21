@@ -940,12 +940,28 @@ export async function getEncryptedMessagesSnapshot(
 export async function prepareEncryptedMessageAttachments(
   token: string,
   chatId: string,
-  files: File[]
+  files: File[],
+  options: {
+    signal?: AbortSignal;
+    onProgress?: (progress: AttachmentUploadProgress) => void;
+  } = {}
 ): Promise<ChatMessageAttachment[]> {
   const attachments: ChatMessageAttachment[] = [];
-  for (const file of files) {
+  const fileCount = files.length;
+  const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+  let completedBytes = 0;
+  for (const [fileIndex, file] of files.entries()) {
+    throwIfAttachmentUploadAborted(options.signal);
     const fileName = normalizeAttachmentFileName(file.name);
     const mimeType = normalizeAttachmentMimeType(file.type);
+    reportAttachmentUploadProgress(options.onProgress, {
+      fileIndex,
+      fileCount,
+      fileName,
+      loadedBytes: completedBytes,
+      phase: "encrypting",
+      totalBytes,
+    });
     const keyBytes = randomBytes(32);
     const iv = randomBytes(12);
     const key = await window.crypto.subtle.importKey(
@@ -960,11 +976,35 @@ export async function prepareEncryptedMessageAttachments(
       key,
       await file.arrayBuffer()
     );
+    throwIfAttachmentUploadAborted(options.signal);
     const upload = await uploadEncryptedChatAttachment(
       token,
       chatId,
-      new Blob([ciphertext], { type: "application/octet-stream" })
+      new Blob([ciphertext], { type: "application/octet-stream" }),
+      {
+        signal: options.signal,
+        onProgress: (progress) => {
+          const loadedBytes = completedBytes + Math.round(file.size * progress.ratio);
+          reportAttachmentUploadProgress(options.onProgress, {
+            fileIndex,
+            fileCount,
+            fileName,
+            loadedBytes,
+            phase: "uploading",
+            totalBytes,
+          });
+        },
+      }
     );
+    completedBytes += file.size;
+    reportAttachmentUploadProgress(options.onProgress, {
+      fileIndex,
+      fileCount,
+      fileName,
+      loadedBytes: completedBytes,
+      phase: "uploading",
+      totalBytes,
+    });
     rememberDecryptedAttachment(
       chatId,
       upload.id,
@@ -982,6 +1022,40 @@ export async function prepareEncryptedMessageAttachments(
     });
   }
   return attachments;
+}
+
+export type AttachmentUploadProgress = {
+  fileIndex: number;
+  fileCount: number;
+  fileName: string;
+  loadedBytes: number;
+  phase: "encrypting" | "uploading";
+  ratio: number;
+  totalBytes: number;
+};
+
+function reportAttachmentUploadProgress(
+  onProgress: ((progress: AttachmentUploadProgress) => void) | undefined,
+  progress: Omit<AttachmentUploadProgress, "ratio">
+) {
+  const ratio =
+    progress.totalBytes > 0
+      ? Math.max(0, Math.min(1, progress.loadedBytes / progress.totalBytes))
+      : 0;
+  onProgress?.({
+    ...progress,
+    ratio,
+  });
+}
+
+function throwIfAttachmentUploadAborted(signal: AbortSignal | undefined) {
+  if (!signal?.aborted) {
+    return;
+  }
+
+  const error = new Error("Attachment upload cancelled");
+  error.name = "AbortError";
+  throw error;
 }
 
 export async function downloadDecryptedMessageAttachment(

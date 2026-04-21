@@ -14,7 +14,7 @@ This repository is a production-style MVP for a direct-message messenger:
 - `api`: REST endpoints and DTOs
 - `application.auth`: registration, login and JWT issuing
 - `application.chat`: chat listing, direct/group chats, video conferences and recording import
-- `application.message`: message history, sending, receipts and typing state
+- `application.message`: message history, sending, receipts, typing state and encrypted attachments
 - `application.e2ee`: user encryption key bundles and public key resolution
 - `domain`: entities and repositories
 - `security`: stateless JWT auth for HTTP requests
@@ -48,7 +48,7 @@ The scaling boundary is still clear: auth, chat metadata, realtime fan-out, noti
 - move the simple broker to a dedicated broker or websocket cluster
 - add Redis-backed presence, typing indicators and fan-out
 - add Kafka or NATS for async delivery pipelines
-- add object storage for attachments
+- move attachment/recording blobs from Docker volumes to object storage
 - add moderation events and richer media workflows
 - expand integration tests for conference recording import and delivery flows
 - expand integration tests with Testcontainers and enforce CI pipelines

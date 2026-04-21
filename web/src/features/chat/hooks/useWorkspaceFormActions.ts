@@ -1,6 +1,7 @@
 import { useEffectEvent, type Dispatch, type SetStateAction } from "react";
 
 import type { UserProfile } from "../../../lib/types";
+import type { SubmitDraftOptions } from "./useMessageActions";
 
 const toggleUsernameSelection = (current: string[], username: string) => {
   return current.includes(username)
@@ -15,7 +16,11 @@ type UseWorkspaceFormActionsOptions = {
   setContactSearch: Dispatch<SetStateAction<string>>;
   setGroupInviteUsernames: Dispatch<SetStateAction<string[]>>;
   setGroupParticipantUsernames: Dispatch<SetStateAction<string[]>>;
-  submitActiveDraft: (draft: string, files?: File[]) => boolean | Promise<boolean>;
+  submitActiveDraft: (
+    draft: string,
+    files?: File[],
+    options?: SubmitDraftOptions
+  ) => boolean | Promise<boolean>;
   submitCreateConference: (formatClock: (value: string) => string) => void;
   submitCreateConferenceNow: (formatClock: (value: string) => string) => void;
   submitCreateGroup: () => void;
@@ -55,9 +60,11 @@ export function useWorkspaceFormActions({
     submitProfileDisplayName();
   });
 
-  const handleSubmitActiveDraft = useEffectEvent((draft: string, files?: File[]) => {
-    return submitActiveDraft(draft, files);
-  });
+  const handleSubmitActiveDraft = useEffectEvent(
+    (draft: string, files?: File[], options?: SubmitDraftOptions) => {
+      return submitActiveDraft(draft, files, options);
+    }
+  );
 
   const handleSubmitCreateGroup = useEffectEvent(() => {
     submitCreateGroup();

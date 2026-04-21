@@ -56,6 +56,17 @@ type ChatAttachmentUploadResponse = {
   createdAt: string;
 };
 
+type UploadProgress = {
+  loadedBytes: number;
+  totalBytes: number;
+  ratio: number;
+};
+
+type UploadEncryptedChatAttachmentOptions = {
+  signal?: AbortSignal;
+  onProgress?: (progress: UploadProgress) => void;
+};
+
 function buildRequestUrl(path: string, query?: Record<string, string | number | undefined | null>) {
   const normalizedBaseUrl =
     API_URL === "/"
@@ -418,14 +429,20 @@ export async function downloadConferenceRecording(token: string, conferenceId: s
 export async function uploadEncryptedChatAttachment(
   token: string,
   chatId: string,
-  ciphertext: Blob
+  ciphertext: Blob,
+  options: UploadEncryptedChatAttachmentOptions = {}
 ) {
+  if (options.onProgress) {
+    return uploadEncryptedChatAttachmentWithProgress(token, chatId, ciphertext, options);
+  }
+
   const formData = new FormData();
   formData.set("file", ciphertext, "attachment.bin");
   const response = await fetch(buildRequestUrl(`/api/chats/${chatId}/attachments`), {
     method: "POST",
     cache: "no-store",
     credentials: "include",
+    signal: options.signal,
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -448,6 +465,95 @@ export async function uploadEncryptedChatAttachment(
   }
 
   return (await response.json()) as ChatAttachmentUploadResponse;
+}
+
+function uploadEncryptedChatAttachmentWithProgress(
+  token: string,
+  chatId: string,
+  ciphertext: Blob,
+  options: UploadEncryptedChatAttachmentOptions
+) {
+  return new Promise<ChatAttachmentUploadResponse>((resolve, reject) => {
+    if (options.signal?.aborted) {
+      reject(createAbortError());
+      return;
+    }
+
+    const formData = new FormData();
+    formData.set("file", ciphertext, "attachment.bin");
+
+    const request = new XMLHttpRequest();
+    const cleanup = () => {
+      options.signal?.removeEventListener("abort", abortUpload);
+    };
+    const abortUpload = () => {
+      request.abort();
+    };
+
+    request.open("POST", buildRequestUrl(`/api/chats/${chatId}/attachments`).toString());
+    request.withCredentials = true;
+    request.setRequestHeader("Authorization", `Bearer ${token}`);
+    request.upload.onprogress = (event) => {
+      const totalBytes = event.lengthComputable ? event.total : ciphertext.size;
+      const loadedBytes = event.loaded;
+      const ratio = totalBytes > 0 ? Math.min(1, loadedBytes / totalBytes) : 0;
+      options.onProgress?.({ loadedBytes, totalBytes, ratio });
+    };
+    request.onload = () => {
+      cleanup();
+      if (request.status >= 200 && request.status < 300) {
+        try {
+          resolve(JSON.parse(request.responseText) as ChatAttachmentUploadResponse);
+        } catch (error) {
+          reject(error);
+        }
+        return;
+      }
+
+      reject(parseUploadError(request.status, request.statusText, request.responseText));
+    };
+    request.onerror = () => {
+      cleanup();
+      reject(new ApiError("Network error", 0));
+    };
+    request.onabort = () => {
+      cleanup();
+      reject(createAbortError());
+    };
+
+    options.signal?.addEventListener("abort", abortUpload, { once: true });
+    request.send(formData);
+  });
+}
+
+function parseUploadError(status: number, statusText: string, responseText: string) {
+  let payload: ApiErrorResponse | null = null;
+  try {
+    payload = JSON.parse(responseText) as ApiErrorResponse;
+  } catch {
+    payload = null;
+  }
+
+  return new ApiError(
+    payload?.error ?? resolveHttpErrorMessage(status, statusText, ""),
+    status,
+    payload?.details ?? []
+  );
+}
+
+function createAbortError() {
+  const error = new Error("Attachment upload cancelled");
+  error.name = "AbortError";
+  return error;
+}
+
+export function isAbortError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    (error as { name?: unknown }).name === "AbortError"
+  );
 }
 
 export async function downloadEncryptedChatAttachment(

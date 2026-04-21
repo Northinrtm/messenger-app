@@ -3148,6 +3148,53 @@ textarea {
   background: rgba(255, 255, 255, 0.14);
 }
 
+.composer-upload-progress {
+  width: min(100%, 78rem);
+  display: grid;
+  gap: 0.45rem;
+  justify-self: center;
+  padding: 0.62rem 0.72rem;
+  border: 1px solid rgba(139, 208, 255, 0.16);
+  border-radius: 1rem;
+  background: rgba(19, 38, 55, 0.78);
+  color: #dceaf7;
+}
+
+.composer-upload-progress-copy {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  font-size: 0.86rem;
+}
+
+.composer-upload-progress-copy span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-upload-cancel {
+  flex: 0 0 auto;
+}
+
+.composer-upload-progress-track {
+  height: 0.38rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.composer-upload-progress-bar {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #7db9ff, #5bd4c8);
+  transition: width 160ms ease;
+}
+
 .composer-context {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
