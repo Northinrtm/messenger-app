@@ -9,6 +9,8 @@ import type {
   InviteLink,
   MessageReactionEvent,
   Participant,
+  PushNotificationConfig,
+  PushSubscriptionPayload,
   UserEncryptionDevice,
   UserEncryptionDeviceBundle,
   UserEncryptionRecoverySnapshot,
@@ -335,6 +337,26 @@ export function revokeSession(token: string, sessionId: string) {
   return request<void>(`/api/auth/sessions/${sessionId}`, {
     method: "DELETE",
     token,
+  });
+}
+
+export function getPushNotificationConfig(token: string) {
+  return request<PushNotificationConfig>("/api/push/config", { token });
+}
+
+export function upsertPushSubscription(token: string, subscription: PushSubscriptionPayload) {
+  return request<void>("/api/push/subscriptions", {
+    method: "POST",
+    token,
+    body: subscription,
+  });
+}
+
+export function deletePushSubscription(token: string, endpoint: string) {
+  return request<void>("/api/push/subscriptions", {
+    method: "DELETE",
+    token,
+    body: { endpoint },
   });
 }
 

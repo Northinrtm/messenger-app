@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { PushNotificationPermission } from "../../../lib/pushNotifications";
 import type { UserProfile, UserSessionInfo, ChatSummary, VideoConference } from "../../../lib/types";
 import { AvatarCircle } from "./AvatarCircle";
 import { ProfileSettingsCard } from "./ProfileSettingsCard";
@@ -66,6 +67,13 @@ type Props = {
   emailVerificationPending: boolean;
   emailVerificationInfo: string | null;
   emailVerificationError: string | null;
+  pushNotificationsSupported: boolean;
+  pushNotificationsServerEnabled: boolean;
+  pushNotificationsEnabled: boolean;
+  pushNotificationsPermission: PushNotificationPermission;
+  pushNotificationsPending: boolean;
+  pushNotificationsInfo: string | null;
+  pushNotificationsError: string | null;
   revokeSessionPending: boolean;
   contactSearchFetching: boolean;
   onClose: () => void;
@@ -81,6 +89,8 @@ type Props = {
   onRemoveAvatar: () => void;
   onAvatarSelected: (file: File) => void;
   onResendEmailVerification: () => void;
+  onEnablePushNotifications: () => void;
+  onDisablePushNotifications: () => void;
   onGroupTitleChange: (value: string) => void;
   onGroupDetailsTitleChange: (value: string) => void;
   onGroupAvatarSelected: (file: File) => void;
@@ -155,6 +165,13 @@ export function SidebarManagementSheets({
   emailVerificationPending,
   emailVerificationInfo,
   emailVerificationError,
+  pushNotificationsSupported,
+  pushNotificationsServerEnabled,
+  pushNotificationsEnabled,
+  pushNotificationsPermission,
+  pushNotificationsPending,
+  pushNotificationsInfo,
+  pushNotificationsError,
   revokeSessionPending,
   contactSearchFetching,
   onClose,
@@ -170,6 +187,8 @@ export function SidebarManagementSheets({
   onRemoveAvatar,
   onAvatarSelected,
   onResendEmailVerification,
+  onEnablePushNotifications,
+  onDisablePushNotifications,
   onGroupTitleChange,
   onGroupDetailsTitleChange,
   onGroupAvatarSelected,
@@ -228,6 +247,13 @@ export function SidebarManagementSheets({
         emailVerificationPending={emailVerificationPending}
         emailVerificationInfo={emailVerificationInfo}
         emailVerificationError={emailVerificationError}
+        pushNotificationsSupported={pushNotificationsSupported}
+        pushNotificationsServerEnabled={pushNotificationsServerEnabled}
+        pushNotificationsEnabled={pushNotificationsEnabled}
+        pushNotificationsPermission={pushNotificationsPermission}
+        pushNotificationsPending={pushNotificationsPending}
+        pushNotificationsInfo={pushNotificationsInfo}
+        pushNotificationsError={pushNotificationsError}
         onClose={onClose}
         onProfileDisplayNameChange={onProfileDisplayNameChange}
         onProfileProfessionChange={onProfileProfessionChange}
@@ -240,6 +266,8 @@ export function SidebarManagementSheets({
         onDeleteAccount={onDeleteAccount}
         onAvatarSelected={onAvatarSelected}
         onResendEmailVerification={onResendEmailVerification}
+        onEnablePushNotifications={onEnablePushNotifications}
+        onDisablePushNotifications={onDisablePushNotifications}
       />
     );
   }

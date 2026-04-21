@@ -23,6 +23,18 @@ function profile(overrides: Partial<Parameters<typeof ProfileSettingsCard>[0]["p
   };
 }
 
+const defaultPushNotificationProps = {
+  pushNotificationsSupported: true,
+  pushNotificationsServerEnabled: true,
+  pushNotificationsEnabled: false,
+  pushNotificationsPermission: "default" as const,
+  pushNotificationsPending: false,
+  pushNotificationsInfo: null,
+  pushNotificationsError: null,
+  onEnablePushNotifications: () => {},
+  onDisablePushNotifications: () => {},
+};
+
 describe("ProfileSettingsCard email verification section", () => {
   let container: HTMLDivElement;
   let root: Root | null;
@@ -65,6 +77,7 @@ describe("ProfileSettingsCard email verification section", () => {
           emailVerificationPending={false}
           emailVerificationInfo={null}
           emailVerificationError={null}
+          {...defaultPushNotificationProps}
           onClose={() => {}}
           onProfileDisplayNameChange={() => {}}
           onProfileProfessionChange={() => {}}
@@ -117,6 +130,7 @@ describe("ProfileSettingsCard email verification section", () => {
           emailVerificationPending={false}
           emailVerificationInfo={null}
           emailVerificationError={null}
+          {...defaultPushNotificationProps}
           onClose={() => {}}
           onProfileDisplayNameChange={() => {}}
           onProfileProfessionChange={() => {}}

@@ -159,6 +159,20 @@ export type UserSessionInfo = {
   deviceName: string;
 };
 
+export type PushNotificationConfig = {
+  enabled: boolean;
+  publicKey: string;
+};
+
+export type PushSubscriptionPayload = {
+  endpoint: string;
+  expirationTime: string | null;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+};
+
 export type SessionEvent = {
   type: "SESSION_REVOKED";
   sessionId: string;

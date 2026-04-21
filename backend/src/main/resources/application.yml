@@ -121,6 +121,13 @@ app:
       max-size-bytes: ${APP_MEDIA_MESSAGE_ATTACHMENTS_MAX_SIZE_BYTES:26214400}
       orphan-ttl: ${APP_MEDIA_MESSAGE_ATTACHMENTS_ORPHAN_TTL:PT1H}
       orphan-cleanup-fixed-delay-ms: ${APP_MEDIA_MESSAGE_ATTACHMENTS_ORPHAN_CLEANUP_FIXED_DELAY_MS:900000}
+  push:
+    enabled: ${APP_PUSH_ENABLED:true}
+    subject: ${APP_PUSH_SUBJECT:mailto:no-reply@localhost.test}
+    vapid-public-key: ${APP_PUSH_VAPID_PUBLIC_KEY:}
+    vapid-private-key: ${APP_PUSH_VAPID_PRIVATE_KEY:}
+    request-timeout: ${APP_PUSH_REQUEST_TIMEOUT:PT5S}
+    ttl: ${APP_PUSH_TTL:PT1M}
 
 logging:
   pattern:

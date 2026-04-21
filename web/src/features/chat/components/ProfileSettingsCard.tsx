@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import type { PushNotificationPermission } from "../../../lib/pushNotifications";
 import type { UserProfile } from "../../../lib/types";
 import { AvatarCircle } from "./AvatarCircle";
 
@@ -19,6 +20,13 @@ type Props = {
   emailVerificationPending: boolean;
   emailVerificationInfo: string | null;
   emailVerificationError: string | null;
+  pushNotificationsSupported: boolean;
+  pushNotificationsServerEnabled: boolean;
+  pushNotificationsEnabled: boolean;
+  pushNotificationsPermission: PushNotificationPermission;
+  pushNotificationsPending: boolean;
+  pushNotificationsInfo: string | null;
+  pushNotificationsError: string | null;
   onClose: () => void;
   onProfileDisplayNameChange: (value: string) => void;
   onProfileProfessionChange: (value: string) => void;
@@ -31,6 +39,8 @@ type Props = {
   onDeleteAccount: () => void;
   onAvatarSelected: (file: File) => void;
   onResendEmailVerification: () => void;
+  onEnablePushNotifications: () => void;
+  onDisablePushNotifications: () => void;
 };
 
 export function ProfileSettingsCard({
@@ -49,6 +59,13 @@ export function ProfileSettingsCard({
   emailVerificationPending,
   emailVerificationInfo,
   emailVerificationError,
+  pushNotificationsSupported,
+  pushNotificationsServerEnabled,
+  pushNotificationsEnabled,
+  pushNotificationsPermission,
+  pushNotificationsPending,
+  pushNotificationsInfo,
+  pushNotificationsError,
   onClose,
   onProfileDisplayNameChange,
   onProfileProfessionChange,
@@ -61,6 +78,8 @@ export function ProfileSettingsCard({
   onDeleteAccount,
   onAvatarSelected,
   onResendEmailVerification,
+  onEnablePushNotifications,
+  onDisablePushNotifications,
 }: Props) {
   const [isPasswordFormOpen, setIsPasswordFormOpen] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
@@ -86,6 +105,19 @@ export function ProfileSettingsCard({
   const emailVerified = Boolean(profile.emailVerified);
   const emailVerificationEnabled = Boolean(profile.emailVerificationEnabled);
   const showUnverifiedEmailStatus = !emailVerified && !emailVerificationEnabled;
+  const pushNotificationsStatus = describePushNotificationsStatusV2({
+    enabled: pushNotificationsEnabled,
+    permission: pushNotificationsPermission,
+    serverEnabled: pushNotificationsServerEnabled,
+    supported: pushNotificationsSupported,
+  });
+  const canEnablePushNotifications =
+    pushNotificationsSupported &&
+    pushNotificationsServerEnabled &&
+    pushNotificationsPermission !== "denied" &&
+    !pushNotificationsEnabled;
+  const canDisablePushNotifications =
+    pushNotificationsSupported && pushNotificationsEnabled;
 
   useEffect(() => {
     setIsPasswordFormOpen(false);
@@ -223,6 +255,37 @@ export function ProfileSettingsCard({
         <div className="profile-line profile-action-panel">
           <div className="profile-action-row">
             <div className="profile-action-copy">
+              <span className="profile-label">Уведомления</span>
+              <strong>Push на этом устройстве</strong>
+              <span>{pushNotificationsStatus}</span>
+            </div>
+            {canEnablePushNotifications ? (
+              <button
+                type="button"
+                className="ghost-button compact"
+                onClick={onEnablePushNotifications}
+                disabled={pushNotificationsPending}
+              >
+                {pushNotificationsPending ? "Включаем..." : "Включить"}
+              </button>
+            ) : canDisablePushNotifications ? (
+              <button
+                type="button"
+                className="ghost-button compact"
+                onClick={onDisablePushNotifications}
+                disabled={pushNotificationsPending}
+              >
+                {pushNotificationsPending ? "Выключаем..." : "Выключить"}
+              </button>
+            ) : null}
+          </div>
+          {pushNotificationsInfo ? <div className="form-note">{pushNotificationsInfo}</div> : null}
+          {pushNotificationsError ? <div className="form-error">{pushNotificationsError}</div> : null}
+        </div>
+
+        <div className="profile-line profile-action-panel">
+          <div className="profile-action-row">
+            <div className="profile-action-copy">
               <span className="profile-label">Безопасность</span>
               <strong>Пароль</strong>
             </div>
@@ -347,4 +410,46 @@ export function ProfileSettingsCard({
       </div>
     </div>
   );
+}
+
+function describePushNotificationsStatusV2(args: {
+  enabled: boolean;
+  permission: PushNotificationPermission;
+  serverEnabled: boolean;
+  supported: boolean;
+}) {
+  if (args.supported && args.serverEnabled && args.permission !== "denied") {
+    if (args.enabled) {
+      return "Включены. Если приложение открыто и разблокировано, уведомление покажет превью; когда приложение закрыто, push остается без текста.";
+    }
+    return "Можно включить. Текст не передается на сервер: превью показывает только открытый клиент после расшифровки.";
+  }
+
+  return describePushNotificationsStatus(args);
+}
+
+function describePushNotificationsStatus({
+  enabled,
+  permission,
+  serverEnabled,
+  supported,
+}: {
+  enabled: boolean;
+  permission: PushNotificationPermission;
+  serverEnabled: boolean;
+  supported: boolean;
+}) {
+  if (!supported) {
+    return "Браузер не поддерживает Web Push.";
+  }
+  if (!serverEnabled) {
+    return "Push отключен на сервере.";
+  }
+  if (permission === "denied") {
+    return "Разрешение заблокировано в настройках браузера.";
+  }
+  if (enabled) {
+    return "Включены. Уведомление покажет только факт нового сообщения без текста.";
+  }
+  return "Можно включить. Текст сообщения в push не передается.";
 }

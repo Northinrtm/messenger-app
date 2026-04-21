@@ -12,6 +12,7 @@ type ReactActEnvironment = typeof globalThis & {
 };
 
 type HarnessProps = {
+  browserNotificationsEnabled?: boolean;
   onReady: (value: ToastHarnessState) => void;
   queryClient: QueryClient;
 };
@@ -60,9 +61,10 @@ function chatsSnapshot(): ChatSummary[] {
   ];
 }
 
-function Harness({ onReady, queryClient }: HarnessProps) {
+function Harness({ browserNotificationsEnabled = false, onReady, queryClient }: HarnessProps) {
   const toastState = useIncomingToasts({
     activeChatId: "chat-1",
+    browserNotificationsEnabled,
     currentUserId: "user-1",
     formatPreview: (message) => message.content,
     queryClient,
@@ -75,9 +77,16 @@ function Harness({ onReady, queryClient }: HarnessProps) {
 describe("useIncomingToasts", () => {
   let container: HTMLDivElement;
   let root: Root | null;
+  let originalNotificationDescriptor: PropertyDescriptor | undefined;
+  let originalVisibilityStateDescriptor: PropertyDescriptor | undefined;
 
   beforeEach(() => {
     (globalThis as ReactActEnvironment).IS_REACT_ACT_ENVIRONMENT = true;
+    originalNotificationDescriptor = Object.getOwnPropertyDescriptor(window, "Notification");
+    originalVisibilityStateDescriptor = Object.getOwnPropertyDescriptor(
+      Document.prototype,
+      "visibilityState"
+    );
     container = document.createElement("div");
     document.body.appendChild(container);
     root = null;
@@ -89,6 +98,14 @@ describe("useIncomingToasts", () => {
     });
     root = null;
     container.remove();
+    if (originalNotificationDescriptor) {
+      Object.defineProperty(window, "Notification", originalNotificationDescriptor);
+    } else {
+      delete (window as unknown as { Notification?: typeof Notification }).Notification;
+    }
+    if (originalVisibilityStateDescriptor) {
+      Object.defineProperty(Document.prototype, "visibilityState", originalVisibilityStateDescriptor);
+    }
     (globalThis as ReactActEnvironment).IS_REACT_ACT_ENVIRONMENT = false;
   });
 
@@ -127,5 +144,68 @@ describe("useIncomingToasts", () => {
     expect(
       queryClient.getQueryData<ChatSummary[]>(["chats", "session-token"])?.[0]?.unreadCount
     ).toBe(4);
+  });
+
+  it("shows a browser notification with the decrypted preview when enabled and hidden", async () => {
+    const notifications: Array<{ title: string; options?: NotificationOptions }> = [];
+    class MockNotification {
+      static permission = "granted" as const;
+      onclick: (() => void) | null = null;
+
+      constructor(title: string, options?: NotificationOptions) {
+        notifications.push({ title, options });
+      }
+
+      close() {}
+    }
+    Object.defineProperty(window, "Notification", {
+      configurable: true,
+      value: MockNotification as unknown as typeof Notification,
+    });
+    Object.defineProperty(Document.prototype, "visibilityState", {
+      configurable: true,
+      value: "hidden",
+    });
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    queryClient.setQueryData<ChatSummary[]>(["chats", "session-token"], chatsSnapshot());
+
+    const latestToastStateRef: { current: ToastHarnessState | null } = { current: null };
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(
+        <QueryClientProvider client={queryClient}>
+          <Harness
+            browserNotificationsEnabled={true}
+            queryClient={queryClient}
+            onReady={(value) => {
+              latestToastStateRef.current = value;
+            }}
+          />
+        </QueryClientProvider>
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      latestToastStateRef.current?.showIncomingToast(incomingMessage());
+      await Promise.resolve();
+    });
+
+    expect(notifications).toEqual([
+      {
+        title: "Remote",
+        options: expect.objectContaining({
+          body: "Remote: hello from toast",
+          tag: "north-messenger-chat-chat-2",
+        }),
+      },
+    ]);
   });
 });

@@ -112,6 +112,21 @@ Recommended memory policy on a `2 GB RAM` VPS:
 - that workflow reads recent `ws_access` logs from `messenger-web` over SSH and fails if `/ws` or `429` volume crosses the configured thresholds
 - without `ALERTMANAGER_WEBHOOK_URL`, alerts stay inside GitHub Actions and GitHub notifications rather than being pushed to Telegram, Slack, or another external destination
 
+## Push Notifications
+
+Set stable VAPID keys in `.env.prod` before relying on Web Push in production:
+
+```bash
+APP_PUSH_ENABLED=true
+APP_PUSH_SUBJECT=mailto:no-reply@your-domain.example
+APP_PUSH_VAPID_PUBLIC_KEY=<base64url-uncompressed-p256-public-key>
+APP_PUSH_VAPID_PRIVATE_KEY=<base64url-p256-private-key>
+```
+
+If VAPID keys are empty, the backend generates temporary keys on startup. That keeps local/dev usable, but production subscriptions become stale after every backend restart.
+
+The backend sends generic push notifications only. Message plaintext stays out of server-sent push payloads; notification previews are shown only by an already-open unlocked web client after local decryption.
+
 ## E2EE Coverage Diagnostics
 
 Use the server-side diagnostic script when a user reports `Encrypted message unavailable`.

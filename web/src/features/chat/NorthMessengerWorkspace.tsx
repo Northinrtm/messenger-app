@@ -42,6 +42,14 @@ import {
 } from "../../lib/api";
 import { JITSI_BASE_URL } from "../../lib/config";
 import {
+  disablePushNotifications,
+  enablePushNotifications,
+  getPushNotificationState,
+  isPushNotificationSupported,
+  syncPushSubscription,
+  type PushNotificationClientState,
+} from "../../lib/pushNotifications";
+import {
   clearPinnedEncryptionIdentity,
   isEncryptionIdentityChangedError,
   isUnavailableEncryptedMessage,
@@ -167,6 +175,13 @@ const CONFERENCE_ACTIVATION_LEAD_MS = 5 * 60 * 1000;
 const CONFERENCE_MINI_WINDOW_MARGIN_PX = 8;
 const CHAT_ENCRYPTION_WARNING_GRACE_MS = 500;
 
+const initialPushNotificationState = (): PushNotificationClientState => ({
+  supported: isPushNotificationSupported(),
+  serverEnabled: false,
+  subscribed: false,
+  permission: isPushNotificationSupported() ? Notification.permission : "unsupported",
+});
+
 type ConferenceMiniPosition = {
   x: number;
   y: number;
@@ -260,6 +275,11 @@ export function NorthMessengerWorkspace({
   const [chatEncryptionIdentityWarning, setChatEncryptionIdentityWarning] =
     useState<ChatEncryptionIdentityWarning | null>(null);
   const [isRecoveringEncryptionIdentity, setIsRecoveringEncryptionIdentity] = useState(false);
+  const [pushNotificationState, setPushNotificationState] =
+    useState<PushNotificationClientState>(initialPushNotificationState);
+  const [pushNotificationPending, setPushNotificationPending] = useState(false);
+  const [pushNotificationInfo, setPushNotificationInfo] = useState<string | null>(null);
+  const [pushNotificationError, setPushNotificationError] = useState<string | null>(null);
   const [initialChatViewportHint, setInitialChatViewportHint] = useState<{
     chatId: string;
     unreadCount: number;
@@ -282,6 +302,7 @@ export function NorthMessengerWorkspace({
     showIncomingToast,
   } = useIncomingToasts({
     activeChatId,
+    browserNotificationsEnabled: pushNotificationState.subscribed,
     currentUserId: session.user.id,
     formatPreview: (message) => formatToastPreview(buildChatListPreviewText(message)),
     queryClient,
@@ -687,6 +708,45 @@ export function NorthMessengerWorkspace({
     });
     await primeEncryptionRecipients(chat.members, true);
   });
+  const refreshPushNotifications = useEffectEvent(async () => {
+    const nextState = await getPushNotificationState(session.token);
+    setPushNotificationState(nextState);
+    return nextState;
+  });
+  const handleEnablePushNotifications = useEffectEvent(async () => {
+    setPushNotificationPending(true);
+    setPushNotificationInfo(null);
+    setPushNotificationError(null);
+    try {
+      const nextState = await enablePushNotifications(session.token);
+      setPushNotificationState(nextState);
+      setPushNotificationInfo(
+        "\u0423\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u044f \u0432\u043a\u043b\u044e\u0447\u0435\u043d\u044b \u043d\u0430 \u044d\u0442\u043e\u043c \u0443\u0441\u0442\u0440\u043e\u0439\u0441\u0442\u0432\u0435."
+      );
+    } catch (error) {
+      setPushNotificationError(describeError(error));
+      void refreshPushNotifications().catch(() => undefined);
+    } finally {
+      setPushNotificationPending(false);
+    }
+  });
+  const handleDisablePushNotifications = useEffectEvent(async () => {
+    setPushNotificationPending(true);
+    setPushNotificationInfo(null);
+    setPushNotificationError(null);
+    try {
+      const nextState = await disablePushNotifications(session.token);
+      setPushNotificationState(nextState);
+      setPushNotificationInfo(
+        "\u0423\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u044f \u0432\u044b\u043a\u043b\u044e\u0447\u0435\u043d\u044b \u043d\u0430 \u044d\u0442\u043e\u043c \u0443\u0441\u0442\u0440\u043e\u0439\u0441\u0442\u0432\u0435."
+      );
+    } catch (error) {
+      setPushNotificationError(describeError(error));
+      void refreshPushNotifications().catch(() => undefined);
+    } finally {
+      setPushNotificationPending(false);
+    }
+  });
   const activeConferenceIsArchived = Boolean(activeConference?.endedAt);
   const activeConferenceCanJoin = Boolean(
     activeConference?.roomName &&
@@ -834,6 +894,25 @@ export function NorthMessengerWorkspace({
   const deleteForEveryoneHint = activeChat?.direct
     ? "Сообщение исчезнет у вас обоих"
     : "Сообщение исчезнет у всех участников";
+
+  useEffect(() => {
+    let cancelled = false;
+    void syncPushSubscription(session.token)
+      .then((nextState) => {
+        if (!cancelled) {
+          setPushNotificationState(nextState);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setPushNotificationError(describeError(error));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session.token, session.user.id]);
 
   useEffect(() => {
     if (isRealtimeConnected || !activeChatId || activeTypingQuery.data === undefined) {
@@ -2144,6 +2223,13 @@ export function NorthMessengerWorkspace({
     emailVerificationPending: resendOwnEmailVerificationMutation.isPending,
     emailVerificationInfo,
     emailVerificationError,
+    pushNotificationsSupported: pushNotificationState.supported,
+    pushNotificationsServerEnabled: pushNotificationState.serverEnabled,
+    pushNotificationsEnabled: pushNotificationState.subscribed,
+    pushNotificationsPermission: pushNotificationState.permission,
+    pushNotificationsPending: pushNotificationPending,
+    pushNotificationsInfo: pushNotificationInfo,
+    pushNotificationsError: pushNotificationError,
     revokeSessionPending: revokeSessionMutation.isPending,
     contactSearchFetching: contactsSearchQuery.isFetching,
     onClose: () => setSidebarSheet(null),
@@ -2159,6 +2245,8 @@ export function NorthMessengerWorkspace({
     onRemoveAvatar: () => avatarMutation.mutate(null),
     onAvatarSelected: (file) => void uploadAvatarFromFile(file),
     onResendEmailVerification: () => resendOwnEmailVerificationMutation.mutate(),
+    onEnablePushNotifications: () => void handleEnablePushNotifications(),
+    onDisablePushNotifications: () => void handleDisablePushNotifications(),
     onGroupTitleChange: setGroupTitle,
     onGroupDetailsTitleChange: setGroupDetailsTitle,
     onGroupAvatarSelected: (file) => void uploadGroupAvatarFromFile(file),

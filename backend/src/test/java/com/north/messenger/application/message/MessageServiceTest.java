@@ -13,6 +13,7 @@ import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.chat.ChatService;
 import com.north.messenger.application.e2ee.ChatGroupHistoryKeyService;
 import com.north.messenger.application.e2ee.DeviceKeyValidationService;
+import com.north.messenger.application.push.PushNotificationDeliveryService;
 import com.north.messenger.observability.MessengerTelemetry;
 import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.model.ChatRoom;
@@ -153,7 +154,8 @@ class MessageServiceTest {
                 realtimeMessagingGateway,
                 authService,
                 telemetry,
-                messageSupport
+                messageSupport,
+                mock(PushNotificationDeliveryService.class)
         );
         MessageQueryService messageQueryService = new MessageQueryService(
                 authService,

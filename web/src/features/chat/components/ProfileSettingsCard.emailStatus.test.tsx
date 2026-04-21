@@ -7,6 +7,18 @@ type ReactActEnvironment = typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean;
 };
 
+const defaultPushNotificationProps = {
+  pushNotificationsSupported: true,
+  pushNotificationsServerEnabled: true,
+  pushNotificationsEnabled: false,
+  pushNotificationsPermission: "default" as const,
+  pushNotificationsPending: false,
+  pushNotificationsInfo: null,
+  pushNotificationsError: null,
+  onEnablePushNotifications: () => {},
+  onDisablePushNotifications: () => {},
+};
+
 describe("ProfileSettingsCard email status", () => {
   let container: HTMLDivElement;
   let root: Root | null;
@@ -57,6 +69,7 @@ describe("ProfileSettingsCard email status", () => {
           emailVerificationPending={false}
           emailVerificationInfo={null}
           emailVerificationError={null}
+          {...defaultPushNotificationProps}
           onClose={() => {}}
           onProfileDisplayNameChange={() => {}}
           onProfileProfessionChange={() => {}}

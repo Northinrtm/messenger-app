@@ -7,6 +7,7 @@ import com.north.messenger.api.dto.MessageSnippetResponse;
 import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.chat.ChatService;
+import com.north.messenger.application.push.PushNotificationDeliveryService;
 import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.MessageReaction;
@@ -39,6 +40,7 @@ class MessageDispatchService {
     private final AuthService authService;
     private final MessengerTelemetry telemetry;
     private final MessageSupport messageSupport;
+    private final PushNotificationDeliveryService pushNotificationDeliveryService;
 
     MessageDispatchService(
             ChatService chatService,
@@ -48,7 +50,8 @@ class MessageDispatchService {
             RealtimeMessagingGateway realtimeMessagingGateway,
             AuthService authService,
             MessengerTelemetry telemetry,
-            MessageSupport messageSupport
+            MessageSupport messageSupport,
+            PushNotificationDeliveryService pushNotificationDeliveryService
     ) {
         this.chatService = chatService;
         this.chatMessageRepository = chatMessageRepository;
@@ -58,6 +61,7 @@ class MessageDispatchService {
         this.authService = authService;
         this.telemetry = telemetry;
         this.messageSupport = messageSupport;
+        this.pushNotificationDeliveryService = pushNotificationDeliveryService;
     }
 
     void dispatchMessage(MessageDispatchEvent event) {
@@ -140,6 +144,7 @@ class MessageDispatchService {
                 realtimeMessagingGateway.sendToUser(participant.getUsername(), MESSAGE_DELIVERY_DESTINATION, response);
             });
             telemetry.recordMessageDispatch(telemetrySample, room, participantCount, source, "sent", message.getChatId(), message.getId());
+            pushNotificationDeliveryService.notifyNewMessage(message, participants, sender);
             chatService.notifyChatUpdated(message.getChatId());
         } catch (RuntimeException exception) {
             telemetry.recordMessageDispatch(telemetrySample, room, participantCount, source, "error", message.getChatId(), message.getId());

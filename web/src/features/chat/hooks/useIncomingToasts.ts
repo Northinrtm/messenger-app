@@ -12,6 +12,7 @@ export type IncomingToast = {
 
 type UseIncomingToastsOptions = {
   activeChatId: string | null;
+  browserNotificationsEnabled: boolean;
   currentUserId: string;
   formatPreview: (message: ChatMessage) => string;
   queryClient: QueryClient;
@@ -20,6 +21,7 @@ type UseIncomingToastsOptions = {
 
 export function useIncomingToasts({
   activeChatId,
+  browserNotificationsEnabled,
   currentUserId,
   formatPreview,
   queryClient,
@@ -72,6 +74,7 @@ export function useIncomingToasts({
       senderName: message.sender.displayName,
       preview: formatPreview(message),
     };
+    showBrowserNotification(nextToast, browserNotificationsEnabled);
 
     const existingTimeoutId = toastTimeoutsRef.current.get(toastId);
     if (existingTimeoutId !== undefined) {
@@ -101,4 +104,30 @@ export function useIncomingToasts({
     incomingToasts,
     showIncomingToast,
   };
+}
+
+function showBrowserNotification(toast: IncomingToast, enabled: boolean) {
+  if (
+    !enabled ||
+    typeof window === "undefined" ||
+    !("Notification" in window) ||
+    window.Notification.permission !== "granted" ||
+    document.visibilityState === "visible"
+  ) {
+    return;
+  }
+
+  try {
+    const notification = new window.Notification(toast.title, {
+      body: `${toast.senderName}: ${toast.preview}`,
+      icon: "/icon-192.png",
+      tag: `north-messenger-chat-${toast.chatId}`,
+    });
+    notification.onclick = () => {
+      window.focus();
+      notification.close();
+    };
+  } catch {
+    // Some browsers expose Notification but still reject direct construction.
+  }
 }

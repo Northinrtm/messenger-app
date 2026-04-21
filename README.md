@@ -20,6 +20,7 @@ The repository currently supports:
 - delivered/read receipts, typing indicators, reactions
 - reply, edit, forward, pin/unpin, delete for self/everyone where allowed
 - encrypted file attachments and image previews in chats
+- Web Push notifications with plaintext-safe browser-side previews
 - group ownership, moderators, bans, invite links, participant management
 - scheduled and instant video conferences with Jitsi
 - conference recordings import/download path
@@ -74,6 +75,8 @@ Core backend areas:
 - replies, edits, forwards, pinned messages
 - typing indicator with HTTP fallback
 - encrypted file attachments with upload progress, cancel, retry-safe orphan cleanup, and image previews
+- Web Push subscriptions for offline generic notifications
+- browser-side notification previews when an open unlocked client already decrypted the message
 
 ### E2EE
 
@@ -105,7 +108,7 @@ Core backend areas:
 
 ## What Is Not Implemented
 
-- push notifications
+- plaintext previews in server-sent push payloads
 - separate distributed presence/last-seen service
 - external event bus such as Kafka
 - hardened high-assurance metadata protection
@@ -224,6 +227,10 @@ Important app variables:
 - `APP_AUTH_PASSWORD_RESET_ENABLED`
 - `APP_AUTH_PASSWORD_RESET_URL_BASE`
 - `APP_AUTH_PASSWORD_RESET_FROM_ADDRESS`
+- `APP_PUSH_ENABLED`
+- `APP_PUSH_SUBJECT`
+- `APP_PUSH_VAPID_PUBLIC_KEY`
+- `APP_PUSH_VAPID_PRIVATE_KEY`
 - `SPRING_MAIL_HOST`
 - `SPRING_MAIL_PORT`
 - `SPRING_MAIL_USERNAME`
@@ -237,6 +244,20 @@ Important app variables:
 
 Registration is restricted by `APP_AUTH_REGISTRATION_ALLOWED_EMAIL_DOMAINS`.
 The default examples already include common public providers such as Gmail, Outlook, Yahoo, iCloud, Yandex, Mail.ru, Rambler, Proton, GMX, Fastmail, and Zoho.
+
+## Push Notifications
+
+Web Push is opt-in per browser profile from the profile settings panel.
+
+Security model:
+
+- backend stores only browser push subscription metadata
+- server-sent push notifications are generic and do not include message plaintext
+- if the app is already open, unlocked, and receives a decrypted realtime message while hidden, the browser notification can show sender and preview locally
+- if the browser/app is closed, the notification only says that a new message arrived
+
+Production should use stable VAPID keys through `APP_PUSH_VAPID_PUBLIC_KEY` and `APP_PUSH_VAPID_PRIVATE_KEY`.
+If they are empty, the backend generates temporary keys on startup; this is acceptable for local dev, but existing push subscriptions need refresh after restart.
 
 ## Email Verification and Password Reset
 
