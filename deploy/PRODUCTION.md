@@ -112,6 +112,25 @@ Recommended memory policy on a `2 GB RAM` VPS:
 - that workflow reads recent `ws_access` logs from `messenger-web` over SSH and fails if `/ws` or `429` volume crosses the configured thresholds
 - without `ALERTMANAGER_WEBHOOK_URL`, alerts stay inside GitHub Actions and GitHub notifications rather than being pushed to Telegram, Slack, or another external destination
 
+## E2EE Coverage Diagnostics
+
+Use the server-side diagnostic script when a user reports `Encrypted message unavailable`.
+It prints only encryption metadata: active participant devices, message envelope coverage, history-key grants, and missing device coverage.
+It does not read, decrypt, or print message plaintext.
+
+```bash
+cd /opt/messenger-app
+deploy/e2ee-coverage-diagnostic.sh --chat-id <chat-uuid>
+deploy/e2ee-coverage-diagnostic.sh --chat-id <chat-uuid> --message-id <message-uuid>
+```
+
+Important fields:
+
+- `has_history_envelope` means the message can use the post-patch group history fallback.
+- `has_history_access` means the recipient device has a wrapped copy of the group history key.
+- `can_receive` is true when the device has either a live sender-key envelope or a usable history fallback.
+- `joined_after_message` helps distinguish expected pre-patch/late-joiner gaps from current grant bugs.
+
 ## Backups
 
 The repository includes a local production backup path:
