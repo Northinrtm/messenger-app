@@ -424,10 +424,10 @@ export function ActiveConferenceConversation({
                   onClick={onGenerateShareUrl}
                 >
                   {shareInviteLinkActionLabel /*
-                    ? "Р“РµРЅРµСЂРёСЂСѓРµРј СЃСЃС‹Р»РєСѓ..."
+                    ? "Генерируем ссылку..."
                     : shareUrl
-                      ? "РџРѕР»СѓС‡РёС‚СЊ СЃСЃС‹Р»РєСѓ СЃРЅРѕРІР°"
-                      : "РЎРіРµРЅРµСЂРёСЂРѕРІР°С‚СЊ СЃСЃС‹Р»РєСѓ"}
+                      ? "Получить ссылку снова"
+                      : "Сгенерировать ссылку"}
                   */}
                 </button>
               </div>

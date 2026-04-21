@@ -630,11 +630,11 @@ export function NorthMessengerWorkspace({
     chatEncryptionIdentityWarning?.chatId === activeChat.id &&
     chatEncryptionIdentityWarning.isVisible
       ? {
-          title: "Р СњРЎС“Р В¶Р Р…Р С• Р С•Р В±Р Р…Р С•Р Р†Р С‘РЎвЂљРЎРЉ РЎвЂЎР В°РЎвЂљ",
+          title: "Нужно обновить чат",
           description:
-            "Р вЂќР В°Р Р…Р Р…РЎвЂ№Р Вµ РЎвЂЎР В°РЎвЂљР В° Р С‘Р В·Р СР ВµР Р…Р С‘Р В»Р С‘РЎРѓРЎРЉ. Р С›Р В±Р Р…Р С•Р Р†Р С‘РЎвЂљР Вµ РЎвЂЎР В°РЎвЂљ, РЎвЂЎРЎвЂљР С•Р В±РЎвЂ№ РЎРѓР Р…Р С•Р Р†Р В° Р С•РЎвЂљР С—РЎР‚Р В°Р Р†Р В»РЎРЏРЎвЂљРЎРЉ Р С‘ РЎР‚Р ВµР Т‘Р В°Р С”РЎвЂљР С‘РЎР‚Р С•Р Р†Р В°РЎвЂљРЎРЉ РЎРѓР С•Р С•Р В±РЎвЂ°Р ВµР Р…Р С‘РЎРЏ.",
+            "Данные чата изменились. Обновите чат, чтобы снова отправлять и редактировать сообщения.",
           errorText: chatEncryptionIdentityWarning.errorText,
-          actionLabel: "Р С›Р В±Р Р…Р С•Р Р†Р С‘РЎвЂљРЎРЉ РЎвЂЎР В°РЎвЂљ",
+          actionLabel: "Обновить чат",
           isPending: isRecoveringEncryptionIdentity,
         }
       : null;
@@ -829,10 +829,10 @@ export function NorthMessengerWorkspace({
   );
   const isPinnedContextMenuMessage =
     Boolean(contextMenuMessage && activeChat?.pinnedMessage?.id === contextMenuMessage.id);
-  const deleteForEveryoneLabel = activeChat?.direct ? "Р Р€Р Т‘Р В°Р В»Р С‘РЎвЂљРЎРЉ Р Т‘Р В»РЎРЏ Р С•Р В±Р С•Р С‘РЎвЂ¦" : "Р Р€Р Т‘Р В°Р В»Р С‘РЎвЂљРЎРЉ Р Т‘Р В»РЎРЏ Р Р†РЎРѓР ВµРЎвЂ¦";
+  const deleteForEveryoneLabel = activeChat?.direct ? "Удалить для обоих" : "Удалить для всех";
   const deleteForEveryoneHint = activeChat?.direct
-    ? "Р РЋР С•Р С•Р В±РЎвЂ°Р ВµР Р…Р С‘Р Вµ Р С‘РЎРѓРЎвЂЎР ВµР В·Р Р…Р ВµРЎвЂљ РЎС“ Р Р†Р В°РЎРѓ Р С•Р В±Р С•Р С‘РЎвЂ¦"
-    : "Р РЋР С•Р С•Р В±РЎвЂ°Р ВµР Р…Р С‘Р Вµ Р С‘РЎРѓРЎвЂЎР ВµР В·Р Р…Р ВµРЎвЂљ РЎС“ Р Р†РЎРѓР ВµРЎвЂ¦ РЎС“РЎвЂЎР В°РЎРѓРЎвЂљР Р…Р С‘Р С”Р С•Р Р†";
+    ? "Сообщение исчезнет у вас обоих"
+    : "Сообщение исчезнет у всех участников";
 
   useEffect(() => {
     if (isRealtimeConnected || !activeChatId || activeTypingQuery.data === undefined) {
@@ -1225,7 +1225,7 @@ export function NorthMessengerWorkspace({
         current && current.chatId === activeChat.id
           ? {
               ...current,
-              errorText: "Р СњР Вµ РЎС“Р Т‘Р В°Р В»Р С•РЎРѓРЎРЉ Р С•Р В±Р Р…Р С•Р Р†Р С‘РЎвЂљРЎРЉ РЎвЂЎР В°РЎвЂљ. Р СџР С•Р С—РЎР‚Р С•Р В±РЎС“Р в„–РЎвЂљР Вµ Р ВµРЎвЂ°РЎвЂ РЎР‚Р В°Р В·.",
+              errorText: "Не удалось обновить чат. Попробуйте еще раз.",
             }
           : current
       );
@@ -1353,8 +1353,8 @@ export function NorthMessengerWorkspace({
     });
   const emailVerificationInfo = resendOwnEmailVerificationMutation.isSuccess
     ? profile.email
-      ? `Р СџР С‘РЎРѓРЎРЉР СР С• Р Т‘Р В»РЎРЏ Р С—Р С•Р Т‘РЎвЂљР Р†Р ВµРЎР‚Р В¶Р Т‘Р ВµР Р…Р С‘РЎРЏ Р С•РЎвЂљР С—РЎР‚Р В°Р Р†Р В»Р ВµР Р…Р С• Р Р…Р В° ${profile.email}.`
-      : "Р СџР С‘РЎРѓРЎРЉР СР С• Р Т‘Р В»РЎРЏ Р С—Р С•Р Т‘РЎвЂљР Р†Р ВµРЎР‚Р В¶Р Т‘Р ВµР Р…Р С‘РЎРЏ Р С•РЎвЂљР С—РЎР‚Р В°Р Р†Р В»Р ВµР Р…Р С•."
+      ? `Письмо для подтверждения отправлено на ${profile.email}.`
+      : "Письмо для подтверждения отправлено."
     : null;
   const emailVerificationError = resendOwnEmailVerificationMutation.error
     ? describeError(resendOwnEmailVerificationMutation.error)
@@ -1481,7 +1481,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Р вЂ™РЎвЂ№Р в„–РЎвЂљР С‘ Р С‘Р В· Р С–РЎР‚РЎС“Р С—Р С—РЎвЂ№ "${activeChat.title}"?`)) {
+    if (!window.confirm(`Выйти из группы "${activeChat.title}"?`)) {
       return;
     }
 
@@ -1493,7 +1493,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Р Р€Р Т‘Р В°Р В»Р С‘РЎвЂљРЎРЉ Р С–РЎР‚РЎС“Р С—Р С—РЎС“ "${activeChat.title}" Р Т‘Р В»РЎРЏ Р Р†РЎРѓР ВµРЎвЂ¦ РЎС“РЎвЂЎР В°РЎРѓРЎвЂљР Р…Р С‘Р С”Р С•Р Р†?`)) {
+    if (!window.confirm(`Удалить группу "${activeChat.title}" для всех участников?`)) {
       return;
     }
 
@@ -1505,7 +1505,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Р вЂ”Р В°Р В±Р В°Р Р…Р С‘РЎвЂљРЎРЉ ${participant.displayName} Р С‘ РЎС“Р В±РЎР‚Р В°РЎвЂљРЎРЉ Р С‘Р В· Р С–РЎР‚РЎС“Р С—Р С—РЎвЂ№?`)) {
+    if (!window.confirm(`Забанить ${participant.displayName} и убрать из группы?`)) {
       return;
     }
 
@@ -1517,7 +1517,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Р вЂ”Р В°Р В±Р В°Р Р…Р С‘РЎвЂљРЎРЉ ${participant.displayName} Р С‘ РЎС“Р В±РЎР‚Р В°РЎвЂљРЎРЉ Р С‘Р В· Р С–РЎР‚РЎС“Р С—Р С—РЎвЂ№?`)) {
+    if (!window.confirm(`Забанить ${participant.displayName} и убрать из группы?`)) {
       return;
     }
 
@@ -1529,7 +1529,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Р ВРЎРѓР С”Р В»РЎР‹РЎвЂЎР С‘РЎвЂљРЎРЉ ${participant.displayName} Р С‘Р В· Р С–РЎР‚РЎС“Р С—Р С—РЎвЂ№?`)) {
+    if (!window.confirm(`Исключить ${participant.displayName} из группы?`)) {
       return;
     }
 
@@ -1541,7 +1541,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Р СњР В°Р В·Р Р…Р В°РЎвЂЎР С‘РЎвЂљРЎРЉ ${participant.displayName} Р СР С•Р Т‘Р ВµРЎР‚Р В°РЎвЂљР С•РЎР‚Р С•Р С Р С–РЎР‚РЎС“Р С—Р С—РЎвЂ№?`)) {
+    if (!window.confirm(`Назначить ${participant.displayName} модератором группы?`)) {
       return;
     }
 
@@ -1553,7 +1553,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Р РЋР Р…РЎРЏРЎвЂљРЎРЉ РЎР‚Р С•Р В»РЎРЉ Р СР С•Р Т‘Р ВµРЎР‚Р В°РЎвЂљР С•РЎР‚Р В° РЎРѓ ${participant.displayName}?`)) {
+    if (!window.confirm(`Снять роль модератора с ${participant.displayName}?`)) {
       return;
     }
 
@@ -1570,7 +1570,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Р вЂ”Р В°Р В±Р В»Р С•Р С”Р С‘РЎР‚Р С•Р Р†Р В°РЎвЂљРЎРЉ ${activeDirectParticipant.displayName}?`)) {
+    if (!window.confirm(`Заблокировать ${activeDirectParticipant.displayName}?`)) {
       return;
     }
 
@@ -1584,7 +1584,7 @@ export function NorthMessengerWorkspace({
 
     const now = new Date().toISOString();
     createConferenceMutation.mutate({
-      title: `Р РЋР С•Р В·Р Р†Р С•Р Р… РЎРѓ ${activeDirectParticipant.displayName}`,
+      title: `Созвон с ${activeDirectParticipant.displayName}`,
       scheduledAt: now,
       participantUsernames: [activeDirectParticipant.username],
     });
@@ -2411,7 +2411,7 @@ export function NorthMessengerWorkspace({
         className="north-layout-divider"
         role="separator"
         aria-orientation="vertical"
-        aria-label="Р ВР В·Р СР ВµР Р…Р С‘РЎвЂљРЎРЉ РЎв‚¬Р С‘РЎР‚Р С‘Р Р…РЎС“ РЎРѓР С—Р С‘РЎРѓР С”Р В° Р Т‘Р С‘Р В°Р В»Р С•Р С–Р С•Р Р†"
+        aria-label="Изменить ширину списка диалогов"
         onPointerDown={startSidebarResize}
       />
 

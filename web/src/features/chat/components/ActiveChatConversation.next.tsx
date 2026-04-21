@@ -526,7 +526,7 @@ const MessageRow = memo(function MessageRow({
   const showSenderAvatar = !ownMessage && !directChat;
   const messageMetaTrailing = (
     <div className="message-meta-trailing">
-      {message.editedAt ? <span className="message-edited-label">РёР·РјРµРЅРµРЅРѕ</span> : null}
+      {message.editedAt ? <span className="message-edited-label">изменено</span> : null}
       <span>{formatClock(message.createdAt)}</span>
       {ownMessage ? (
         <span
