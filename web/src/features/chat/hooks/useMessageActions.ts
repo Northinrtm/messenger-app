@@ -51,6 +51,7 @@ const MAX_ATTACHMENT_SIZE_BYTES = 25 * 1024 * 1024;
 type SendMessageInput = {
   chatId: string;
   clientMessageId: string;
+  clearDraftOnMutate?: boolean;
   content: string;
   localOrder: number;
   participants: Participant[];
@@ -173,17 +174,14 @@ export function useMessageActions({
       queryClient.setQueryData(["pending-outgoing-messages", currentUser.id], nextPendingMessages);
       applyChatPreviewMessage(optimisticMessage);
       applyServerChatPreviewMessage(optimisticMessage, "clear");
-      setDraftsByChatId((current) => {
-        const existingDraft = current[input.chatId] ?? "";
-        if (existingDraft.trim() !== input.content) {
-          return current;
-        }
-
-        const next = { ...current };
-        delete next[input.chatId];
-        return next;
-      });
-      scheduleDraftSave(input.chatId, "");
+      if (input.clearDraftOnMutate) {
+        setDraftsByChatId((current) => {
+          const next = { ...current };
+          delete next[input.chatId];
+          return next;
+        });
+        scheduleDraftSave(input.chatId, "");
+      }
       queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
         getMessagesKey(input.chatId),
         (current) => mergeMessagePages(current, optimisticMessage),
@@ -674,6 +672,7 @@ export function useMessageActions({
     return sendOutgoingMessage({
       chatId: activeChat.id,
       clientMessageId: `client-${window.crypto.randomUUID()}`,
+      clearDraftOnMutate: true,
       content,
       localOrder: ++nextLocalMessageOrderRef.current,
       participants: activeChat.members,

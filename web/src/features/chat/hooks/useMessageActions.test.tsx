@@ -213,6 +213,44 @@ describe("useMessageActions send failure recovery", () => {
     ]);
   });
 
+  it("clears the draft even when parent draft state lags behind the submitted textarea", async () => {
+    vi.mocked(sendEncryptedMessage).mockRejectedValueOnce(new Error("send failed"));
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    const latestStateRef: { current: HarnessState | null } = { current: null };
+
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(
+        <QueryClientProvider client={queryClient}>
+          <Harness
+            queryClient={queryClient}
+            onReady={(value) => {
+              latestStateRef.current = value;
+            }}
+          />
+        </QueryClientProvider>
+      );
+      await flushMicrotasks();
+    });
+
+    expect(latestStateRef.current?.draftsByChatId["chat-1"]).toBe(
+      "message that must not come back"
+    );
+
+    await act(async () => {
+      latestStateRef.current?.submitActiveDraft("latest textarea value");
+      await flushMicrotasks();
+    });
+
+    expect(latestStateRef.current?.draftsByChatId["chat-1"] ?? "").toBe("");
+  });
+
   it("keeps transient realtime send failures in sending state so reconnect can resume them invisibly", async () => {
     vi.mocked(sendEncryptedMessage).mockRejectedValueOnce(
       new ApiError("Realtime connection was interrupted before the message was confirmed.", 503)

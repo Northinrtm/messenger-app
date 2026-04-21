@@ -1934,7 +1934,10 @@ export function NorthMessengerWorkspace({
       revokeGroupModeratorMutation.error,
       addConferenceParticipantsMutation.error,
       addGroupParticipantsMutation.error,
-      isEncryptionIdentityChangedError(sendMessageMutation.error) ? null : sendMessageMutation.error,
+      isEncryptionIdentityChangedError(sendMessageMutation.error) ||
+      isTransientSendConfirmationError(sendMessageMutation.error)
+        ? null
+        : sendMessageMutation.error,
       signOutMutation.error,
       revokeSessionMutation.error,
       updateProfileMutation.error,
@@ -2471,5 +2474,9 @@ export function NorthMessengerWorkspace({
       />
     </main>
   );
+}
+
+function isTransientSendConfirmationError(error: unknown) {
+  return error instanceof ApiError && [0, 503, 504].includes(error.status);
 }
 
