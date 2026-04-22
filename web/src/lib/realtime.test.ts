@@ -27,6 +27,8 @@ vi.mock("@stomp/stompjs", () => {
     webSocket = { readyState: 1 };
     activateCalls = 0;
     deactivateCalls = 0;
+    unsubscribeCalls = 0;
+    unsafeUnsubscribeCalls = 0;
     publishCalls: Array<{ destination: string; body: string }> = [];
     subscriptions = new Map<string, (frame: { body: string }) => void>();
     onConnect = () => undefined;
@@ -53,6 +55,11 @@ vi.mock("@stomp/stompjs", () => {
       this.subscriptions.set(destination, callback);
       return {
         unsubscribe: () => {
+          this.unsubscribeCalls += 1;
+          if (this.webSocket.readyState !== 1) {
+            this.unsafeUnsubscribeCalls += 1;
+            throw new Error("websocket is not open");
+          }
           this.subscriptions.delete(destination);
         },
       };
@@ -80,6 +87,8 @@ type MockClient = {
   webSocket: { readyState: number };
   activateCalls: number;
   deactivateCalls: number;
+  unsubscribeCalls: number;
+  unsafeUnsubscribeCalls: number;
   publishCalls: Array<{ destination: string; body: string }>;
   subscriptions: Map<string, (frame: { body: string }) => void>;
   config: {
@@ -516,6 +525,8 @@ describe("realtime reconnect protection", () => {
 
     expect(client.publishCalls).toEqual([]);
     expect(connectionChange).toHaveBeenCalledWith(false);
+    expect(client.unsubscribeCalls).toBe(0);
+    expect(client.unsafeUnsubscribeCalls).toBe(0);
     dispose();
   });
 
@@ -532,6 +543,8 @@ describe("realtime reconnect protection", () => {
     expect(publishTypingEvent("chat-1", true)).toBe(false);
     expect(client.publishCalls).toEqual([]);
     expect(connectionChange).toHaveBeenCalledWith(false);
+    expect(client.unsubscribeCalls).toBe(0);
+    expect(client.unsafeUnsubscribeCalls).toBe(0);
     dispose();
   });
 

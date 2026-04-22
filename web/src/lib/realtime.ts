@@ -149,7 +149,7 @@ export function subscribeToChats({
 
   client.onConnect = () => {
     if (!isActiveConnection(connection) || connection.pausedByLifecycle) {
-      void client.deactivate();
+      deactivateRealtimeClient(client);
       return;
     }
 
@@ -256,7 +256,7 @@ export function subscribeToChats({
       setConnectionState(connection, false);
       activeConnection = null;
     }
-    void client.deactivate();
+    deactivateRealtimeClient(client);
   };
 }
 
@@ -323,7 +323,12 @@ function syncTypingSubscriptions(connection: RealtimeConnection) {
 }
 
 function clearSubscriptions(connection: RealtimeConnection) {
+  const shouldUnsubscribe = isRealtimeClientReady(connection.client);
   connection.userSubscriptions.forEach((subscription) => {
+    if (!shouldUnsubscribe) {
+      return;
+    }
+
     try {
       subscription.unsubscribe();
     } catch {
@@ -333,6 +338,10 @@ function clearSubscriptions(connection: RealtimeConnection) {
   connection.userSubscriptions = [];
 
   connection.typingSubscriptions.forEach((subscription) => {
+    if (!shouldUnsubscribe) {
+      return;
+    }
+
     try {
       subscription.unsubscribe();
     } catch {
@@ -340,7 +349,6 @@ function clearSubscriptions(connection: RealtimeConnection) {
     }
   });
   connection.typingSubscriptions.clear();
-
 }
 
 function handleConnectionFailure(connection: RealtimeConnection) {
@@ -384,7 +392,9 @@ function handleConnectionFailure(connection: RealtimeConnection) {
     connection.client.activate();
   }, REALTIME_RECONNECT_COOLDOWN_MS);
 
-  void connection.client.deactivate();
+  deactivateRealtimeClient(connection.client, {
+    force: isWebSocketClosingOrClosed(connection.client),
+  });
 }
 
 function clearReconnectCooldown(connection: RealtimeConnection) {
@@ -418,7 +428,9 @@ function retireConnection(connection: RealtimeConnection) {
   clearSubscriptions(connection);
   failPendingSendRequests("Realtime connection closed before the message was confirmed.", 503);
   connection.connected = false;
-  void connection.client.deactivate();
+  deactivateRealtimeClient(connection.client, {
+    force: isWebSocketClosingOrClosed(connection.client),
+  });
 }
 
 function setConnectionState(connection: RealtimeConnection, connected: boolean) {
@@ -466,13 +478,7 @@ function shouldReportRealtimeClientFailure(connection: RealtimeConnection) {
     return false;
   }
 
-  const readyState = connection.client.webSocket?.readyState;
-  return (
-    connection.connected ||
-    connection.client.connected ||
-    readyState === WEB_SOCKET_CLOSING_STATE ||
-    readyState === WEB_SOCKET_CLOSED_STATE
-  );
+  return connection.connected || connection.client.connected || pendingSendRequests.size > 0;
 }
 
 function scheduleVisibilityPause(connection: RealtimeConnection) {
@@ -504,7 +510,9 @@ function pauseConnectionForLifecycle(connection: RealtimeConnection) {
   clearSubscriptions(connection);
   failPendingSendRequests("Realtime connection paused before the message was confirmed.", 503);
   setConnectionState(connection, false);
-  void connection.client.deactivate();
+  deactivateRealtimeClient(connection.client, {
+    force: isWebSocketClosingOrClosed(connection.client),
+  });
 }
 
 function resumeConnectionFromLifecyclePause(connection: RealtimeConnection) {
@@ -516,6 +524,24 @@ function resumeConnectionFromLifecyclePause(connection: RealtimeConnection) {
   connection.failedReconnectAt = [];
   connection.lastRecordedFailureAt = 0;
   connection.client.activate();
+}
+
+function isWebSocketClosingOrClosed(client: Client | undefined) {
+  const readyState = client?.webSocket?.readyState;
+  return readyState === WEB_SOCKET_CLOSING_STATE || readyState === WEB_SOCKET_CLOSED_STATE;
+}
+
+function deactivateRealtimeClient(
+  client: Client,
+  options: { force?: boolean } = {}
+) {
+  if (!client.active && !client.connected) {
+    return;
+  }
+
+  void client.deactivate({
+    force: options.force || isWebSocketClosingOrClosed(client),
+  });
 }
 
 function resolveWebSocketBaseUrl() {

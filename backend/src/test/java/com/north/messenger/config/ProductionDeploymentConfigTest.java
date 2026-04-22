@@ -37,6 +37,17 @@ class ProductionDeploymentConfigTest {
     }
 
     @Test
+    void edgeShouldRouteApiAndWebsocketTrafficDirectlyToBackend() throws Exception {
+        String caddyfile = readRepoFile("deploy", "Caddyfile");
+
+        assertThat(caddyfile)
+                .contains("@backend_app")
+                .contains("path /api/* /ws /ws/*")
+                .contains("reverse_proxy backend:8080")
+                .contains("reverse_proxy web:80");
+    }
+
+    @Test
     void docsShouldNotDescribeWeakPrometheusFallbackOrLegacyCryptoScheme() throws Exception {
         String readme = readRepoFile("README.md");
         String productionRunbook = readRepoFile("deploy", "PRODUCTION.md");
