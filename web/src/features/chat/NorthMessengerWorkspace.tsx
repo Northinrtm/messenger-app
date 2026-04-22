@@ -155,6 +155,12 @@ import { useWorkspaceMutations } from "./hooks/useWorkspaceMutations";
 import { useWorkspaceQueries } from "./hooks/useWorkspaceQueries";
 import { useWorkspaceNavigation } from "./hooks/useWorkspaceNavigation";
 import { useWorkspaceStatus } from "./hooks/useWorkspaceStatus";
+import {
+  readWorkspaceNavigationState,
+  writeWorkspaceNavigationState,
+  type ConferenceViewportMode,
+  type MobilePane,
+} from "./workspaceNavigationPersistence";
 
 type Props = {
   pendingInviteCode: string | null;
@@ -201,10 +207,21 @@ export function NorthMessengerWorkspace({
   onSessionChange,
 }: Props) {
   const queryClient = useQueryClient();
-  const [activeChatId, setActiveChatId] = useState<string | null>(null);
-  const [activeConferenceId, setActiveConferenceId] = useState<string | null>(null);
-  const [conferenceViewportMode, setConferenceViewportMode] = useState<"full" | "mini">("full");
-  const [activeListTab, setActiveListTab] = useState<ConversationListTab>("chats");
+  const [initialNavigationState] = useState(() =>
+    readWorkspaceNavigationState(session.user.id)
+  );
+  const [activeChatId, setActiveChatId] = useState<string | null>(
+    initialNavigationState.activeChatId
+  );
+  const [activeConferenceId, setActiveConferenceId] = useState<string | null>(
+    initialNavigationState.activeConferenceId
+  );
+  const [conferenceViewportMode, setConferenceViewportMode] = useState<ConferenceViewportMode>(
+    initialNavigationState.conferenceViewportMode
+  );
+  const [activeListTab, setActiveListTab] = useState<ConversationListTab>(
+    initialNavigationState.activeListTab
+  );
   const [conferenceBrowserMode, setConferenceBrowserMode] = useState<"list" | "calendar">("list");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
@@ -235,7 +252,7 @@ export function NorthMessengerWorkspace({
   const [pendingOutgoingCountByChatId, setPendingOutgoingCountByChatId] = useState<Record<string, number>>({});
   const [contactSearch, setContactSearch] = useState("");
   const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
-  const [mobilePane, setMobilePane] = useState<"sidebar" | "conversation">("sidebar");
+  const [mobilePane, setMobilePane] = useState<MobilePane>(initialNavigationState.mobilePane);
   const [isConferenceInfoOpen, setIsConferenceInfoOpen] = useState(false);
   const [conferenceRecordingState, setConferenceRecordingState] =
     useState<ConferenceRecordingState>("idle");
@@ -262,12 +279,54 @@ export function NorthMessengerWorkspace({
   const [seenConferenceActivitySnapshot, setSeenConferenceActivitySnapshot] = useState<
     Record<string, string> | null
   >(null);
+  const navigationUserIdRef = useRef(session.user.id);
   const handledRealtimeMessageIdsRef = useRef(new Map<string, true>());
   const conferenceListScrollRef = useRef<HTMLDivElement | null>(null);
   const conferenceSurfaceRef = useRef<HTMLDivElement | null>(null);
   const deferredSearch = useDeferredValue(search);
   const deferredContactSearch = useDeferredValue(contactSearch);
   const { sidebarWidth, startSidebarResize } = useSidebarResize();
+  useEffect(() => {
+    if (navigationUserIdRef.current === session.user.id) {
+      return;
+    }
+
+    const restoredNavigationState = readWorkspaceNavigationState(session.user.id);
+    navigationUserIdRef.current = session.user.id;
+    setActiveChatId(restoredNavigationState.activeChatId);
+    setActiveConferenceId(restoredNavigationState.activeConferenceId);
+    setConferenceViewportMode(restoredNavigationState.conferenceViewportMode);
+    setActiveListTab(restoredNavigationState.activeListTab);
+    setMobilePane(restoredNavigationState.mobilePane);
+    setSidebarSheet(null);
+    setIsMenuOpen(false);
+    setIsChatMenuOpen(false);
+    setIsChatMembersOpen(false);
+    setIsConferenceInfoOpen(false);
+    setConferenceComposerMode(null);
+    setConferenceEditingId(null);
+    setSearch("");
+  }, [session.user.id]);
+  useEffect(() => {
+    if (navigationUserIdRef.current !== session.user.id) {
+      return;
+    }
+
+    writeWorkspaceNavigationState(session.user.id, {
+      activeChatId,
+      activeConferenceId,
+      activeListTab,
+      conferenceViewportMode,
+      mobilePane,
+    });
+  }, [
+    activeChatId,
+    activeConferenceId,
+    activeListTab,
+    conferenceViewportMode,
+    mobilePane,
+    session.user.id,
+  ]);
   const {
     clearChatAttention,
     dismissIncomingToast,
@@ -1766,6 +1825,7 @@ export function NorthMessengerWorkspace({
     conferences,
     chats,
     hasArchivedConferencesData: archivedConferencesQuery.data !== undefined,
+    hasChatsData: chatsQuery.data !== undefined,
     hasConferencesData: conferencesQuery.data !== undefined,
     clearChatAttention,
     editingMessageId,

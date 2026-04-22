@@ -17,6 +17,7 @@ type UseWorkspaceEffectsOptions = {
   conferences: VideoConference[];
   chats: ChatSummary[];
   hasArchivedConferencesData: boolean;
+  hasChatsData: boolean;
   hasConferencesData: boolean;
   clearChatAttention: (chatId: string) => void;
   editingMessageId: string | null;
@@ -65,6 +66,7 @@ export function useWorkspaceEffects({
   conferences,
   chats,
   hasArchivedConferencesData,
+  hasChatsData,
   hasConferencesData,
   clearChatAttention,
   editingMessageId,
@@ -101,19 +103,25 @@ export function useWorkspaceEffects({
   uploadAvatarFromFile,
 }: UseWorkspaceEffectsOptions) {
   useEffect(() => {
+    if (!hasChatsData) {
+      return;
+    }
+
     if (!chats.length) {
       if (activeChatId !== null) {
+        setMobilePane("sidebar");
         setActiveChatId(null);
       }
       return;
     }
 
     if (activeChatId && !chats.some((chat) => chat.id === activeChatId)) {
+      setMobilePane("sidebar");
       startTransition(() => {
         setActiveChatId(null);
       });
     }
-  }, [activeChatId, chats, setActiveChatId]);
+  }, [activeChatId, chats, hasChatsData, setActiveChatId, setMobilePane]);
 
   useEffect(() => {
     if (!activeChatId) {
