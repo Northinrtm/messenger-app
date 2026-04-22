@@ -72,6 +72,14 @@ export function App() {
   const refreshInFlightRef = useRef(false);
   const previousUserIdRef = useRef<string | null>(null);
 
+  useEffect(() => {
+    document.documentElement.lang = "ru";
+    document.documentElement.classList.add("notranslate");
+    document.documentElement.setAttribute("translate", "no");
+    document.body.classList.add("notranslate");
+    document.body.setAttribute("translate", "no");
+  }, []);
+
   const requestSessionRefresh = useEffectEvent(async (blocking = false) => {
     if (refreshInFlightRef.current) {
       return;
@@ -263,7 +271,7 @@ export function App() {
     Boolean(session && refreshingExpiredSession && isAccessTokenExpired(session));
 
   return (
-    <div className="app-shell">
+    <div className="app-shell notranslate" translate="no">
       <div className="ambient ambient-left" />
       <div className="ambient ambient-right" />
       {showBlockingRestore ? (

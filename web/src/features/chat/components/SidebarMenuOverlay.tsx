@@ -22,7 +22,7 @@ export function SidebarMenuOverlay({
   onAction,
 }: Props) {
   return (
-    <div className="sidebar-menu-overlay" ref={menuPanelRef}>
+    <div className="sidebar-menu-overlay notranslate" ref={menuPanelRef} translate="no">
       <div className="sidebar-menu-profile">
         <AvatarCircle
           className="menu-profile-avatar"

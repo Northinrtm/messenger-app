@@ -53,7 +53,7 @@ export function WorkspaceSidebar({
   userSearchResults,
 }: Props) {
   return (
-    <aside className="sidebar north-sidebar">
+    <aside className="sidebar north-sidebar notranslate" translate="no">
       <div className="north-sidebar-top">
         <button
           type="button"
