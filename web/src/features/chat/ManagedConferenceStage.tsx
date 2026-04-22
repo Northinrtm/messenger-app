@@ -2,6 +2,14 @@ import { useEffect, useRef, useState } from "react";
 
 export type ConferenceParticipantRole = "moderator" | "participant";
 export type ConferenceRecordingState = "idle" | "starting" | "recording" | "stopping" | "failed";
+export type ConferenceJoinSettings = {
+  audioEnabled: boolean;
+  videoEnabled: boolean;
+  audioInputDeviceId?: string | null;
+  audioInputDeviceLabel?: string | null;
+  videoInputDeviceId?: string | null;
+  videoInputDeviceLabel?: string | null;
+};
 
 type Props = {
   conferenceId: string;
@@ -9,6 +17,7 @@ type Props = {
   roomName: string;
   displayName: string;
   title: string;
+  joinSettings?: ConferenceJoinSettings;
   exitRequestToken?: number;
   onConferenceEndForAll?: () => void;
   onConferencePresenceTouch?: (conferenceId: string) => void;
@@ -83,6 +92,7 @@ export function ManagedConferenceStage({
   roomName,
   displayName,
   title,
+  joinSettings,
   exitRequestToken = 0,
   onConferenceEndForAll,
   onConferencePresenceTouch,
@@ -152,6 +162,7 @@ export function ManagedConferenceStage({
     const { boshUrl, websocketUrl } = createConferenceTransportUrls(baseUrlObject);
     const normalizedDisplayName = normalizeDisplayName(displayName);
     const normalizedConferenceTitle = normalizeConferenceTitle(title);
+    const normalizedJoinSettings = normalizeJoinSettings(joinSettings);
     const externalApiId = jitsiExternalApiId++;
 
     const updateRecordingState = (nextState: ConferenceRecordingState) => {
@@ -234,6 +245,24 @@ export function ManagedConferenceStage({
 
       if (normalizedConferenceTitle) {
         sendConferenceCommand(bridge, "subject", normalizedConferenceTitle);
+      }
+
+      if (normalizedJoinSettings.audioInputDeviceId) {
+        sendConferenceCommand(
+          bridge,
+          "setAudioInputDevice",
+          normalizedJoinSettings.audioInputDeviceLabel,
+          normalizedJoinSettings.audioInputDeviceId
+        );
+      }
+
+      if (normalizedJoinSettings.videoInputDeviceId) {
+        sendConferenceCommand(
+          bridge,
+          "setVideoInputDevice",
+          normalizedJoinSettings.videoInputDeviceLabel,
+          normalizedJoinSettings.videoInputDeviceId
+        );
       }
     };
 
@@ -378,6 +407,7 @@ export function ManagedConferenceStage({
           boshUrl,
           displayName: normalizedDisplayName,
           externalApiId,
+          joinSettings: normalizedJoinSettings,
           roomName,
           title: normalizedConferenceTitle,
           websocketUrl,
@@ -419,7 +449,20 @@ export function ManagedConferenceStage({
       bridge?.destroy();
       host.replaceChildren();
     };
-  }, [baseUrl, conferenceId, displayName, retryToken, roomName, title]);
+  }, [
+    baseUrl,
+    conferenceId,
+    displayName,
+    joinSettings?.audioEnabled,
+    joinSettings?.audioInputDeviceId,
+    joinSettings?.audioInputDeviceLabel,
+    joinSettings?.videoEnabled,
+    joinSettings?.videoInputDeviceId,
+    joinSettings?.videoInputDeviceLabel,
+    retryToken,
+    roomName,
+    title,
+  ]);
 
   return <div ref={hostRef} className="conference-embed-host" />;
 }
@@ -429,6 +472,7 @@ function buildConferenceFrameUrl(input: {
   boshUrl: string;
   displayName: string;
   externalApiId: number;
+  joinSettings: ConferenceJoinSettings;
   roomName: string;
   title: string;
   websocketUrl: string;
@@ -439,6 +483,8 @@ function buildConferenceFrameUrl(input: {
   hashParams.set("jitsi_meet_external_api_id", String(input.externalApiId));
   hashParams.set("config.prejoinPageEnabled", JSON.stringify(false));
   hashParams.set("config.prejoinConfig.enabled", JSON.stringify(false));
+  hashParams.set("config.startWithAudioMuted", JSON.stringify(!input.joinSettings.audioEnabled));
+  hashParams.set("config.startWithVideoMuted", JSON.stringify(!input.joinSettings.videoEnabled));
   hashParams.set("config.prejoinConfig.hideDisplayName", JSON.stringify(true));
   hashParams.set("config.requireDisplayName", JSON.stringify(false));
   hashParams.set("config.disableDeepLinking", JSON.stringify(true));
@@ -675,6 +721,26 @@ function normalizeDisplayName(value: string) {
 
 function normalizeConferenceTitle(value: string) {
   return value.trim();
+}
+
+function normalizeJoinSettings(value?: ConferenceJoinSettings): ConferenceJoinSettings {
+  return {
+    audioEnabled: value?.audioEnabled !== false,
+    videoEnabled: value?.videoEnabled !== false,
+    audioInputDeviceId: normalizeDeviceId(value?.audioInputDeviceId),
+    audioInputDeviceLabel: normalizeDeviceLabel(value?.audioInputDeviceLabel),
+    videoInputDeviceId: normalizeDeviceId(value?.videoInputDeviceId),
+    videoInputDeviceLabel: normalizeDeviceLabel(value?.videoInputDeviceLabel),
+  };
+}
+
+function normalizeDeviceId(value?: string | null) {
+  const normalizedValue = value?.trim() ?? "";
+  return normalizedValue || null;
+}
+
+function normalizeDeviceLabel(value?: string | null) {
+  return value?.trim() ?? "";
 }
 
 function renderConferencePlaceholder(host: HTMLDivElement, options: PlaceholderOptions) {

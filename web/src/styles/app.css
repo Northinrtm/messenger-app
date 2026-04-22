@@ -354,6 +354,7 @@ textarea::placeholder {
 }
 
 input,
+select,
 textarea {
   width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -369,6 +370,7 @@ textarea {
 }
 
 input:focus,
+select:focus,
 textarea:focus {
   border-color: rgba(244, 146, 86, 0.42);
   box-shadow: 0 0 0 4px rgba(244, 146, 86, 0.1);
@@ -377,6 +379,10 @@ textarea:focus {
 
 textarea {
   resize: vertical;
+}
+
+select {
+  color-scheme: dark;
 }
 
 .form-error,
@@ -3867,6 +3873,115 @@ textarea {
   display: block;
 }
 
+.conference-prejoin {
+  min-height: calc(100vh - 19rem);
+  display: grid;
+  align-content: center;
+  gap: 1.1rem;
+  padding: 1.25rem;
+  color: #f4fbff;
+}
+
+.conference-prejoin-copy {
+  display: grid;
+  gap: 0.45rem;
+  max-width: 42rem;
+}
+
+.conference-prejoin-copy strong {
+  font-size: 1.35rem;
+  overflow-wrap: anywhere;
+}
+
+.conference-prejoin-copy p {
+  margin: 0;
+  color: #8aa0b6;
+  line-height: 1.5;
+}
+
+.conference-device-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.conference-device-control {
+  display: grid;
+  gap: 0.85rem;
+  min-width: 0;
+  padding: 1rem;
+  border-radius: 1.1rem;
+  background: rgba(9, 16, 25, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.conference-device-control.is-enabled {
+  border-color: rgba(110, 172, 255, 0.24);
+}
+
+.conference-device-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+}
+
+.conference-device-head > div {
+  min-width: 0;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.conference-device-head strong,
+.conference-device-head span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conference-device-head span {
+  color: #8aa0b6;
+  font-size: 0.86rem;
+}
+
+.conference-device-toggle {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  padding: 0.52rem 0.78rem;
+  background: rgba(255, 255, 255, 0.05);
+  color: #c9d7e6;
+  font-weight: 700;
+}
+
+.conference-device-toggle.is-on {
+  background: rgba(68, 119, 242, 0.22);
+  border-color: rgba(110, 172, 255, 0.32);
+  color: #dbe8ff;
+}
+
+.conference-device-select {
+  min-height: 3rem;
+  padding: 0.8rem 0.95rem;
+  background: #17212b;
+  color: #f4fbff;
+}
+
+.conference-device-select:disabled {
+  color: rgba(244, 251, 255, 0.42);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.conference-prejoin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+
+.conference-prejoin-actions .primary-button,
+.conference-prejoin-actions .ghost-button {
+  min-width: min(12rem, 100%);
+}
+
 .conference-stage.is-fullscreen {
   border-radius: 0;
   background: #000000;
@@ -4168,6 +4283,15 @@ body.is-resizing-chat-layout {
 
   .conference-summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .conference-device-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .conference-prejoin-actions .primary-button,
+  .conference-prejoin-actions .ghost-button {
+    width: 100%;
   }
 
   .conference-summary-row {
