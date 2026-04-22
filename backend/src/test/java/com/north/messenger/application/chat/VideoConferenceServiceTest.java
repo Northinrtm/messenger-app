@@ -6,6 +6,7 @@ import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.api.dto.UpdateVideoConferenceRequest;
 import com.north.messenger.api.dto.VideoConferenceResponse;
 import com.north.messenger.application.auth.AuthService;
+import com.north.messenger.application.support.ClusterJobLockService;
 import com.north.messenger.domain.model.VideoConferenceAttendance;
 import com.north.messenger.domain.repository.ConferenceRecordingRepository;
 import com.north.messenger.domain.model.UserAccount;
@@ -31,6 +32,7 @@ import static com.north.messenger.support.TestUserAccounts.testUserAccount;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -49,6 +51,7 @@ class VideoConferenceServiceTest {
     private ConferenceRecordingRepository conferenceRecordingRepository;
     private ConferenceRecordingStorage conferenceRecordingStorage;
     private ConferenceRecordingImportService conferenceRecordingImportService;
+    private ClusterJobLockService clusterJobLockService;
     private VideoConferenceService videoConferenceService;
 
     @BeforeEach
@@ -61,6 +64,7 @@ class VideoConferenceServiceTest {
         conferenceRecordingRepository = mock(ConferenceRecordingRepository.class);
         conferenceRecordingStorage = mock(ConferenceRecordingStorage.class);
         conferenceRecordingImportService = mock(ConferenceRecordingImportService.class);
+        clusterJobLockService = mock(ClusterJobLockService.class);
         videoConferenceService = new VideoConferenceService(
                 authService,
                 userAccountRepository,
@@ -70,6 +74,7 @@ class VideoConferenceServiceTest {
                 conferenceRecordingRepository,
                 conferenceRecordingStorage,
                 conferenceRecordingImportService,
+                clusterJobLockService,
                 new JwtProperties(
                         TEST_JWT_SECRET,
                         Duration.ofHours(12),
@@ -89,6 +94,11 @@ class VideoConferenceServiceTest {
         when(conferenceRecordingRepository.findByConferenceId(any(UUID.class))).thenReturn(Optional.empty());
         when(conferenceRecordingRepository.findAllByConferenceIdIn(anyCollection())).thenReturn(List.of());
         when(conferenceRecordingImportService.discoverAvailableRecordings()).thenReturn(List.of());
+        when(clusterJobLockService.runIfLockAcquired(anyLong(), any(Runnable.class))).thenAnswer(invocation -> {
+            Runnable task = invocation.getArgument(1);
+            task.run();
+            return true;
+        });
     }
 
     @Test
@@ -669,7 +679,7 @@ class VideoConferenceServiceTest {
     }
 
     @Test
-    void listConferencesShouldRevealRoomAfterAutomaticStart() {
+    void listConferencesShouldNotStartDueConferenceFromReadPath() {
         UserAccount organizer = testUserAccount(
                 UUID.randomUUID(),
                 "north",
@@ -717,8 +727,6 @@ class VideoConferenceServiceTest {
         when(videoConferenceParticipantRepository.findAllByUserIdOrderByInvitedAtDesc(participant.getId()))
                 .thenReturn(List.of(memberships.get(1)));
         when(videoConferenceRepository.findAllByIdIn(anyCollection())).thenReturn(List.of(conference));
-        when(videoConferenceRepository.findAllByEndedAtIsNullAndStartedAtIsNullAndScheduledAtLessThanEqual(any(Instant.class)))
-                .thenReturn(List.of(conference));
         when(videoConferenceParticipantRepository.findAllByConferenceIdInOrderByInvitedAtAsc(anyCollection()))
                 .thenReturn(memberships);
         when(userAccountRepository.findAllByIdIn(anyCollection())).thenReturn(List.of(organizer, participant));
@@ -732,7 +740,8 @@ class VideoConferenceServiceTest {
         assertThat(response).hasSize(1);
         assertThat(response.get(0).roomName()).isEqualTo("vc-visible");
         assertThat(response.get(0).roomAccessCode()).isNotBlank();
-        assertThat(response.get(0).startedAt()).isNotNull();
+        assertThat(response.get(0).startedAt()).isNull();
+        verify(videoConferenceRepository, never()).saveAll(any());
     }
 
     @Test

@@ -60,6 +60,7 @@ class ChatServiceTest {
     private UserDeletedMessageRepository userDeletedMessageRepository;
     private RealtimeMessagingGateway realtimeMessagingGateway;
     private MessengerTelemetry telemetry;
+    private DirectChatCreationLockService directChatCreationLockService;
     private ChatService chatService;
 
     @BeforeEach
@@ -77,6 +78,7 @@ class ChatServiceTest {
         userDeletedMessageRepository = mock(UserDeletedMessageRepository.class);
         realtimeMessagingGateway = mock(RealtimeMessagingGateway.class);
         telemetry = mock(MessengerTelemetry.class);
+        directChatCreationLockService = mock(DirectChatCreationLockService.class);
         chatService = new ChatService(
                 authService,
                 chatRoomRepository,
@@ -90,7 +92,8 @@ class ChatServiceTest {
                 userDeletedChatRepository,
                 userDeletedMessageRepository,
                 realtimeMessagingGateway,
-                telemetry
+                telemetry,
+                directChatCreationLockService
         );
         when(userArchivedChatRepository.save(any(UserArchivedChat.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(userDeletedChatRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
@@ -357,6 +360,93 @@ class ChatServiceTest {
                 .containsExactly("alice", "north");
         verify(userArchivedChatRepository).deleteByUserIdAndChatId(invitedUser.getId(), chatId);
         verify(userDeletedChatRepository).deleteByChatIdAndUserIdIn(chatId, List.of(invitedUser.getId()));
+    }
+
+    @Test
+    void createDirectChatShouldReuseCanonicalDirectPair() {
+        UUID lowUserId = UUID.fromString("00000000-0000-0000-0000-000000000001");
+        UUID highUserId = UUID.fromString("ffffffff-ffff-ffff-ffff-ffffffffffff");
+        UserAccount currentUser = testUserAccount(
+                highUserId,
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UserAccount peer = testUserAccount(
+                lowUserId,
+                "alice",
+                "Alice",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UUID chatId = UUID.randomUUID();
+        ChatRoom room = new ChatRoom(
+                chatId,
+                null,
+                true,
+                Instant.parse("2026-03-21T12:00:00Z"),
+                currentUser.getId(),
+                peer.getId()
+        );
+        ChatParticipant currentMembership = new ChatParticipant(
+                UUID.randomUUID(),
+                chatId,
+                currentUser.getId(),
+                Instant.parse("2026-03-21T12:00:00Z")
+        );
+        ChatParticipant peerMembership = new ChatParticipant(
+                UUID.randomUUID(),
+                chatId,
+                peer.getId(),
+                Instant.parse("2026-03-21T12:00:01Z")
+        );
+        ParticipantResponse currentParticipant = new ParticipantResponse(
+                currentUser.getId(),
+                currentUser.getUsername(),
+                currentUser.getDisplayName(),
+                currentUser.getAvatarUrl(),
+                true
+        );
+        ParticipantResponse peerParticipant = new ParticipantResponse(
+                peer.getId(),
+                peer.getUsername(),
+                peer.getDisplayName(),
+                peer.getAvatarUrl(),
+                true
+        );
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
+        when(authService.requireExistingUser("alice")).thenReturn(peer);
+        when(chatRoomRepository.findByDirectIsTrueAndDirectUserLowIdAndDirectUserHighId(lowUserId, highUserId))
+                .thenReturn(Optional.of(room));
+        when(chatRoomRepository.findById(chatId)).thenReturn(Optional.of(room));
+        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId))
+                .thenReturn(List.of(peerMembership, currentMembership));
+        when(userAccountRepository.findAllByIdIn(List.of(peer.getId(), currentUser.getId())))
+                .thenReturn(List.of(peer, currentUser));
+        when(authService.resolveOnlineByUserIds(List.of(peer.getId(), currentUser.getId())))
+                .thenReturn(java.util.Map.of(peer.getId(), true, currentUser.getId(), true));
+        when(messageReceiptRepository.countUnreadByChatId(chatId)).thenReturn(List.of());
+        when(messageReceiptRepository.countUnreadByUserIdAndChatIdIn(currentUser.getId(), List.of(chatId)))
+                .thenReturn(List.of());
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(eq(chatId), eq(currentUser.getId()), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(eq(chatId), eq(peer.getId()), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(authService.toParticipant(currentUser, true)).thenReturn(currentParticipant);
+        when(authService.toParticipant(peer, true)).thenReturn(peerParticipant);
+
+        var response = chatService.createDirectChat("north", new com.north.messenger.api.dto.CreateDirectChatRequest("alice"));
+
+        assertThat(response.id()).isEqualTo(chatId);
+        assertThat(response.direct()).isTrue();
+        assertThat(room.getDirectUserLowId()).isEqualTo(lowUserId);
+        assertThat(room.getDirectUserHighId()).isEqualTo(highUserId);
+        verify(directChatCreationLockService).lockForPair(lowUserId, highUserId);
+        verify(chatRoomRepository).findByDirectIsTrueAndDirectUserLowIdAndDirectUserHighId(lowUserId, highUserId);
+        verify(chatRoomRepository, never()).findDirectChatByParticipantIds(currentUser.getId(), peer.getId());
+        verify(chatRoomRepository, never()).save(any(ChatRoom.class));
     }
 
     @Test

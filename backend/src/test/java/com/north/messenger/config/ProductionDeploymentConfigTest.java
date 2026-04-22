@@ -16,8 +16,11 @@ class ProductionDeploymentConfigTest {
         String compose = readRepoFile("docker-compose.prod.yml");
 
         assertThat(compose)
-                .contains("APP_REALTIME_REDIS_ENABLED: ${APP_REALTIME_REDIS_ENABLED:-false}")
-                .doesNotContain("APP_REALTIME_REDIS_ENABLED: ${APP_REALTIME_REDIS_ENABLED:-true}")
+                .contains("APP_REALTIME_REDIS_ENABLED: ${APP_REALTIME_REDIS_ENABLED:-true}")
+                .contains("APP_AUTH_RATE_LIMIT_REDIS_ENABLED: ${APP_AUTH_RATE_LIMIT_REDIS_ENABLED:-true}")
+                .contains("APP_REALTIME_REDIS_MAC_SECRET: ${APP_REALTIME_REDIS_MAC_SECRET:-}")
+                .doesNotContain("container_name: messenger-backend")
+                .doesNotContain("container_name: messenger-web")
                 .contains("APP_ACTUATOR_SCRAPE_USERNAME: ${APP_ACTUATOR_SCRAPE_USERNAME:-}")
                 .contains("APP_ACTUATOR_SCRAPE_PASSWORD: ${APP_ACTUATOR_SCRAPE_PASSWORD:-}")
                 .doesNotContain(":-prometheus");

@@ -28,6 +28,11 @@ public interface ChatRoomRepository extends JpaRepository<ChatRoom, UUID> {
             @Param("secondUserId") UUID secondUserId
     );
 
+    Optional<ChatRoom> findByDirectIsTrueAndDirectUserLowIdAndDirectUserHighId(
+            UUID directUserLowId,
+            UUID directUserHighId
+    );
+
     @Modifying
     @Query(
             value = """

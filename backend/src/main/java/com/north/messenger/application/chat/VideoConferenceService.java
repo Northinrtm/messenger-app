@@ -6,6 +6,7 @@ import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.api.dto.UpdateVideoConferenceRequest;
 import com.north.messenger.api.dto.VideoConferenceResponse;
 import com.north.messenger.application.auth.AuthService;
+import com.north.messenger.application.support.ClusterJobLockService;
 import com.north.messenger.domain.model.ConferenceRecording;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.VideoConference;
@@ -51,6 +52,8 @@ public class VideoConferenceService {
     private static final long ROOM_ACTIVATION_LEAD_MINUTES = 5;
     private static final long CONFERENCE_PRESENCE_STALE_MINUTES = 2;
     private static final long CONFERENCE_AUTO_END_EMPTY_MINUTES = 10;
+    private static final long CONFERENCE_SCHEDULE_LOCK_ID = 7_102_001L;
+    private static final long CONFERENCE_RECORDING_IMPORT_LOCK_ID = 7_102_002L;
 
     private final AuthService authService;
     private final UserAccountRepository userAccountRepository;
@@ -60,6 +63,7 @@ public class VideoConferenceService {
     private final ConferenceRecordingRepository conferenceRecordingRepository;
     private final ConferenceRecordingStorage conferenceRecordingStorage;
     private final ConferenceRecordingImportService conferenceRecordingImportService;
+    private final ClusterJobLockService clusterJobLockService;
     private final byte[] conferenceAccessSecret;
 
     public VideoConferenceService(
@@ -71,6 +75,7 @@ public class VideoConferenceService {
             ConferenceRecordingRepository conferenceRecordingRepository,
             ConferenceRecordingStorage conferenceRecordingStorage,
             ConferenceRecordingImportService conferenceRecordingImportService,
+            ClusterJobLockService clusterJobLockService,
             JwtProperties jwtProperties
     ) {
         this.authService = authService;
@@ -81,6 +86,7 @@ public class VideoConferenceService {
         this.conferenceRecordingRepository = conferenceRecordingRepository;
         this.conferenceRecordingStorage = conferenceRecordingStorage;
         this.conferenceRecordingImportService = conferenceRecordingImportService;
+        this.clusterJobLockService = clusterJobLockService;
         this.conferenceAccessSecret = resolveConferenceAccessSecret(jwtProperties);
     }
 
@@ -93,13 +99,6 @@ public class VideoConferenceService {
     }
 
     private List<VideoConferenceResponse> listConferences(String username, boolean archived) {
-        synchronizeImportedRecordings();
-        if (!archived) {
-            Instant now = Instant.now();
-            activateDueConferences(now);
-            startDueConferences(now);
-        }
-
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
         List<VideoConferenceParticipant> memberships =
                 videoConferenceParticipantRepository.findAllByUserIdOrderByInvitedAtDesc(currentUser.getId());
@@ -491,7 +490,6 @@ public class VideoConferenceService {
     }
 
     public ConferenceRecordingDownload downloadRecording(String username, UUID conferenceId) {
-        synchronizeImportedRecordings();
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
         VideoConference conference = videoConferenceRepository.findById(conferenceId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Conference not found"));
@@ -513,16 +511,21 @@ public class VideoConferenceService {
     @Scheduled(fixedDelay = 30_000L)
     @Transactional
     public void activateScheduledConferences() {
-        Instant now = Instant.now();
-        activateDueConferences(now);
-        startDueConferences(now);
-        endInactiveStartedConferences(now);
+        clusterJobLockService.runIfLockAcquired(CONFERENCE_SCHEDULE_LOCK_ID, () -> {
+            Instant now = Instant.now();
+            activateDueConferences(now);
+            startDueConferences(now);
+            endInactiveStartedConferences(now);
+        });
     }
 
     @Scheduled(fixedDelay = 15_000L)
     @Transactional
     public void importFinishedConferenceRecordings() {
-        synchronizeImportedRecordings();
+        clusterJobLockService.runIfLockAcquired(
+                CONFERENCE_RECORDING_IMPORT_LOCK_ID,
+                this::synchronizeImportedRecordings
+        );
     }
 
     private VideoConferenceResponse toResponse(

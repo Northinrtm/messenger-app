@@ -109,8 +109,51 @@ Recommended memory policy on a `2 GB RAM` VPS:
 - use observability only temporarily during diagnostics
 - plan a bigger host before keeping Grafana, Prometheus, Tempo, Loki, and Jitsi active together
 - use the `Production WebSocket Guard` GitHub Actions workflow as the lightweight default alert path for websocket storms on small hosts
-- that workflow reads recent `ws_access` logs from `messenger-web` over SSH and fails if `/ws` or `429` volume crosses the configured thresholds
+- that workflow reads recent `ws_access` logs from the `web` compose service over SSH and fails if `/ws` or `429` volume crosses the configured thresholds
 - without `ALERTMANAGER_WEBHOOK_URL`, alerts stay inside GitHub Actions and GitHub notifications rather than being pushed to Telegram, Slack, or another external destination
+
+## Horizontal Scaling
+
+Single-host Docker Compose scaling is supported for `backend` and `web`.
+Keep all secrets stable across replicas.
+
+Set in `.env.prod`:
+
+```bash
+APP_REALTIME_REDIS_ENABLED=true
+APP_AUTH_RATE_LIMIT_REDIS_ENABLED=true
+APP_REALTIME_REDIS_MAC_SECRET=<stable-random-secret>
+APP_JWT_SECRET=<stable-base64-secret>
+BACKEND_REPLICAS=2
+WEB_REPLICAS=2
+```
+
+Run the normal deploy:
+
+```bash
+cd /opt/messenger-app
+./deploy/remote-update.sh
+```
+
+The deploy script reads `BACKEND_REPLICAS` and `WEB_REPLICAS` from `.env.prod` unless they are already exported in the shell.
+It then runs Compose with `--scale backend=<value>` and `--scale web=<value>`.
+
+What this covers:
+
+- websocket/realtime fan-out between backend replicas through signed Redis events
+- websocket session revocation fan-out between backend replicas
+- Redis-backed auth endpoint rate limiting
+- stateless HTTP routing through `web` and Docker DNS
+- one active runner per scheduled backend job through Postgres advisory locks
+- Prometheus backend scraping through Docker DNS discovery
+
+What is still singleton or host-local:
+
+- `postgres`, `redis`, `edge`, and bundled Jitsi services
+- Docker volumes for message attachments and conference recordings
+- local backups on one server
+
+Before moving to multiple physical hosts, move attachments/recordings to S3/MinIO-compatible object storage and add off-site backup replication.
 
 ## Push Notifications
 

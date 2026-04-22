@@ -30,6 +30,7 @@ The repository currently supports:
 - email verification and password reset by email
 - trusted-device / passkey-based encrypted chat unlock
 - server-side E2EE coverage diagnostics for support without plaintext access
+- single-host horizontal scaling for `backend`/`web` through Docker Compose replicas
 - production deploy, backup, healthcheck, websocket storm guard, and optional observability
 - CI on `push`/`pull_request` and production auto-deploy from `main`
 
@@ -94,6 +95,7 @@ Core backend areas:
 - default attachment size limit controlled by `APP_MEDIA_MESSAGE_ATTACHMENTS_MAX_SIZE_BYTES`
 - orphan attachment cleanup for uploads that never get attached to a sent message
 - Docker volume-backed local/prod storage for message attachments
+- for multi-host deployments, attachments should be moved to S3-compatible object storage
 
 ### E2EE
 
@@ -132,7 +134,7 @@ Core backend areas:
 - plaintext previews in server-sent push payloads
 - separate distributed presence/last-seen service
 - external event bus such as Kafka
-- object storage for attachments and recordings
+- object storage for attachments and recordings for true multi-host scaling
 - off-site backup replication
 - automated end-to-end browser smoke tests
 - hardened high-assurance metadata protection
@@ -152,7 +154,7 @@ Recommended next work, in priority order:
 5. Storage and backup hardening:
    move attachments/recordings to S3-compatible object storage and add off-site backup replication with restore rehearsal.
 6. Scale path:
-   split realtime/push fan-out behind Redis or a broker, then introduce Kafka/NATS only if async delivery volume justifies it.
+   move attachments/recordings to object storage, add distributed presence/last-seen, then introduce Kafka/NATS only if async delivery volume justifies it.
 
 ## Local Run With Docker
 
@@ -261,6 +263,9 @@ Important app variables:
 - `APP_CORS_ALLOWED_ORIGINS`
 - `APP_JWT_SECRET`
 - `APP_JWT_REFRESH_TOKEN_TTL`
+- `APP_REALTIME_REDIS_ENABLED`
+- `APP_AUTH_RATE_LIMIT_REDIS_ENABLED`
+- `APP_REALTIME_REDIS_MAC_SECRET`
 - `APP_AUTH_REGISTRATION_ALLOWED_EMAIL_DOMAINS`
 - `APP_AUTH_EMAIL_VERIFICATION_ENABLED`
 - `APP_AUTH_EMAIL_VERIFICATION_URL_BASE`
@@ -344,11 +349,43 @@ Production compose uses:
 - core `Jitsi` containers
 - optional observability profile
 
+### Horizontal scaling
+
+Production is prepared for single-host Docker Compose scaling of stateless runtime services.
+
+Set these values in server-side `.env.prod`:
+
+```bash
+APP_REALTIME_REDIS_ENABLED=true
+APP_AUTH_RATE_LIMIT_REDIS_ENABLED=true
+APP_REALTIME_REDIS_MAC_SECRET=<stable-random-secret>
+APP_JWT_SECRET=<stable-base64-secret>
+BACKEND_REPLICAS=2
+WEB_REPLICAS=2
+```
+
+Then deploy normally:
+
+```bash
+cd /opt/messenger-app
+./deploy/remote-update.sh
+```
+
+`remote-update.sh` applies `--scale backend=<BACKEND_REPLICAS>` and `--scale web=<WEB_REPLICAS>`.
+Realtime events and session revocations are fanned out through Redis, auth endpoint rate limits can be Redis-backed, and scheduled backend jobs use Postgres advisory locks so only one replica runs each cluster job at a time.
+
+Current scale boundary:
+
+- `postgres`, `redis`, `edge`, and the bundled `jitsi` services remain single-instance in this compose topology.
+- Attachments and conference recordings still use Docker volumes; for several hosts, move them to S3/MinIO-compatible object storage first.
+- On small `2 GB RAM` hosts, keep replicas at `1` unless memory headroom is measured.
+
 Main files:
 
 - [`docker-compose.prod.yml`](docker-compose.prod.yml)
 - [`deploy/PRODUCTION.md`](deploy/PRODUCTION.md)
 - [`deploy/BACKUPS.md`](deploy/BACKUPS.md)
+- [`docs/horizontal-scaling-readiness.md`](docs/horizontal-scaling-readiness.md)
 
 Recommended production rules:
 

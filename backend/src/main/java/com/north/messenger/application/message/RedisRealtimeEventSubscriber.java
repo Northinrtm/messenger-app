@@ -1,7 +1,10 @@
 package com.north.messenger.application.message;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.north.messenger.application.auth.SessionRevokedEvent;
 import com.north.messenger.application.message.RedisDistributedRealtimeEvent.DeliveryMode;
+import com.north.messenger.config.AuthenticatedWebSocketSessionRegistry;
+import java.util.UUID;
 import java.util.Set;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
@@ -32,17 +35,20 @@ public class RedisRealtimeEventSubscriber {
     private final SimpMessagingTemplate messagingTemplate;
     private final AuthenticatedWebSocketUserDelivery authenticatedWebSocketUserDelivery;
     private final RedisRealtimeIntegrityService redisRealtimeIntegrityService;
+    private final AuthenticatedWebSocketSessionRegistry webSocketSessionRegistry;
 
     public RedisRealtimeEventSubscriber(
             ObjectMapper objectMapper,
             SimpMessagingTemplate messagingTemplate,
             AuthenticatedWebSocketUserDelivery authenticatedWebSocketUserDelivery,
-            RedisRealtimeIntegrityService redisRealtimeIntegrityService
+            RedisRealtimeIntegrityService redisRealtimeIntegrityService,
+            AuthenticatedWebSocketSessionRegistry webSocketSessionRegistry
     ) {
         this.objectMapper = objectMapper;
         this.messagingTemplate = messagingTemplate;
         this.authenticatedWebSocketUserDelivery = authenticatedWebSocketUserDelivery;
         this.redisRealtimeIntegrityService = redisRealtimeIntegrityService;
+        this.webSocketSessionRegistry = webSocketSessionRegistry;
     }
 
     public void handleMessage(String rawPayload) throws Exception {
@@ -57,6 +63,11 @@ public class RedisRealtimeEventSubscriber {
                     event.destination(),
                     event.username()
             );
+            return;
+        }
+
+        if (event.deliveryMode() == DeliveryMode.SESSION_REVOKED) {
+            handleSessionRevoked(event);
             return;
         }
 
@@ -78,5 +89,21 @@ public class RedisRealtimeEventSubscriber {
             return;
         }
         messagingTemplate.convertAndSend(event.destination(), event.payload());
+    }
+
+    private void handleSessionRevoked(RedisDistributedRealtimeEvent event) {
+        if (event.username() == null || event.username().isBlank() || event.payload() == null || event.payload().isBlank()) {
+            log.warn("Dropping session revoke event with incomplete payload username={}", event.username());
+            return;
+        }
+
+        try {
+            webSocketSessionRegistry.closeRevokedSession(new SessionRevokedEvent(
+                    event.username(),
+                    UUID.fromString(event.payload())
+            ));
+        } catch (IllegalArgumentException exception) {
+            log.warn("Dropping session revoke event with invalid session id username={}", event.username());
+        }
     }
 }

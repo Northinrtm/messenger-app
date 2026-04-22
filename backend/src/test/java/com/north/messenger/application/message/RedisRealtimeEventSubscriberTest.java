@@ -1,6 +1,8 @@
 package com.north.messenger.application.message;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.north.messenger.application.auth.SessionRevokedEvent;
+import com.north.messenger.config.AuthenticatedWebSocketSessionRegistry;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,6 +20,7 @@ class RedisRealtimeEventSubscriberTest {
     private SimpMessagingTemplate messagingTemplate;
     private AuthenticatedWebSocketUserDelivery authenticatedWebSocketUserDelivery;
     private RedisRealtimeIntegrityService redisRealtimeIntegrityService;
+    private AuthenticatedWebSocketSessionRegistry webSocketSessionRegistry;
     private RedisRealtimeEventSubscriber subscriber;
 
     @BeforeEach
@@ -26,11 +29,13 @@ class RedisRealtimeEventSubscriberTest {
         messagingTemplate = mock(SimpMessagingTemplate.class);
         authenticatedWebSocketUserDelivery = mock(AuthenticatedWebSocketUserDelivery.class);
         redisRealtimeIntegrityService = new RedisRealtimeIntegrityService("test-redis-mac-secret");
+        webSocketSessionRegistry = mock(AuthenticatedWebSocketSessionRegistry.class);
         subscriber = new RedisRealtimeEventSubscriber(
                 objectMapper,
                 messagingTemplate,
                 authenticatedWebSocketUserDelivery,
-                redisRealtimeIntegrityService
+                redisRealtimeIntegrityService,
+                webSocketSessionRegistry
         );
     }
 
@@ -120,6 +125,21 @@ class RedisRealtimeEventSubscriberTest {
 
         verify(authenticatedWebSocketUserDelivery, never()).sendToUser(any(), any(), any());
         verify(messagingTemplate, never()).convertAndSend(any(String.class), any(Object.class));
+    }
+
+    @Test
+    void shouldCloseRevokedWebSocketSession() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        String payload = signedPayload(new RedisDistributedRealtimeEvent(
+                RedisDistributedRealtimeEvent.DeliveryMode.SESSION_REVOKED,
+                null,
+                "north",
+                sessionId.toString()
+        ));
+
+        subscriber.handleMessage(payload);
+
+        verify(webSocketSessionRegistry).closeRevokedSession(new SessionRevokedEvent("north", sessionId));
     }
 
     private String signedPayload(RedisDistributedRealtimeEvent event) throws Exception {

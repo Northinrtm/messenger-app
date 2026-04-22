@@ -3,6 +3,7 @@ package com.north.messenger.application.message;
 import com.north.messenger.api.dto.ChatAttachmentUploadResponse;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.chat.ChatService;
+import com.north.messenger.application.support.ClusterJobLockService;
 import com.north.messenger.domain.model.ChatAttachment;
 import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.UserAccount;
@@ -23,24 +24,29 @@ import org.springframework.web.server.ResponseStatusException;
 @Transactional(readOnly = true)
 public class ChatAttachmentService {
 
+    private static final long ORPHAN_ATTACHMENT_CLEANUP_LOCK_ID = 7_101_001L;
+
     private final AuthService authService;
     private final ChatService chatService;
     private final ChatAttachmentRepository chatAttachmentRepository;
     private final ChatAttachmentStorage chatAttachmentStorage;
     private final ChatAttachmentStorageProperties storageProperties;
+    private final ClusterJobLockService clusterJobLockService;
 
     public ChatAttachmentService(
             AuthService authService,
             ChatService chatService,
             ChatAttachmentRepository chatAttachmentRepository,
             ChatAttachmentStorage chatAttachmentStorage,
-            ChatAttachmentStorageProperties storageProperties
+            ChatAttachmentStorageProperties storageProperties,
+            ClusterJobLockService clusterJobLockService
     ) {
         this.authService = authService;
         this.chatService = chatService;
         this.chatAttachmentRepository = chatAttachmentRepository;
         this.chatAttachmentStorage = chatAttachmentStorage;
         this.storageProperties = storageProperties;
+        this.clusterJobLockService = clusterJobLockService;
     }
 
     @Transactional
@@ -129,7 +135,10 @@ public class ChatAttachmentService {
     )
     @Transactional
     public void cleanupOrphanedAttachments() {
-        cleanupOrphanedAttachments(Instant.now());
+        clusterJobLockService.runIfLockAcquired(
+                ORPHAN_ATTACHMENT_CLEANUP_LOCK_ID,
+                () -> cleanupOrphanedAttachments(Instant.now())
+        );
     }
 
     int cleanupOrphanedAttachments(Instant now) {

@@ -15,9 +15,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.atomic.AtomicLong;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -47,25 +44,26 @@ public class AuthEndpointProtectionFilter extends OncePerRequestFilter {
     private static final Set<String> ALLOWED_FETCH_SITES = Set.of("same-origin", "same-site", "none");
 
     private final ObjectMapper objectMapper;
+    private final AuthRateLimiter rateLimiter;
     private final CorsConfiguration corsConfiguration = new CorsConfiguration();
-    private final ConcurrentMap<String, RateLimitBucket> buckets = new ConcurrentHashMap<>();
-    private final AtomicLong requestCounter = new AtomicLong();
-    private final Map<String, RateLimitPolicy> policiesByPath = Map.of(
-            "/api/auth/login", new RateLimitPolicy(20, Duration.ofMinutes(1)),
-            "/api/auth/register", new RateLimitPolicy(10, Duration.ofMinutes(10)),
-            "/api/auth/email-verification/confirm", new RateLimitPolicy(20, Duration.ofMinutes(10)),
-            "/api/auth/email-verification/resend", new RateLimitPolicy(5, Duration.ofMinutes(30)),
-            "/api/auth/password-reset/request", new RateLimitPolicy(5, Duration.ofMinutes(30)),
-            "/api/auth/password-reset/confirm", new RateLimitPolicy(10, Duration.ofMinutes(10)),
-            "/api/auth/refresh", new RateLimitPolicy(60, Duration.ofMinutes(1)),
-            "/api/auth/logout", new RateLimitPolicy(30, Duration.ofMinutes(1))
+    private final Map<String, AuthRateLimitPolicy> policiesByPath = Map.of(
+            "/api/auth/login", new AuthRateLimitPolicy(20, Duration.ofMinutes(1)),
+            "/api/auth/register", new AuthRateLimitPolicy(10, Duration.ofMinutes(10)),
+            "/api/auth/email-verification/confirm", new AuthRateLimitPolicy(20, Duration.ofMinutes(10)),
+            "/api/auth/email-verification/resend", new AuthRateLimitPolicy(5, Duration.ofMinutes(30)),
+            "/api/auth/password-reset/request", new AuthRateLimitPolicy(5, Duration.ofMinutes(30)),
+            "/api/auth/password-reset/confirm", new AuthRateLimitPolicy(10, Duration.ofMinutes(10)),
+            "/api/auth/refresh", new AuthRateLimitPolicy(60, Duration.ofMinutes(1)),
+            "/api/auth/logout", new AuthRateLimitPolicy(30, Duration.ofMinutes(1))
     );
 
     public AuthEndpointProtectionFilter(
             ObjectMapper objectMapper,
+            AuthRateLimiter rateLimiter,
             @Value("${app.cors.allowed-origins:http://localhost:5173}") String[] allowedOrigins
     ) {
         this.objectMapper = objectMapper;
+        this.rateLimiter = rateLimiter;
         corsConfiguration.setAllowedOriginPatterns(Arrays.asList(allowedOrigins));
     }
 
@@ -91,10 +89,15 @@ public class AuthEndpointProtectionFilter extends OncePerRequestFilter {
             return;
         }
 
-        RateLimitPolicy policy = policiesByPath.get(request.getRequestURI());
+        AuthRateLimitPolicy policy = policiesByPath.get(request.getRequestURI());
         if (policy != null) {
             long now = System.currentTimeMillis();
-            RateLimitDecision decision = acquire(request.getRequestURI(), resolveClientAddress(request), policy, now);
+            AuthRateLimitDecision decision = rateLimiter.acquire(
+                    request.getRequestURI(),
+                    resolveClientAddress(request),
+                    policy,
+                    now
+            );
             if (!decision.allowed()) {
                 response.setHeader(HttpHeaders.RETRY_AFTER, String.valueOf(Math.max(1L, decision.retryAfterSeconds())));
                 writeError(
@@ -105,10 +108,6 @@ public class AuthEndpointProtectionFilter extends OncePerRequestFilter {
                         List.of("Retry later")
                 );
                 return;
-            }
-
-            if ((requestCounter.incrementAndGet() & 255L) == 0L) {
-                cleanupExpiredBuckets(now);
             }
         }
 
@@ -166,44 +165,6 @@ public class AuthEndpointProtectionFilter extends OncePerRequestFilter {
         return request.getRemoteAddr();
     }
 
-    private RateLimitDecision acquire(String path, String clientAddress, RateLimitPolicy policy, long now) {
-        String bucketKey = path + ":" + clientAddress;
-        RateLimitBucket bucket = buckets.computeIfAbsent(bucketKey, ignored -> new RateLimitBucket(now));
-        synchronized (bucket) {
-            if (now - bucket.windowStartedAt >= policy.window().toMillis()) {
-                bucket.windowStartedAt = now;
-                bucket.count = 0;
-            }
-
-            if (bucket.count >= policy.limit()) {
-                long remainingMillis = policy.window().toMillis() - (now - bucket.windowStartedAt);
-                return new RateLimitDecision(false, Duration.ofMillis(Math.max(remainingMillis, 1L)).toSeconds());
-            }
-
-            bucket.count += 1;
-            return new RateLimitDecision(true, 0);
-        }
-    }
-
-    private void cleanupExpiredBuckets(long now) {
-        buckets.entrySet().removeIf((entry) -> {
-            RateLimitPolicy policy = policiesByPath.get(extractPath(entry.getKey()));
-            if (policy == null) {
-                return true;
-            }
-
-            RateLimitBucket bucket = entry.getValue();
-            synchronized (bucket) {
-                return now - bucket.windowStartedAt >= policy.window().toMillis();
-            }
-        });
-    }
-
-    private String extractPath(String bucketKey) {
-        int separatorIndex = bucketKey.indexOf(':');
-        return separatorIndex >= 0 ? bucketKey.substring(0, separatorIndex) : bucketKey;
-    }
-
     private void writeError(
             HttpServletResponse response,
             HttpServletRequest request,
@@ -222,27 +183,5 @@ public class AuthEndpointProtectionFilter extends OncePerRequestFilter {
         response.setStatus(status.value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         objectMapper.writeValue(response.getWriter(), error);
-    }
-
-    private record RateLimitPolicy(
-            int limit,
-            Duration window
-    ) {
-    }
-
-    private record RateLimitDecision(
-            boolean allowed,
-            long retryAfterSeconds
-    ) {
-    }
-
-    private static final class RateLimitBucket {
-        private long windowStartedAt;
-        private int count;
-
-        private RateLimitBucket(long windowStartedAt) {
-            this.windowStartedAt = windowStartedAt;
-            this.count = 0;
-        }
     }
 }

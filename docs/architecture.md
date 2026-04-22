@@ -7,7 +7,10 @@ This repository is a production-style MVP for a direct-message messenger:
 - `backend`: Spring Boot monolith with modular packages
 - `web`: React + TypeScript client
 - `postgres`: source of truth for users, chats, memberships and messages
-- `redis`: optional realtime fan-out path and future presence/scale-out foundation
+- `redis`: production realtime fan-out path and future presence/scale-out foundation
+
+The production compose topology now supports scaling `backend` and `web` replicas on one Docker host.
+`postgres`, `redis`, `edge`, and the bundled Jitsi stack remain singleton services in that topology.
 
 ## Backend modules
 
@@ -33,6 +36,27 @@ This repository is a production-style MVP for a direct-message messenger:
 8. Backend persists the message, emits an explicit sender ack to `/user/queue/message-acks`, and emits explicit sender errors to `/user/queue/message-errors`.
 9. Recipient realtime delivery stays on `/user/queue/messages`, and history/chat summaries use authoritative `serverOrder` from persistence.
 10. If Web Push is enabled, recipients with saved subscriptions receive a generic no-plaintext notification outside the websocket path.
+11. In production multi-replica mode, backend instances publish signed realtime events to Redis and each instance delivers only to its local websocket sessions.
+
+## Horizontal scaling model
+
+The current safe scaling target is single-host Docker Compose:
+
+- `backend`: horizontally scalable when Redis realtime is enabled and all replicas share `APP_JWT_SECRET` plus `APP_REALTIME_REDIS_MAC_SECRET`
+- `web`: horizontally scalable behind the `edge` service; nginx resolves `backend` through Docker DNS
+- auth endpoint rate limits: JVM-local by default, Redis-backed when `APP_AUTH_RATE_LIMIT_REDIS_ENABLED=true`
+- websocket session revocation: local Spring events plus signed Redis fan-out when Redis realtime is enabled
+- scheduled backend jobs: protected by Postgres transaction advisory locks
+- conference maintenance: activation/start/end and recording import run through scheduled jobs, not read requests
+- direct chat creation: protected by a canonical database pair and unique index
+- Prometheus: discovers backend replicas through Docker DNS
+
+Operational limits:
+
+- Docker volumes for attachments and recordings are host-local, so multi-host app replicas need object storage first.
+- The bundled Jitsi stack is still singleton-oriented.
+- Redis is used for realtime fan-out, not as a durable event log.
+- Postgres remains the transactional source of truth.
 
 ## Why the backend is a modular monolith
 
@@ -47,10 +71,10 @@ The scaling boundary is still clear: auth, chat metadata, realtime fan-out, noti
 
 ## Production hardening path
 
-- move the simple broker to a dedicated broker or websocket cluster
-- expand Redis-backed realtime fan-out and add distributed presence/last-seen
+- move attachment and recording storage to S3/MinIO-compatible object storage
+- add distributed presence/last-seen on Redis
+- move the simple broker to a dedicated broker or websocket cluster if Redis fan-out becomes insufficient
 - add Kafka or NATS for async delivery pipelines
-- move attachment/recording blobs from Docker volumes to object storage
 - add encrypted service-worker push previews without exposing plaintext to the backend
 - add moderation events and richer media workflows
 - expand integration tests for conference recording import and delivery flows

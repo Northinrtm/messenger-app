@@ -22,9 +22,11 @@ scrape_configs:
     basic_auth:
       username: __APP_ACTUATOR_SCRAPE_USERNAME__
       password: __APP_ACTUATOR_SCRAPE_PASSWORD__
-    static_configs:
-      - targets:
-          - backend:8080
+    dns_sd_configs:
+      - names:
+          - backend
+        type: A
+        port: 8080
 
   - job_name: postgres-exporter
     static_configs:

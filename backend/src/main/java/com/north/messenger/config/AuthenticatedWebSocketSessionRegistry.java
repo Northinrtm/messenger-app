@@ -107,6 +107,10 @@ public class AuthenticatedWebSocketSessionRegistry {
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onSessionRevoked(SessionRevokedEvent event) {
+        closeRevokedSession(event);
+    }
+
+    public void closeRevokedSession(SessionRevokedEvent event) {
         for (RegisteredWebSocketSession session : findSessionsByUsername(event.username())) {
             if (!session.authSessionId().equals(event.sessionId())) {
                 continue;

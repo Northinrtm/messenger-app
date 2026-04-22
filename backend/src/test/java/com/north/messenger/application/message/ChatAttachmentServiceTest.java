@@ -2,6 +2,7 @@ package com.north.messenger.application.message;
 
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.chat.ChatService;
+import com.north.messenger.application.support.ClusterJobLockService;
 import com.north.messenger.domain.model.ChatAttachment;
 import com.north.messenger.domain.repository.ChatAttachmentRepository;
 import java.nio.file.Path;
@@ -79,7 +80,8 @@ class ChatAttachmentServiceTest {
                         25L * 1024L * 1024L,
                         orphanTtl,
                         900_000L
-                )
+                ),
+                mock(ClusterJobLockService.class)
         );
     }
 }

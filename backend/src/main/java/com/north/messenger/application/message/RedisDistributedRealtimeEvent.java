@@ -18,6 +18,7 @@ public record RedisDistributedRealtimeEvent(
 
     public enum DeliveryMode {
         TOPIC,
-        USER
+        USER,
+        SESSION_REVOKED
     }
 }

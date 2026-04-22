@@ -26,6 +26,12 @@ public class ChatRoom {
     @Column(name = "is_direct", nullable = false)
     private boolean direct;
 
+    @Column(name = "direct_user_low_id")
+    private UUID directUserLowId;
+
+    @Column(name = "direct_user_high_id")
+    private UUID directUserHighId;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -45,6 +51,18 @@ public class ChatRoom {
         this.createdAt = createdAt;
     }
 
+    public ChatRoom(
+            UUID id,
+            String title,
+            boolean direct,
+            Instant createdAt,
+            UUID firstDirectUserId,
+            UUID secondDirectUserId
+    ) {
+        this(id, title, direct, createdAt);
+        configureDirectPair(firstDirectUserId, secondDirectUserId);
+    }
+
     public UUID getId() {
         return id;
     }
@@ -55,6 +73,14 @@ public class ChatRoom {
 
     public boolean isDirect() {
         return direct;
+    }
+
+    public UUID getDirectUserLowId() {
+        return directUserLowId;
+    }
+
+    public UUID getDirectUserHighId() {
+        return directUserHighId;
     }
 
     public UUID getOwnerUserId() {
@@ -94,5 +120,22 @@ public class ChatRoom {
     public void updateGroupDetails(String title, String avatarUrl) {
         this.title = title;
         this.avatarUrl = avatarUrl;
+    }
+
+    public void configureDirectPair(UUID firstUserId, UUID secondUserId) {
+        if (!direct) {
+            throw new IllegalStateException("Direct pair can only be assigned to direct chats");
+        }
+        if (firstUserId == null || secondUserId == null || firstUserId.equals(secondUserId)) {
+            throw new IllegalArgumentException("Direct chat requires two distinct users");
+        }
+
+        if (firstUserId.toString().compareTo(secondUserId.toString()) < 0) {
+            this.directUserLowId = firstUserId;
+            this.directUserHighId = secondUserId;
+        } else {
+            this.directUserLowId = secondUserId;
+            this.directUserHighId = firstUserId;
+        }
     }
 }

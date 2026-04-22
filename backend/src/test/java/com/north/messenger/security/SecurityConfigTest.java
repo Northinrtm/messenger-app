@@ -42,6 +42,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         SecurityConfig.class,
         JwtAuthenticationFilter.class,
         AuthEndpointProtectionFilter.class,
+        InMemoryAuthRateLimiter.class,
         ActuatorEndpointProtectionFilter.class
 })
 class SecurityConfigTest {

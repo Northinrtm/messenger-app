@@ -11,6 +11,38 @@ OBSERVABILITY_SERVICES="${OBSERVABILITY_SERVICES:-postgres-exporter tempo otel-c
 ENABLE_OBSERVABILITY_STACK="${ENABLE_OBSERVABILITY_STACK:-false}"
 STATUS_FILE="${DEPLOY_STATUS_FILE:-}"
 
+env_file_value() {
+  local key="$1"
+  local default_value="$2"
+  local line
+
+  if [[ -f "$ENV_FILE" ]]; then
+    line="$(grep -E "^[[:space:]]*${key}=" "$ENV_FILE" | tail -n 1 || true)"
+    if [[ -n "$line" ]]; then
+      local value="${line#*=}"
+      value="${value%$'\r'}"
+      value="${value%\"}"
+      value="${value#\"}"
+      value="${value%\'}"
+      value="${value#\'}"
+      printf "%s" "$value"
+      return
+    fi
+  fi
+
+  printf "%s" "$default_value"
+}
+
+validate_replica_count() {
+  local name="$1"
+  local value="$2"
+
+  if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
+    echo "$name must be a positive integer, got '$value'" >&2
+    exit 1
+  fi
+}
+
 if [[ -n "$STATUS_FILE" ]]; then
   trap 'status=$?; trap - EXIT; printf "%s" "$status" > "$STATUS_FILE"; exit "$status"' EXIT
 fi
@@ -37,10 +69,24 @@ git fetch origin main
 git checkout main
 git pull --ff-only origin main
 
+BACKEND_REPLICAS="${BACKEND_REPLICAS:-$(env_file_value BACKEND_REPLICAS 1)}"
+WEB_REPLICAS="${WEB_REPLICAS:-$(env_file_value WEB_REPLICAS 1)}"
+validate_replica_count BACKEND_REPLICAS "$BACKEND_REPLICAS"
+validate_replica_count WEB_REPLICAS "$WEB_REPLICAS"
+
+runtime_scale_args=()
+if [[ " $RUNTIME_SERVICES " == *" backend "* ]]; then
+  runtime_scale_args+=(--scale "backend=${BACKEND_REPLICAS}")
+fi
+if [[ " $RUNTIME_SERVICES " == *" web "* ]]; then
+  runtime_scale_args+=(--scale "web=${WEB_REPLICAS}")
+fi
+
 "${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" config >/dev/null
 "${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build $BUILD_SERVICES
 "${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d $SUPPORT_SERVICES
-"${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --no-deps --force-recreate $RUNTIME_SERVICES
+echo "Runtime replicas: backend=${BACKEND_REPLICAS}, web=${WEB_REPLICAS}"
+"${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --no-deps --force-recreate "${runtime_scale_args[@]}" $RUNTIME_SERVICES
 
 if [[ "$ENABLE_OBSERVABILITY_STACK" == "true" ]]; then
   "${compose_cmd[@]}" --profile observability -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --no-deps --force-recreate $OBSERVABILITY_SERVICES

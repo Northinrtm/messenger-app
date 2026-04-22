@@ -68,6 +68,7 @@ public class ChatService {
     private final UserDeletedMessageRepository userDeletedMessageRepository;
     private final RealtimeMessagingGateway realtimeMessagingGateway;
     private final MessengerTelemetry telemetry;
+    private final DirectChatCreationLockService directChatCreationLockService;
 
     public ChatService(
             AuthService authService,
@@ -82,7 +83,8 @@ public class ChatService {
             UserDeletedChatRepository userDeletedChatRepository,
             UserDeletedMessageRepository userDeletedMessageRepository,
             RealtimeMessagingGateway realtimeMessagingGateway,
-            MessengerTelemetry telemetry
+            MessengerTelemetry telemetry,
+            DirectChatCreationLockService directChatCreationLockService
     ) {
         this.authService = authService;
         this.chatRoomRepository = chatRoomRepository;
@@ -97,6 +99,7 @@ public class ChatService {
         this.userDeletedMessageRepository = userDeletedMessageRepository;
         this.realtimeMessagingGateway = realtimeMessagingGateway;
         this.telemetry = telemetry;
+        this.directChatCreationLockService = directChatCreationLockService;
     }
 
     public List<ChatSummaryResponse> listChats(String username) {
@@ -191,13 +194,16 @@ public class ChatService {
 
         authService.assertUsersCanCommunicate(currentUser, participant);
 
-        return chatRoomRepository.findDirectChatByParticipantIds(currentUser.getId(), participant.getId())
+        DirectChatPair directChatPair = DirectChatPair.of(currentUser.getId(), participant.getId());
+        directChatCreationLockService.lockForPair(directChatPair.lowUserId(), directChatPair.highUserId());
+
+        return findDirectChat(directChatPair, currentUser, participant)
                 .map(room -> {
                     restoreDeletedChatStateForUsers(room.getId(), List.of(currentUser.getId()));
                     notifyChatUpdated(room.getId());
                     return toSummary(room, currentUser.getId());
                 })
-                .orElseGet(() -> createNewDirectChat(currentUser, participant));
+                .orElseGet(() -> createNewDirectChat(currentUser, participant, directChatPair));
     }
 
     @Transactional
@@ -598,12 +604,47 @@ public class ChatService {
         return getChatSummaryForUser(chatId, currentUser);
     }
 
-    private ChatSummaryResponse createNewDirectChat(UserAccount currentUser, UserAccount participant) {
-        ChatRoom room = new ChatRoom(UUID.randomUUID(), null, true, Instant.now());
+    private Optional<ChatRoom> findDirectChat(
+            DirectChatPair directChatPair,
+            UserAccount currentUser,
+            UserAccount participant
+    ) {
+        return chatRoomRepository.findByDirectIsTrueAndDirectUserLowIdAndDirectUserHighId(
+                        directChatPair.lowUserId(),
+                        directChatPair.highUserId()
+                )
+                .or(() -> chatRoomRepository.findDirectChatByParticipantIds(currentUser.getId(), participant.getId()));
+    }
+
+    private ChatSummaryResponse createNewDirectChat(
+            UserAccount currentUser,
+            UserAccount participant,
+            DirectChatPair directChatPair
+    ) {
+        ChatRoom room = new ChatRoom(
+                UUID.randomUUID(),
+                null,
+                true,
+                Instant.now(),
+                directChatPair.lowUserId(),
+                directChatPair.highUserId()
+        );
         chatRoomRepository.save(room);
         addParticipants(room.getId(), currentUser, List.of(participant));
         notifyChatUpdated(room.getId());
         return getChatSummaryForUser(room.getId(), currentUser);
+    }
+
+    private record DirectChatPair(
+            UUID lowUserId,
+        UUID highUserId
+    ) {
+        static DirectChatPair of(UUID firstUserId, UUID secondUserId) {
+            if (firstUserId.toString().compareTo(secondUserId.toString()) < 0) {
+                return new DirectChatPair(firstUserId, secondUserId);
+            }
+            return new DirectChatPair(secondUserId, firstUserId);
+        }
     }
 
     private ChatSummaryResponse toSummary(ChatRoom room, UUID currentUserId) {

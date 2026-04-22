@@ -1,12 +1,14 @@
 package com.north.messenger.application.message;
 
 import com.north.messenger.application.message.RedisDistributedRealtimeEvent.DeliveryMode;
+import com.north.messenger.security.JwtProperties;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.util.Base64;
 import java.util.UUID;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -20,11 +22,28 @@ public class RedisRealtimeIntegrityService {
 
     private final SecretKeySpec macKey;
 
-    public RedisRealtimeIntegrityService(@Value("${app.realtime.redis.mac-secret:}") String macSecret) {
+    @Autowired
+    public RedisRealtimeIntegrityService(
+            @Value("${app.realtime.redis.mac-secret:}") String macSecret,
+            JwtProperties jwtProperties
+    ) {
+        this(resolveMacSecret(macSecret, jwtProperties));
+    }
+
+    RedisRealtimeIntegrityService(String macSecret) {
         if (!StringUtils.hasText(macSecret)) {
-            throw new IllegalStateException("app.realtime.redis.mac-secret must be configured when Redis realtime is enabled");
+            throw new IllegalStateException(
+                    "app.realtime.redis.mac-secret or app.jwt.secret must be configured when Redis realtime is enabled"
+            );
         }
         this.macKey = new SecretKeySpec(macSecret.getBytes(StandardCharsets.UTF_8), MAC_ALGORITHM);
+    }
+
+    private static String resolveMacSecret(String macSecret, JwtProperties jwtProperties) {
+        if (StringUtils.hasText(macSecret)) {
+            return macSecret;
+        }
+        return jwtProperties.secret();
     }
 
     public RedisDistributedRealtimeEvent sign(RedisDistributedRealtimeEvent event) {
