@@ -204,6 +204,32 @@ class SecurityConfigTest {
     }
 
     @Test
+    void shouldRejectMalformedRegistrationPayloadBeforeCreatingSession() throws Exception {
+        mockMvc.perform(post("/api/auth/register")
+                        .header("Origin", "http://localhost:5173")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "username": "----",
+                                  "email": "????????????@mail.ru",
+                                  "displayName": "&&&&&&&&&&",
+                                  "password": "20260422"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(result -> {
+                    String responseBody = result.getResponse().getContentAsString();
+                    assertThat(responseBody).contains("username");
+                    assertThat(responseBody).contains("email");
+                    assertThat(responseBody).contains("displayName");
+                    assertThat(responseBody).contains("password");
+                });
+
+        verify(authService, never()).register(any(RegisterRequest.class), any());
+        verify(refreshTokenCookieService, never()).write(any(), any());
+    }
+
+    @Test
     void shouldRejectCrossSiteLoginRequests() throws Exception {
         mockMvc.perform(post("/api/auth/login")
                         .header("Origin", "https://evil.example")

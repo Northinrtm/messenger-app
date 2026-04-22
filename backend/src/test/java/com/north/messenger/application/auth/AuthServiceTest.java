@@ -201,6 +201,57 @@ class AuthServiceTest {
     }
 
     @Test
+    void registerShouldRejectInvalidUsernameBeforeRepositoryLookup() {
+        assertThatThrownBy(() -> authService.register(
+                new RegisterRequest("----", "north@example.com", "North", "riverlantern"),
+                null
+        ))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(exception -> {
+                    ResponseStatusException responseStatusException = (ResponseStatusException) exception;
+                    assertThat(responseStatusException.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+                    assertThat(responseStatusException.getReason()).contains("Username");
+                });
+
+        verify(userAccountRepository, never()).existsByUsernameIgnoreCase(any());
+        verify(userAccountRepository, never()).save(any(UserAccount.class));
+    }
+
+    @Test
+    void registerShouldRejectInvalidEmailFormatBeforeRepositoryLookup() {
+        assertThatThrownBy(() -> authService.register(
+                new RegisterRequest("north", "????????????@mail.ru", "North", "riverlantern"),
+                null
+        ))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(exception -> {
+                    ResponseStatusException responseStatusException = (ResponseStatusException) exception;
+                    assertThat(responseStatusException.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+                    assertThat(responseStatusException.getReason()).contains("Email");
+                });
+
+        verify(userAccountRepository, never()).existsByUsernameIgnoreCase(any());
+        verify(userAccountRepository, never()).save(any(UserAccount.class));
+    }
+
+    @Test
+    void registerShouldRejectInvalidDisplayNameBeforeRepositoryLookup() {
+        assertThatThrownBy(() -> authService.register(
+                new RegisterRequest("north", "north@example.com", "&&&&&&&&&&", "riverlantern"),
+                null
+        ))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(exception -> {
+                    ResponseStatusException responseStatusException = (ResponseStatusException) exception;
+                    assertThat(responseStatusException.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+                    assertThat(responseStatusException.getReason()).contains("Display name");
+                });
+
+        verify(userAccountRepository, never()).existsByUsernameIgnoreCase(any());
+        verify(userAccountRepository, never()).save(any(UserAccount.class));
+    }
+
+    @Test
     void loginShouldRejectUnknownUsernameAsInvalidCredentials() {
         when(userAccountRepository.findByUsernameIgnoreCase("north")).thenReturn(Optional.empty());
 

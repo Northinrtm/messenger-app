@@ -16,7 +16,7 @@ vi.mock("./e2ee", () => ({
 }));
 
 import { hydrateChatMessage } from "./e2ee";
-import { sendMessageRaw, subscribeToChats } from "./realtime";
+import { publishTypingEvent, sendMessageRaw, subscribeToChats } from "./realtime";
 
 const stompClients: MockClient[] = [];
 
@@ -24,6 +24,7 @@ vi.mock("@stomp/stompjs", () => {
   class Client {
     active = false;
     connected = false;
+    webSocket = { readyState: 1 };
     activateCalls = 0;
     deactivateCalls = 0;
     publishCalls: Array<{ destination: string; body: string }> = [];
@@ -76,6 +77,7 @@ vi.mock("@stomp/stompjs", () => {
 type MockClient = {
   active: boolean;
   connected: boolean;
+  webSocket: { readyState: number };
   activateCalls: number;
   deactivateCalls: number;
   publishCalls: Array<{ destination: string; body: string }>;
@@ -486,6 +488,50 @@ describe("realtime reconnect protection", () => {
       status: 503,
       message: "Realtime connection was interrupted before the message was confirmed.",
     });
+    dispose();
+  });
+
+  it("rejects message sends without publishing when the websocket is closing", async () => {
+    const connectionChange = vi.fn();
+    const dispose = createSubscription({
+      onConnectionChange: connectionChange,
+    });
+    const client = stompClients[0];
+    client.connected = true;
+    client.onConnect();
+    client.webSocket.readyState = 2;
+
+    await expect(
+      sendMessageRaw("ignored", "chat-1", {
+        clientMessageId: "client-closing",
+        encryptedPayload: {
+          scheme: "X3DH-DEVICE-AES-GCM",
+          encryptedKeysByRecipientId: {},
+        },
+      })
+    ).rejects.toMatchObject({
+      status: 503,
+      message: "Realtime connection is unavailable. Retry after reconnect.",
+    });
+
+    expect(client.publishCalls).toEqual([]);
+    expect(connectionChange).toHaveBeenCalledWith(false);
+    dispose();
+  });
+
+  it("drops typing events without publishing when the websocket is closing", () => {
+    const connectionChange = vi.fn();
+    const dispose = createSubscription({
+      onConnectionChange: connectionChange,
+    });
+    const client = stompClients[0];
+    client.connected = true;
+    client.onConnect();
+    client.webSocket.readyState = 2;
+
+    expect(publishTypingEvent("chat-1", true)).toBe(false);
+    expect(client.publishCalls).toEqual([]);
+    expect(connectionChange).toHaveBeenCalledWith(false);
     dispose();
   });
 

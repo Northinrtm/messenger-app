@@ -77,6 +77,9 @@ const REALTIME_RECONNECT_FAILURE_THRESHOLD = 5;
 const REALTIME_RECONNECT_COOLDOWN_MS = 60_000;
 const REALTIME_VISIBILITY_PAUSE_DELAY_MS = 15_000;
 const REALTIME_SEND_ACK_TIMEOUT_MS = 12_000;
+const WEB_SOCKET_OPEN_STATE = 1;
+const WEB_SOCKET_CLOSING_STATE = 2;
+const WEB_SOCKET_CLOSED_STATE = 3;
 let activeConnection: RealtimeConnection | null = null;
 const pendingSendRequests = new Map<string, PendingSendRequest>();
 
@@ -268,20 +271,28 @@ export function replaceSubscribedChatIds(chatIds: string[]) {
 }
 
 export function publishTypingEvent(chatId: string, typing: boolean) {
-  const client = activeConnection?.client;
-  if (!client?.connected) {
+  const connection = activeConnection;
+  if (!connection || !isRealtimeClientReady(connection.client)) {
+    if (connection && shouldReportRealtimeClientFailure(connection)) {
+      handleConnectionFailure(connection);
+    }
     return false;
   }
 
-  client.publish({
-    destination: `/app/chats/${chatId}/typing`,
-    body: JSON.stringify({ typing }),
-  });
+  try {
+    connection.client.publish({
+      destination: `/app/chats/${chatId}/typing`,
+      body: JSON.stringify({ typing }),
+    });
+  } catch {
+    handleConnectionFailure(connection);
+    return false;
+  }
   return true;
 }
 
 function syncTypingSubscriptions(connection: RealtimeConnection) {
-  if (!connection.client.connected) {
+  if (!isRealtimeClientReady(connection.client)) {
     return;
   }
 
@@ -442,6 +453,28 @@ function registerLifecycleHandlers(connection: RealtimeConnection) {
   };
 }
 
+function isRealtimeClientReady(client: Client | undefined) {
+  return Boolean(
+    client?.connected &&
+      client.webSocket &&
+      client.webSocket.readyState === WEB_SOCKET_OPEN_STATE
+  );
+}
+
+function shouldReportRealtimeClientFailure(connection: RealtimeConnection) {
+  if (!isActiveConnection(connection)) {
+    return false;
+  }
+
+  const readyState = connection.client.webSocket?.readyState;
+  return (
+    connection.connected ||
+    connection.client.connected ||
+    readyState === WEB_SOCKET_CLOSING_STATE ||
+    readyState === WEB_SOCKET_CLOSED_STATE
+  );
+}
+
 function scheduleVisibilityPause(connection: RealtimeConnection) {
   if (
     connection.pausedByLifecycle ||
@@ -506,7 +539,10 @@ export function sendMessageRealtime(input: {
   timeoutMs?: number;
 }) {
   const connection = activeConnection;
-  if (!connection?.client.connected) {
+  if (!connection || !isRealtimeClientReady(connection.client)) {
+    if (connection && shouldReportRealtimeClientFailure(connection)) {
+      handleConnectionFailure(connection);
+    }
     return Promise.reject(
       new ApiError("Realtime connection is unavailable. Retry after reconnect.", 503)
     );
@@ -546,6 +582,7 @@ export function sendMessageRealtime(input: {
       });
     } catch {
       clearPendingSendRequest(input.clientMessageId);
+      handleConnectionFailure(connection);
       reject(new ApiError("Realtime message send failed before it left the client.", 503));
     }
   });

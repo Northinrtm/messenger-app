@@ -61,6 +61,9 @@ public class PasswordPolicyService {
         if (password.length() < MIN_PASSWORD_LENGTH) {
             violations.add("password: Password must be at least 8 characters long");
         }
+        if (password.chars().noneMatch(Character::isLetter)) {
+            violations.add("password: Password must contain at least one letter");
+        }
         if (COMMON_PASSWORDS.contains(password.toLowerCase(Locale.ROOT))) {
             violations.add("password: Password is too common or previously compromised");
         }

@@ -297,6 +297,54 @@ describe("useMessageActions send failure recovery", () => {
     ]);
   });
 
+  it("does not spin auto resend when realtime rejects a recovered pending message immediately", async () => {
+    vi.mocked(sendEncryptedMessage).mockRejectedValue(
+      new ApiError("Realtime connection was interrupted before the message was confirmed.", 503)
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    queryClient.setQueryData(["pending-outgoing-messages", "user-1"], [
+      {
+        chatId: "chat-1",
+        clientMessageId: "client-recovered",
+        content: "recovered message",
+        createdAt: "2026-04-18T12:00:01.000Z",
+        localOrder: 8,
+        recipientCount: 1,
+        replyTo: null,
+        status: "SENDING",
+        updatedAt: "2026-04-18T12:00:00.000Z",
+      },
+    ]);
+
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(
+        <QueryClientProvider client={queryClient}>
+          <Harness
+            isRealtimeConnected
+            queryClient={queryClient}
+            onReady={() => undefined}
+          />
+        </QueryClientProvider>
+      );
+      await flushMicrotasks(10);
+    });
+
+    expect(vi.mocked(sendEncryptedMessage)).toHaveBeenCalledTimes(1);
+    expect(queryClient.getQueryData(["pending-outgoing-messages", "user-1"])).toEqual([
+      expect.objectContaining({
+        clientMessageId: "client-recovered",
+        status: "SENDING",
+      }),
+    ]);
+  });
+
   it("automatically resumes recovered sending messages after realtime reconnect", async () => {
     upsertLocalPendingMessage("user-1", {
       chatId: "chat-1",

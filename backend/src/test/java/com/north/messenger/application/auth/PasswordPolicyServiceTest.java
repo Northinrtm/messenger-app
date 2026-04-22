@@ -27,6 +27,14 @@ class PasswordPolicyServiceTest {
     }
 
     @Test
+    void shouldRejectNumericOnlyPassword() {
+        assertThatThrownBy(() ->
+                passwordPolicyService.validatePassword("north", "North User", "20260422")
+        )
+                .isInstanceOf(PasswordPolicyViolationException.class);
+    }
+
+    @Test
     void shouldAcceptStrongPassword() {
         assertThatNoException().isThrownBy(() ->
                 passwordPolicyService.validatePassword("north", "North User", "riverlantern")

@@ -35,6 +35,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
@@ -52,6 +53,13 @@ public class AuthService {
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static final int REFRESH_TOKEN_BYTES = 32;
     private static final Duration ONLINE_WINDOW = Duration.ofMinutes(2);
+    private static final Pattern USERNAME_PATTERN = Pattern.compile("^[a-z][a-z0-9_]{2,23}$");
+    private static final Pattern EMAIL_PATTERN = Pattern.compile(
+            "^[a-z0-9._%+-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
+    );
+    private static final Pattern DISPLAY_NAME_PATTERN = Pattern.compile(
+            "^(?=.*[\\p{L}\\p{N}])[\\p{L}\\p{N} ._'\\-]{2,40}$"
+    );
 
     private final UserAccountRepository userAccountRepository;
     private final UserContactRepository userContactRepository;
@@ -102,6 +110,9 @@ public class AuthService {
         String username = normalizeUsername(request.username());
         String email = normalizeEmail(request.email());
         String displayName = normalizeDisplayName(request.displayName());
+        validateUsername(username);
+        validateEmail(email);
+        validateDisplayName(displayName);
         validateRegistrationEmailDomain(email);
         if (userAccountRepository.existsByUsernameIgnoreCase(username)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Username is already taken");
@@ -189,6 +200,7 @@ public class AuthService {
         UserAccount currentUser = requireAuthenticatedUser(username);
         String normalizedDisplayName = normalizeDisplayName(displayName);
         String normalizedProfession = normalizeProfession(profession);
+        validateDisplayName(normalizedDisplayName);
         if (userAccountRepository.existsByDisplayNameIgnoreCaseAndIdNot(normalizedDisplayName, currentUser.getId())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Display name is already taken");
         }
@@ -554,6 +566,30 @@ public class AuthService {
 
     private String normalizeEmail(String email) {
         return email.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private void validateUsername(String username) {
+        if (!USERNAME_PATTERN.matcher(username).matches()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Username must be 3-24 characters, start with a letter, and use only letters, numbers or underscore"
+            );
+        }
+    }
+
+    private void validateEmail(String email) {
+        if (!EMAIL_PATTERN.matcher(email).matches()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Email must use a valid address format");
+        }
+    }
+
+    private void validateDisplayName(String displayName) {
+        if (!DISPLAY_NAME_PATTERN.matcher(displayName).matches()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Display name must contain letters or numbers and may use spaces, dot, underscore, apostrophe or dash"
+            );
+        }
     }
 
     private void validateRegistrationEmailDomain(String email) {

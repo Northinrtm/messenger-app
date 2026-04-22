@@ -141,6 +141,7 @@ export function useMessageActions({
   const queryClient = useQueryClient();
   const nextLocalMessageOrderRef = useRef(0);
   const inFlightSendClientMessageIdsRef = useRef(new Set<string>());
+  const lastAutoResendAttemptAtRef = useRef(new Map<string, number>());
   const getMessagesKey = (chatId: string) => buildMessagesQueryKey(currentUser.id, chatId);
   const AUTO_RESEND_DELAY_MS = 1_500;
 
@@ -198,6 +199,7 @@ export function useMessageActions({
     onSuccess: (message, input) => {
       const nextMessage = ensureOwnMessageStatus(message, currentUser);
       const nextPendingMessages = removeLocalPendingMessage(currentUser.id, input.clientMessageId);
+      lastAutoResendAttemptAtRef.current.delete(input.clientMessageId);
       queryClient.setQueryData(["pending-outgoing-messages", currentUser.id], nextPendingMessages);
       rememberRealtimeMessage(nextMessage.id);
       queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
@@ -211,7 +213,11 @@ export function useMessageActions({
       }
     },
     onError: (error, input) => {
-      const nextPendingStatus = isTransientSendFailure(error) ? "SENDING" : "FAILED";
+      const transientFailure = isTransientSendFailure(error);
+      const nextPendingStatus = transientFailure ? "SENDING" : "FAILED";
+      if (!transientFailure) {
+        lastAutoResendAttemptAtRef.current.delete(input.clientMessageId);
+      }
       const nextPendingMessages = upsertLocalPendingMessage(currentUser.id, {
         chatId: input.chatId,
         clientMessageId: input.clientMessageId,
@@ -224,7 +230,7 @@ export function useMessageActions({
         attachments: input.attachments ?? [],
       });
       queryClient.setQueryData(["pending-outgoing-messages", currentUser.id], nextPendingMessages);
-      if (isTransientSendFailure(error)) {
+      if (transientFailure) {
         queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
           getMessagesKey(input.chatId),
           (current) =>
@@ -299,7 +305,12 @@ export function useMessageActions({
       }
 
       const updatedAt = Date.parse(message.updatedAt);
-      if (!Number.isNaN(updatedAt) && now - updatedAt < AUTO_RESEND_DELAY_MS) {
+      const lastAttemptAt = lastAutoResendAttemptAtRef.current.get(message.clientMessageId) ?? 0;
+      const newestActivityAt = Math.max(
+        Number.isNaN(updatedAt) ? 0 : updatedAt,
+        lastAttemptAt
+      );
+      if (newestActivityAt > 0 && now - newestActivityAt < AUTO_RESEND_DELAY_MS) {
         return;
       }
 
@@ -308,6 +319,7 @@ export function useMessageActions({
         return;
       }
 
+      lastAutoResendAttemptAtRef.current.set(message.clientMessageId, now);
       sendOutgoingMessage({
         chatId: targetChat.id,
         clientMessageId: message.clientMessageId,
