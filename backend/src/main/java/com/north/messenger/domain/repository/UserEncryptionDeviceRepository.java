@@ -10,6 +10,8 @@ public interface UserEncryptionDeviceRepository extends JpaRepository<UserEncryp
 
     List<UserEncryptionDevice> findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDesc(UUID userId);
 
+    List<UserEncryptionDevice> findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDescRegisteredAtDesc(UUID userId);
+
     List<UserEncryptionDevice> findAllByUserIdInAndRetiredAtIsNull(List<UUID> userIds);
 
     Optional<UserEncryptionDevice> findByUserIdAndIdentityKeyAndIdentitySignatureKeyAndRetiredAtIsNull(

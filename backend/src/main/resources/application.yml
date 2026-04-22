@@ -103,6 +103,8 @@ app:
       from-address: ${APP_AUTH_PASSWORD_RESET_FROM_ADDRESS:${SPRING_MAIL_USERNAME:}}
   cors:
     allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:5173}
+  e2ee:
+    max-active-devices-per-user: ${APP_E2EE_MAX_ACTIVE_DEVICES_PER_USER:8}
   realtime:
     redis:
       enabled: ${APP_REALTIME_REDIS_ENABLED:false}

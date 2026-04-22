@@ -26,6 +26,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -65,11 +66,14 @@ class UserEncryptionDeviceServiceTest {
                 userEncryptionDeviceRepository,
                 userEncryptionOneTimePrekeyRepository,
                 userEncryptionSignedPrekeyRepository,
-                new DeviceKeyValidationService(new ObjectMapper())
+                new DeviceKeyValidationService(new ObjectMapper()),
+                8
         );
 
         when(userEncryptionDeviceRepository.save(any(UserEncryptionDevice.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
+        when(userEncryptionDeviceRepository.findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDescRegisteredAtDesc(any(UUID.class)))
+                .thenReturn(List.of());
         when(userEncryptionSignedPrekeyRepository.save(any(UserEncryptionSignedPrekey.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         when(userEncryptionOneTimePrekeyRepository.findAllByDeviceIdAndClaimedAtIsNotNull(any(UUID.class)))
@@ -153,6 +157,76 @@ class UserEncryptionDeviceServiceTest {
         verify(userSessionRepository).findByIdForUpdate(sessionId);
         verify(userEncryptionDeviceRepository).save(any(UserEncryptionDevice.class));
         verify(userEncryptionOneTimePrekeyRepository).deleteAllUnclaimedByDeviceIdInBulk(any(UUID.class));
+    }
+
+    @Test
+    void upsertOwnDeviceShouldRetireOldActiveDevicesOverLimit() throws Exception {
+        userEncryptionDeviceService = new UserEncryptionDeviceService(
+                authService,
+                chatParticipantRepository,
+                userSessionRepository,
+                userEncryptionDeviceRepository,
+                userEncryptionOneTimePrekeyRepository,
+                userEncryptionSignedPrekeyRepository,
+                new DeviceKeyValidationService(new ObjectMapper()),
+                3
+        );
+        UserAccount user = testUserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "hash",
+                Instant.parse("2026-04-10T10:00:00Z")
+        );
+        UUID sessionId = UUID.randomUUID();
+        when(authService.requireAuthenticatedSession("north", "token"))
+                .thenReturn(new AuthService.AuthenticatedSession(user, sessionId));
+        when(userSessionRepository.findByIdForUpdate(sessionId))
+                .thenReturn(Optional.of(session(sessionId, user.getId())));
+
+        DeviceRequestMaterial material = generateValidDeviceRequestMaterial();
+        when(userEncryptionDeviceRepository.findByUserIdAndIdentityKeyAndIdentitySignatureKeyAndRetiredAtIsNull(
+                user.getId(),
+                material.identityKey(),
+                material.identitySignatureKey()
+        )).thenReturn(Optional.empty());
+
+        UserEncryptionDevice recentDevice = device(user.getId());
+        UserEncryptionDevice middleDevice = device(user.getId());
+        UserEncryptionDevice oldDevice = device(user.getId());
+        AtomicReference<UserEncryptionDevice> currentDevice = new AtomicReference<>();
+        when(userEncryptionDeviceRepository.save(any(UserEncryptionDevice.class)))
+                .thenAnswer(invocation -> {
+                    UserEncryptionDevice savedDevice = invocation.getArgument(0);
+                    if (savedDevice.getUserId().equals(user.getId())
+                            && savedDevice.getIdentityKey().equals(material.identityKey())) {
+                        currentDevice.set(savedDevice);
+                    }
+                    return savedDevice;
+                });
+        when(userEncryptionDeviceRepository.findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDescRegisteredAtDesc(user.getId()))
+                .thenAnswer(invocation -> List.of(currentDevice.get(), recentDevice, middleDevice, oldDevice));
+
+        UserEncryptionDeviceRequest request = new UserEncryptionDeviceRequest(
+                null,
+                material.identityKey(),
+                "X25519",
+                material.identitySignatureKey(),
+                "Ed25519",
+                7,
+                material.signedPrekeyPublicKey(),
+                material.signedPrekeySignature(),
+                "X25519",
+                List.of(new UserEncryptionOneTimePrekeyRequest(21, material.oneTimePrekeyPublicKey()))
+        );
+
+        userEncryptionDeviceService.upsertOwnDevice("north", "token", request);
+
+        assertThat(currentDevice.get()).isNotNull();
+        assertThat(currentDevice.get().getRetiredAt()).isNull();
+        assertThat(recentDevice.getRetiredAt()).isNull();
+        assertThat(middleDevice.getRetiredAt()).isNull();
+        assertThat(oldDevice.getRetiredAt()).isNotNull();
     }
 
     @Test

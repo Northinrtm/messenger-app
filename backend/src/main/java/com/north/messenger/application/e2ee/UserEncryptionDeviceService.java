@@ -28,6 +28,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,6 +39,7 @@ import org.springframework.web.server.ResponseStatusException;
 public class UserEncryptionDeviceService {
 
     private static final Duration SIGNED_PREKEY_GRACE_PERIOD = Duration.ofHours(24);
+    private static final int MIN_ACTIVE_DEVICES_PER_USER = 1;
 
     private final AuthService authService;
     private final ChatParticipantRepository chatParticipantRepository;
@@ -46,6 +48,7 @@ public class UserEncryptionDeviceService {
     private final UserEncryptionOneTimePrekeyRepository userEncryptionOneTimePrekeyRepository;
     private final UserEncryptionSignedPrekeyRepository userEncryptionSignedPrekeyRepository;
     private final DeviceKeyValidationService deviceKeyValidationService;
+    private final int maxActiveDevicesPerUser;
 
     public UserEncryptionDeviceService(
             AuthService authService,
@@ -54,7 +57,8 @@ public class UserEncryptionDeviceService {
             UserEncryptionDeviceRepository userEncryptionDeviceRepository,
             UserEncryptionOneTimePrekeyRepository userEncryptionOneTimePrekeyRepository,
             UserEncryptionSignedPrekeyRepository userEncryptionSignedPrekeyRepository,
-            DeviceKeyValidationService deviceKeyValidationService
+            DeviceKeyValidationService deviceKeyValidationService,
+            @Value("${app.e2ee.max-active-devices-per-user:8}") int maxActiveDevicesPerUser
     ) {
         this.authService = authService;
         this.chatParticipantRepository = chatParticipantRepository;
@@ -63,6 +67,7 @@ public class UserEncryptionDeviceService {
         this.userEncryptionOneTimePrekeyRepository = userEncryptionOneTimePrekeyRepository;
         this.userEncryptionSignedPrekeyRepository = userEncryptionSignedPrekeyRepository;
         this.deviceKeyValidationService = deviceKeyValidationService;
+        this.maxActiveDevicesPerUser = Math.max(MIN_ACTIVE_DEVICES_PER_USER, maxActiveDevicesPerUser);
     }
 
     public List<UserEncryptionDeviceResponse> listOwnDevices(String username) {
@@ -107,8 +112,33 @@ public class UserEncryptionDeviceService {
                         null
                 )
         ));
+        retireExcessActiveDevices(authenticatedSession.user().getId(), device.getId(), now);
 
         return toDeviceResponse(device, request.oneTimePrekeys().size());
+    }
+
+    private void retireExcessActiveDevices(UUID userId, UUID currentDeviceId, Instant retiredAt) {
+        List<UserEncryptionDevice> activeDevices =
+                userEncryptionDeviceRepository.findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDescRegisteredAtDesc(userId);
+        if (activeDevices.size() <= maxActiveDevicesPerUser) {
+            return;
+        }
+
+        Set<UUID> retainedDeviceIds = new LinkedHashSet<>();
+        retainedDeviceIds.add(currentDeviceId);
+        for (UserEncryptionDevice activeDevice : activeDevices) {
+            if (retainedDeviceIds.size() >= maxActiveDevicesPerUser) {
+                break;
+            }
+            retainedDeviceIds.add(activeDevice.getId());
+        }
+
+        activeDevices.stream()
+                .filter(activeDevice -> !retainedDeviceIds.contains(activeDevice.getId()))
+                .forEach(activeDevice -> {
+                    activeDevice.retire(retiredAt);
+                    userEncryptionDeviceRepository.save(activeDevice);
+                });
     }
 
     private UserEncryptionDevice resolveUpsertTargetDevice(
