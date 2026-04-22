@@ -3,6 +3,7 @@ import {
   getPushNotificationConfig,
   upsertPushSubscription,
 } from "./api";
+import { isDesktopRuntime } from "./platform";
 import type { PushSubscriptionPayload } from "./types";
 
 export type PushNotificationPermission = NotificationPermission | "unsupported";
@@ -19,6 +20,7 @@ const PUSH_SERVICE_WORKER_SCOPE = "/";
 
 export function isPushNotificationSupported() {
   return (
+    !isDesktopRuntime() &&
     typeof window !== "undefined" &&
     "Notification" in window &&
     "serviceWorker" in navigator &&

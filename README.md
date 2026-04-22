@@ -176,6 +176,18 @@ Local URLs:
 - Mailpit UI: `http://localhost:8025`
 - Jitsi web: `http://localhost:8090`
 
+## Desktop Client
+
+The desktop client lives in the same repository as a Tauri v2 shell around the
+shared React/Vite web app:
+
+- Tauri shell: `web/src-tauri`
+- desktop env example: `web/.env.desktop.example`
+- run locally from `web`: `npm run desktop:dev`
+- package from `web`: `npm run desktop:build`
+
+See `docs/desktop.md` for prerequisites and the desktop roadmap.
+
 Useful profiles:
 
 ```bash
