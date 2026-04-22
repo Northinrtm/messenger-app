@@ -142,14 +142,16 @@ export function useMessageActions({
   const nextLocalMessageOrderRef = useRef(0);
   const inFlightSendClientMessageIdsRef = useRef(new Set<string>());
   const lastAutoResendAttemptAtRef = useRef(new Map<string, number>());
+  const autoResendTimeoutIdsRef = useRef(new Map<string, number>());
   const getMessagesKey = (chatId: string) => buildMessagesQueryKey(currentUser.id, chatId);
   const AUTO_RESEND_DELAY_MS = 1_500;
+  const SEND_ATTEMPT_TIMEOUT_MS = 20_000;
 
   const sendMessageMutation = useMutation({
     mutationFn: async (input: SendMessageInput) => {
       const { sendEncryptedMessage } = await import("../../../lib/e2ee");
       const targetChat = chats.find((chat) => chat.id === input.chatId) ?? activeChat;
-      return sendEncryptedMessage(
+      return withSendAttemptTimeout(sendEncryptedMessage(
         sessionToken,
         input.chatId,
         input.content,
@@ -162,7 +164,7 @@ export function useMessageActions({
           session,
           attachments: input.attachments ?? [],
         },
-      );
+      ), SEND_ATTEMPT_TIMEOUT_MS);
     },
     onMutate: (input) => {
       incrementPendingOutgoing(input.chatId);
@@ -199,6 +201,7 @@ export function useMessageActions({
     onSuccess: (message, input) => {
       const nextMessage = ensureOwnMessageStatus(message, currentUser);
       const nextPendingMessages = removeLocalPendingMessage(currentUser.id, input.clientMessageId);
+      clearAutoResendTimer(input.clientMessageId);
       lastAutoResendAttemptAtRef.current.delete(input.clientMessageId);
       queryClient.setQueryData(["pending-outgoing-messages", currentUser.id], nextPendingMessages);
       rememberRealtimeMessage(nextMessage.id);
@@ -216,6 +219,7 @@ export function useMessageActions({
       const transientFailure = isTransientSendFailure(error);
       const nextPendingStatus = transientFailure ? "SENDING" : "FAILED";
       if (!transientFailure) {
+        clearAutoResendTimer(input.clientMessageId);
         lastAutoResendAttemptAtRef.current.delete(input.clientMessageId);
       }
       const nextPendingMessages = upsertLocalPendingMessage(currentUser.id, {
@@ -284,9 +288,19 @@ export function useMessageActions({
       return false;
     }
 
+    clearAutoResendTimer(input.clientMessageId);
     inFlightSendClientMessageIdsRef.current.add(input.clientMessageId);
     sendMessageMutation.mutate(input);
     return true;
+  };
+
+  const clearAutoResendTimer = (clientMessageId: string) => {
+    const timeoutId = autoResendTimeoutIdsRef.current.get(clientMessageId);
+    if (timeoutId === undefined) {
+      return;
+    }
+    window.clearTimeout(timeoutId);
+    autoResendTimeoutIdsRef.current.delete(clientMessageId);
   };
 
   useEffect(() => {
@@ -311,6 +325,40 @@ export function useMessageActions({
         lastAttemptAt
       );
       if (newestActivityAt > 0 && now - newestActivityAt < AUTO_RESEND_DELAY_MS) {
+        if (!autoResendTimeoutIdsRef.current.has(message.clientMessageId)) {
+          const retryAfterMs = AUTO_RESEND_DELAY_MS - (now - newestActivityAt);
+          const timeoutId = window.setTimeout(() => {
+            autoResendTimeoutIdsRef.current.delete(message.clientMessageId);
+            const currentPendingMessages =
+              queryClient.getQueryData<LocalPendingMessage[]>([
+                "pending-outgoing-messages",
+                currentUser.id,
+              ]) ?? [];
+            const currentPendingMessage = currentPendingMessages.find(
+              (candidate) =>
+                candidate.clientMessageId === message.clientMessageId &&
+                candidate.status === "SENDING"
+            );
+            const currentTargetChat = chats.find((chat) => chat.id === message.chatId);
+            if (!currentPendingMessage || !currentTargetChat) {
+              return;
+            }
+            if (inFlightSendClientMessageIdsRef.current.has(message.clientMessageId)) {
+              return;
+            }
+            lastAutoResendAttemptAtRef.current.set(message.clientMessageId, Date.now());
+            sendOutgoingMessage({
+              chatId: currentTargetChat.id,
+              clientMessageId: currentPendingMessage.clientMessageId,
+              content: currentPendingMessage.content,
+              localOrder: currentPendingMessage.localOrder ?? ++nextLocalMessageOrderRef.current,
+              participants: currentTargetChat.members,
+              replyTo: currentPendingMessage.replyTo,
+              attachments: currentPendingMessage.attachments ?? [],
+            });
+          }, Math.max(0, retryAfterMs));
+          autoResendTimeoutIdsRef.current.set(message.clientMessageId, timeoutId);
+        }
         return;
       }
 
@@ -330,7 +378,14 @@ export function useMessageActions({
         attachments: message.attachments ?? [],
       });
     });
-  }, [chats, isRealtimeConnected, pendingOutgoingMessages]);
+  }, [chats, currentUser.id, isRealtimeConnected, pendingOutgoingMessages, queryClient]);
+
+  useEffect(() => {
+    return () => {
+      autoResendTimeoutIdsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
+      autoResendTimeoutIdsRef.current.clear();
+    };
+  }, []);
 
   const deleteChatMutation = useMutation({
     mutationFn: (chatId: string) => deleteChatRequest(sessionToken, chatId),
@@ -756,4 +811,21 @@ export function useMessageActions({
 
 function isTransientSendFailure(error: unknown) {
   return error instanceof ApiError && [0, 503, 504].includes(error.status);
+}
+
+function withSendAttemptTimeout<T>(operation: Promise<T>, timeoutMs: number) {
+  let timeoutId: number | null = null;
+  const timeout = new Promise<T>((_resolve, reject) => {
+    timeoutId = window.setTimeout(() => {
+      reject(new ApiError("Message send preparation timed out. Retry the same message.", 504));
+    }, timeoutMs);
+  });
+
+  operation.catch(() => undefined);
+
+  return Promise.race([operation, timeout]).finally(() => {
+    if (timeoutId !== null) {
+      window.clearTimeout(timeoutId);
+    }
+  });
 }

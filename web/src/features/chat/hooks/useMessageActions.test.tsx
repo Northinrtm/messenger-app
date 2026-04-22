@@ -80,6 +80,28 @@ function activeChat(): ChatSummary {
   };
 }
 
+function sentMessage(clientMessageId: string) {
+  return {
+    id: `server-${clientMessageId}`,
+    chatId: "chat-1",
+    serverOrder: 43,
+    sender: currentUser(),
+    content: "stuck message",
+    createdAt: "2026-04-18T12:00:02.000Z",
+    editedAt: null,
+    status: {
+      state: "SENT" as const,
+      recipientCount: 1,
+      deliveredCount: 0,
+      readCount: 0,
+    },
+    clientMessageId,
+    replyTo: null,
+    reactions: [],
+    attachments: [],
+  };
+}
+
 function Harness({ isRealtimeConnected = false, onReady, queryClient }: HarnessProps) {
   const [draftsByChatId, setDraftsByChatId] = useState<Record<string, string>>({
     "chat-1": "message that must not come back",
@@ -161,6 +183,7 @@ describe("useMessageActions send failure recovery", () => {
     container.remove();
     window.localStorage.clear();
     vi.clearAllMocks();
+    vi.useRealTimers();
     (globalThis as ReactActEnvironment).IS_REACT_ACT_ENVIRONMENT = false;
   });
 
@@ -295,6 +318,67 @@ describe("useMessageActions send failure recovery", () => {
         status: "SENDING",
       }),
     ]);
+  });
+
+  it("releases a stuck send attempt and retries the same pending message", async () => {
+    vi.useFakeTimers();
+    vi.mocked(sendEncryptedMessage)
+      .mockImplementationOnce(() => new Promise(() => undefined));
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    const latestStateRef: { current: HarnessState | null } = { current: null };
+
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(
+        <QueryClientProvider client={queryClient}>
+          <Harness
+            isRealtimeConnected
+            queryClient={queryClient}
+            onReady={(value) => {
+              latestStateRef.current = value;
+            }}
+          />
+        </QueryClientProvider>
+      );
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      latestStateRef.current?.submitActiveDraft("stuck message");
+      await flushMicrotasks();
+    });
+
+    const firstClientMessageId = vi.mocked(sendEncryptedMessage).mock.calls[0]?.[4] as string;
+    vi.mocked(sendEncryptedMessage).mockResolvedValueOnce(sentMessage(firstClientMessageId));
+    expect(vi.mocked(sendEncryptedMessage)).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(20_000);
+      await flushMicrotasks(10);
+    });
+
+    expect(queryClient.getQueryData(["pending-outgoing-messages", "user-1"])).toEqual([
+      expect.objectContaining({
+        clientMessageId: firstClientMessageId,
+        status: "SENDING",
+      }),
+    ]);
+    expect(vi.mocked(sendEncryptedMessage)).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1_500);
+      await flushMicrotasks(10);
+    });
+
+    expect(vi.mocked(sendEncryptedMessage)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(sendEncryptedMessage).mock.calls[1]?.[4]).toBe(firstClientMessageId);
+    expect(queryClient.getQueryData(["pending-outgoing-messages", "user-1"])).toEqual([]);
   });
 
   it("does not spin auto resend when realtime rejects a recovered pending message immediately", async () => {
