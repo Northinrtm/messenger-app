@@ -1370,7 +1370,7 @@ select {
 .north-workspace .north-sidebar {
   position: relative;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   padding: 0;
   overflow: hidden;
   background: #17212b;
@@ -2120,6 +2120,12 @@ select {
   background: #17212b;
   align-content: start;
   grid-auto-rows: max-content;
+}
+
+.north-sidebar-conference-dock {
+  padding: 0.75rem 0.8rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: #17212b;
 }
 
 .north-workspace .north-chat-tile {
@@ -3576,90 +3582,100 @@ select {
   display: contents;
 }
 
-.conference-surface.is-mini {
+.conference-surface.is-background {
   position: fixed;
-  right: 1rem;
-  bottom: 1rem;
-  z-index: 40;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  width: min(28rem, calc(100vw - 2rem));
-  height: min(22rem, calc(100vh - 2rem));
-  border-radius: 1.4rem;
+  left: -10000px;
+  top: 0;
+  z-index: -1;
+  width: 28rem;
+  height: 18rem;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(14, 22, 33, 0.96);
-  box-shadow: 0 30px 60px rgba(5, 10, 16, 0.42);
-  backdrop-filter: blur(18px);
-  cursor: pointer;
-}
-
-.conference-mini-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.85rem 0.95rem;
-  background: rgba(23, 33, 43, 0.98);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.conference-mini-toolbar.is-draggable {
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
-}
-
-.conference-mini-toolbar.is-draggable.is-dragging {
-  cursor: grabbing;
-}
-
-.conference-mini-copy {
-  min-width: 0;
-  display: grid;
-  gap: 0.2rem;
-}
-
-.conference-mini-copy strong,
-.conference-mini-copy span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.conference-mini-copy span {
-  color: #8aa0b6;
-  font-size: 0.84rem;
-}
-
-.conference-mini-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-}
-
-.conference-surface.is-mini .conference-header {
-  display: none;
-}
-
-.conference-surface.is-mini .conference-shell {
-  min-height: 0;
-  height: 100%;
-  padding: 0;
+  opacity: 0;
   pointer-events: none;
 }
 
-.conference-surface.is-mini .conference-stage,
-.conference-surface.is-mini .conference-placeholder {
+.conference-surface.is-background .conference-header {
+  display: none;
+}
+
+.conference-surface.is-background .conference-shell {
+  min-height: 0;
+  height: 100%;
+  padding: 0;
+}
+
+.conference-surface.is-background .conference-stage,
+.conference-surface.is-background .conference-placeholder,
+.conference-surface.is-background .conference-embed-host,
+.conference-surface.is-background .conference-frame {
   min-height: 0;
   height: 100%;
   border-radius: 0;
 }
 
-.conference-surface.is-mini .conference-embed-host,
-.conference-surface.is-mini .conference-frame {
-  min-height: 0;
-  height: 100%;
+.conference-sidebar-dock-button {
+  min-height: 3.4rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.7rem;
+  width: 100%;
+  padding: 0.7rem 0.75rem;
+  border: 0;
+  border-radius: 0.65rem;
+  background: #21425f;
+  color: #f4fbff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.conference-sidebar-dock-button:hover,
+.conference-sidebar-dock-button:focus-visible {
+  background: #2b5278;
+  outline: none;
+}
+
+.conference-sidebar-dock-button:focus-visible {
+  box-shadow: inset 0 0 0 2px rgba(129, 188, 255, 0.62);
+}
+
+.conference-sidebar-dock-indicator {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 999px;
+  background: #65e6a9;
+  box-shadow: 0 0 0 0.35rem rgba(101, 230, 169, 0.13);
+}
+
+.conference-sidebar-dock-copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.12rem;
+}
+
+.conference-sidebar-dock-copy strong,
+.conference-sidebar-dock-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conference-sidebar-dock-copy strong {
+  font-size: 0.92rem;
+}
+
+.conference-sidebar-dock-copy span {
+  color: #b6c7d8;
+  font-size: 0.82rem;
+}
+
+.conference-sidebar-dock-action {
+  border-radius: 999px;
+  padding: 0.42rem 0.62rem;
+  background: rgba(255, 255, 255, 0.08);
+  color: #dfeeff;
+  font-size: 0.78rem;
+  font-weight: 800;
 }
 
 .conference-meta-card {
@@ -3966,6 +3982,16 @@ select {
   color: #f4fbff;
 }
 
+.conference-device-select option {
+  background: #17212b;
+  color: #f4fbff;
+}
+
+.conference-device-select option:checked {
+  background: #2b5278;
+  color: #ffffff;
+}
+
 .conference-device-select:disabled {
   color: rgba(244, 251, 255, 0.42);
   background: rgba(255, 255, 255, 0.03);
@@ -4260,21 +4286,14 @@ body.is-resizing-chat-layout {
     padding-right: 1rem;
   }
 
-  .conference-surface.is-mini {
-    right: 0.5rem;
-    bottom: calc(env(safe-area-inset-bottom, 0px) + 0.5rem);
-    width: calc(100vw - 1rem);
-    height: min(18rem, 46vh);
+  .conference-sidebar-dock-button {
+    grid-template-columns: auto minmax(0, 1fr);
+    padding: 0.68rem 0.9rem;
   }
 
-  .conference-mini-toolbar {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .conference-mini-actions {
-    width: 100%;
-    justify-content: flex-end;
+  .conference-sidebar-dock-action {
+    grid-column: 2;
+    justify-self: start;
   }
 
   .conference-summary {

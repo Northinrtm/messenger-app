@@ -9,8 +9,6 @@ import {
   useEffect,
   useEffectEvent,
   type CSSProperties,
-  type MouseEvent as ReactMouseEvent,
-  type PointerEvent as ReactPointerEvent,
   useMemo,
   useRef,
   useState,
@@ -172,7 +170,6 @@ const MESSAGE_QUERY_GC_TIME_MS = 30 * 60_000;
 const TYPING_QUERY_GC_TIME_MS = 15_000;
 const SEARCH_QUERY_GC_TIME_MS = 30_000;
 const CONFERENCE_ACTIVATION_LEAD_MS = 5 * 60 * 1000;
-const CONFERENCE_MINI_WINDOW_MARGIN_PX = 8;
 const CHAT_ENCRYPTION_WARNING_GRACE_MS = 500;
 
 const initialPushNotificationState = (): PushNotificationClientState => ({
@@ -182,33 +179,12 @@ const initialPushNotificationState = (): PushNotificationClientState => ({
   permission: isPushNotificationSupported() ? Notification.permission : "unsupported",
 });
 
-type ConferenceMiniPosition = {
-  x: number;
-  y: number;
-};
-
 type ChatEncryptionIdentityWarning = {
   chatId: string;
   participantIds: string[];
   errorText: string | null;
   isVisible: boolean;
 };
-
-function clampConferenceMiniPosition(
-  position: ConferenceMiniPosition,
-  size: { width: number; height: number }
-) {
-  const maxX = Math.max(CONFERENCE_MINI_WINDOW_MARGIN_PX, window.innerWidth - size.width - CONFERENCE_MINI_WINDOW_MARGIN_PX);
-  const maxY = Math.max(
-    CONFERENCE_MINI_WINDOW_MARGIN_PX,
-    window.innerHeight - size.height - CONFERENCE_MINI_WINDOW_MARGIN_PX
-  );
-
-  return {
-    x: Math.min(Math.max(position.x, CONFERENCE_MINI_WINDOW_MARGIN_PX), maxX),
-    y: Math.min(Math.max(position.y, CONFERENCE_MINI_WINDOW_MARGIN_PX), maxY),
-  };
-}
 
 function buildInviteUrl(code: string) {
   if (typeof window === "undefined") {
@@ -264,8 +240,6 @@ export function NorthMessengerWorkspace({
   const [conferenceRecordingState, setConferenceRecordingState] =
     useState<ConferenceRecordingState>("idle");
   const [conferenceExitRequestToken, setConferenceExitRequestToken] = useState(0);
-  const [conferenceMiniPosition, setConferenceMiniPosition] = useState<ConferenceMiniPosition | null>(null);
-  const [isConferenceMiniDragging, setIsConferenceMiniDragging] = useState(false);
   const [replyingToMessageId, setReplyingToMessageId] = useState<string | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [forwardingMessageId, setForwardingMessageId] = useState<string | null>(null);
@@ -291,7 +265,6 @@ export function NorthMessengerWorkspace({
   const handledRealtimeMessageIdsRef = useRef(new Map<string, true>());
   const conferenceListScrollRef = useRef<HTMLDivElement | null>(null);
   const conferenceSurfaceRef = useRef<HTMLDivElement | null>(null);
-  const conferenceMiniDragCleanupRef = useRef<(() => void) | null>(null);
   const deferredSearch = useDeferredValue(search);
   const deferredContactSearch = useDeferredValue(contactSearch);
   const { sidebarWidth, startSidebarResize } = useSidebarResize();
@@ -1729,52 +1702,8 @@ export function NorthMessengerWorkspace({
   useEffect(() => {
     if (activeConferenceId === null) {
       setConferenceViewportMode("full");
-      setConferenceMiniPosition(null);
-      setIsConferenceMiniDragging(false);
-      conferenceMiniDragCleanupRef.current?.();
-      conferenceMiniDragCleanupRef.current = null;
     }
   }, [activeConferenceId]);
-
-  useEffect(() => {
-    return () => {
-      conferenceMiniDragCleanupRef.current?.();
-      conferenceMiniDragCleanupRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (
-      conferenceViewportMode !== "mini" ||
-      !conferenceMiniPosition ||
-      !conferenceSurfaceRef.current
-    ) {
-      return;
-    }
-
-    const handleResize = () => {
-      const surface = conferenceSurfaceRef.current;
-      if (!surface) {
-        return;
-      }
-
-      setConferenceMiniPosition((current) => {
-        if (!current) {
-          return current;
-        }
-
-        return clampConferenceMiniPosition(current, {
-          width: surface.offsetWidth,
-          height: surface.offsetHeight,
-        });
-      });
-    };
-
-    window.addEventListener("resize", handleResize);
-    return () => {
-      window.removeEventListener("resize", handleResize);
-    };
-  }, [conferenceMiniPosition, conferenceViewportMode]);
 
   const requestConferenceExit = useEffectEvent(() => {
     if (!activeConference) {
@@ -1782,19 +1711,6 @@ export function NorthMessengerWorkspace({
     }
 
     setConferenceExitRequestToken((current) => current + 1);
-  });
-
-  const handleConferenceMiniSurfaceClick = useEffectEvent((event: ReactMouseEvent<HTMLDivElement>) => {
-    if (conferenceViewportMode !== "mini") {
-      return;
-    }
-
-    const target = event.target;
-    if (target instanceof HTMLElement && target.closest(".conference-mini-toolbar")) {
-      return;
-    }
-
-    restoreActiveConference();
   });
 
   const handleConferencePresenceTouch = useEffectEvent((conferenceId: string) => {
@@ -1812,64 +1728,6 @@ export function NorthMessengerWorkspace({
       });
     }
   );
-
-  const startConferenceMiniDrag = useEffectEvent((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) {
-      return;
-    }
-
-    const target = event.target;
-    if (!(target instanceof HTMLElement) || target.closest("button, a, input, textarea, select, label")) {
-      return;
-    }
-
-    const surface = conferenceSurfaceRef.current;
-    if (!surface || conferenceViewportMode !== "mini") {
-      return;
-    }
-
-    conferenceMiniDragCleanupRef.current?.();
-    const rect = surface.getBoundingClientRect();
-    const dragOffset = {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
-    };
-
-    setConferenceMiniPosition({
-      x: rect.left,
-      y: rect.top,
-    });
-    setIsConferenceMiniDragging(true);
-
-    const stopDragging = () => {
-      setIsConferenceMiniDragging(false);
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", stopDragging);
-      window.removeEventListener("pointercancel", stopDragging);
-      conferenceMiniDragCleanupRef.current = null;
-    };
-
-    const handlePointerMove = (moveEvent: PointerEvent) => {
-      setConferenceMiniPosition(
-        clampConferenceMiniPosition(
-          {
-            x: moveEvent.clientX - dragOffset.x,
-            y: moveEvent.clientY - dragOffset.y,
-          },
-          {
-            width: rect.width,
-            height: rect.height,
-          }
-        )
-      );
-    };
-
-    conferenceMiniDragCleanupRef.current = stopDragging;
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", stopDragging);
-    window.addEventListener("pointercancel", stopDragging);
-    event.preventDefault();
-  });
 
   const {
     handleAddContact,
@@ -2105,15 +1963,21 @@ export function NorthMessengerWorkspace({
     ]
   );
   const isConferenceMinimized = activeConference !== null && conferenceViewportMode === "mini";
-  const conferenceSurfaceStyle: CSSProperties | undefined =
-    isConferenceMinimized && conferenceMiniPosition
-      ? {
-          left: `${conferenceMiniPosition.x}px`,
-          top: `${conferenceMiniPosition.y}px`,
-          right: "auto",
-          bottom: "auto",
-        }
-      : undefined;
+  const conferenceSidebarDock =
+    activeConference && isConferenceMinimized ? (
+      <button
+        type="button"
+        className="conference-sidebar-dock-button"
+        onClick={restoreActiveConference}
+      >
+        <span className="conference-sidebar-dock-indicator" aria-hidden="true" />
+        <span className="conference-sidebar-dock-copy">
+          <strong>{activeConference.title}</strong>
+          <span>{activeConferenceStatusLabel ?? "Конференция активна"}</span>
+        </span>
+        <span className="conference-sidebar-dock-action">Открыть</span>
+      </button>
+    ) : null;
   const workspaceStyle: CSSProperties = {
     ["--north-sidebar-width" as string]: `${sidebarWidth}px`,
   };
@@ -2506,6 +2370,7 @@ export function NorthMessengerWorkspace({
       <WorkspaceSidebar
         activeListTab={activeListTab}
         chatListContent={chatListContent}
+        conferenceDock={conferenceSidebarDock}
         conferenceListScrollRef={conferenceListScrollRef}
         isMenuOpen={isMenuOpen}
         menuButtonRef={menuButtonRef}
@@ -2539,8 +2404,6 @@ export function NorthMessengerWorkspace({
       <WorkspaceConversation
         activeChatConversationProps={activeChatConversationProps}
         activeConferenceConversationProps={activeConferenceConversationProps}
-        activeConferenceTitle={activeConference?.title ?? null}
-        activeConferenceStatusLabel={activeConferenceStatusLabel}
         activeListTab={activeListTab}
         chatMembersPanelRef={chatMembersPanelRef}
         chatMembersProps={chatMembersPanelProps}
@@ -2548,16 +2411,12 @@ export function NorthMessengerWorkspace({
         chatMenuProps={chatMenuPanelProps}
         chatsLoading={chatsLoading}
         conferenceSurfaceRef={conferenceSurfaceRef}
-        conferenceSurfaceStyle={conferenceSurfaceStyle}
         conferencesLoading={conferencesLoading}
         contextMenuProps={messageContextMenuProps}
         errorText={errorText}
         incomingToasts={incomingToasts}
-        isConferenceMiniDragging={isConferenceMiniDragging}
         isConferenceMinimized={isConferenceMinimized}
-        onConferenceMiniSurfaceClick={handleConferenceMiniSurfaceClick}
         onOpenToastChat={openChat}
-        onStartConferenceMiniDrag={startConferenceMiniDrag}
         showConference={Boolean(activeConference)}
       />
     </main>

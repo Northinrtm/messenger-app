@@ -10,6 +10,7 @@ import { SidebarUtilitySheets } from "./SidebarUtilitySheets";
 type Props = {
   activeListTab: ConversationListTab;
   chatListContent: ReactNode;
+  conferenceDock?: ReactNode;
   conferenceListScrollRef: RefObject<HTMLDivElement | null>;
   isMenuOpen: boolean;
   menuButtonRef: RefObject<HTMLButtonElement | null>;
@@ -32,6 +33,7 @@ type Props = {
 export function WorkspaceSidebar({
   activeListTab,
   chatListContent,
+  conferenceDock,
   conferenceListScrollRef,
   isMenuOpen,
   menuButtonRef,
@@ -158,6 +160,10 @@ export function WorkspaceSidebar({
         <div ref={conferenceListScrollRef} className="chat-list north-chat-list">
           {chatListContent}
         </div>
+      ) : null}
+
+      {!sidebarSheet && conferenceDock ? (
+        <div className="north-sidebar-conference-dock">{conferenceDock}</div>
       ) : null}
 
       {isMenuOpen ? <SidebarMenuOverlay {...menuOverlayProps} /> : null}

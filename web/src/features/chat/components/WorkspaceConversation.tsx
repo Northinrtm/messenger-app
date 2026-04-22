@@ -1,10 +1,4 @@
-import type {
-  ComponentProps,
-  CSSProperties,
-  MouseEventHandler,
-  PointerEventHandler,
-  RefObject,
-} from "react";
+import type { ComponentProps, RefObject } from "react";
 
 import type { IncomingToast } from "../hooks/useIncomingToasts";
 import type { ConversationListTab } from "../chatUi";
@@ -17,8 +11,6 @@ import { MessageContextMenu } from "./MessageContextMenu";
 type Props = {
   activeChatConversationProps: ComponentProps<typeof ActiveChatConversation> | null;
   activeConferenceConversationProps: ComponentProps<typeof ActiveConferenceConversation> | null;
-  activeConferenceTitle: string | null;
-  activeConferenceStatusLabel: string | null;
   activeListTab: ConversationListTab;
   chatMembersPanelRef: RefObject<HTMLDivElement | null>;
   chatMembersProps: ComponentProps<typeof ChatMembersPanel> | null;
@@ -26,24 +18,18 @@ type Props = {
   chatMenuProps: ComponentProps<typeof ChatMenuPanel> | null;
   chatsLoading: boolean;
   conferenceSurfaceRef: RefObject<HTMLDivElement | null>;
-  conferenceSurfaceStyle?: CSSProperties;
   conferencesLoading: boolean;
   contextMenuProps: ComponentProps<typeof MessageContextMenu> | null;
   errorText: string | null;
   incomingToasts: IncomingToast[];
-  isConferenceMiniDragging: boolean;
   isConferenceMinimized: boolean;
-  onConferenceMiniSurfaceClick?: MouseEventHandler<HTMLDivElement>;
   onOpenToastChat: (chatId: string) => void;
-  onStartConferenceMiniDrag: PointerEventHandler<HTMLDivElement>;
   showConference: boolean;
 };
 
 export function WorkspaceConversation({
   activeChatConversationProps,
   activeConferenceConversationProps,
-  activeConferenceTitle,
-  activeConferenceStatusLabel,
   activeListTab,
   chatMembersPanelRef,
   chatMembersProps,
@@ -51,50 +37,29 @@ export function WorkspaceConversation({
   chatMenuProps,
   chatsLoading,
   conferenceSurfaceRef,
-  conferenceSurfaceStyle,
   conferencesLoading,
   contextMenuProps,
   errorText,
   incomingToasts,
-  isConferenceMiniDragging,
   isConferenceMinimized,
-  onConferenceMiniSurfaceClick,
   onOpenToastChat,
-  onStartConferenceMiniDrag,
   showConference,
 }: Props) {
   return (
     <>
       <section className="conversation north-conversation">
-        {showConference ? (
+        {showConference && activeConferenceConversationProps ? (
           <div
             ref={conferenceSurfaceRef}
             className={
               isConferenceMinimized
-                ? "conference-surface is-mini"
+                ? "conference-surface is-background"
                 : "conference-surface is-full"
             }
-            style={conferenceSurfaceStyle}
-            onClick={isConferenceMinimized ? onConferenceMiniSurfaceClick : undefined}
+            aria-hidden={isConferenceMinimized}
+            inert={isConferenceMinimized ? true : undefined}
           >
-            {isConferenceMinimized ? (
-              <div
-                className={
-                  isConferenceMiniDragging
-                    ? "conference-mini-toolbar is-draggable is-dragging"
-                    : "conference-mini-toolbar is-draggable"
-                }
-                onPointerDown={onStartConferenceMiniDrag}
-              >
-                <div className="conference-mini-copy">
-                  <strong>{activeConferenceTitle}</strong>
-                  <span>{activeConferenceStatusLabel ?? "Конференция активна"}</span>
-                </div>
-              </div>
-            ) : null}
-            {activeConferenceConversationProps ? (
-              <ActiveConferenceConversation {...activeConferenceConversationProps} />
-            ) : null}
+            <ActiveConferenceConversation {...activeConferenceConversationProps} />
           </div>
         ) : null}
 
