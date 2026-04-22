@@ -27,9 +27,13 @@ import type {
 import {
   ENCRYPTED_MESSAGE_UNAVAILABLE,
   ENCRYPTION_IDENTITY_CHANGED_MESSAGE,
+  ENCRYPTION_RECOVERY_PASSWORD_RESTORE_FAILED_MESSAGE,
+  ENCRYPTION_RECOVERY_SNAPSHOT_DECRYPT_FAILED_MESSAGE,
+  ENCRYPTION_RECOVERY_SNAPSHOT_INVALID_MESSAGE,
   PINNED_DEVICE_BUNDLE_STORAGE_PREFIX,
   clearPinnedEncryptionIdentity,
   isEncryptionIdentityChangedError,
+  isResettableEncryptionRecoveryError,
   isUnavailableEncryptedMessage,
 } from "./e2eeShared";
 import {
@@ -107,6 +111,7 @@ let decryptedAttachmentCacheSizeBytes = 0;
 export {
   clearPinnedEncryptionIdentity,
   isEncryptionIdentityChangedError,
+  isResettableEncryptionRecoveryError,
   isUnavailableEncryptedMessage,
 } from "./e2eeShared";
 export { hasTrustedDeviceUnlock, isTrustedDeviceUnlockSupported } from "./e2eeTrustedDevice";
@@ -727,6 +732,7 @@ export async function ensureEncryptionReady(session: AuthResponse, password: str
 
   const unlockedIdentity = readUnlockedIdentity(session.user.id);
   if (unlockedIdentity) {
+    await rememberUnlockedIdentity(session.user.id, unlockedIdentity, password);
     await ensureRegisteredEncryptionDevice(session);
     try {
       await syncEncryptionRecoverySnapshot(session);
@@ -739,6 +745,7 @@ export async function ensureEncryptionReady(session: AuthResponse, password: str
   const rememberedIdentity = await readRememberedUnlockedIdentity(session.user.id, password);
   if (rememberedIdentity) {
     writeUnlockedIdentity(session.user.id, rememberedIdentity);
+    await rememberUnlockedIdentity(session.user.id, rememberedIdentity, password);
     await ensureRegisteredEncryptionDevice(session);
     try {
       await syncEncryptionRecoverySnapshot(session);
@@ -768,6 +775,27 @@ export async function ensureEncryptionReady(session: AuthResponse, password: str
   } catch {
     // Recovery snapshot upload is best-effort after a successful local unlock.
   }
+}
+
+export async function resetEncryptionAfterPasswordReset(session: AuthResponse, password: string) {
+  if (!password.trim()) {
+    throw new ApiError("Enter your account password before resetting encrypted chats", 400);
+  }
+
+  ensureE2eeTransportStorageSchema();
+  const userId = session.user.id;
+
+  clearUnlockedEncryptionState(userId);
+  removeTrustedDeviceUnlockRecord(userId);
+  clearPinnedDeviceBundleRecords(userId);
+  await clearStoredArchivedDecryptedMessageRecords(userId);
+  rememberRecoverySyncSession(session);
+
+  const localVaultIdentity = createLocalVaultIdentity();
+  writeUnlockedIdentity(userId, localVaultIdentity);
+  await rememberUnlockedIdentity(userId, localVaultIdentity, password);
+  await ensureRegisteredEncryptionDevice(session);
+  await syncEncryptionRecoverySnapshot(session);
 }
 
 export async function resecureLocalEncryptionStateForPasswordChange(
@@ -4117,7 +4145,7 @@ async function restoreEncryptionRecoverySnapshot(
   }
 
   if (!wrappedIdentityRecord || !snapshotPayloadRecord) {
-    throw new ApiError("Encryption recovery snapshot is invalid", 409);
+    throw new ApiError(ENCRYPTION_RECOVERY_SNAPSHOT_INVALID_MESSAGE, 409);
   }
 
   const restoredIdentity = await decryptRememberedUnlockedIdentityRecord(
@@ -4125,7 +4153,7 @@ async function restoreEncryptionRecoverySnapshot(
     password
   );
   if (!restoredIdentity) {
-    throw new ApiError("Current password could not restore encrypted chats on this device", 409);
+    throw new ApiError(ENCRYPTION_RECOVERY_PASSWORD_RESTORE_FAILED_MESSAGE, 409);
   }
 
   const snapshotPayload = await decryptRecoverySnapshotPayload(
@@ -4133,7 +4161,7 @@ async function restoreEncryptionRecoverySnapshot(
     snapshotPayloadRecord
   );
   if (!snapshotPayload) {
-    throw new ApiError("Encryption recovery snapshot could not be decrypted on this device", 409);
+    throw new ApiError(ENCRYPTION_RECOVERY_SNAPSHOT_DECRYPT_FAILED_MESSAGE, 409);
   }
 
   writeUnlockedIdentity(session.user.id, restoredIdentity);
@@ -6195,6 +6223,38 @@ async function readAllStoredArchivedDecryptedMessageRecords(userId: string) {
   return readLocalArchivedDecryptedMessageRecords(userId);
 }
 
+async function clearStoredArchivedDecryptedMessageRecords(userId: string) {
+  if (supportsIndexedDbDecryptedMessageArchive()) {
+    try {
+      const db = await openDecryptedMessageArchiveDb();
+      await new Promise<void>((resolve, reject) => {
+        const transaction = db.transaction(DECRYPTED_MESSAGE_ARCHIVE_STORE_NAME, "readwrite");
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () =>
+          reject(transaction.error ?? new Error("Failed to clear decrypted message archive"));
+        const store = transaction.objectStore(DECRYPTED_MESSAGE_ARCHIVE_STORE_NAME);
+        const range = IDBKeyRange.bound([userId, ""], [userId, "\uffff"]);
+        const request = store.openCursor(range);
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (!cursor) {
+            return;
+          }
+
+          cursor.delete();
+          cursor.continue();
+        };
+        request.onerror = () =>
+          reject(request.error ?? new Error("Failed to clear decrypted message archive"));
+      });
+    } catch {
+      // Fall back to clearing the localStorage mirror below.
+    }
+  }
+
+  clearLocalArchivedDecryptedMessageRecords(userId);
+}
+
 async function readLatestStoredArchivedDecryptedMessageRecord(userId: string, chatId: string) {
   if (supportsIndexedDbDecryptedMessageArchive()) {
     try {
@@ -6348,6 +6408,18 @@ function writeLocalArchivedDecryptedMessageRecords(
       getDecryptedMessageArchiveStorageKey(userId),
       JSON.stringify(nextRecords)
     );
+  } catch {
+    return;
+  }
+}
+
+function clearLocalArchivedDecryptedMessageRecords(userId: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.removeItem(getDecryptedMessageArchiveStorageKey(userId));
   } catch {
     return;
   }

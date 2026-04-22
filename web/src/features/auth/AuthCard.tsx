@@ -10,6 +10,7 @@ import {
   requestPasswordReset,
   resendEmailVerification,
 } from "../../lib/api";
+import { isResettableEncryptionRecoveryError } from "../../lib/e2eeShared";
 import type { AuthResponse } from "../../lib/types";
 
 type Props = {
@@ -72,7 +73,13 @@ export function AuthCard({
       }
 
       const response = await login({ username, password });
-      await ensureEncryptionReady(response, password);
+      try {
+        await ensureEncryptionReady(response, password);
+      } catch (error) {
+        if (!isResettableEncryptionRecoveryError(error)) {
+          throw error;
+        }
+      }
       return response;
     },
     onSuccess: (response) => {

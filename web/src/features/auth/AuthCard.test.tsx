@@ -245,6 +245,52 @@ describe("AuthCard auth flow", () => {
     expect(authenticatedSpy).toHaveBeenCalledWith(response);
   });
 
+  it("continues sign in when encrypted chat recovery needs a separate unlock", async () => {
+    const response = sessionResponse();
+    const authenticatedSpy = vi.fn();
+    vi.mocked(login).mockResolvedValueOnce(response);
+    vi.mocked(ensureEncryptionReady).mockRejectedValueOnce(
+      new ApiError("Current password could not restore encrypted chats on this device", 409)
+    );
+
+    await act(async () => {
+      renderAuthCard(root!, <AuthCard onAuthenticated={authenticatedSpy} />);
+      await flushMicrotasks();
+    });
+
+    const signInButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Sign in")
+    );
+    if (!signInButton) {
+      throw new Error("Sign in mode button is missing");
+    }
+
+    await act(async () => {
+      signInButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await flushMicrotasks();
+    });
+
+    const inputs = container.querySelectorAll("input");
+    const usernameInput = inputs[0] as HTMLInputElement;
+    const passwordInput = inputs[1] as HTMLInputElement;
+
+    await act(async () => {
+      setInputValue(usernameInput, "north");
+      setInputValue(passwordInput, "newriverlantern");
+      (container.querySelector("form") as HTMLFormElement).dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true })
+      );
+      await flushMicrotasks();
+    });
+
+    expect(login).toHaveBeenCalledWith({ username: "north", password: "newriverlantern" });
+    expect(ensureEncryptionReady).toHaveBeenCalledWith(response, "newriverlantern");
+    expect(authenticatedSpy).toHaveBeenCalledWith(response);
+    expect(container.textContent).not.toContain(
+      "Current password could not restore encrypted chats on this device"
+    );
+  });
+
   it("returns to sign in immediately after opening a valid verification link", async () => {
     vi.mocked(confirmEmailVerification).mockResolvedValueOnce(undefined);
     const handledSpy = vi.fn();

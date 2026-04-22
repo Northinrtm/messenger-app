@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { describeError, logout } from "../../lib/api";
+import { isResettableEncryptionRecoveryError } from "../../lib/e2eeShared";
 import { hasTrustedDeviceUnlock, isTrustedDeviceUnlockSupported } from "../../lib/e2eeTrustedDevice";
 import type { AuthResponse } from "../../lib/types";
 
@@ -19,6 +20,7 @@ export function UnlockCard({
 }: Props) {
   const [password, setPassword] = useState("");
   const [showPasswordFallback, setShowPasswordFallback] = useState(false);
+  const [confirmingRecoveryReset, setConfirmingRecoveryReset] = useState(false);
   const autoTrustedUnlockAttemptedRef = useRef(false);
   const passwordInputRef = useRef<HTMLInputElement | null>(null);
   const queryClient = useQueryClient();
@@ -79,6 +81,18 @@ export function UnlockCard({
     },
   });
 
+  const resetRecoveryMutation = useMutation({
+    mutationFn: async () => {
+      const { resetEncryptionAfterPasswordReset } = await import("../../lib/e2ee");
+      await resetEncryptionAfterPasswordReset(session, password);
+      return session;
+    },
+    onSuccess: async (nextSession) => {
+      setConfirmingRecoveryReset(false);
+      await finalizeUnlock(nextSession);
+    },
+  });
+
   const signOutMutation = useMutation({
     mutationFn: () => logout(),
     onSettled: async () => {
@@ -88,13 +102,22 @@ export function UnlockCard({
     },
   });
 
-  const error = [trustedUnlockMutation.error, trustThisDeviceMutation.error, unlockMutation.error]
+  const unlockErrors = [
+    trustedUnlockMutation.error,
+    trustThisDeviceMutation.error,
+    unlockMutation.error,
+  ].filter(Boolean);
+  const resettableRecoveryError = unlockErrors.find((item) =>
+    isResettableEncryptionRecoveryError(item)
+  );
+  const error = [...unlockErrors, resetRecoveryMutation.error]
     .filter(Boolean)
     .map((item) => describeError(item))
     .find(Boolean);
   const isOverlay = variant === "overlay";
   const shouldShowDeviceFirst = hasTrustedUnlock;
   const shouldShowPasswordForm = !shouldShowDeviceFirst || showPasswordFallback;
+  const canResetRecovery = Boolean(resettableRecoveryError) && shouldShowPasswordForm;
   const shouldRenderCompactTrustedUnlock = shouldShowDeviceFirst && !showPasswordFallback;
   const containerClassName = isOverlay ? "unlock-overlay" : "auth-shell";
   const cardClassName = [
@@ -193,7 +216,11 @@ export function UnlockCard({
               <input
                 ref={passwordInputRef}
                 value={password}
-                onChange={(event) => setPassword(event.target.value)}
+                onChange={(event) => {
+                  setPassword(event.target.value);
+                  setConfirmingRecoveryReset(false);
+                  resetRecoveryMutation.reset();
+                }}
                 type="password"
                 autoComplete="current-password"
                 required
@@ -206,7 +233,11 @@ export function UnlockCard({
               <button
                 type="submit"
                 className={hasTrustedUnlock ? "ghost-button auth-secondary-button" : "primary-button"}
-                disabled={unlockMutation.isPending || trustThisDeviceMutation.isPending}
+                disabled={
+                  unlockMutation.isPending ||
+                  trustThisDeviceMutation.isPending ||
+                  resetRecoveryMutation.isPending
+                }
               >
                 {unlockMutation.isPending ? "Unlocking..." : "Unlock with password"}
               </button>
@@ -215,12 +246,63 @@ export function UnlockCard({
                   type="button"
                   className="primary-button auth-trust-button"
                   onClick={() => trustThisDeviceMutation.mutate()}
-                  disabled={!password.trim() || unlockMutation.isPending || trustThisDeviceMutation.isPending}
+                  disabled={
+                    !password.trim() ||
+                    unlockMutation.isPending ||
+                    trustThisDeviceMutation.isPending ||
+                    resetRecoveryMutation.isPending
+                  }
                 >
                   {trustThisDeviceMutation.isPending
                     ? "Enabling device unlock..."
                     : "Unlock and trust this device"}
                 </button>
+              ) : null}
+              {canResetRecovery ? (
+                <>
+                  <button
+                    type="button"
+                    className="ghost-button auth-secondary-button"
+                    onClick={() => setConfirmingRecoveryReset(true)}
+                    disabled={
+                      confirmingRecoveryReset ||
+                      unlockMutation.isPending ||
+                      trustThisDeviceMutation.isPending ||
+                      resetRecoveryMutation.isPending
+                    }
+                  >
+                    I cannot unlock encrypted chats
+                  </button>
+                  {confirmingRecoveryReset ? (
+                    <>
+                      <div className="form-note">
+                        This starts a new encrypted-chat key. Messages that only the previous key could decrypt
+                        will stay unavailable.
+                      </div>
+                      <button
+                        type="button"
+                        className="ghost-button auth-secondary-button danger-button"
+                        onClick={() => resetRecoveryMutation.mutate()}
+                        disabled={
+                          !password.trim() ||
+                          unlockMutation.isPending ||
+                          trustThisDeviceMutation.isPending ||
+                          resetRecoveryMutation.isPending
+                        }
+                      >
+                        {resetRecoveryMutation.isPending ? "Resetting encrypted chats..." : "Reset encrypted chats"}
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-button auth-secondary-button"
+                        onClick={() => setConfirmingRecoveryReset(false)}
+                        disabled={resetRecoveryMutation.isPending}
+                      >
+                        Cancel reset
+                      </button>
+                    </>
+                  ) : null}
+                </>
               ) : null}
               {hasTrustedUnlock ? (
                 <button
@@ -230,7 +312,11 @@ export function UnlockCard({
                     setShowPasswordFallback(false);
                     trustedUnlockMutation.mutate();
                   }}
-                  disabled={trustedUnlockMutation.isPending || unlockMutation.isPending}
+                  disabled={
+                    trustedUnlockMutation.isPending ||
+                    unlockMutation.isPending ||
+                    resetRecoveryMutation.isPending
+                  }
                 >
                   Unlock with device instead
                 </button>
