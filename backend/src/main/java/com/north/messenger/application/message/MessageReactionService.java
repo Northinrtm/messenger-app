@@ -12,6 +12,7 @@ import com.north.messenger.domain.repository.MessageReactionRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,6 +28,7 @@ class MessageReactionService {
     private final MessageReactionRepository messageReactionRepository;
     private final RealtimeMessagingGateway realtimeMessagingGateway;
     private final MessageSupport messageSupport;
+    private final ApplicationEventPublisher eventPublisher;
 
     MessageReactionService(
             AuthService authService,
@@ -34,7 +36,8 @@ class MessageReactionService {
             ChatMessageRepository chatMessageRepository,
             MessageReactionRepository messageReactionRepository,
             RealtimeMessagingGateway realtimeMessagingGateway,
-            MessageSupport messageSupport
+            MessageSupport messageSupport,
+            ApplicationEventPublisher eventPublisher
     ) {
         this.authService = authService;
         this.chatService = chatService;
@@ -42,6 +45,7 @@ class MessageReactionService {
         this.messageReactionRepository = messageReactionRepository;
         this.realtimeMessagingGateway = realtimeMessagingGateway;
         this.messageSupport = messageSupport;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
@@ -81,11 +85,15 @@ class MessageReactionService {
                         .getOrDefault(messageId, List.of())
         );
 
+        eventPublisher.publishEvent(new MessageReactionChangedEvent(chatId, messageId));
+        return event;
+    }
+
+    void broadcastReactionChanged(UUID chatId, UUID messageId) {
         chatService.findParticipants(chatId).forEach(participant -> realtimeMessagingGateway.sendToUser(
                 participant.getUsername(),
                 "/queue/message-reactions",
                 messageSupport.buildReactionEvent(messageId, chatId, participant.getId())
         ));
-        return event;
     }
 }

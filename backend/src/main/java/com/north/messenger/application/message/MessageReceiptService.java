@@ -19,6 +19,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,6 +34,7 @@ class MessageReceiptService {
     private final UserAccountRepository userAccountRepository;
     private final RealtimeMessagingGateway realtimeMessagingGateway;
     private final MessageSupport messageSupport;
+    private final ApplicationEventPublisher eventPublisher;
 
     MessageReceiptService(
             AuthService authService,
@@ -41,7 +43,8 @@ class MessageReceiptService {
             ChatMessageRepository chatMessageRepository,
             UserAccountRepository userAccountRepository,
             RealtimeMessagingGateway realtimeMessagingGateway,
-            MessageSupport messageSupport
+            MessageSupport messageSupport,
+            ApplicationEventPublisher eventPublisher
     ) {
         this.authService = authService;
         this.chatService = chatService;
@@ -50,6 +53,7 @@ class MessageReceiptService {
         this.userAccountRepository = userAccountRepository;
         this.realtimeMessagingGateway = realtimeMessagingGateway;
         this.messageSupport = messageSupport;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
@@ -96,14 +100,15 @@ class MessageReceiptService {
         }
 
         if (!changedMessageIds.isEmpty()) {
-            notifyMessageStatusChanged(changedMessageIds);
-            if (updateMode == MessageSupport.ReceiptUpdateMode.READ) {
-                chatService.notifyChatUpdated(chatId);
-            }
+            eventPublisher.publishEvent(new MessageStatusChangedEvent(
+                    chatId,
+                    List.copyOf(changedMessageIds),
+                    updateMode == MessageSupport.ReceiptUpdateMode.READ
+            ));
         }
     }
 
-    private void notifyMessageStatusChanged(Collection<UUID> rawMessageIds) {
+    void notifyMessageStatusChanged(Collection<UUID> rawMessageIds) {
         List<UUID> messageIds = messageSupport.sanitizeMessageIds(rawMessageIds);
         if (messageIds.isEmpty()) {
             return;

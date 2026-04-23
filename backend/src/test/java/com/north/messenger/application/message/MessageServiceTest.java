@@ -4,11 +4,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.north.messenger.api.dto.CreateMessageRequest;
 import com.north.messenger.api.dto.EncryptedMessagePayloadRequest;
 import com.north.messenger.api.dto.MessageDeliveryState;
-import com.north.messenger.api.dto.MessageDeletionEventResponse;
 import com.north.messenger.api.dto.MessageReceiptRequest;
 import com.north.messenger.api.dto.MessageResponse;
-import com.north.messenger.api.dto.MessageStatusEventResponse;
 import com.north.messenger.api.dto.ParticipantResponse;
+import com.north.messenger.api.dto.ToggleMessageReactionRequest;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.chat.ChatService;
 import com.north.messenger.application.e2ee.ChatGroupHistoryKeyService;
@@ -19,6 +18,7 @@ import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.ChatGroupSenderKeyCounter;
 import com.north.messenger.domain.model.MessageReceipt;
+import com.north.messenger.domain.model.MessageReaction;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.UserEncryptionDevice;
 import com.north.messenger.domain.model.UserEncryptionEnvelopeCounter;
@@ -83,6 +83,7 @@ class MessageServiceTest {
     private ChatGroupSenderKeyCounterRepository chatGroupSenderKeyCounterRepository;
     private RealtimeMessagingGateway realtimeMessagingGateway;
     private ApplicationEventPublisher eventPublisher;
+    private MessageDispatchOutboxService messageDispatchOutboxService;
     private MessengerTelemetry telemetry;
     private EntityManager entityManager;
     private ChatGroupHistoryKeyService chatGroupHistoryKeyService;
@@ -107,6 +108,7 @@ class MessageServiceTest {
         chatGroupSenderKeyCounterRepository = mock(ChatGroupSenderKeyCounterRepository.class);
         realtimeMessagingGateway = mock(RealtimeMessagingGateway.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
+        messageDispatchOutboxService = mock(MessageDispatchOutboxService.class);
         telemetry = mock(MessengerTelemetry.class);
         entityManager = mock(EntityManager.class);
         chatGroupHistoryKeyService = mock(ChatGroupHistoryKeyService.class);
@@ -136,7 +138,8 @@ class MessageServiceTest {
                 chatMessageRepository,
                 userAccountRepository,
                 realtimeMessagingGateway,
-                messageSupport
+                messageSupport,
+                eventPublisher
         );
         MessageReactionService messageReactionService = new MessageReactionService(
                 authService,
@@ -144,7 +147,8 @@ class MessageServiceTest {
                 chatMessageRepository,
                 messageReactionRepository,
                 realtimeMessagingGateway,
-                messageSupport
+                messageSupport,
+                eventPublisher
         );
         MessageDispatchService messageDispatchService = new MessageDispatchService(
                 chatService,
@@ -172,11 +176,10 @@ class MessageServiceTest {
                 messageReceiptRepository,
                 userAccountRepository,
                 userDeletedMessageRepository,
-                realtimeMessagingGateway,
                 eventPublisher,
                 telemetry,
                 messageSupport,
-                messageDispatchService,
+                messageDispatchOutboxService,
                 chatGroupHistoryKeyService,
                 chatAttachmentService,
                 entityManager
@@ -298,10 +301,48 @@ class MessageServiceTest {
 
         messageService.acknowledgeRead(chatId, "alice", new MessageReceiptRequest(List.of(message.getId())));
 
-        ArgumentCaptor<MessageStatusEventResponse> eventCaptor = ArgumentCaptor.forClass(MessageStatusEventResponse.class);
-        verify(realtimeMessagingGateway).sendToUser(eq("north"), eq("/queue/message-statuses"), eventCaptor.capture());
-        verify(chatService).notifyChatUpdated(chatId);
-        assertThat(eventCaptor.getValue().status().state()).isEqualTo(MessageDeliveryState.READ);
+        ArgumentCaptor<MessageStatusChangedEvent> eventCaptor = ArgumentCaptor.forClass(MessageStatusChangedEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().chatId()).isEqualTo(chatId);
+        assertThat(eventCaptor.getValue().messageIds()).containsExactly(message.getId());
+        assertThat(eventCaptor.getValue().refreshChatSummary()).isTrue();
+    }
+
+    @Test
+    void toggleReactionShouldPublishDeferredReactionEvent() {
+        UUID chatId = UUID.randomUUID();
+        UUID messageId = UUID.randomUUID();
+        UserAccount currentUser = user("north");
+        ChatRoom room = new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"));
+        ChatMessage message = new ChatMessage(
+                messageId,
+                chatId,
+                currentUser.getId(),
+                "ciphertext-value",
+                Instant.parse("2026-03-24T12:00:00Z")
+        );
+        MessageReaction savedReaction = new MessageReaction(
+                UUID.randomUUID(),
+                messageId,
+                currentUser.getId(),
+                "LIKE",
+                Instant.parse("2026-03-24T12:01:00Z")
+        );
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
+        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(room);
+        when(chatMessageRepository.findById(messageId)).thenReturn(Optional.of(message));
+        when(messageReactionRepository.findByMessageIdAndUserIdAndReactionKey(messageId, currentUser.getId(), "LIKE"))
+                .thenReturn(Optional.empty());
+        when(messageReactionRepository.save(any(MessageReaction.class))).thenReturn(savedReaction);
+        when(messageReactionRepository.findAllByMessageIdIn(List.of(messageId))).thenReturn(List.of(savedReaction));
+
+        messageService.toggleReaction(chatId, messageId, "north", new ToggleMessageReactionRequest("LIKE"));
+
+        ArgumentCaptor<MessageReactionChangedEvent> eventCaptor =
+                ArgumentCaptor.forClass(MessageReactionChangedEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue()).isEqualTo(new MessageReactionChangedEvent(chatId, messageId));
     }
 
     @Test
@@ -475,7 +516,7 @@ class MessageServiceTest {
         );
 
         ArgumentCaptor<MessageDispatchEvent> eventCaptor = ArgumentCaptor.forClass(MessageDispatchEvent.class);
-        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        verify(messageDispatchOutboxService).enqueue(eventCaptor.capture());
         verify(chatMessageRepository).saveAndFlush(any(ChatMessage.class));
         assertThat(response.id()).isEqualTo(existingMessage.getId());
         assertThat(response.clientMessageId()).isEqualTo(duplicateClientMessageId);
@@ -1812,12 +1853,12 @@ class MessageServiceTest {
 
         messageService.deleteMessage(chatId, messageId, "north", "EVERYONE");
 
-        ArgumentCaptor<MessageDeletionEventResponse> eventCaptor = ArgumentCaptor.forClass(MessageDeletionEventResponse.class);
-        verify(realtimeMessagingGateway).sendToUser(eq("north"), eq("/queue/message-deletions"), eventCaptor.capture());
-        verify(realtimeMessagingGateway).sendToUser(eq("alice"), eq("/queue/message-deletions"), any(MessageDeletionEventResponse.class));
+        ArgumentCaptor<MessageDeletionBroadcastEvent> eventCaptor = ArgumentCaptor.forClass(MessageDeletionBroadcastEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
         verify(chatMessageRepository).delete(message);
-        verify(chatService).notifyChatUpdated(chatId);
+        assertThat(eventCaptor.getValue().chatId()).isEqualTo(chatId);
         assertThat(eventCaptor.getValue().messageId()).isEqualTo(messageId);
+        assertThat(eventCaptor.getValue().usernames()).containsExactly("north", "alice");
     }
 
     @Test

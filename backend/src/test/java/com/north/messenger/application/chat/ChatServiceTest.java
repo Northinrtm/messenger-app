@@ -33,6 +33,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.data.domain.Pageable;
 
@@ -63,6 +64,7 @@ class ChatServiceTest {
     private RealtimeMessagingGateway realtimeMessagingGateway;
     private MessengerTelemetry telemetry;
     private DirectChatCreationLockService directChatCreationLockService;
+    private ApplicationEventPublisher eventPublisher;
     private ChatService chatService;
 
     @BeforeEach
@@ -81,6 +83,7 @@ class ChatServiceTest {
         realtimeMessagingGateway = mock(RealtimeMessagingGateway.class);
         telemetry = mock(MessengerTelemetry.class);
         directChatCreationLockService = mock(DirectChatCreationLockService.class);
+        eventPublisher = mock(ApplicationEventPublisher.class);
         chatService = new ChatService(
                 authService,
                 chatRoomRepository,
@@ -95,7 +98,8 @@ class ChatServiceTest {
                 userDeletedMessageRepository,
                 realtimeMessagingGateway,
                 telemetry,
-                directChatCreationLockService
+                directChatCreationLockService,
+                eventPublisher
         );
         when(userArchivedChatRepository.save(any(UserArchivedChat.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(userDeletedChatRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
@@ -240,16 +244,9 @@ class ChatServiceTest {
 
         chatService.deleteChatForSelf("north", chatId);
 
-        ArgumentCaptor<com.north.messenger.api.dto.ChatRemovalEventResponse> eventCaptor =
-                ArgumentCaptor.forClass(com.north.messenger.api.dto.ChatRemovalEventResponse.class);
         verify(userDeletedChatRepository).save(any());
         verify(userArchivedChatRepository).deleteByUserIdAndChatId(user.getId(), chatId);
-        verify(realtimeMessagingGateway).sendToUser(
-                org.mockito.ArgumentMatchers.eq("north"),
-                org.mockito.ArgumentMatchers.eq("/queue/chat-removals"),
-                eventCaptor.capture()
-        );
-        assertThat(eventCaptor.getValue().chatId()).isEqualTo(chatId);
+        verify(eventPublisher).publishEvent(new ChatRemovalDeferredEvent(chatId, List.of("north")));
     }
 
     @Test
@@ -505,6 +502,7 @@ class ChatServiceTest {
                 .containsExactly("alice", "north");
         verify(userArchivedChatRepository).deleteByUserIdAndChatId(invitedUser.getId(), chatId);
         verify(userDeletedChatRepository).deleteByChatIdAndUserIdIn(chatId, List.of(invitedUser.getId()));
+        verify(eventPublisher).publishEvent(new ChatUpdatedDeferredEvent(chatId));
     }
 
     @Test
@@ -592,6 +590,7 @@ class ChatServiceTest {
         verify(chatRoomRepository).findByDirectIsTrueAndDirectUserLowIdAndDirectUserHighId(lowUserId, highUserId);
         verify(chatRoomRepository, never()).findDirectChatByParticipantIds(currentUser.getId(), peer.getId());
         verify(chatRoomRepository, never()).save(any(ChatRoom.class));
+        verify(eventPublisher).publishEvent(new ChatUpdatedDeferredEvent(chatId));
     }
 
     @Test
@@ -648,6 +647,59 @@ class ChatServiceTest {
         assertThat(response.members()).containsExactly(currentParticipant);
         assertThat(memberships).hasSize(1);
         assertThat(memberships.get(0).getUserId()).isEqualTo(currentUser.getId());
+        verify(eventPublisher).publishEvent(new ChatUpdatedDeferredEvent(savedRoom.get().getId()));
+    }
+
+    @Test
+    void deleteGroupShouldDeferRemovalBroadcastForAllParticipants() {
+        UserAccount owner = testUserAccount(UUID.randomUUID(), "north", "North", "hash", Instant.now());
+        UserAccount member = testUserAccount(UUID.randomUUID(), "alice", "Alice", "hash", Instant.now());
+        UUID chatId = UUID.randomUUID();
+        ChatRoom room = new ChatRoom(chatId, "Project", false, Instant.now());
+        room.updateOwnerUserId(owner.getId());
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(owner);
+        when(chatRoomRepository.findById(chatId)).thenReturn(Optional.of(room));
+        when(chatParticipantRepository.existsByChatIdAndUserId(chatId, owner.getId())).thenReturn(true);
+        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId)).thenReturn(List.of(
+                new ChatParticipant(UUID.randomUUID(), chatId, owner.getId(), Instant.parse("2026-04-09T10:00:00Z")),
+                new ChatParticipant(UUID.randomUUID(), chatId, member.getId(), Instant.parse("2026-04-09T10:00:01Z"))
+        ));
+        when(userAccountRepository.findAllByIdIn(List.of(owner.getId(), member.getId()))).thenReturn(List.of(owner, member));
+
+        chatService.deleteGroup("north", chatId);
+
+        verify(chatRoomRepository).delete(room);
+        verify(eventPublisher).publishEvent(new ChatRemovalDeferredEvent(chatId, List.of("north", "alice")));
+    }
+
+    @Test
+    void banGroupParticipantShouldDeferRemovalAndChatUpdateWhenUserWasMember() {
+        UserAccount owner = testUserAccount(UUID.randomUUID(), "north", "North", "hash", Instant.now());
+        UserAccount member = testUserAccount(UUID.randomUUID(), "alice", "Alice", "hash", Instant.now());
+        UUID chatId = UUID.randomUUID();
+        ChatRoom room = new ChatRoom(chatId, "Project", false, Instant.now());
+        room.updateOwnerUserId(owner.getId());
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(owner);
+        when(chatRoomRepository.findById(chatId)).thenReturn(Optional.of(room));
+        when(chatParticipantRepository.existsByChatIdAndUserId(chatId, owner.getId())).thenReturn(true);
+        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId)).thenReturn(List.of(
+                new ChatParticipant(UUID.randomUUID(), chatId, owner.getId(), Instant.parse("2026-04-09T10:00:00Z")),
+                new ChatParticipant(UUID.randomUUID(), chatId, member.getId(), Instant.parse("2026-04-09T10:00:01Z"))
+        ));
+        when(authService.requireExistingUser("alice")).thenReturn(member);
+        when(chatParticipantRepository.existsByChatIdAndUserId(chatId, member.getId())).thenReturn(true);
+        when(chatRoomModeratorRepository.existsByChatIdAndUserId(chatId, member.getId())).thenReturn(false);
+        when(chatRoomBanRepository.findByChatIdAndUserId(chatId, member.getId())).thenReturn(Optional.empty());
+        when(chatRoomBanRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        chatService.banGroupParticipant("north", chatId, "alice");
+
+        verify(chatRoomBanRepository).save(any());
+        verify(chatParticipantRepository).deleteByChatIdAndUserId(chatId, member.getId());
+        verify(eventPublisher).publishEvent(new ChatRemovalDeferredEvent(chatId, List.of("alice")));
+        verify(eventPublisher).publishEvent(new ChatUpdatedDeferredEvent(chatId));
     }
 
     @Test
@@ -700,7 +752,7 @@ class ChatServiceTest {
         assertThat(response.avatarUrl()).isEqualTo(avatarUrl);
         assertThat(room.getTitle()).isEqualTo("New name");
         assertThat(room.getAvatarUrl()).isEqualTo(avatarUrl);
-        verify(realtimeMessagingGateway).sendToUser(eq("north"), eq("/queue/chats"), any());
+        verify(eventPublisher).publishEvent(new ChatUpdatedDeferredEvent(chatId));
     }
 
     @Test
@@ -759,7 +811,7 @@ class ChatServiceTest {
         chatService.assignGroupModerator("north", chatId, "alice");
 
         verify(chatRoomModeratorRepository).save(any(ChatRoomModerator.class));
-        verify(realtimeMessagingGateway, times(2)).sendToUser(any(), eq("/queue/chats"), any());
+        verify(eventPublisher).publishEvent(new ChatUpdatedDeferredEvent(chatId));
     }
 
     @Test
@@ -864,7 +916,8 @@ class ChatServiceTest {
         chatService.removeGroupParticipant("north", chatId, "alice");
 
         verify(chatParticipantRepository).deleteByChatIdAndUserId(chatId, member.getId());
-        verify(realtimeMessagingGateway).sendToUser(eq("alice"), eq("/queue/chat-removals"), any());
+        verify(eventPublisher).publishEvent(new ChatRemovalDeferredEvent(chatId, List.of("alice")));
+        verify(eventPublisher).publishEvent(new ChatUpdatedDeferredEvent(chatId));
     }
 
     @Test

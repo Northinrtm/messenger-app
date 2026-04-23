@@ -7,6 +7,7 @@ import com.north.messenger.api.dto.UpdateVideoConferenceRequest;
 import com.north.messenger.api.dto.VideoConferenceResponse;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.support.ClusterJobLockService;
+import com.north.messenger.domain.model.ConferenceRecording;
 import com.north.messenger.domain.model.VideoConferenceAttendance;
 import com.north.messenger.domain.repository.ConferenceRecordingRepository;
 import com.north.messenger.domain.model.UserAccount;
@@ -17,6 +18,7 @@ import com.north.messenger.domain.repository.VideoConferenceAttendanceRepository
 import com.north.messenger.domain.repository.VideoConferenceParticipantRepository;
 import com.north.messenger.domain.repository.VideoConferenceRepository;
 import com.north.messenger.security.JwtProperties;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -26,6 +28,9 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
 import static com.north.messenger.support.TestUserAccounts.testUserAccount;
@@ -947,5 +952,233 @@ class VideoConferenceServiceTest {
 
         assertThat(response.participants()).extracting(ParticipantResponse::username)
                 .containsExactly("north", "guest");
+    }
+
+    @Test
+    void uploadRecordingShouldDeletePreviousStoredFileOnlyAfterCommit() {
+        UserAccount organizer = testUserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UUID conferenceId = UUID.randomUUID();
+        VideoConference conference = endedConference(conferenceId, organizer.getId());
+        ConferenceRecording existingRecording = new ConferenceRecording(
+                conferenceId,
+                "old-recording.mp4",
+                "video/mp4",
+                42L,
+                Instant.parse("2026-03-25T12:30:00Z"),
+                organizer.getId()
+        );
+        MockMultipartFile file = new MockMultipartFile("file", "recording.mp4", "video/mp4", new byte[] {1, 2, 3});
+        VideoConferenceParticipant membership = new VideoConferenceParticipant(
+                UUID.randomUUID(),
+                conferenceId,
+                organizer.getId(),
+                Instant.parse("2026-03-25T11:55:00Z")
+        );
+        ParticipantResponse organizerResponse = new ParticipantResponse(
+                organizer.getId(),
+                organizer.getUsername(),
+                organizer.getDisplayName(),
+                organizer.getAvatarUrl(),
+                true
+        );
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(organizer);
+        when(videoConferenceRepository.findById(conferenceId)).thenReturn(Optional.of(conference));
+        when(conferenceRecordingRepository.findByConferenceId(conferenceId)).thenReturn(Optional.of(existingRecording));
+        when(conferenceRecordingStorage.store(conferenceId, file)).thenReturn(
+                new ConferenceRecordingStorage.StoredConferenceRecordingFile("new-recording.mp4", Path.of("new-recording.mp4"))
+        );
+        when(videoConferenceParticipantRepository.findAllByConferenceIdOrderByInvitedAtAsc(conferenceId))
+                .thenReturn(List.of(membership));
+        when(userAccountRepository.findAllByIdIn(anyCollection())).thenReturn(List.of(organizer));
+        when(authService.resolveOnlineByUserIds(anyCollection())).thenReturn(Map.of(organizer.getId(), true));
+        when(authService.toParticipant(organizer, true)).thenReturn(organizerResponse);
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            videoConferenceService.uploadRecording("north", conferenceId, file);
+
+            verify(conferenceRecordingStorage, never()).deleteQuietly("old-recording.mp4");
+
+            triggerAfterCommit();
+
+            verify(conferenceRecordingStorage).deleteQuietly("old-recording.mp4");
+            verify(conferenceRecordingStorage, never()).deleteQuietly("new-recording.mp4");
+        } finally {
+            clearSynchronization();
+        }
+    }
+
+    @Test
+    void uploadRecordingShouldDeleteNewStoredFileOnRollback() {
+        UserAccount organizer = testUserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UUID conferenceId = UUID.randomUUID();
+        VideoConference conference = endedConference(conferenceId, organizer.getId());
+        MockMultipartFile file = new MockMultipartFile("file", "recording.mp4", "video/mp4", new byte[] {1, 2, 3});
+        VideoConferenceParticipant membership = new VideoConferenceParticipant(
+                UUID.randomUUID(),
+                conferenceId,
+                organizer.getId(),
+                Instant.parse("2026-03-25T11:55:00Z")
+        );
+        ParticipantResponse organizerResponse = new ParticipantResponse(
+                organizer.getId(),
+                organizer.getUsername(),
+                organizer.getDisplayName(),
+                organizer.getAvatarUrl(),
+                true
+        );
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(organizer);
+        when(videoConferenceRepository.findById(conferenceId)).thenReturn(Optional.of(conference));
+        when(conferenceRecordingStorage.store(conferenceId, file)).thenReturn(
+                new ConferenceRecordingStorage.StoredConferenceRecordingFile("rollback-recording.mp4", Path.of("rollback-recording.mp4"))
+        );
+        when(videoConferenceParticipantRepository.findAllByConferenceIdOrderByInvitedAtAsc(conferenceId))
+                .thenReturn(List.of(membership));
+        when(userAccountRepository.findAllByIdIn(anyCollection())).thenReturn(List.of(organizer));
+        when(authService.resolveOnlineByUserIds(anyCollection())).thenReturn(Map.of(organizer.getId(), true));
+        when(authService.toParticipant(organizer, true)).thenReturn(organizerResponse);
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            videoConferenceService.uploadRecording("north", conferenceId, file);
+
+            verify(conferenceRecordingStorage, never()).deleteQuietly("rollback-recording.mp4");
+
+            triggerAfterRollback();
+
+            verify(conferenceRecordingStorage).deleteQuietly("rollback-recording.mp4");
+        } finally {
+            clearSynchronization();
+        }
+    }
+
+    @Test
+    void synchronizeImportedRecordingsShouldDeleteSourceOnlyAfterCommit() {
+        UUID conferenceId = UUID.randomUUID();
+        UserAccount organizer = testUserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        VideoConference conference = endedConference(conferenceId, organizer.getId());
+        ConferenceRecordingImportService.ImportedConferenceRecordingCandidate importedRecording =
+                new ConferenceRecordingImportService.ImportedConferenceRecordingCandidate(
+                        Path.of("import/job-1"),
+                        Path.of("import/job-1/recording.mp4"),
+                        null,
+                        conferenceId,
+                        "video/mp4",
+                        1_024L,
+                        Instant.parse("2026-03-25T12:30:00Z")
+                );
+
+        when(conferenceRecordingImportService.discoverAvailableRecordings()).thenReturn(List.of(importedRecording));
+        when(videoConferenceRepository.findAllByIdIn(anyCollection())).thenReturn(List.of(conference));
+        when(conferenceRecordingStorage.importStoredFile(conferenceId, importedRecording.videoFile(), importedRecording.mimeType()))
+                .thenReturn(new ConferenceRecordingStorage.StoredConferenceRecordingFile("imported-recording.mp4", Path.of("imported-recording.mp4")));
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            videoConferenceService.synchronizeImportedRecordings();
+
+            verify(conferenceRecordingImportService, never()).deleteImportedRecordingQuietly(importedRecording.sourceDirectory());
+
+            triggerAfterCommit();
+
+            verify(conferenceRecordingImportService).deleteImportedRecordingQuietly(importedRecording.sourceDirectory());
+            verify(conferenceRecordingStorage, never()).deleteQuietly("imported-recording.mp4");
+        } finally {
+            clearSynchronization();
+        }
+    }
+
+    @Test
+    void synchronizeImportedRecordingsShouldDeleteStoredFileOnRollback() {
+        UUID conferenceId = UUID.randomUUID();
+        UserAccount organizer = testUserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        VideoConference conference = endedConference(conferenceId, organizer.getId());
+        ConferenceRecordingImportService.ImportedConferenceRecordingCandidate importedRecording =
+                new ConferenceRecordingImportService.ImportedConferenceRecordingCandidate(
+                        Path.of("import/job-2"),
+                        Path.of("import/job-2/recording.mp4"),
+                        null,
+                        conferenceId,
+                        "video/mp4",
+                        1_024L,
+                        Instant.parse("2026-03-25T12:31:00Z")
+                );
+
+        when(conferenceRecordingImportService.discoverAvailableRecordings()).thenReturn(List.of(importedRecording));
+        when(videoConferenceRepository.findAllByIdIn(anyCollection())).thenReturn(List.of(conference));
+        when(conferenceRecordingStorage.importStoredFile(conferenceId, importedRecording.videoFile(), importedRecording.mimeType()))
+                .thenReturn(new ConferenceRecordingStorage.StoredConferenceRecordingFile("imported-rollback.mp4", Path.of("imported-rollback.mp4")));
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            videoConferenceService.synchronizeImportedRecordings();
+
+            verify(conferenceRecordingStorage, never()).deleteQuietly("imported-rollback.mp4");
+
+            triggerAfterRollback();
+
+            verify(conferenceRecordingStorage).deleteQuietly("imported-rollback.mp4");
+            verify(conferenceRecordingImportService, never()).deleteImportedRecordingQuietly(importedRecording.sourceDirectory());
+        } finally {
+            clearSynchronization();
+        }
+    }
+
+    private VideoConference endedConference(UUID conferenceId, UUID organizerId) {
+        VideoConference conference = new VideoConference(
+                conferenceId,
+                "Team sync",
+                "vc-room",
+                organizerId,
+                Instant.parse("2026-03-25T12:00:00Z"),
+                Instant.parse("2026-03-25T11:55:00Z"),
+                Instant.parse("2026-03-25T11:55:00Z"),
+                Instant.parse("2026-03-25T11:56:00Z")
+        );
+        conference.end(Instant.parse("2026-03-25T12:40:00Z"));
+        return conference;
+    }
+
+    private void triggerAfterCommit() {
+        TransactionSynchronizationManager.getSynchronizations().forEach(TransactionSynchronization::afterCommit);
+        TransactionSynchronizationManager.getSynchronizations()
+                .forEach(sync -> sync.afterCompletion(TransactionSynchronization.STATUS_COMMITTED));
+    }
+
+    private void triggerAfterRollback() {
+        TransactionSynchronizationManager.getSynchronizations()
+                .forEach(sync -> sync.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
+    }
+
+    private void clearSynchronization() {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 }

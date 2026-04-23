@@ -2,7 +2,6 @@ package com.north.messenger.application.message;
 
 import com.north.messenger.api.dto.CreateMessageRequest;
 import com.north.messenger.api.dto.EncryptedMessagePayloadRequest;
-import com.north.messenger.api.dto.MessageDeletionEventResponse;
 import com.north.messenger.api.dto.MessageResponse;
 import com.north.messenger.api.dto.MessageSnippetResponse;
 import com.north.messenger.api.dto.UpdateMessageRequest;
@@ -43,11 +42,10 @@ class MessageCommandService {
     private final MessageReceiptRepository messageReceiptRepository;
     private final UserAccountRepository userAccountRepository;
     private final UserDeletedMessageRepository userDeletedMessageRepository;
-    private final RealtimeMessagingGateway realtimeMessagingGateway;
     private final ApplicationEventPublisher eventPublisher;
     private final MessengerTelemetry telemetry;
     private final MessageSupport messageSupport;
-    private final MessageDispatchService messageDispatchService;
+    private final MessageDispatchOutboxService messageDispatchOutboxService;
     private final ChatGroupHistoryKeyService chatGroupHistoryKeyService;
     private final ChatAttachmentService chatAttachmentService;
     private final EntityManager entityManager;
@@ -59,11 +57,10 @@ class MessageCommandService {
             MessageReceiptRepository messageReceiptRepository,
             UserAccountRepository userAccountRepository,
             UserDeletedMessageRepository userDeletedMessageRepository,
-            RealtimeMessagingGateway realtimeMessagingGateway,
             ApplicationEventPublisher eventPublisher,
             MessengerTelemetry telemetry,
             MessageSupport messageSupport,
-            MessageDispatchService messageDispatchService,
+            MessageDispatchOutboxService messageDispatchOutboxService,
             ChatGroupHistoryKeyService chatGroupHistoryKeyService,
             ChatAttachmentService chatAttachmentService,
             EntityManager entityManager
@@ -74,11 +71,10 @@ class MessageCommandService {
         this.messageReceiptRepository = messageReceiptRepository;
         this.userAccountRepository = userAccountRepository;
         this.userDeletedMessageRepository = userDeletedMessageRepository;
-        this.realtimeMessagingGateway = realtimeMessagingGateway;
         this.eventPublisher = eventPublisher;
         this.telemetry = telemetry;
         this.messageSupport = messageSupport;
-        this.messageDispatchService = messageDispatchService;
+        this.messageDispatchOutboxService = messageDispatchOutboxService;
         this.chatGroupHistoryKeyService = chatGroupHistoryKeyService;
         this.chatAttachmentService = chatAttachmentService;
         this.entityManager = entityManager;
@@ -100,7 +96,7 @@ class MessageCommandService {
                     .findByChatIdAndSenderIdAndClientMessageId(chatId, currentUser.getId(), clientMessageId)
                     .orElse(null);
             if (existingMessage != null) {
-                eventPublisher.publishEvent(new MessageDispatchEvent(
+                messageDispatchOutboxService.enqueue(new MessageDispatchEvent(
                         chatId,
                         existingMessage.getId(),
                         clientMessageId,
@@ -191,7 +187,7 @@ class MessageCommandService {
                     replyTo
             );
 
-            eventPublisher.publishEvent(new MessageDispatchEvent(
+            messageDispatchOutboxService.enqueue(new MessageDispatchEvent(
                     chatId,
                     persistedMessage.getId(),
                     clientMessageId,
@@ -213,7 +209,7 @@ class MessageCommandService {
             MessageResponse deduplicatedResponse = messageSupport.findExistingMessageResponse(chatId, currentUser, clientMessageId);
             if (deduplicatedResponse != null) {
                 if (existingMessage != null) {
-                    eventPublisher.publishEvent(new MessageDispatchEvent(
+                    messageDispatchOutboxService.enqueue(new MessageDispatchEvent(
                             chatId,
                             existingMessage.getId(),
                             clientMessageId,
@@ -271,12 +267,11 @@ class MessageCommandService {
                     .orElseGet(() -> userDeletedMessageRepository.save(
                             new UserDeletedMessage(UUID.randomUUID(), currentUser.getId(), messageId, Instant.now())
                     ));
-            realtimeMessagingGateway.sendToUser(
-                    currentUser.getUsername(),
-                    "/queue/message-deletions",
-                    new MessageDeletionEventResponse(messageId, chatId)
-            );
-            chatService.notifyChatUpdated(chatId);
+            eventPublisher.publishEvent(new MessageDeletionBroadcastEvent(
+                    chatId,
+                    messageId,
+                    List.of(currentUser.getUsername())
+            ));
             return;
         }
 
@@ -294,12 +289,11 @@ class MessageCommandService {
         chatAttachmentService.deleteAttachmentsForMessage(messageId);
         List<UserAccount> participants = chatService.findParticipants(chatId);
         chatMessageRepository.delete(message);
-        participants.forEach(participant -> realtimeMessagingGateway.sendToUser(
-                participant.getUsername(),
-                "/queue/message-deletions",
-                new MessageDeletionEventResponse(messageId, chatId)
+        eventPublisher.publishEvent(new MessageDeletionBroadcastEvent(
+                chatId,
+                messageId,
+                participants.stream().map(UserAccount::getUsername).toList()
         ));
-        chatService.notifyChatUpdated(chatId);
     }
 
     @Transactional
@@ -339,7 +333,12 @@ class MessageCommandService {
                 Instant.now()
         );
         chatMessageRepository.saveAndFlush(message);
-        messageDispatchService.broadcastMessage(message, null, "update");
+        messageDispatchOutboxService.enqueue(new MessageDispatchEvent(
+                chatId,
+                message.getId(),
+                null,
+                MessageDispatchMode.FULL
+        ));
 
         UserAccount sender = userAccountRepository.findById(message.getSenderId()).orElse(currentUser);
         MessageSupport.MessageReceiptSummary summary = messageSupport.loadReceiptSummaries(List.of(message.getId()))

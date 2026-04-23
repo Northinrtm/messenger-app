@@ -45,6 +45,7 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import io.micrometer.core.instrument.Timer;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -71,6 +72,7 @@ public class ChatService {
     private final RealtimeMessagingGateway realtimeMessagingGateway;
     private final MessengerTelemetry telemetry;
     private final DirectChatCreationLockService directChatCreationLockService;
+    private final ApplicationEventPublisher eventPublisher;
 
     public ChatService(
             AuthService authService,
@@ -86,7 +88,8 @@ public class ChatService {
             UserDeletedMessageRepository userDeletedMessageRepository,
             RealtimeMessagingGateway realtimeMessagingGateway,
             MessengerTelemetry telemetry,
-            DirectChatCreationLockService directChatCreationLockService
+            DirectChatCreationLockService directChatCreationLockService,
+            ApplicationEventPublisher eventPublisher
     ) {
         this.authService = authService;
         this.chatRoomRepository = chatRoomRepository;
@@ -102,6 +105,7 @@ public class ChatService {
         this.realtimeMessagingGateway = realtimeMessagingGateway;
         this.telemetry = telemetry;
         this.directChatCreationLockService = directChatCreationLockService;
+        this.eventPublisher = eventPublisher;
     }
 
     public List<ChatSummaryResponse> listChats(String username) {
@@ -178,11 +182,7 @@ public class ChatService {
                         new UserDeletedChat(UUID.randomUUID(), currentUser.getId(), chatId, Instant.now())
                 ));
         userArchivedChatRepository.deleteByUserIdAndChatId(currentUser.getId(), chatId);
-        realtimeMessagingGateway.sendToUser(
-                currentUser.getUsername(),
-                "/queue/chat-removals",
-                new ChatRemovalEventResponse(chatId)
-        );
+        scheduleChatRemoval(chatId, List.of(currentUser.getUsername()));
     }
 
     @Transactional
@@ -202,7 +202,7 @@ public class ChatService {
         return findDirectChat(directChatPair, currentUser, participant)
                 .map(room -> {
                     restoreDeletedChatStateForUsers(room.getId(), List.of(currentUser.getId()));
-                    notifyChatUpdated(room.getId());
+                    scheduleChatUpdated(room.getId());
                     return toSummary(room, currentUser.getId());
                 })
                 .orElseGet(() -> createNewDirectChat(currentUser, participant, directChatPair));
@@ -230,7 +230,7 @@ public class ChatService {
         room.updateOwnerUserId(currentUser.getId());
         chatRoomRepository.save(room);
         addParticipants(room.getId(), currentUser, participants);
-        notifyChatUpdated(room.getId());
+        scheduleChatUpdated(room.getId());
         return getChatSummaryForUser(room.getId(), currentUser);
     }
 
@@ -273,7 +273,7 @@ public class ChatService {
         participants.forEach(participant ->
                 chatParticipantRepository.save(new ChatParticipant(UUID.randomUUID(), chatId, participant.getId(), joinedAt))
         );
-        notifyChatUpdated(chatId);
+        scheduleChatUpdated(chatId);
         return getChatSummaryForUser(chatId, currentUser);
     }
 
@@ -288,7 +288,7 @@ public class ChatService {
 
         room.updateGroupDetails(normalizeGroupTitle(request.title()), normalizeAvatarUrl(request.avatarUrl()));
         chatRoomRepository.save(room);
-        notifyChatUpdated(chatId);
+        scheduleChatUpdated(chatId);
         return getChatSummaryForUser(chatId, currentUser);
     }
 
@@ -327,12 +327,8 @@ public class ChatService {
             }
         }
 
-        realtimeMessagingGateway.sendToUser(
-                currentUser.getUsername(),
-                "/queue/chat-removals",
-                new ChatRemovalEventResponse(chatId)
-        );
-        notifyChatUpdated(chatId);
+        scheduleChatRemoval(chatId, List.of(currentUser.getUsername()));
+        scheduleChatUpdated(chatId);
     }
 
     @Transactional
@@ -345,11 +341,7 @@ public class ChatService {
         requireGroupOwner(room, currentUser);
 
         List<UserAccount> participants = findParticipants(chatId);
-        participants.forEach(participant -> realtimeMessagingGateway.sendToUser(
-                participant.getUsername(),
-                "/queue/chat-removals",
-                new ChatRemovalEventResponse(chatId)
-        ));
+        scheduleChatRemoval(chatId, participants.stream().map(UserAccount::getUsername).toList());
         chatRoomRepository.delete(room);
     }
 
@@ -376,12 +368,8 @@ public class ChatService {
             chatRoomModeratorRepository.deleteByChatIdAndUserId(chatId, bannedUser.getId());
             userArchivedChatRepository.deleteByUserIdAndChatId(bannedUser.getId(), chatId);
             userDeletedChatRepository.deleteByUserIdAndChatId(bannedUser.getId(), chatId);
-            realtimeMessagingGateway.sendToUser(
-                    bannedUser.getUsername(),
-                    "/queue/chat-removals",
-                    new ChatRemovalEventResponse(chatId)
-            );
-            notifyChatUpdated(chatId);
+            scheduleChatRemoval(chatId, List.of(bannedUser.getUsername()));
+            scheduleChatUpdated(chatId);
         }
     }
 
@@ -411,7 +399,7 @@ public class ChatService {
                 .orElseGet(() -> chatRoomModeratorRepository.save(
                         new ChatRoomModerator(UUID.randomUUID(), chatId, moderatorUser.getId(), currentUser.getId(), Instant.now())
                 ));
-        notifyChatUpdated(chatId);
+        scheduleChatUpdated(chatId);
     }
 
     @Transactional
@@ -430,7 +418,7 @@ public class ChatService {
         }
 
         chatRoomModeratorRepository.deleteByChatIdAndUserId(chatId, moderatorUser.getId());
-        notifyChatUpdated(chatId);
+        scheduleChatUpdated(chatId);
     }
 
     @Transactional
@@ -449,12 +437,8 @@ public class ChatService {
         chatRoomModeratorRepository.deleteByChatIdAndUserId(chatId, participant.getId());
         userArchivedChatRepository.deleteByUserIdAndChatId(participant.getId(), chatId);
         userDeletedChatRepository.deleteByUserIdAndChatId(participant.getId(), chatId);
-        realtimeMessagingGateway.sendToUser(
-                participant.getUsername(),
-                "/queue/chat-removals",
-                new ChatRemovalEventResponse(chatId)
-        );
-        notifyChatUpdated(chatId);
+        scheduleChatRemoval(chatId, List.of(participant.getUsername()));
+        scheduleChatUpdated(chatId);
     }
 
     @Transactional
@@ -477,7 +461,7 @@ public class ChatService {
         restoreDeletedChatStateForUsers(chatId, List.of(currentUser.getId()));
         userArchivedChatRepository.deleteByUserIdAndChatId(currentUser.getId(), chatId);
         if (!alreadyMember) {
-            notifyChatUpdated(chatId);
+            scheduleChatUpdated(chatId);
         }
         return getChatSummaryForUser(chatId, currentUser);
     }
@@ -587,6 +571,19 @@ public class ChatService {
         }
     }
 
+    void broadcastChatRemoval(UUID chatId, Collection<String> usernames) {
+        if (usernames == null || usernames.isEmpty()) {
+            return;
+        }
+
+        ChatRemovalEventResponse response = new ChatRemovalEventResponse(chatId);
+        usernames.forEach(username -> realtimeMessagingGateway.sendToUser(
+                username,
+                "/queue/chat-removals",
+                response
+        ));
+    }
+
     @Transactional
     public ChatSummaryResponse updatePinnedMessage(String username, UUID chatId, UUID messageId) {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
@@ -604,7 +601,7 @@ public class ChatService {
             room.pinMessage(message.getId(), Instant.now());
         }
 
-        notifyChatUpdated(chatId);
+        scheduleChatUpdated(chatId);
         return getChatSummaryForUser(chatId, currentUser);
     }
 
@@ -635,7 +632,7 @@ public class ChatService {
         );
         chatRoomRepository.save(room);
         addParticipants(room.getId(), currentUser, List.of(participant));
-        notifyChatUpdated(room.getId());
+        scheduleChatUpdated(room.getId());
         return getChatSummaryForUser(room.getId(), currentUser);
     }
 
@@ -896,6 +893,24 @@ public class ChatService {
                     joinedAt.plusMillis(index + 1L)
             ));
         }
+    }
+
+    private void scheduleChatUpdated(UUID chatId) {
+        eventPublisher.publishEvent(new ChatUpdatedDeferredEvent(chatId));
+    }
+
+    private void scheduleChatRemoval(UUID chatId, Collection<String> usernames) {
+        if (usernames == null || usernames.isEmpty()) {
+            return;
+        }
+
+        eventPublisher.publishEvent(new ChatRemovalDeferredEvent(
+                chatId,
+                usernames.stream()
+                        .filter(Objects::nonNull)
+                        .distinct()
+                        .toList()
+        ));
     }
 
     private Optional<UserAccount> resolveOtherDirectParticipant(UUID chatId, UUID currentUserId) {

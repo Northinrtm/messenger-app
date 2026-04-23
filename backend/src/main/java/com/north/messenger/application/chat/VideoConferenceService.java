@@ -42,6 +42,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -474,9 +476,18 @@ public class VideoConferenceService {
             recording.replaceStoredFile(storedFile.storedFilename(), mimeType, file.getSize(), now);
         }
         conferenceRecordingRepository.save(recording);
-        if (previousStoredFilename != null && !previousStoredFilename.equals(storedFile.storedFilename())) {
-            conferenceRecordingStorage.deleteQuietly(previousStoredFilename);
-        }
+        registerAfterTransaction(
+                () -> {
+                    if (previousStoredFilename != null && !previousStoredFilename.equals(storedFile.storedFilename())) {
+                        conferenceRecordingStorage.deleteQuietly(previousStoredFilename);
+                    }
+                },
+                () -> {
+                    if (previousStoredFilename == null || !previousStoredFilename.equals(storedFile.storedFilename())) {
+                        conferenceRecordingStorage.deleteQuietly(storedFile.storedFilename());
+                    }
+                }
+        );
 
         List<VideoConferenceParticipant> memberships =
                 videoConferenceParticipantRepository.findAllByConferenceIdOrderByInvitedAtAsc(conferenceId);
@@ -736,7 +747,10 @@ public class VideoConferenceService {
             }
 
             if (recordingsByConferenceId.containsKey(conference.getId())) {
-                conferenceRecordingImportService.deleteImportedRecordingQuietly(importedRecording.sourceDirectory());
+                registerAfterTransaction(
+                        () -> conferenceRecordingImportService.deleteImportedRecordingQuietly(importedRecording.sourceDirectory()),
+                        null
+                );
                 continue;
             }
 
@@ -756,7 +770,10 @@ public class VideoConferenceService {
             );
             conferenceRecordingRepository.save(recording);
             recordingsByConferenceId.put(conference.getId(), recording);
-            conferenceRecordingImportService.deleteImportedRecordingQuietly(importedRecording.sourceDirectory());
+            registerAfterTransaction(
+                    () -> conferenceRecordingImportService.deleteImportedRecordingQuietly(importedRecording.sourceDirectory()),
+                    () -> conferenceRecordingStorage.deleteQuietly(storedFile.storedFilename())
+            );
         }
     }
 
@@ -879,6 +896,31 @@ public class VideoConferenceService {
             sanitizedTitle = "conference-recording";
         }
         return sanitizedTitle + "-" + conference.getId() + extension;
+    }
+
+    private void registerAfterTransaction(Runnable afterCommitAction, Runnable rollbackAction) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            if (afterCommitAction != null) {
+                afterCommitAction.run();
+            }
+            return;
+        }
+
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                if (afterCommitAction != null) {
+                    afterCommitAction.run();
+                }
+            }
+
+            @Override
+            public void afterCompletion(int status) {
+                if (status != STATUS_COMMITTED && rollbackAction != null) {
+                    rollbackAction.run();
+                }
+            }
+        });
     }
 
     public record ConferenceRecordingDownload(

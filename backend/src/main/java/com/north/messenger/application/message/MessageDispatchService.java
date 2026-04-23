@@ -67,16 +67,20 @@ class MessageDispatchService {
     }
 
     void dispatchMessage(MessageDispatchEvent event) {
+        dispatchMessage(event, "outbox");
+    }
+
+    void dispatchMessage(MessageDispatchEvent event, String source) {
         ChatMessage message = chatMessageRepository.findById(event.messageId()).orElse(null);
         if (message == null) {
-            telemetry.recordMessageDispatchMissing(event.chatId(), event.messageId(), "after_commit");
+            telemetry.recordMessageDispatchMissing(event.chatId(), event.messageId(), source);
             return;
         }
         if (event.mode() == MessageDispatchMode.ACK_ONLY) {
-            acknowledgeSender(message, event.clientMessageId(), "after_commit_ack_only");
+            acknowledgeSender(message, event.clientMessageId(), source + "_ack_only");
             return;
         }
-        broadcastMessage(message, event.clientMessageId(), "after_commit");
+        broadcastMessage(message, event.clientMessageId(), source);
     }
 
     void broadcastMessage(ChatMessage message, String senderClientMessageId, String source) {

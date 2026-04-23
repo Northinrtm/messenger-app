@@ -121,6 +121,11 @@ app:
     refresh-token-ttl: ${APP_JWT_REFRESH_TOKEN_TTL:P30D}
     secret: ${APP_JWT_SECRET:}
     generate-secret-if-missing: ${APP_JWT_GENERATE_SECRET_IF_MISSING:false}
+  outbox:
+    message-dispatch:
+      batch-size: ${APP_OUTBOX_MESSAGE_DISPATCH_BATCH_SIZE:32}
+      poll-fixed-delay-ms: ${APP_OUTBOX_MESSAGE_DISPATCH_POLL_FIXED_DELAY_MS:5000}
+      retry-delay-ms: ${APP_OUTBOX_MESSAGE_DISPATCH_RETRY_DELAY_MS:3000}
   media:
     conference-recordings:
       directory: ${APP_MEDIA_CONFERENCE_RECORDINGS_DIRECTORY:./storage/conference-recordings}
