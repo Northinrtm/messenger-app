@@ -1149,7 +1149,7 @@ class MessageSupport {
         }
 
         return visibleDevices(
-                        userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(userIds)
+                        userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.copyOf(userIds))
                 ).stream()
                 .collect(Collectors.groupingBy(
                         UserEncryptionDevice::getUserId,
