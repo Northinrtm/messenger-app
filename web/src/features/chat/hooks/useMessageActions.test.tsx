@@ -359,7 +359,7 @@ describe("useMessageActions send failure recovery", () => {
     expect(vi.mocked(sendEncryptedMessage)).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      vi.advanceTimersByTime(20_000);
+      vi.advanceTimersByTime(90_000);
       await flushMicrotasks(10);
     });
 

@@ -145,7 +145,7 @@ export function useMessageActions({
   const autoResendTimeoutIdsRef = useRef(new Map<string, number>());
   const getMessagesKey = (chatId: string) => buildMessagesQueryKey(currentUser.id, chatId);
   const AUTO_RESEND_DELAY_MS = 1_500;
-  const SEND_ATTEMPT_TIMEOUT_MS = 20_000;
+  const SEND_ATTEMPT_TIMEOUT_MS = 90_000;
 
   const sendMessageMutation = useMutation({
     mutationFn: async (input: SendMessageInput) => {
