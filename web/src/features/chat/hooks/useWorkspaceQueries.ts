@@ -45,6 +45,7 @@ type UseWorkspaceQueriesOptions = {
 };
 
 const INITIAL_MESSAGE_PAGE_SIZE = 30;
+const MESSAGE_HYDRATION_RETRY_DELAYS_MS = [250, 1_000, 3_000] as const;
 
 export type MessagePageCursor = {
   beforeServerOrder: number | null;
@@ -189,6 +190,16 @@ export function mergeHydratedMessageSnapshot(
   } satisfies ChatMessage;
 }
 
+export function shouldRetryUnavailableHydration(
+  currentMessage: Pick<ChatMessage, "content">,
+  hydratedMessage: Pick<ChatMessage, "content">
+) {
+  return (
+    isUnavailableEncryptedMessage(currentMessage.content) &&
+    isUnavailableEncryptedMessage(hydratedMessage.content)
+  );
+}
+
 export function useWorkspaceQueries({
   activeChatId,
   activeConferenceId,
@@ -211,6 +222,8 @@ export function useWorkspaceQueries({
     new Map<string, { chatId: string; rawMessage: ApiChatMessage }>()
   );
   const messageHydrationWorkerRunningRef = useRef(false);
+  const messageHydrationRetryCountRef = useRef(new Map<string, number>());
+  const messageHydrationRetryTimeoutIdRef = useRef(new Map<string, number>());
   const shouldFetchSessions = sidebarSheet === "sessions";
   const shouldAggressivelyRefreshConferences =
     activeListTab === "conferences" || Boolean(activeConferenceId);
@@ -392,6 +405,40 @@ export function useWorkspaceQueries({
 
   useEffect(() => {
     const drainMessageHydrationQueue = async () => {
+      const clearHydrationRetry = (hydrationKey: string) => {
+        const timeoutId = messageHydrationRetryTimeoutIdRef.current.get(hydrationKey);
+        if (timeoutId !== undefined) {
+          window.clearTimeout(timeoutId);
+          messageHydrationRetryTimeoutIdRef.current.delete(hydrationKey);
+        }
+        messageHydrationRetryCountRef.current.delete(hydrationKey);
+      };
+
+      const scheduleHydrationRetry = (
+        hydrationKey: string,
+        queuedMessage: { chatId: string; rawMessage: ApiChatMessage }
+      ) => {
+        if (messageHydrationRetryTimeoutIdRef.current.has(hydrationKey)) {
+          return;
+        }
+
+        const currentAttempt = messageHydrationRetryCountRef.current.get(hydrationKey) ?? 0;
+        const retryDelay = MESSAGE_HYDRATION_RETRY_DELAYS_MS[currentAttempt];
+        if (retryDelay === undefined) {
+          return;
+        }
+
+        messageHydrationRetryCountRef.current.set(hydrationKey, currentAttempt + 1);
+        queuedMessageHydrationKeysRef.current.delete(hydrationKey);
+        const timeoutId = window.setTimeout(() => {
+          messageHydrationRetryTimeoutIdRef.current.delete(hydrationKey);
+          queuedMessageHydrationKeysRef.current.add(hydrationKey);
+          messageHydrationQueueRef.current.set(hydrationKey, queuedMessage);
+          void drainMessageHydrationQueue();
+        }, retryDelay);
+        messageHydrationRetryTimeoutIdRef.current.set(hydrationKey, timeoutId);
+      };
+
       if (messageHydrationWorkerRunningRef.current) {
         return;
       }
@@ -412,15 +459,27 @@ export function useWorkspaceQueries({
 
           try {
             const hydratedMessage = await hydrateChatMessage(queuedMessage.rawMessage, userId);
+            let shouldRetry = false;
             queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
               buildMessagesQueryKey(userId, queuedMessage.chatId),
               (current) =>
                 updateMessageById(current, hydratedMessage.id, (currentMessage) =>
-                  mergeHydratedMessageSnapshot(currentMessage, hydratedMessage)
+                  {
+                    shouldRetry = shouldRetryUnavailableHydration(
+                      currentMessage,
+                      hydratedMessage
+                    );
+                    return mergeHydratedMessageSnapshot(currentMessage, hydratedMessage);
+                  }
                 )
             );
+            if (shouldRetry) {
+              scheduleHydrationRetry(hydrationKey, queuedMessage);
+            } else {
+              clearHydrationRetry(hydrationKey);
+            }
           } catch {
-            // Keep the fast snapshot in place when late hydration fails.
+            scheduleHydrationRetry(hydrationKey, queuedMessage);
           }
         }
       } finally {
@@ -459,6 +518,16 @@ export function useWorkspaceQueries({
 
     void drainMessageHydrationQueue();
   }, [activeChat?.id, messagesQuery.data?.pages, queryClient, userId]);
+
+  useEffect(() => {
+    return () => {
+      messageHydrationRetryTimeoutIdRef.current.forEach((timeoutId) => {
+        window.clearTimeout(timeoutId);
+      });
+      messageHydrationRetryTimeoutIdRef.current.clear();
+      messageHydrationRetryCountRef.current.clear();
+    };
+  }, []);
 
   return {
     activeTypingQuery,

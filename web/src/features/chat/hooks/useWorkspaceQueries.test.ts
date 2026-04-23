@@ -9,6 +9,7 @@ import {
   getChatsQueryRefreshStrategy,
   getNextMessagePageCursor,
   mergeHydratedMessageSnapshot,
+  shouldRetryUnavailableHydration,
   upsertRawMessagePage,
 } from "./useWorkspaceQueries";
 
@@ -195,5 +196,29 @@ describe("useWorkspaceQueries pagination helpers", () => {
     );
 
     expect(merged.content).toBe("already decrypted");
+  });
+
+  it("retries late hydration when both the snapshot and the hydrated result stay unavailable", () => {
+    expect(
+      shouldRetryUnavailableHydration(
+        {
+          content: "[Encrypted message unavailable]",
+        },
+        {
+          content: "[Encrypted message unavailable]",
+        }
+      )
+    ).toBe(true);
+
+    expect(
+      shouldRetryUnavailableHydration(
+        {
+          content: "[Encrypted message unavailable]",
+        },
+        {
+          content: "decrypted later",
+        }
+      )
+    ).toBe(false);
   });
 });

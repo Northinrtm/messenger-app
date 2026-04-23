@@ -82,6 +82,8 @@ const GROUP_HISTORY_KEY_GRANT_AAD_VERSION = 1;
 const DEVICE_REGISTRATION_CACHE_TTL_MS = 30_000;
 const DEVICE_PREPARATION_CACHE_TTL_MS = 30_000;
 const RECOVERY_SNAPSHOT_SYNC_DEBOUNCE_MS = 1_000;
+const RECOVERY_SYNC_SESSION_WAIT_TIMEOUT_MS = 1_000;
+const RECOVERY_SYNC_SESSION_WAIT_POLL_MS = 25;
 const RECOVERY_SNAPSHOT_PAYLOAD_VERSION = 1;
 const SIGNED_PREKEY_SIGNATURE_CONTEXT = "north-signed-prekey-v1";
 const textEncoder = new TextEncoder();
@@ -98,6 +100,7 @@ const recoverySyncSessionByUserId = new Map<string, AuthResponse>();
 const scheduledRecoverySnapshotSyncByUserId = new Map<string, number>();
 const inFlightRecoverySnapshotSyncByUserId = new Map<string, Promise<void>>();
 const queuedRecoverySnapshotSyncByUserId = new Set<string>();
+const inFlightRecoverySyncSessionWaitByUserId = new Map<string, Promise<AuthResponse | null>>();
 const DECRYPTED_ATTACHMENT_CACHE_MAX_BYTES = 64 * 1024 * 1024;
 const decryptedAttachmentCache = new Map<
   string,
@@ -437,6 +440,50 @@ function rememberRecoverySyncSession(session: AuthResponse) {
   recoverySyncSessionByUserId.set(session.user.id, session);
 }
 
+function waitForRecoverySyncSession(userId: string) {
+  const existingSession = recoverySyncSessionByUserId.get(userId);
+  if (existingSession) {
+    return Promise.resolve(existingSession);
+  }
+
+  const inFlightWait = inFlightRecoverySyncSessionWaitByUserId.get(userId);
+  if (inFlightWait) {
+    return inFlightWait;
+  }
+
+  if (typeof window === "undefined") {
+    return Promise.resolve(null);
+  }
+
+  const waitPromise = new Promise<AuthResponse | null>((resolve) => {
+    const deadline = Date.now() + RECOVERY_SYNC_SESSION_WAIT_TIMEOUT_MS;
+
+    const poll = () => {
+      const session = recoverySyncSessionByUserId.get(userId);
+      if (session) {
+        resolve(session);
+        return;
+      }
+
+      if (Date.now() >= deadline) {
+        resolve(null);
+        return;
+      }
+
+      window.setTimeout(poll, RECOVERY_SYNC_SESSION_WAIT_POLL_MS);
+    };
+
+    poll();
+  }).finally(() => {
+    if (inFlightRecoverySyncSessionWaitByUserId.get(userId) === waitPromise) {
+      inFlightRecoverySyncSessionWaitByUserId.delete(userId);
+    }
+  });
+
+  inFlightRecoverySyncSessionWaitByUserId.set(userId, waitPromise);
+  return waitPromise;
+}
+
 function clearRecoverySnapshotSyncState(userId?: string) {
   if (typeof window !== "undefined") {
     if (userId) {
@@ -454,6 +501,7 @@ function clearRecoverySnapshotSyncState(userId?: string) {
   if (userId) {
     recoverySyncSessionByUserId.delete(userId);
     inFlightRecoverySnapshotSyncByUserId.delete(userId);
+    inFlightRecoverySyncSessionWaitByUserId.delete(userId);
     scheduledRecoverySnapshotSyncByUserId.delete(userId);
     queuedRecoverySnapshotSyncByUserId.delete(userId);
     return;
@@ -461,6 +509,7 @@ function clearRecoverySnapshotSyncState(userId?: string) {
 
   recoverySyncSessionByUserId.clear();
   inFlightRecoverySnapshotSyncByUserId.clear();
+  inFlightRecoverySyncSessionWaitByUserId.clear();
   scheduledRecoverySnapshotSyncByUserId.clear();
   queuedRecoverySnapshotSyncByUserId.clear();
 }
@@ -3317,7 +3366,8 @@ async function decryptGroupHistoryMessage(
     historyEnvelope.historyKeyId
   );
   if (!historyKeyRecord) {
-    const session = recoverySyncSessionByUserId.get(userId);
+    const session =
+      recoverySyncSessionByUserId.get(userId) ?? (await waitForRecoverySyncSession(userId));
     if (!session) {
       throw new Error("Encrypted group history key is not available for this device");
     }
