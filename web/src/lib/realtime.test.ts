@@ -32,7 +32,7 @@ vi.mock("@stomp/stompjs", () => {
     publishCalls: Array<{ destination: string; body: string }> = [];
     subscriptions = new Map<string, (frame: { body: string }) => void>();
     onConnect = () => undefined;
-    onStompError = () => undefined;
+    onStompError = (_frame?: { headers?: Record<string, string>; body?: string }) => undefined;
     onWebSocketClose = () => undefined;
     onWebSocketError = () => undefined;
 
@@ -95,7 +95,7 @@ type MockClient = {
     brokerURL: string;
   };
   onConnect: () => void;
-  onStompError: () => void;
+  onStompError: (frame?: { headers?: Record<string, string>; body?: string }) => void;
   onWebSocketClose: () => void;
   onWebSocketError: () => void;
   activate: () => void;
@@ -121,6 +121,7 @@ function setDocumentVisibilityState(state: DocumentVisibilityState) {
 
 function createSubscription(options?: {
   onConnectionChange?: (connected: boolean) => void;
+  onAuthFailure?: () => void;
 }) {
   return subscribeToChats({
     chatIds: [],
@@ -130,6 +131,7 @@ function createSubscription(options?: {
     onMessage: () => undefined,
     onSessionEvent: () => undefined,
     onConnectionChange: options?.onConnectionChange,
+    onAuthFailure: options?.onAuthFailure,
   });
 }
 
@@ -497,6 +499,38 @@ describe("realtime reconnect protection", () => {
       status: 503,
       message: "Realtime connection was interrupted before the message was confirmed.",
     });
+    dispose();
+  });
+
+  it("fails pending sends and reports auth failure on websocket authentication errors", async () => {
+    const onAuthFailure = vi.fn();
+    const dispose = createSubscription({
+      onAuthFailure,
+    });
+    const client = stompClients[0];
+    client.connected = true;
+    client.onConnect();
+
+    const sendPromise = sendMessageRaw("ignored", "chat-1", {
+      clientMessageId: "client-auth-fail",
+      encryptedPayload: {
+        scheme: "X3DH-DEVICE-AES-GCM",
+        encryptedKeysByRecipientId: {},
+      },
+    });
+
+    client.onStompError({
+      headers: {
+        message: "WebSocket authenticated session is inactive",
+      },
+      body: "",
+    });
+
+    await expect(sendPromise).rejects.toMatchObject({
+      status: 401,
+      message: "Realtime session ended. Sign in again.",
+    });
+    expect(onAuthFailure).toHaveBeenCalledTimes(1);
     dispose();
   });
 

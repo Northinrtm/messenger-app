@@ -2,6 +2,7 @@ import {
   Client,
   ReconnectionTimeMode,
   TickerStrategy,
+  type IFrame,
   type StompSubscription,
 } from "@stomp/stompjs";
 import { ApiError } from "./api";
@@ -31,6 +32,7 @@ type SubscriptionOptions = {
   onMessageStatus?: (event: MessageStatusEvent) => void;
   onSessionEvent: (event: SessionEvent) => void;
   onTyping?: (event: TypingEvent) => void;
+  onAuthFailure?: () => void;
   onConnect?: () => void;
   onConnectionChange?: (connected: boolean) => void;
 };
@@ -48,6 +50,7 @@ type RealtimeConnection = {
   onMessageStatus?: (event: MessageStatusEvent) => void;
   onSessionEvent: (event: SessionEvent) => void;
   onTyping?: (event: TypingEvent) => void;
+  onAuthFailure?: () => void;
   typingSubscriptions: Map<string, StompSubscription>;
   userSubscriptions: StompSubscription[];
   onConnectionChange?: (connected: boolean) => void;
@@ -95,6 +98,7 @@ export function subscribeToChats({
   onMessageStatus,
   onSessionEvent,
   onTyping,
+  onAuthFailure,
   onConnect,
   onConnectionChange,
 }: SubscriptionOptions) {
@@ -116,6 +120,7 @@ export function subscribeToChats({
     onMessageStatus,
     onSessionEvent,
     onTyping,
+    onAuthFailure,
     typingSubscriptions: new Map(),
     userSubscriptions: [],
     onConnectionChange,
@@ -230,7 +235,12 @@ export function subscribeToChats({
     connection.onConnect?.();
   };
 
-  client.onStompError = () => {
+  client.onStompError = (frame) => {
+    if (isAuthenticationFailureFrame(frame)) {
+      handleAuthenticationFailure(connection);
+      return;
+    }
+
     handleConnectionFailure(connection);
   };
 
@@ -433,6 +443,22 @@ function retireConnection(connection: RealtimeConnection) {
   });
 }
 
+function handleAuthenticationFailure(connection: RealtimeConnection) {
+  if (!isActiveConnection(connection)) {
+    return;
+  }
+
+  clearSubscriptions(connection);
+  clearReconnectCooldown(connection);
+  clearVisibilityPause(connection);
+  failPendingSendRequests("Realtime session ended. Sign in again.", 401);
+  setConnectionState(connection, false);
+  deactivateRealtimeClient(connection.client, {
+    force: isWebSocketClosingOrClosed(connection.client),
+  });
+  connection.onAuthFailure?.();
+}
+
 function setConnectionState(connection: RealtimeConnection, connected: boolean) {
   if (connection.connected === connected) {
     return;
@@ -470,6 +496,25 @@ function isRealtimeClientReady(client: Client | undefined) {
     client?.connected &&
       client.webSocket &&
       client.webSocket.readyState === WEB_SOCKET_OPEN_STATE
+  );
+}
+
+function isAuthenticationFailureFrame(frame: IFrame | undefined) {
+  const details = [frame?.headers?.message, frame?.body]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join("\n")
+    .toLowerCase();
+
+  if (!details) {
+    return false;
+  }
+
+  return (
+    details.includes("websocket authentication required") ||
+    details.includes("authenticated session") ||
+    details.includes("session is inactive") ||
+    details.includes("session revoked") ||
+    details.includes("expired or revoked")
   );
 }
 

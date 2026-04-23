@@ -228,6 +228,10 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
                     accessor.getCommand(),
                     accessor.getDestination()
             );
+            if (StompCommand.SEND.equals(accessor.getCommand())
+                    || StompCommand.SUBSCRIBE.equals(accessor.getCommand())) {
+                throw new MessagingException("WebSocket authenticated session is inactive");
+            }
             return null;
         }
 

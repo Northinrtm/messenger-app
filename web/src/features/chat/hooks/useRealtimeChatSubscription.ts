@@ -306,6 +306,7 @@ export function useRealtimeChatSubscription({
       token: sessionToken,
       currentUserId: currentUser.id,
       onChat: handleRealtimeChat,
+      onAuthFailure: onUnauthorized,
       onChatRemoval: handleRealtimeChatRemoval,
       onConnectionChange,
       onConnect: handleRealtimeConnect,

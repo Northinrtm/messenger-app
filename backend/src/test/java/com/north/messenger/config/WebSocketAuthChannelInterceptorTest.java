@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
+import org.springframework.messaging.MessagingException;
 import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.MessageBuilder;
@@ -19,6 +20,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 
 import static com.north.messenger.support.TestUserAccounts.testUserAccount;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -201,8 +203,8 @@ class WebSocketAuthChannelInterceptorTest {
         accessor.getSessionAttributes().put(WebSocketAuthChannelInterceptor.SESSION_ID_ATTRIBUTE, sessionId);
         Message<byte[]> message = MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
 
-        Message<?> result = interceptor.preSend(message, mock(MessageChannel.class));
-
-        assertThat(result).isNull();
+        assertThatThrownBy(() -> interceptor.preSend(message, mock(MessageChannel.class)))
+                .isInstanceOf(MessagingException.class)
+                .hasMessage("WebSocket authenticated session is inactive");
     }
 }
