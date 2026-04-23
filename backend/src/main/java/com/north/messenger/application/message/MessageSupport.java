@@ -425,6 +425,7 @@ class MessageSupport {
         GroupSharedEnvelope groupSharedEnvelope = room.isDirect()
                 ? null
                 : parseGroupSharedEnvelope(payload.sharedEnvelope(), room.getId());
+        Instant now = Instant.now();
 
         Map<String, UserEncryptionDevice> knownDevicesById = visibleDevices(
                         userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(
@@ -461,6 +462,19 @@ class MessageSupport {
         UserEncryptionDevice senderDevice = null;
         Map<UUID, DeviceEnvelope> validatedEnvelopesByRecipientDeviceId = new HashMap<>();
         Map<UUID, BootstrapPrekeyBinding> bootstrapPrekeyBindingsByRecipientDeviceId = new HashMap<>();
+        Map<DeviceSignedPrekeyRef, UserEncryptionSignedPrekey> activeSignedPrekeysByRef =
+                userEncryptionSignedPrekeyRepository.findAllActiveByDeviceIdIn(
+                                knownDevicesById.values().stream()
+                                        .map(UserEncryptionDevice::getId)
+                                        .distinct()
+                                        .toList(),
+                                now
+                        ).stream()
+                        .collect(Collectors.toMap(
+                                prekey -> new DeviceSignedPrekeyRef(prekey.getDeviceId(), prekey.getKeyId()),
+                                Function.identity(),
+                                (left, right) -> left
+                        ));
         for (Map.Entry<String, String> entry : validatedEncryptedKeysByRecipientId.entrySet()) {
             UserEncryptionDevice recipientDevice = knownDevicesById.get(entry.getKey());
             if (recipientDevice == null) {
@@ -506,13 +520,18 @@ class MessageSupport {
                 );
             }
 
-            UserEncryptionSignedPrekey recipientSignedPrekey = userEncryptionSignedPrekeyRepository
-                    .findActiveByDeviceIdAndKeyId(
-                            recipientDevice.getId(),
-                            envelope.recipientSignedPrekeyId(),
-                            Instant.now()
-                    )
-                    .orElse(null);
+            UserEncryptionSignedPrekey recipientSignedPrekey = activeSignedPrekeysByRef.get(
+                    new DeviceSignedPrekeyRef(recipientDevice.getId(), envelope.recipientSignedPrekeyId())
+            );
+            if (recipientSignedPrekey == null) {
+                recipientSignedPrekey = userEncryptionSignedPrekeyRepository
+                        .findActiveByDeviceIdAndKeyId(
+                                recipientDevice.getId(),
+                                envelope.recipientSignedPrekeyId(),
+                                now
+                        )
+                        .orElse(null);
+            }
             if (recipientSignedPrekey == null) {
                 throw new ResponseStatusException(
                         HttpStatus.BAD_REQUEST,
@@ -1124,6 +1143,23 @@ class MessageSupport {
                 .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
+    Map<UUID, Set<String>> loadVisibleDeviceIdsByUserId(Collection<UUID> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return Map.of();
+        }
+
+        return visibleDevices(
+                        userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(userIds)
+                ).stream()
+                .collect(Collectors.groupingBy(
+                        UserEncryptionDevice::getUserId,
+                        Collectors.mapping(
+                                device -> device.getId().toString(),
+                                Collectors.toCollection(LinkedHashSet::new)
+                        )
+                ));
+    }
+
     String summarizeMessagePreview(ChatMessage message) {
         return message.getEncryptionScheme() != null && !message.getEncryptionScheme().isBlank()
                 ? "Encrypted message"
@@ -1178,6 +1214,12 @@ class MessageSupport {
             UserEncryptionOneTimePrekey prekey,
             String initiatorEphemeralPublicKey,
             String ratchetPublicKey
+    ) {
+    }
+
+    record DeviceSignedPrekeyRef(
+            UUID deviceId,
+            int keyId
     ) {
     }
 

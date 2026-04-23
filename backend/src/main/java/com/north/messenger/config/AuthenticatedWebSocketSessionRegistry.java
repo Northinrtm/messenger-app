@@ -29,13 +29,13 @@ public class AuthenticatedWebSocketSessionRegistry {
     private final ConcurrentMap<String, java.util.Set<String>> webSocketSessionIdsByUsername = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, WebSocketSession> transportSessionsByWebSocketSessionId = new ConcurrentHashMap<>();
 
-    public void register(String webSocketSessionId, String username, UUID authSessionId) {
-        if (!StringUtils.hasText(webSocketSessionId) || !StringUtils.hasText(username) || authSessionId == null) {
+    public void register(String webSocketSessionId, String username, UUID userId, UUID authSessionId) {
+        if (!StringUtils.hasText(webSocketSessionId) || !StringUtils.hasText(username) || userId == null || authSessionId == null) {
             return;
         }
 
         RegisteredWebSocketSession registeredSession =
-                new RegisteredWebSocketSession(webSocketSessionId, username, authSessionId);
+                new RegisteredWebSocketSession(webSocketSessionId, username, userId, authSessionId);
         RegisteredWebSocketSession previous = sessionsByWebSocketSessionId.put(webSocketSessionId, registeredSession);
         if (previous != null) {
             removeFromUsernameIndex(previous);
@@ -155,6 +155,7 @@ public class AuthenticatedWebSocketSessionRegistry {
     public record RegisteredWebSocketSession(
             String webSocketSessionId,
             String username,
+            UUID userId,
             UUID authSessionId
     ) {
     }

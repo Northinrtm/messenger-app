@@ -38,14 +38,15 @@ class AuthenticatedWebSocketUserDeliveryTest {
 
     @Test
     void shouldDeliverOnlyToActiveWebSocketSessions() {
+        UUID userId = UUID.randomUUID();
         UUID activeAuthSessionId = UUID.randomUUID();
         UUID revokedAuthSessionId = UUID.randomUUID();
         Map<String, String> payload = Map.of("type", "message");
-        webSocketSessionRegistry.register("ws-active", "north", activeAuthSessionId);
-        webSocketSessionRegistry.register("ws-revoked", "north", revokedAuthSessionId);
+        webSocketSessionRegistry.register("ws-active", "north", userId, activeAuthSessionId);
+        webSocketSessionRegistry.register("ws-revoked", "north", userId, revokedAuthSessionId);
 
-        when(authService.isSessionActive("north", activeAuthSessionId)).thenReturn(true);
-        when(authService.isSessionActive("north", revokedAuthSessionId)).thenReturn(false);
+        when(authService.findActiveSessionIds(userId, java.util.Set.of(activeAuthSessionId, revokedAuthSessionId)))
+                .thenReturn(java.util.Set.of(activeAuthSessionId));
 
         delivery.sendToUser("north", "/queue/messages", payload);
 
@@ -65,10 +66,12 @@ class AuthenticatedWebSocketUserDeliveryTest {
 
     @Test
     void shouldDropInactiveWebSocketSessionForSessionEventsToo() {
+        UUID userId = UUID.randomUUID();
         UUID revokedAuthSessionId = UUID.randomUUID();
         Map<String, String> payload = Map.of("type", "SESSION_REVOKED");
-        webSocketSessionRegistry.register("ws-revoked", "north", revokedAuthSessionId);
-        when(authService.isSessionActive("north", revokedAuthSessionId)).thenReturn(false);
+        webSocketSessionRegistry.register("ws-revoked", "north", userId, revokedAuthSessionId);
+        when(authService.findActiveSessionIds(userId, java.util.Set.of(revokedAuthSessionId)))
+                .thenReturn(java.util.Set.of());
 
         delivery.sendToUser("north", "/queue/sessions", payload);
 
@@ -83,14 +86,16 @@ class AuthenticatedWebSocketUserDeliveryTest {
 
     @Test
     void shouldCloseLiveRevokedSessionAndStopSubsequentDelivery() throws Exception {
+        UUID userId = UUID.randomUUID();
         UUID activeAuthSessionId = UUID.randomUUID();
         Map<String, String> payload = Map.of("type", "message");
         WebSocketSession transportSession = mock(WebSocketSession.class);
         when(transportSession.getId()).thenReturn("ws-live");
         when(transportSession.isOpen()).thenReturn(true);
-        webSocketSessionRegistry.register("ws-live", "north", activeAuthSessionId);
+        webSocketSessionRegistry.register("ws-live", "north", userId, activeAuthSessionId);
         webSocketSessionRegistry.attachTransportSession(transportSession);
-        when(authService.isSessionActive("north", activeAuthSessionId)).thenReturn(true);
+        when(authService.findActiveSessionIds(userId, java.util.Set.of(activeAuthSessionId)))
+                .thenReturn(java.util.Set.of(activeAuthSessionId));
 
         delivery.sendToUser("north", "/queue/messages", payload);
 

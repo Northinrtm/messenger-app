@@ -25,12 +25,13 @@ class AuthenticatedWebSocketSessionRegistryTest {
 
     @Test
     void shouldCloseTransportSessionForRevokedAuthSession() throws Exception {
+        UUID userId = UUID.randomUUID();
         UUID revokedAuthSessionId = UUID.randomUUID();
         WebSocketSession transportSession = mock(WebSocketSession.class);
         when(transportSession.getId()).thenReturn("ws-1");
         when(transportSession.isOpen()).thenReturn(true);
 
-        registry.register("ws-1", "north", revokedAuthSessionId);
+        registry.register("ws-1", "north", userId, revokedAuthSessionId);
         registry.attachTransportSession(transportSession);
 
         registry.onSessionRevoked(new SessionRevokedEvent("north", revokedAuthSessionId));
@@ -44,13 +45,14 @@ class AuthenticatedWebSocketSessionRegistryTest {
 
     @Test
     void shouldNotCloseTransportSessionForDifferentAuthSession() throws Exception {
+        UUID userId = UUID.randomUUID();
         UUID activeAuthSessionId = UUID.randomUUID();
         UUID otherAuthSessionId = UUID.randomUUID();
         WebSocketSession transportSession = mock(WebSocketSession.class);
         when(transportSession.getId()).thenReturn("ws-1");
         when(transportSession.isOpen()).thenReturn(true);
 
-        registry.register("ws-1", "north", activeAuthSessionId);
+        registry.register("ws-1", "north", userId, activeAuthSessionId);
         registry.attachTransportSession(transportSession);
 
         registry.onSessionRevoked(new SessionRevokedEvent("north", otherAuthSessionId));

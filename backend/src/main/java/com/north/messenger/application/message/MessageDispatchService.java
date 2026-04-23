@@ -17,8 +17,10 @@ import com.north.messenger.domain.repository.MessageReactionRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import com.north.messenger.observability.MessengerTelemetry;
 import io.micrometer.core.instrument.Timer;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -110,6 +112,11 @@ class MessageDispatchService {
             );
             ParticipantResponse senderParticipant = authService.toParticipant(sender);
             Map<String, String> encryptedKeysByUserId = messageSupport.deserializeEncryptedKeys(message);
+            Map<UUID, Set<String>> visibleDeviceIdsByUserId = messageSupport.loadVisibleDeviceIdsByUserId(
+                    participants.stream()
+                            .map(UserAccount::getId)
+                            .collect(Collectors.toCollection(LinkedHashSet::new))
+            );
             Map<String, List<MessageReaction>> reactionsByKey = messageReactionRepository.findAllByMessageIdIn(
                             List.of(message.getId())
                     ).stream()
@@ -124,7 +131,12 @@ class MessageDispatchService {
                     messageSupport.summarizeReactions(reactionsByKey, sender.getId()),
                     senderClientMessageId,
                     replyTo,
-                    messageSupport.toEncryptedPayload(message, sender.getId(), encryptedKeysByUserId)
+                    messageSupport.toEncryptedPayload(
+                            message,
+                            sender.getId(),
+                            encryptedKeysByUserId,
+                            visibleDeviceIdsByUserId.getOrDefault(sender.getId(), Set.of())
+                    )
             );
             realtimeMessagingGateway.sendToUser(sender.getUsername(), MESSAGE_ACK_DESTINATION, senderAck);
 
@@ -136,7 +148,8 @@ class MessageDispatchService {
                 EncryptedMessagePayloadResponse encryptedPayload = messageSupport.toEncryptedPayload(
                         message,
                         participant.getId(),
-                        encryptedKeysByUserId
+                        encryptedKeysByUserId,
+                        visibleDeviceIdsByUserId.getOrDefault(participant.getId(), Set.of())
                 );
                 MessageResponse response = participant.getId().equals(sender.getId())
                         ? messageSupport.toResponse(message, senderParticipant, participant.getId(), summary, reactions, senderClientMessageId, replyTo, encryptedPayload)
@@ -183,6 +196,11 @@ class MessageDispatchService {
                     List.of(message),
                     participants.stream().collect(Collectors.toMap(UserAccount::getId, Function.identity()))
             );
+            Map<UUID, Set<String>> visibleDeviceIdsByUserId = messageSupport.loadVisibleDeviceIdsByUserId(
+                    participants.stream()
+                            .map(UserAccount::getId)
+                            .collect(Collectors.toCollection(LinkedHashSet::new))
+            );
             Map<String, List<MessageReaction>> reactionsByKey = messageReactionRepository.findAllByMessageIdIn(
                             List.of(message.getId())
                     ).stream()
@@ -198,7 +216,8 @@ class MessageDispatchService {
                     messageSupport.toEncryptedPayload(
                             message,
                             sender.getId(),
-                            messageSupport.deserializeEncryptedKeys(message)
+                            messageSupport.deserializeEncryptedKeys(message),
+                            visibleDeviceIdsByUserId.getOrDefault(sender.getId(), Set.of())
                     )
             );
             realtimeMessagingGateway.sendToUser(sender.getUsername(), MESSAGE_ACK_DESTINATION, response);

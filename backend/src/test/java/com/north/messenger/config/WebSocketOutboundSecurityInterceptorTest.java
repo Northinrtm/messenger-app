@@ -49,9 +49,8 @@ class WebSocketOutboundSecurityInterceptorTest {
                 "password-hash",
                 Instant.parse("2026-03-20T12:00:00Z")
         );
-        webSocketSessionRegistry.register("ws-1", "north", authSessionId);
-        when(authService.isSessionActive("north", authSessionId)).thenReturn(true);
-        when(authService.requireAuthenticatedUser("north")).thenReturn(user);
+        webSocketSessionRegistry.register("ws-1", "north", userId, authSessionId);
+        when(authService.isSessionActive(userId, authSessionId)).thenReturn(true);
         when(chatParticipantRepository.existsByChatIdAndUserId(chatId, userId)).thenReturn(true);
 
         Message<byte[]> message = outboundTypingMessage("ws-1", chatId);
@@ -64,9 +63,10 @@ class WebSocketOutboundSecurityInterceptorTest {
     @Test
     void shouldDropTypingTopicForInactiveSession() {
         UUID authSessionId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
         UUID chatId = UUID.randomUUID();
-        webSocketSessionRegistry.register("ws-1", "north", authSessionId);
-        when(authService.isSessionActive("north", authSessionId)).thenReturn(false);
+        webSocketSessionRegistry.register("ws-1", "north", userId, authSessionId);
+        when(authService.isSessionActive(userId, authSessionId)).thenReturn(false);
 
         Message<byte[]> message = outboundTypingMessage("ws-1", chatId);
 
@@ -88,9 +88,8 @@ class WebSocketOutboundSecurityInterceptorTest {
                 "password-hash",
                 Instant.parse("2026-03-20T12:00:00Z")
         );
-        webSocketSessionRegistry.register("ws-1", "north", authSessionId);
-        when(authService.isSessionActive("north", authSessionId)).thenReturn(true);
-        when(authService.requireAuthenticatedUser("north")).thenReturn(user);
+        webSocketSessionRegistry.register("ws-1", "north", userId, authSessionId);
+        when(authService.isSessionActive(userId, authSessionId)).thenReturn(true);
         when(chatParticipantRepository.existsByChatIdAndUserId(chatId, userId)).thenReturn(false);
 
         Message<byte[]> message = outboundTypingMessage("ws-1", chatId);

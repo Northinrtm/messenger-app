@@ -1,7 +1,6 @@
 package com.north.messenger.config;
 
 import com.north.messenger.application.auth.AuthService;
-import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.repository.ChatParticipantRepository;
 import java.util.Optional;
 import java.util.UUID;
@@ -65,7 +64,7 @@ public class WebSocketOutboundSecurityInterceptor implements ChannelInterceptor 
         }
 
         AuthenticatedWebSocketSessionRegistry.RegisteredWebSocketSession session = registeredSession.get();
-        if (!authService.isSessionActive(session.username(), session.authSessionId())) {
+        if (!authService.isSessionActive(session.userId(), session.authSessionId())) {
             webSocketSessionRegistry.unregister(webSocketSessionId);
             log.warn(
                     "Dropping websocket outbound topic event for inactive session user={} authSessionId={} destination={}",
@@ -88,8 +87,7 @@ public class WebSocketOutboundSecurityInterceptor implements ChannelInterceptor 
             return null;
         }
 
-        UserAccount user = authService.requireAuthenticatedUser(session.username());
-        if (!chatParticipantRepository.existsByChatIdAndUserId(chatId, user.getId())) {
+        if (!chatParticipantRepository.existsByChatIdAndUserId(chatId, session.userId())) {
             log.warn(
                     "Dropping websocket outbound topic event for non-member user={} chatId={} destination={}",
                     session.username(),

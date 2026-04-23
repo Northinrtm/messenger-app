@@ -121,7 +121,7 @@ class WebSocketAuthChannelInterceptorTest {
         Message<?> connectResult = interceptor.preSend(connectMessage, mock(MessageChannel.class));
 
         assertThat(connectResult).isNotNull();
-        verify(webSocketSessionRegistry).register("session-1", "north", sessionId);
+        verify(webSocketSessionRegistry).register("session-1", "north", userId, sessionId);
 
         StompHeaderAccessor subscribeAccessor = StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
         subscribeAccessor.setSessionId("session-1");

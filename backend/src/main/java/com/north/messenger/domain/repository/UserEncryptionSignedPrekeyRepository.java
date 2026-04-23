@@ -2,6 +2,8 @@ package com.north.messenger.domain.repository;
 
 import com.north.messenger.domain.model.UserEncryptionSignedPrekey;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -31,6 +33,17 @@ public interface UserEncryptionSignedPrekeyRepository extends JpaRepository<User
     Optional<UserEncryptionSignedPrekey> findActiveByDeviceIdAndKeyId(
             @Param("deviceId") UUID deviceId,
             @Param("keyId") int keyId,
+            @Param("now") Instant now
+    );
+
+    @Query("""
+            select prekey
+            from UserEncryptionSignedPrekey prekey
+            where prekey.deviceId in :deviceIds
+              and (prekey.retiredAt is null or prekey.expiresAt > :now)
+            """)
+    List<UserEncryptionSignedPrekey> findAllActiveByDeviceIdIn(
+            @Param("deviceIds") Collection<UUID> deviceIds,
             @Param("now") Instant now
     );
 

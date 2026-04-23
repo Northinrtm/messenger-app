@@ -3,7 +3,11 @@ package com.north.messenger.application.message;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.config.AuthenticatedWebSocketSessionRegistry;
 import com.north.messenger.config.AuthenticatedWebSocketSessionRegistry.RegisteredWebSocketSession;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessageType;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -27,8 +31,20 @@ public class AuthenticatedWebSocketUserDelivery {
     }
 
     public void sendToUser(String username, String destination, Object payload) {
-        for (RegisteredWebSocketSession session : webSocketSessionRegistry.findSessionsByUsername(username)) {
-            if (!authService.isSessionActive(username, session.authSessionId())) {
+        List<RegisteredWebSocketSession> sessions = webSocketSessionRegistry.findSessionsByUsername(username);
+        if (sessions.isEmpty()) {
+            return;
+        }
+
+        UUID userId = sessions.get(0).userId();
+        Set<UUID> activeSessionIds = authService.findActiveSessionIds(
+                userId,
+                sessions.stream()
+                        .map(RegisteredWebSocketSession::authSessionId)
+                        .collect(Collectors.toSet())
+        );
+        for (RegisteredWebSocketSession session : sessions) {
+            if (!activeSessionIds.contains(session.authSessionId())) {
                 webSocketSessionRegistry.unregister(session.webSocketSessionId());
                 continue;
             }

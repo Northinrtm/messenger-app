@@ -405,6 +405,32 @@ public class AuthService {
         return authenticateSession(username, sessionId, false).isPresent();
     }
 
+    public boolean isSessionActive(UUID userId, UUID sessionId) {
+        if (userId == null || sessionId == null) {
+            return false;
+        }
+        Instant now = Instant.now();
+        return userSessionRepository.existsByIdAndUserIdAndRevokedAtIsNullAndExpiresAtAfterAndLastUsedAtAfter(
+                sessionId,
+                userId,
+                now,
+                now.minus(ONLINE_WINDOW)
+        );
+    }
+
+    public Set<UUID> findActiveSessionIds(UUID userId, Collection<UUID> sessionIds) {
+        if (userId == null || sessionIds == null || sessionIds.isEmpty()) {
+            return Set.of();
+        }
+        Instant now = Instant.now();
+        return Set.copyOf(userSessionRepository.findActiveIdsByUserIdAndIdIn(
+                userId,
+                Set.copyOf(sessionIds),
+                now,
+                now.minus(ONLINE_WINDOW)
+        ));
+    }
+
     private Optional<AuthenticatedSession> authenticateSession(String username, UUID sessionId, boolean touchSession) {
         UserSession session = userSessionRepository.findById(sessionId).orElse(null);
         if (session == null) {

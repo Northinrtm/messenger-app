@@ -98,7 +98,7 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
         accessor.setUser(authentication);
         storeAuthentication(accessor, authentication);
         storeSessionId(accessor, authenticatedSession.sessionId());
-        webSocketSessionRegistry.register(accessor.getSessionId(), user.getUsername(), authenticatedSession.sessionId());
+        webSocketSessionRegistry.register(accessor.getSessionId(), user.getUsername(), user.getId(), authenticatedSession.sessionId());
         return MessageBuilder.createMessage(message.getPayload(), accessor.getMessageHeaders());
     }
 

@@ -74,6 +74,15 @@ public class PushNotificationDeliveryService {
                 pushSubscriptionRepository.deleteByEndpoint(subscription.getEndpoint());
                 return;
             }
+            if (response.statusCode() == 403 && isFcmEndpoint(subscription.getEndpoint())) {
+                pushSubscriptionRepository.deleteByEndpoint(subscription.getEndpoint());
+                log.warn(
+                        "Push notification subscription removed after FCM 403 chatId={} messageId={}",
+                        message.getChatId(),
+                        message.getId()
+                );
+                return;
+            }
             if (response.statusCode() >= 400) {
                 log.warn(
                         "Push notification rejected endpointStatus={} chatId={} messageId={}",
@@ -89,6 +98,15 @@ public class PushNotificationDeliveryService {
                     message.getId(),
                     exception.getMessage()
             );
+        }
+    }
+
+    private boolean isFcmEndpoint(String endpoint) {
+        try {
+            String host = URI.create(endpoint).getHost();
+            return "fcm.googleapis.com".equalsIgnoreCase(host) || "android.googleapis.com".equalsIgnoreCase(host);
+        } catch (RuntimeException exception) {
+            return false;
         }
     }
 }
