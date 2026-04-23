@@ -33,6 +33,7 @@ import type {
 import {
   buildMessagesQueryKey,
   mergeMessagePages,
+  removeMessageByClientMessageId,
   removeMessageById,
   upsertChat,
   updateMessageByClientMessageId,
@@ -143,6 +144,7 @@ export function useMessageActions({
   const inFlightSendClientMessageIdsRef = useRef(new Set<string>());
   const lastAutoResendAttemptAtRef = useRef(new Map<string, number>());
   const autoResendTimeoutIdsRef = useRef(new Map<string, number>());
+  const discardedLocalClientMessageIdsRef = useRef(new Set<string>());
   const getMessagesKey = (chatId: string) => buildMessagesQueryKey(currentUser.id, chatId);
   const AUTO_RESEND_DELAY_MS = 1_500;
   const SEND_ATTEMPT_TIMEOUT_MS = 90_000;
@@ -199,6 +201,11 @@ export function useMessageActions({
       return input;
     },
     onSuccess: (message, input) => {
+      if (discardedLocalClientMessageIdsRef.current.has(input.clientMessageId)) {
+        const nextPendingMessages = removeLocalPendingMessage(currentUser.id, input.clientMessageId);
+        queryClient.setQueryData(["pending-outgoing-messages", currentUser.id], nextPendingMessages);
+        return;
+      }
       const nextMessage = ensureOwnMessageStatus(message, currentUser);
       const nextPendingMessages = removeLocalPendingMessage(currentUser.id, input.clientMessageId);
       clearAutoResendTimer(input.clientMessageId);
@@ -216,6 +223,15 @@ export function useMessageActions({
       }
     },
     onError: (error, input) => {
+      if (discardedLocalClientMessageIdsRef.current.has(input.clientMessageId)) {
+        const nextPendingMessages = removeLocalPendingMessage(currentUser.id, input.clientMessageId);
+        queryClient.setQueryData(["pending-outgoing-messages", currentUser.id], nextPendingMessages);
+        queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
+          getMessagesKey(input.chatId),
+          (current) => removeMessageByClientMessageId(current, input.clientMessageId),
+        );
+        return;
+      }
       const transientFailure = isTransientSendFailure(error);
       const nextPendingStatus = transientFailure ? "SENDING" : "FAILED";
       if (!transientFailure) {
@@ -619,6 +635,28 @@ export function useMessageActions({
 
   const deleteMessageForSelf = (chatId: string, messageId: string) => {
     setContextMenu(null);
+    const pendingMessages =
+      queryClient.getQueryData<LocalPendingMessage[]>(["pending-outgoing-messages", currentUser.id]) ??
+      pendingOutgoingMessages;
+    const pendingMessage = pendingMessages.find((message) => message.clientMessageId === messageId);
+    if (pendingMessage) {
+      if (!window.confirm("Удалить неотправленное сообщение только у вас?")) {
+        return;
+      }
+
+      discardedLocalClientMessageIdsRef.current.add(messageId);
+      clearAutoResendTimer(messageId);
+      lastAutoResendAttemptAtRef.current.delete(messageId);
+      const nextPendingMessages = removeLocalPendingMessage(currentUser.id, messageId);
+      queryClient.setQueryData(["pending-outgoing-messages", currentUser.id], nextPendingMessages);
+      queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
+        getMessagesKey(chatId),
+        (current) => removeMessageByClientMessageId(current, messageId),
+      );
+      syncChatPreviewFromCache(chatId);
+      return;
+    }
+
     if (!window.confirm("Удалить сообщение только у вас?")) {
       return;
     }

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEffect, useState } from "react";
 
 import { ApiError } from "../../../lib/api";
-import { upsertLocalPendingMessage } from "../../../lib/localPendingMessages";
+import { readLocalPendingMessages, upsertLocalPendingMessage } from "../../../lib/localPendingMessages";
 vi.mock("../../../lib/e2ee", () => ({
   sendEncryptedMessage: vi.fn(),
   updateEncryptedMessage: vi.fn(),
@@ -21,6 +21,7 @@ type ReactActEnvironment = typeof globalThis & {
 
 type HarnessState = {
   draftsByChatId: Record<string, string>;
+  deleteMessageForSelf: (chatId: string, messageId: string) => void;
   submitActiveDraft: (draft: string) => boolean | Promise<boolean>;
   queryClient: QueryClient;
 };
@@ -149,10 +150,11 @@ function Harness({ isRealtimeConnected = false, onReady, queryClient }: HarnessP
   useEffect(() => {
     onReady({
       draftsByChatId,
+      deleteMessageForSelf: actions.deleteMessageForSelf,
       submitActiveDraft: actions.submitActiveDraft,
       queryClient,
     });
-  }, [actions.submitActiveDraft, draftsByChatId, onReady, queryClient]);
+  }, [actions.deleteMessageForSelf, actions.submitActiveDraft, draftsByChatId, onReady, queryClient]);
 
   return null;
 }
@@ -427,6 +429,89 @@ describe("useMessageActions send failure recovery", () => {
         status: "SENDING",
       }),
     ]);
+  });
+
+  it("deletes a recovered local pending message without calling the server", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    upsertLocalPendingMessage("user-1", {
+      chatId: "chat-1",
+      clientMessageId: "client-recovered",
+      content: "recovered message",
+      createdAt: "2026-04-18T12:00:01.000Z",
+      localOrder: 8,
+      recipientCount: 1,
+      replyTo: null,
+      status: "SENDING",
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    queryClient.setQueryData(
+      ["pending-outgoing-messages", "user-1"],
+      readLocalPendingMessages("user-1")
+    );
+    queryClient.setQueryData(["messages", "user-1", "chat-1"], {
+      pages: [
+        [
+          {
+            id: "client-recovered",
+            chatId: "chat-1",
+            serverOrder: null,
+            sender: currentUser(),
+            content: "recovered message",
+            createdAt: "2026-04-18T12:00:01.000Z",
+            editedAt: null,
+            status: {
+              state: "SENDING",
+              recipientCount: 1,
+              deliveredCount: 0,
+              readCount: 0,
+            },
+            clientMessageId: "client-recovered",
+            localOrder: 8,
+            replyTo: null,
+            reactions: [],
+            attachments: [],
+          },
+        ],
+      ],
+      pageParams: [undefined],
+    });
+    const latestStateRef: { current: HarnessState | null } = { current: null };
+
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(
+        <QueryClientProvider client={queryClient}>
+          <Harness
+            queryClient={queryClient}
+            onReady={(value) => {
+              latestStateRef.current = value;
+            }}
+          />
+        </QueryClientProvider>
+      );
+      await flushMicrotasks(10);
+    });
+
+    await act(async () => {
+      latestStateRef.current?.deleteMessageForSelf("chat-1", "client-recovered");
+      await flushMicrotasks();
+    });
+
+    expect(confirmSpy).toHaveBeenCalledWith("Удалить неотправленное сообщение только у вас?");
+    expect(readLocalPendingMessages("user-1")).toEqual([]);
+    expect(queryClient.getQueryData(["pending-outgoing-messages", "user-1"])).toEqual([]);
+    expect(queryClient.getQueryData(["messages", "user-1", "chat-1"])).toEqual({
+      pages: [[]],
+      pageParams: [undefined],
+    });
+    expect(vi.mocked(sendEncryptedMessage)).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
   });
 
   it("automatically resumes recovered sending messages after realtime reconnect", async () => {
