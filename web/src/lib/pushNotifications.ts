@@ -64,7 +64,11 @@ export async function enablePushNotifications(token: string) {
   const registration = await navigator.serviceWorker.register(PUSH_SERVICE_WORKER_URL, {
     scope: PUSH_SERVICE_WORKER_SCOPE,
   });
-  let subscription = await registration.pushManager.getSubscription();
+  let subscription = await ensureCompatiblePushSubscription(
+    token,
+    registration,
+    config.publicKey
+  );
   if (!subscription) {
     subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
@@ -103,7 +107,11 @@ export async function syncPushSubscription(token: string) {
   const registration = await navigator.serviceWorker.register(PUSH_SERVICE_WORKER_URL, {
     scope: PUSH_SERVICE_WORKER_SCOPE,
   });
-  let subscription = await registration.pushManager.getSubscription();
+  let subscription = await ensureCompatiblePushSubscription(
+    token,
+    registration,
+    config.publicKey
+  );
   if (!subscription) {
     subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
@@ -113,6 +121,21 @@ export async function syncPushSubscription(token: string) {
 
   await upsertPushSubscription(token, toPushSubscriptionPayload(subscription));
   return getPushNotificationState(token);
+}
+
+async function ensureCompatiblePushSubscription(
+  token: string,
+  registration: ServiceWorkerRegistration,
+  publicKey: string
+) {
+  const subscription = await registration.pushManager.getSubscription();
+  if (!subscription || hasMatchingApplicationServerKey(subscription, publicKey)) {
+    return subscription;
+  }
+
+  await deletePushSubscription(token, subscription.endpoint).catch(() => undefined);
+  await subscription.unsubscribe().catch(() => false);
+  return null;
 }
 
 function ensurePushSupported() {
@@ -133,6 +156,26 @@ function toPushSubscriptionPayload(subscription: PushSubscription): PushSubscrip
       auth: payload.keys?.auth ?? "",
     },
   };
+}
+
+function hasMatchingApplicationServerKey(subscription: PushSubscription, publicKey: string) {
+  const currentKey = subscription.options.applicationServerKey;
+  if (!currentKey) {
+    return false;
+  }
+
+  const currentBytes = new Uint8Array(currentKey);
+  const expectedBytes = base64UrlToUint8Array(publicKey);
+  if (currentBytes.length !== expectedBytes.length) {
+    return false;
+  }
+
+  for (let index = 0; index < currentBytes.length; index += 1) {
+    if (currentBytes[index] !== expectedBytes[index]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function base64UrlToUint8Array(value: string) {
