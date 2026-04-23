@@ -163,6 +163,37 @@ export function applyChatMessageActivity(
   return changed ? next : current;
 }
 
+export function clearChatMessageActivity(
+  current: ChatSummary[] | undefined,
+  chatId: string
+) {
+  if (!current) {
+    return current;
+  }
+
+  let changed = false;
+  const next = current.map((chat) => {
+    if (
+      chat.id !== chatId ||
+      (chat.lastMessage === null &&
+        chat.lastMessageAt === null &&
+        chat.lastMessageServerOrder == null)
+    ) {
+      return chat;
+    }
+
+    changed = true;
+    return {
+      ...chat,
+      lastMessage: null,
+      lastMessageAt: null,
+      lastMessageServerOrder: null,
+    };
+  });
+
+  return changed ? next : current;
+}
+
 export function clearChatUnreadCount(
   current: ChatSummary[] | undefined,
   chatId: string

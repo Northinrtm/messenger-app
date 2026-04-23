@@ -6,6 +6,7 @@ import type { ChatMessage, ChatSummary, MessageSnippet } from "../../../lib/type
 import {
   applyChatMessageActivity,
   buildMessagesQueryKey,
+  clearChatMessageActivity,
   getLatestMessageFromPages,
   removeChatPreviewOverride,
   replaceChatPreviewOverride,
@@ -98,8 +99,15 @@ export function useChatPreviews({
     }
 
     const latestMessage = getLatestMessageFromPages(cachedPages);
+    if (!latestMessage) {
+      clearChatPreviewOverride(chatId);
+      queryClient.setQueryData<ChatSummary[]>(["chats", token], (current) =>
+        clearChatMessageActivity(current, chatId)
+      );
+      return;
+    }
+
     if (
-      !latestMessage ||
       !latestMessage.content.trim() ||
       isUnavailableEncryptedMessage(latestMessage.content)
     ) {

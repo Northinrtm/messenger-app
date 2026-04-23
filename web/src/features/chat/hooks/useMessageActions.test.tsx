@@ -514,6 +514,92 @@ describe("useMessageActions send failure recovery", () => {
     confirmSpy.mockRestore();
   });
 
+  it("allows sending a new message after deleting a recovered local pending bubble", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    upsertLocalPendingMessage("user-1", {
+      chatId: "chat-1",
+      clientMessageId: "client-recovered",
+      content: "recovered message",
+      createdAt: "2026-04-18T12:00:01.000Z",
+      localOrder: 8,
+      recipientCount: 1,
+      replyTo: null,
+      status: "SENDING",
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    queryClient.setQueryData(
+      ["pending-outgoing-messages", "user-1"],
+      readLocalPendingMessages("user-1")
+    );
+    queryClient.setQueryData(["messages", "user-1", "chat-1"], {
+      pages: [
+        [
+          {
+            id: "client-recovered",
+            chatId: "chat-1",
+            serverOrder: null,
+            sender: currentUser(),
+            content: "recovered message",
+            createdAt: "2026-04-18T12:00:01.000Z",
+            editedAt: null,
+            status: {
+              state: "SENDING",
+              recipientCount: 1,
+              deliveredCount: 0,
+              readCount: 0,
+            },
+            clientMessageId: "client-recovered",
+            localOrder: 8,
+            replyTo: null,
+            reactions: [],
+            attachments: [],
+          },
+        ],
+      ],
+      pageParams: [undefined],
+    });
+    vi.mocked(sendEncryptedMessage).mockResolvedValueOnce(sentMessage("client-new"));
+    const latestStateRef: { current: HarnessState | null } = { current: null };
+
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(
+        <QueryClientProvider client={queryClient}>
+          <Harness
+            queryClient={queryClient}
+            onReady={(value) => {
+              latestStateRef.current = value;
+            }}
+          />
+        </QueryClientProvider>
+      );
+      await flushMicrotasks(10);
+    });
+
+    await act(async () => {
+      latestStateRef.current?.deleteMessageForSelf("chat-1", "client-recovered");
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      await latestStateRef.current?.submitActiveDraft("fresh message after delete");
+      await flushMicrotasks(10);
+    });
+
+    expect(readLocalPendingMessages("user-1")).toEqual([]);
+    expect(queryClient.getQueryData(["pending-outgoing-messages", "user-1"])).toEqual([]);
+    expect(vi.mocked(sendEncryptedMessage)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sendEncryptedMessage).mock.calls[0]?.[2]).toBe("fresh message after delete");
+    expect(vi.mocked(sendEncryptedMessage).mock.calls[0]?.[4]).not.toBe("client-recovered");
+    confirmSpy.mockRestore();
+  });
+
   it("automatically resumes recovered sending messages after realtime reconnect", async () => {
     upsertLocalPendingMessage("user-1", {
       chatId: "chat-1",

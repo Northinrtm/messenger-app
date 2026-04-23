@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyChatMessageActivity,
   applyChatPreviewOverrides,
+  clearChatMessageActivity,
   flattenMessagePages,
   getMessageIdentityKey,
   mergeMessagePages,
@@ -600,5 +601,34 @@ describe("chatState", () => {
     );
 
     expect(next?.[0]?.unreadCount).toBe(0);
+  });
+
+  it("clears the chat preview when the last visible message is deleted", () => {
+    const chats: ChatSummary[] = [
+      {
+        id: "chat-1",
+        direct: false,
+        title: "Group",
+        avatarUrl: null,
+        ownerUserId: null,
+        moderatorUserIds: [],
+        members: [],
+        lastMessage: "deleted message",
+        lastMessageAt: "2026-03-22T10:02:00.000Z",
+        lastMessageServerOrder: 12,
+        updatedAt: "2026-03-22T10:02:00.000Z",
+        unreadCount: 0,
+        pinnedMessage: null,
+      },
+    ];
+
+    const next = clearChatMessageActivity(chats, "chat-1");
+
+    expect(next?.[0]).toMatchObject({
+      lastMessage: null,
+      lastMessageAt: null,
+      lastMessageServerOrder: null,
+      updatedAt: "2026-03-22T10:02:00.000Z",
+    });
   });
 });
