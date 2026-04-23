@@ -17,17 +17,26 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final WebSocketOutboundSecurityInterceptor outboundSecurityInterceptor;
     private final WebSocketSessionTrackingDecoratorFactory sessionTrackingDecoratorFactory;
     private final String[] allowedOrigins;
+    private final int messageSizeLimitBytes;
+    private final int sendBufferSizeLimitBytes;
+    private final int sendTimeLimitMs;
 
     public WebSocketConfig(
             WebSocketAuthChannelInterceptor authChannelInterceptor,
             WebSocketOutboundSecurityInterceptor outboundSecurityInterceptor,
             WebSocketSessionTrackingDecoratorFactory sessionTrackingDecoratorFactory,
-            @Value("${app.cors.allowed-origins:http://localhost:5173}") String[] allowedOrigins
+            @Value("${app.cors.allowed-origins:http://localhost:5173}") String[] allowedOrigins,
+            @Value("${app.realtime.websocket.message-size-limit-bytes:8388608}") int messageSizeLimitBytes,
+            @Value("${app.realtime.websocket.send-buffer-size-limit-bytes:8388608}") int sendBufferSizeLimitBytes,
+            @Value("${app.realtime.websocket.send-time-limit-ms:20000}") int sendTimeLimitMs
     ) {
         this.authChannelInterceptor = authChannelInterceptor;
         this.outboundSecurityInterceptor = outboundSecurityInterceptor;
         this.sessionTrackingDecoratorFactory = sessionTrackingDecoratorFactory;
         this.allowedOrigins = allowedOrigins;
+        this.messageSizeLimitBytes = messageSizeLimitBytes;
+        this.sendBufferSizeLimitBytes = sendBufferSizeLimitBytes;
+        this.sendTimeLimitMs = sendTimeLimitMs;
     }
 
     @Override
@@ -55,6 +64,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureWebSocketTransport(WebSocketTransportRegistration registry) {
+        registry.setMessageSizeLimit(messageSizeLimitBytes);
+        registry.setSendBufferSizeLimit(sendBufferSizeLimitBytes);
+        registry.setSendTimeLimit(sendTimeLimitMs);
         registry.addDecoratorFactory(sessionTrackingDecoratorFactory);
     }
 }

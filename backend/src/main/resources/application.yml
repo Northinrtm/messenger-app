@@ -110,6 +110,10 @@ app:
       enabled: ${APP_REALTIME_REDIS_ENABLED:false}
       mac-secret: ${APP_REALTIME_REDIS_MAC_SECRET:}
     typing-active-window-ms: ${APP_TYPING_ACTIVE_WINDOW_MS:10000}
+    websocket:
+      message-size-limit-bytes: ${APP_REALTIME_WEBSOCKET_MESSAGE_SIZE_LIMIT_BYTES:8388608}
+      send-buffer-size-limit-bytes: ${APP_REALTIME_WEBSOCKET_SEND_BUFFER_SIZE_LIMIT_BYTES:8388608}
+      send-time-limit-ms: ${APP_REALTIME_WEBSOCKET_SEND_TIME_LIMIT_MS:20000}
   jwt:
     issuer: north-messenger
     audience: north-messenger-clients
