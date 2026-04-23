@@ -51,7 +51,18 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> 
 
     Optional<ChatMessage> findByChatIdAndSenderIdAndClientMessageId(UUID chatId, UUID senderId, String clientMessageId);
 
-    Optional<ChatMessage> findTopByChatIdAndEncryptionSchemeIsNotNullOrderByServerOrderDesc(UUID chatId);
+    @Query("""
+            select message
+            from ChatMessage message
+            where message.chatId = :chatId
+              and message.encryptionScheme is not null
+              and message.encryptionScheme <> ''
+            order by message.serverOrder desc
+            """)
+    List<ChatMessage> findLatestEncryptedByChatId(
+            @Param("chatId") UUID chatId,
+            Pageable pageable
+    );
 
     @Query("""
             select message

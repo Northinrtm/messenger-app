@@ -1,6 +1,7 @@
 package com.north.messenger.application.chat;
 
 import com.north.messenger.api.dto.CreateGroupChatRequest;
+import com.north.messenger.api.dto.ChatSummaryResponse;
 import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.api.dto.UpdateGroupChatRequest;
 import com.north.messenger.application.auth.AuthService;
@@ -13,6 +14,7 @@ import com.north.messenger.domain.model.ChatRoomModerator;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.UserArchivedChat;
 import com.north.messenger.domain.model.UserDeletedChat;
+import com.north.messenger.domain.model.UserDeletedMessage;
 import com.north.messenger.domain.repository.ChatMessageRepository;
 import com.north.messenger.domain.repository.ChatRoomBanRepository;
 import com.north.messenger.domain.repository.ChatParticipantRepository;
@@ -292,6 +294,149 @@ class ChatServiceTest {
 
         verify(realtimeMessagingGateway).sendToUser(eq("alice"), eq("/queue/chats"), any());
         verify(realtimeMessagingGateway, never()).sendToUser(eq("north"), eq("/queue/chats"), any());
+    }
+
+    @Test
+    void notifyChatUpdatedShouldReuseSharedLatestMessageAcrossAudience() {
+        UserAccount user = testUserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UserAccount peer = testUserAccount(
+                UUID.randomUUID(),
+                "alice",
+                "Alice",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UUID chatId = UUID.randomUUID();
+        ChatRoom room = new ChatRoom(chatId, null, true, Instant.parse("2026-03-21T12:00:00Z"));
+        ChatParticipant ownMembership = new ChatParticipant(UUID.randomUUID(), chatId, user.getId(), Instant.parse("2026-03-21T12:00:00Z"));
+        ChatParticipant peerMembership = new ChatParticipant(UUID.randomUUID(), chatId, peer.getId(), Instant.parse("2026-03-21T12:00:00Z"));
+        ChatMessage latestMessage = withServerOrder(new ChatMessage(
+                UUID.randomUUID(),
+                chatId,
+                peer.getId(),
+                "ciphertext-latest",
+                "RSA-OAEP-256/AES-GCM",
+                "iv-latest",
+                "{\"wrapped\":\"latest\"}",
+                Instant.parse("2026-03-22T12:00:00Z")
+        ), 42L);
+
+        when(chatRoomRepository.findById(chatId)).thenReturn(Optional.of(room));
+        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId)).thenReturn(List.of(ownMembership, peerMembership));
+        when(userAccountRepository.findAllByIdIn(List.of(user.getId(), peer.getId()))).thenReturn(List.of(user, peer));
+        when(userDeletedChatRepository.findAllByChatId(chatId)).thenReturn(List.of());
+        when(authService.resolveOnlineByUserIds(List.of(user.getId(), peer.getId())))
+                .thenReturn(java.util.Map.of(user.getId(), true, peer.getId(), true));
+        when(messageReceiptRepository.countUnreadByChatId(chatId)).thenReturn(List.of());
+        when(chatMessageRepository.findLatestEncryptedByChatId(eq(chatId), any(Pageable.class)))
+                .thenReturn(List.of(latestMessage));
+        when(userDeletedMessageRepository.findAllByMessageIdAndUserIdIn(
+                eq(latestMessage.getId()),
+                eq(List.of(user.getId(), peer.getId()))
+        )).thenReturn(List.of());
+        when(authService.toParticipant(user, true)).thenReturn(new ParticipantResponse(
+                user.getId(), user.getUsername(), user.getDisplayName(), user.getAvatarUrl(), true
+        ));
+        when(authService.toParticipant(peer, true)).thenReturn(new ParticipantResponse(
+                peer.getId(), peer.getUsername(), peer.getDisplayName(), peer.getAvatarUrl(), true
+        ));
+
+        chatService.notifyChatUpdated(chatId);
+
+        ArgumentCaptor<ChatSummaryResponse> summaryCaptor = ArgumentCaptor.forClass(ChatSummaryResponse.class);
+        verify(realtimeMessagingGateway, times(2)).sendToUser(any(), eq("/queue/chats"), summaryCaptor.capture());
+        assertThat(summaryCaptor.getAllValues())
+                .extracting(ChatSummaryResponse::lastMessageServerOrder)
+                .containsOnly(42L);
+        verify(chatMessageRepository, never()).findLatestVisibleByChatIdAndUserId(any(UUID.class), any(UUID.class), any(Pageable.class));
+    }
+
+    @Test
+    void notifyChatUpdatedShouldFallbackForUsersWhoDeletedLatestMessage() {
+        UserAccount user = testUserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UserAccount peer = testUserAccount(
+                UUID.randomUUID(),
+                "alice",
+                "Alice",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UUID chatId = UUID.randomUUID();
+        ChatRoom room = new ChatRoom(chatId, null, true, Instant.parse("2026-03-21T12:00:00Z"));
+        ChatParticipant ownMembership = new ChatParticipant(UUID.randomUUID(), chatId, user.getId(), Instant.parse("2026-03-21T12:00:00Z"));
+        ChatParticipant peerMembership = new ChatParticipant(UUID.randomUUID(), chatId, peer.getId(), Instant.parse("2026-03-21T12:00:00Z"));
+        ChatMessage latestMessage = withServerOrder(new ChatMessage(
+                UUID.randomUUID(),
+                chatId,
+                user.getId(),
+                "ciphertext-latest",
+                "RSA-OAEP-256/AES-GCM",
+                "iv-latest",
+                "{\"wrapped\":\"latest\"}",
+                Instant.parse("2026-03-22T12:01:00Z")
+        ), 42L);
+        ChatMessage previousMessage = withServerOrder(new ChatMessage(
+                UUID.randomUUID(),
+                chatId,
+                user.getId(),
+                "ciphertext-previous",
+                "RSA-OAEP-256/AES-GCM",
+                "iv-previous",
+                "{\"wrapped\":\"previous\"}",
+                Instant.parse("2026-03-22T12:00:00Z")
+        ), 41L);
+
+        when(chatRoomRepository.findById(chatId)).thenReturn(Optional.of(room));
+        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId)).thenReturn(List.of(ownMembership, peerMembership));
+        when(userAccountRepository.findAllByIdIn(List.of(user.getId(), peer.getId()))).thenReturn(List.of(user, peer));
+        when(userDeletedChatRepository.findAllByChatId(chatId)).thenReturn(List.of());
+        when(authService.resolveOnlineByUserIds(List.of(user.getId(), peer.getId())))
+                .thenReturn(java.util.Map.of(user.getId(), true, peer.getId(), true));
+        when(messageReceiptRepository.countUnreadByChatId(chatId)).thenReturn(List.of());
+        when(chatMessageRepository.findLatestEncryptedByChatId(eq(chatId), any(Pageable.class)))
+                .thenReturn(List.of(latestMessage));
+        when(userDeletedMessageRepository.findAllByMessageIdAndUserIdIn(
+                eq(latestMessage.getId()),
+                eq(List.of(user.getId(), peer.getId()))
+        )).thenReturn(List.of(new UserDeletedMessage(
+                UUID.randomUUID(),
+                peer.getId(),
+                latestMessage.getId(),
+                Instant.parse("2026-03-22T12:02:00Z")
+        )));
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(eq(chatId), eq(peer.getId()), any(Pageable.class)))
+                .thenReturn(List.of(previousMessage));
+        when(authService.toParticipant(user, true)).thenReturn(new ParticipantResponse(
+                user.getId(), user.getUsername(), user.getDisplayName(), user.getAvatarUrl(), true
+        ));
+        when(authService.toParticipant(peer, true)).thenReturn(new ParticipantResponse(
+                peer.getId(), peer.getUsername(), peer.getDisplayName(), peer.getAvatarUrl(), true
+        ));
+
+        chatService.notifyChatUpdated(chatId);
+
+        ArgumentCaptor<String> usernameCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<ChatSummaryResponse> summaryCaptor = ArgumentCaptor.forClass(ChatSummaryResponse.class);
+        verify(realtimeMessagingGateway, times(2)).sendToUser(usernameCaptor.capture(), eq("/queue/chats"), summaryCaptor.capture());
+
+        int ownIndex = usernameCaptor.getAllValues().indexOf("north");
+        int peerIndex = usernameCaptor.getAllValues().indexOf("alice");
+        assertThat(summaryCaptor.getAllValues().get(ownIndex).lastMessageServerOrder()).isEqualTo(42L);
+        assertThat(summaryCaptor.getAllValues().get(peerIndex).lastMessageServerOrder()).isEqualTo(41L);
+        verify(chatMessageRepository).findLatestVisibleByChatIdAndUserId(eq(chatId), eq(peer.getId()), any(Pageable.class));
+        verify(chatMessageRepository, never()).findLatestVisibleByChatIdAndUserId(eq(chatId), eq(user.getId()), any(Pageable.class));
     }
 
     @Test
@@ -667,6 +812,17 @@ class ChatServiceTest {
         assertThat(response.ownerUserId()).isEqualTo(creator.getId());
         assertThat(room.getOwnerUserId()).isEqualTo(creator.getId());
         verify(chatRoomRepository, times(2)).save(room);
+    }
+
+    private ChatMessage withServerOrder(ChatMessage message, long serverOrder) {
+        try {
+            java.lang.reflect.Field field = ChatMessage.class.getDeclaredField("serverOrder");
+            field.setAccessible(true);
+            field.set(message, serverOrder);
+            return message;
+        } catch (ReflectiveOperationException exception) {
+            throw new IllegalStateException("Failed to assign serverOrder in test fixture", exception);
+        }
     }
 
     @Test

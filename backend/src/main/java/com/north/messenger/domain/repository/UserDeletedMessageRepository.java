@@ -13,5 +13,7 @@ public interface UserDeletedMessageRepository extends JpaRepository<UserDeletedM
 
     boolean existsByUserIdAndMessageId(UUID userId, UUID messageId);
 
+    List<UserDeletedMessage> findAllByMessageIdAndUserIdIn(UUID messageId, Collection<UUID> userIds);
+
     List<UserDeletedMessage> findAllByUserIdAndMessageIdIn(UUID userId, Collection<UUID> messageIds);
 }

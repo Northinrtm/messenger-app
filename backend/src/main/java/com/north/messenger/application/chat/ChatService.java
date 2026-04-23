@@ -19,6 +19,7 @@ import com.north.messenger.domain.model.ChatRoomModerator;
 import com.north.messenger.domain.model.UserArchivedChat;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.UserDeletedChat;
+import com.north.messenger.domain.model.UserDeletedMessage;
 import com.north.messenger.domain.repository.UserArchivedChatRepository;
 import com.north.messenger.domain.repository.ChatMessageRepository;
 import com.north.messenger.domain.repository.ChatRoomBanRepository;
@@ -32,6 +33,7 @@ import com.north.messenger.domain.repository.UserDeletedMessageRepository;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -561,6 +563,7 @@ public class ChatService {
                 .filter(Objects::nonNull)
                 .filter(user -> !deletedUserIds.contains(user.getId()))
                 .toList();
+        Map<UUID, ChatMessage> lastMessagesByUserId = resolveLastVisibleMessagesForAudience(chatId, audience);
 
         try {
             audience.forEach(user -> realtimeMessagingGateway.sendToUser(
@@ -573,7 +576,8 @@ public class ChatService {
                                     unreadCountsByUserId.getOrDefault(user.getId(), 0),
                                     memberships,
                                     moderatorUserIds,
-                                    members
+                                    members,
+                                    lastMessagesByUserId.get(user.getId())
                             )
                     ));
             telemetry.recordChatSummaryBroadcast(telemetrySample, room, audience.size(), "sent", chatId);
@@ -689,8 +693,29 @@ public class ChatService {
             List<UUID> moderatorUserIds,
             List<ParticipantResponse> members
     ) {
+        return toSummary(
+                room,
+                currentUserId,
+                usersById,
+                unreadCount,
+                memberships,
+                moderatorUserIds,
+                members,
+                findLatestVisibleMessage(room.getId(), currentUserId)
+        );
+    }
+
+    private ChatSummaryResponse toSummary(
+            ChatRoom room,
+            UUID currentUserId,
+            Map<UUID, UserAccount> usersById,
+            int unreadCount,
+            List<ChatParticipant> memberships,
+            List<UUID> moderatorUserIds,
+            List<ParticipantResponse> members,
+            ChatMessage lastMessage
+    ) {
         UUID ownerUserId = resolveGroupOwnerUserId(room, memberships);
-        ChatMessage lastMessage = findLatestVisibleMessage(room.getId(), currentUserId);
         MessageSnippetResponse pinnedMessage = buildPinnedSnippet(room, currentUserId, usersById);
         Instant updatedAt = lastMessage != null ? lastMessage.getCreatedAt() : room.getCreatedAt();
 
@@ -762,6 +787,43 @@ public class ChatService {
                 ).stream()
                 .findFirst()
                 .orElse(null);
+    }
+
+    private ChatMessage findLatestEncryptedMessage(UUID chatId) {
+        return chatMessageRepository.findLatestEncryptedByChatId(
+                        chatId,
+                        PageRequest.of(0, 1)
+                ).stream()
+                .findFirst()
+                .orElse(null);
+    }
+
+    private Map<UUID, ChatMessage> resolveLastVisibleMessagesForAudience(UUID chatId, List<UserAccount> audience) {
+        Map<UUID, ChatMessage> lastMessagesByUserId = new LinkedHashMap<>();
+        if (audience.isEmpty()) {
+            return lastMessagesByUserId;
+        }
+
+        ChatMessage latestMessage = findLatestEncryptedMessage(chatId);
+        if (latestMessage == null) {
+            audience.forEach(user -> lastMessagesByUserId.put(user.getId(), null));
+            return lastMessagesByUserId;
+        }
+
+        Set<UUID> deletedLatestMessageUserIds = userDeletedMessageRepository.findAllByMessageIdAndUserIdIn(
+                        latestMessage.getId(),
+                        audience.stream().map(UserAccount::getId).toList()
+                ).stream()
+                .map(UserDeletedMessage::getUserId)
+                .collect(Collectors.toSet());
+
+        audience.forEach(user -> lastMessagesByUserId.put(
+                user.getId(),
+                deletedLatestMessageUserIds.contains(user.getId())
+                        ? findLatestVisibleMessage(chatId, user.getId())
+                        : latestMessage
+        ));
+        return lastMessagesByUserId;
     }
 
     private MessageSnippetResponse buildPinnedSnippet(
