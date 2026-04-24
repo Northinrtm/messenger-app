@@ -1,5 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const { createMessageMock } = vi.hoisted(() => ({
+  createMessageMock: vi.fn(),
+}));
+
+vi.mock("./api", async () => {
+  const actual = await vi.importActual<typeof import("./api")>("./api");
+  return {
+    ...actual,
+    createMessage: createMessageMock,
+  };
+});
+
 vi.mock("./e2ee", () => ({
   hydrateChatMessage: vi.fn(async (message: Record<string, unknown>) => ({
     id: message.id,
@@ -138,6 +150,7 @@ function createSubscription(options?: {
 describe("realtime reconnect protection", () => {
   beforeEach(() => {
     stompClients.length = 0;
+    createMessageMock.mockReset();
     vi.useFakeTimers();
     setDocumentVisibilityState("visible");
   });
@@ -534,7 +547,7 @@ describe("realtime reconnect protection", () => {
     dispose();
   });
 
-  it("rejects message sends without publishing when the websocket is closing", async () => {
+  it("falls back to HTTP message send when the websocket is closing", async () => {
     const connectionChange = vi.fn();
     const dispose = createSubscription({
       onConnectionChange: connectionChange,
@@ -543,25 +556,108 @@ describe("realtime reconnect protection", () => {
     client.connected = true;
     client.onConnect();
     client.webSocket.readyState = 2;
+    createMessageMock.mockResolvedValue({
+      id: "server-http",
+      chatId: "chat-1",
+      sender: {
+        id: "user-1",
+        username: "north",
+        displayName: "North",
+        profession: null,
+        avatarUrl: null,
+        online: true,
+      },
+      content: null,
+      createdAt: "2026-04-13T12:02:00.000Z",
+      editedAt: null,
+      status: null,
+      clientMessageId: "client-closing",
+      serverOrder: 44,
+      replyTo: null,
+      reactions: [],
+      encryptedPayload: {
+        scheme: "X3DH-DEVICE-AES-GCM",
+        encryptedKeysByRecipientId: {},
+      },
+    });
 
     await expect(
-      sendMessageRaw("ignored", "chat-1", {
+      sendMessageRaw("test-token", "chat-1", {
         clientMessageId: "client-closing",
         encryptedPayload: {
           scheme: "X3DH-DEVICE-AES-GCM",
           encryptedKeysByRecipientId: {},
         },
       })
-    ).rejects.toMatchObject({
-      status: 503,
-      message: "Realtime connection is unavailable. Retry after reconnect.",
+    ).resolves.toMatchObject({
+      id: "server-http",
+      clientMessageId: "client-closing",
     });
 
     expect(client.publishCalls).toEqual([]);
+    expect(createMessageMock).toHaveBeenCalledWith("test-token", "chat-1", {
+      clientMessageId: "client-closing",
+      replyToMessageId: null,
+      attachmentIds: [],
+      encryptedPayload: {
+        scheme: "X3DH-DEVICE-AES-GCM",
+        encryptedKeysByRecipientId: {},
+      },
+    });
     expect(connectionChange).toHaveBeenCalledWith(false);
     expect(client.unsubscribeCalls).toBe(0);
     expect(client.unsafeUnsubscribeCalls).toBe(0);
     dispose();
+  });
+
+  it("falls back to HTTP message send when realtime is not connected yet", async () => {
+    createMessageMock.mockResolvedValue({
+      id: "server-http-no-ws",
+      chatId: "chat-1",
+      sender: {
+        id: "user-1",
+        username: "north",
+        displayName: "North",
+        profession: null,
+        avatarUrl: null,
+        online: true,
+      },
+      content: null,
+      createdAt: "2026-04-13T12:03:00.000Z",
+      editedAt: null,
+      status: null,
+      clientMessageId: "client-http-no-ws",
+      serverOrder: 45,
+      replyTo: null,
+      reactions: [],
+      encryptedPayload: {
+        scheme: "X3DH-DEVICE-AES-GCM",
+        encryptedKeysByRecipientId: {},
+      },
+    });
+
+    await expect(
+      sendMessageRaw("test-token", "chat-1", {
+        clientMessageId: "client-http-no-ws",
+        encryptedPayload: {
+          scheme: "X3DH-DEVICE-AES-GCM",
+          encryptedKeysByRecipientId: {},
+        },
+      })
+    ).resolves.toMatchObject({
+      id: "server-http-no-ws",
+      clientMessageId: "client-http-no-ws",
+    });
+
+    expect(createMessageMock).toHaveBeenCalledWith("test-token", "chat-1", {
+      clientMessageId: "client-http-no-ws",
+      replyToMessageId: null,
+      attachmentIds: [],
+      encryptedPayload: {
+        scheme: "X3DH-DEVICE-AES-GCM",
+        encryptedKeysByRecipientId: {},
+      },
+    });
   });
 
   it("drops typing events without publishing when the websocket is closing", () => {

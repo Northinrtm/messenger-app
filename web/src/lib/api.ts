@@ -684,6 +684,28 @@ export function getMessagesRaw(
   });
 }
 
+export function createMessage(
+  token: string,
+  chatId: string,
+  body: {
+    clientMessageId: string;
+    replyToMessageId?: string | null;
+    attachmentIds?: string[];
+    encryptedPayload: {
+      scheme: string;
+      encryptedKeysByRecipientId: Record<string, string>;
+      sharedEnvelope?: string | null;
+      historyEnvelope?: string | null;
+    };
+  }
+) {
+  return request<ApiChatMessage>(`/api/chats/${chatId}/messages`, {
+    method: "POST",
+    token,
+    body,
+  });
+}
+
 export function updateMessage(
   token: string,
   chatId: string,

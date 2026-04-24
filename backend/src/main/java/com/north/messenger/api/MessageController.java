@@ -5,6 +5,7 @@ import com.north.messenger.api.dto.MessageReactionEventResponse;
 import com.north.messenger.api.dto.MessageResponse;
 import com.north.messenger.api.dto.ToggleMessageReactionRequest;
 import com.north.messenger.api.dto.UpdateMessageRequest;
+import com.north.messenger.api.dto.CreateMessageRequest;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.message.MessageService;
 import jakarta.validation.Valid;
@@ -52,6 +53,20 @@ public class MessageController {
                 limit,
                 acknowledgeDelivered
         );
+    }
+
+    @PostMapping
+    public MessageResponse createMessage(
+            Authentication authentication,
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+            @PathVariable UUID chatId,
+            @Valid @RequestBody CreateMessageRequest request
+    ) {
+        authService.requireAuthenticatedSession(
+                authentication.getName(),
+                extractBearerToken(authorization)
+        );
+        return messageService.sendMessage(chatId, authentication.getName(), request);
     }
 
     @PostMapping("/delivered")

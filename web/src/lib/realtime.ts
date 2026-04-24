@@ -5,7 +5,7 @@ import {
   type IFrame,
   type StompSubscription,
 } from "@stomp/stompjs";
-import { ApiError } from "./api";
+import { ApiError, createMessage } from "./api";
 import { WS_URL } from "./config";
 import type {
   ApiChatMessage,
@@ -660,7 +660,7 @@ export function sendMessageRealtime(input: {
 }
 
 export function sendMessageRaw(
-  _token: string,
+  token: string,
   chatId: string,
   body: {
     clientMessageId?: string;
@@ -674,6 +674,20 @@ export function sendMessageRaw(
     attachmentIds?: string[];
   }
 ) {
+  const connection = activeConnection;
+  if (!connection || !isRealtimeClientReady(connection.client)) {
+    if (connection && shouldReportRealtimeClientFailure(connection)) {
+      handleConnectionFailure(connection);
+    }
+
+    return createMessage(token, chatId, {
+      clientMessageId: body.clientMessageId ?? "",
+      replyToMessageId: body.replyToMessageId ?? null,
+      attachmentIds: body.attachmentIds ?? [],
+      encryptedPayload: body.encryptedPayload,
+    });
+  }
+
   return sendMessageRealtime({
     chatId,
     clientMessageId: body.clientMessageId ?? "",
