@@ -492,11 +492,35 @@ describe("realtime reconnect protection", () => {
     dispose();
   });
 
-  it("fails pending sends when the websocket closes before ack", async () => {
+  it("falls back to HTTP when the websocket closes before ack", async () => {
     const dispose = createSubscription();
     const client = stompClients[0];
     client.connected = true;
     client.onConnect();
+    createMessageMock.mockResolvedValue({
+      id: "server-after-close",
+      chatId: "chat-1",
+      sender: {
+        id: "user-1",
+        username: "north",
+        displayName: "North",
+        profession: null,
+        avatarUrl: null,
+        online: true,
+      },
+      content: null,
+      createdAt: "2026-04-13T12:01:30.000Z",
+      editedAt: null,
+      status: null,
+      clientMessageId: "client-3",
+      serverOrder: 44,
+      replyTo: null,
+      reactions: [],
+      encryptedPayload: {
+        scheme: "X3DH-DEVICE-AES-GCM",
+        encryptedKeysByRecipientId: {},
+      },
+    });
 
     const sendPromise = sendMessageRaw("ignored", "chat-1", {
       clientMessageId: "client-3",
@@ -508,9 +532,18 @@ describe("realtime reconnect protection", () => {
 
     client.onWebSocketClose();
 
-    await expect(sendPromise).rejects.toMatchObject({
-      status: 503,
-      message: "Realtime connection was interrupted before the message was confirmed.",
+    await expect(sendPromise).resolves.toMatchObject({
+      id: "server-after-close",
+      clientMessageId: "client-3",
+    });
+    expect(createMessageMock).toHaveBeenCalledWith("ignored", "chat-1", {
+      clientMessageId: "client-3",
+      replyToMessageId: null,
+      attachmentIds: [],
+      encryptedPayload: {
+        scheme: "X3DH-DEVICE-AES-GCM",
+        encryptedKeysByRecipientId: {},
+      },
     });
     dispose();
   });
