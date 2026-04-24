@@ -107,7 +107,11 @@ function readPendingMessageMap(userId: string): StoredPendingMessageMap {
 }
 
 function writePendingMessageMap(userId: string, messages: StoredPendingMessageMap) {
-  window.localStorage.setItem(storageKey(userId), JSON.stringify(messages));
+  try {
+    window.localStorage.setItem(storageKey(userId), JSON.stringify(messages));
+  } catch {
+    return;
+  }
 }
 
 function sortPendingMessages(messages: LocalPendingMessage[]) {

@@ -73,6 +73,7 @@ const DEVICE_SIGNED_PREKEY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const DEVICE_PREKEY_GRACE_MS = 24 * 60 * 60 * 1000;
 const DEVICE_KEY_ID_SPACE = 2_000_000_000 - DEVICE_ONE_TIME_PREKEY_COUNT - 32;
 const DEVICE_MAX_MESSAGE_GAP = 4_096;
+const MAX_ARCHIVED_DEVICE_SESSIONS_PER_PEER_DEVICE = 4;
 const GROUP_MAX_MESSAGE_GAP = 4_096;
 const GROUP_SENDER_KEY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const DIRECT_ENVELOPE_AAD_VERSION = 1;
@@ -5554,13 +5555,26 @@ async function readDeviceSessions(userId: string): Promise<Record<string, Device
     const rawValue = window.sessionStorage.getItem(getDeviceSessionStorageKey(userId));
     if (rawValue) {
       const parsedSessions = JSON.parse(rawValue) as Record<string, DeviceSessionRecord>;
-      return isValidDeviceSessionCollection(parsedSessions) ? parsedSessions : {};
+      if (!isValidDeviceSessionCollection(parsedSessions)) {
+        return {};
+      }
+
+      const sanitizedSessions = sanitizeStoredDeviceSessions(parsedSessions);
+      if (sanitizedSessions !== parsedSessions) {
+        writeDeviceSessions(userId, sanitizedSessions);
+        void rememberDeviceSessions(userId, sanitizedSessions);
+      }
+      return sanitizedSessions;
     }
 
     const rememberedSessions = await readRememberedDeviceSessions(userId);
     if (rememberedSessions) {
-      writeDeviceSessions(userId, rememberedSessions);
-      return rememberedSessions;
+      const sanitizedSessions = sanitizeStoredDeviceSessions(rememberedSessions);
+      writeDeviceSessions(userId, sanitizedSessions);
+      if (sanitizedSessions !== rememberedSessions) {
+        await rememberDeviceSessions(userId, sanitizedSessions);
+      }
+      return sanitizedSessions;
     }
   } catch {
     removeDeviceSessions(userId);
@@ -5631,9 +5645,16 @@ function pruneArchivedDeviceSessions(
   userId: string,
   deviceId: string
 ) {
-  void sessions;
-  void userId;
-  void deviceId;
+  const archivePrefix = getDeviceSessionArchivePrefix(userId, deviceId);
+  const archivedEntries = Object.entries(sessions)
+    .filter(([key]) => key.startsWith(archivePrefix))
+    .sort((left, right) => right[1].establishedAt.localeCompare(left[1].establishedAt));
+
+  archivedEntries
+    .slice(MAX_ARCHIVED_DEVICE_SESSIONS_PER_PEER_DEVICE)
+    .forEach(([key]) => {
+      delete sessions[key];
+    });
 }
 
 function findDeviceSessionEntryForEnvelope(
@@ -5795,7 +5816,10 @@ async function rememberDeviceSessions(userId: string, sessions: Record<string, D
   }
 
   try {
-    const record = await encryptRememberedDeviceSessions(identity.privateKey, sessions);
+    const record = await encryptRememberedDeviceSessions(
+      identity.privateKey,
+      sanitizeStoredDeviceSessions(sessions)
+    );
     window.localStorage.setItem(getRememberedDeviceSessionStorageKey(userId), JSON.stringify(record));
   } catch {
     return;
@@ -6751,6 +6775,25 @@ function getDeviceSessionArchivePrefix(userId: string, deviceId: string) {
 
 function getDeviceSessionArchiveKey(userId: string, deviceId: string, sessionId: string) {
   return `${getDeviceSessionArchivePrefix(userId, deviceId)}${sessionId}`;
+}
+
+function sanitizeStoredDeviceSessions(sessions: Record<string, DeviceSessionRecord>) {
+  let changed = false;
+  const nextSessions = { ...sessions };
+  const peerDeviceKeys = new Set(
+    Object.values(nextSessions).map((session) => `${session.peerUserId}\u0000${session.peerDeviceId}`)
+  );
+
+  peerDeviceKeys.forEach((peerDeviceKey) => {
+    const [peerUserId, peerDeviceId] = peerDeviceKey.split("\u0000");
+    const beforeCount = Object.keys(nextSessions).length;
+    pruneArchivedDeviceSessions(nextSessions, peerUserId ?? "", peerDeviceId ?? "");
+    if (Object.keys(nextSessions).length !== beforeCount) {
+      changed = true;
+    }
+  });
+
+  return changed ? nextSessions : sessions;
 }
 
 function readPinnedDeviceBundleRecord(userId: string, deviceId: string): PinnedDeviceBundleRecord | null {

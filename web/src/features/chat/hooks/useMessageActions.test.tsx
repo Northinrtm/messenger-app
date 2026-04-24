@@ -184,7 +184,7 @@ describe("useMessageActions send failure recovery", () => {
     root = null;
     container.remove();
     window.localStorage.clear();
-    vi.clearAllMocks();
+    vi.restoreAllMocks();
     vi.useRealTimers();
     (globalThis as ReactActEnvironment).IS_REACT_ACT_ENVIRONMENT = false;
   });
@@ -274,6 +274,59 @@ describe("useMessageActions send failure recovery", () => {
     });
 
     expect(latestStateRef.current?.draftsByChatId["chat-1"] ?? "").toBe("");
+  });
+
+  it("still starts the send attempt when pending message persistence hits storage quota", async () => {
+    const originalSetItem = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
+      this: Storage,
+      key,
+      value
+    ) {
+      if (key === "north-messenger-local-pending-messages:user-1") {
+        throw new DOMException("Quota exceeded", "QuotaExceededError");
+      }
+
+      return originalSetItem.call(this, key, value);
+    });
+    vi.mocked(sendEncryptedMessage).mockRejectedValueOnce(new Error("send failed"));
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    const latestStateRef: { current: HarnessState | null } = { current: null };
+
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(
+        <QueryClientProvider client={queryClient}>
+          <Harness
+            queryClient={queryClient}
+            onReady={(value) => {
+              latestStateRef.current = value;
+            }}
+          />
+        </QueryClientProvider>
+      );
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      latestStateRef.current?.submitActiveDraft("message despite quota");
+      await flushMicrotasks(10);
+    });
+
+    expect(vi.mocked(sendEncryptedMessage)).toHaveBeenCalledTimes(1);
+    expect(latestStateRef.current?.draftsByChatId["chat-1"] ?? "").toBe("");
+    expect(queryClient.getQueryData(["pending-outgoing-messages", "user-1"])).toEqual([
+      expect.objectContaining({
+        clientMessageId: expect.stringMatching(/^client-/),
+        status: "FAILED",
+      }),
+    ]);
   });
 
   it("keeps transient realtime send failures in sending state so reconnect can resume them invisibly", async () => {

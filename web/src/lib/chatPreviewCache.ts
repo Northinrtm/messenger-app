@@ -22,7 +22,11 @@ export function writeLocalChatPreviews(
   userId: string,
   previews: Record<string, StoredChatPreviewEntry>
 ) {
-  window.localStorage.setItem(storageKey(userId), JSON.stringify(previews));
+  try {
+    window.localStorage.setItem(storageKey(userId), JSON.stringify(previews));
+  } catch {
+    return;
+  }
 }
 
 function storageKey(userId: string) {

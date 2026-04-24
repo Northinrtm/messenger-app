@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   recoverLocalPendingMessages,
@@ -44,6 +44,10 @@ function confirmedServerMessage(): ChatMessage {
 describe("localPendingMessages reload recovery", () => {
   beforeEach(() => {
     window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("recovers an in-flight message as still sending instead of surfacing a retry on reload", () => {
@@ -92,5 +96,39 @@ describe("localPendingMessages reload recovery", () => {
     expect(flattened[0]?.id).toBe("server-1");
     expect(flattened[0]?.clientMessageId).toBe("client-1");
     expect(flattened[0]?.status?.state).toBe("SENT");
+  });
+
+  it("keeps the in-memory pending state when local storage is full", () => {
+    const originalSetItem = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
+      this: Storage,
+      key,
+      value
+    ) {
+      if (key === "north-messenger-local-pending-messages:user-1") {
+        throw new DOMException("Quota exceeded", "QuotaExceededError");
+      }
+
+      return originalSetItem.call(this, key, value);
+    });
+
+    const pendingMessages = upsertLocalPendingMessage("user-1", {
+      chatId: "chat-1",
+      clientMessageId: "client-1",
+      content: "hello after reload",
+      createdAt: "2026-04-18T12:00:01.000Z",
+      localOrder: 7,
+      recipientCount: 1,
+      replyTo: null,
+      status: "SENDING",
+    });
+
+    expect(pendingMessages).toEqual([
+      expect.objectContaining({
+        clientMessageId: "client-1",
+        status: "SENDING",
+      }),
+    ]);
+    expect(recoverLocalPendingMessages("user-1")).toEqual([]);
   });
 });

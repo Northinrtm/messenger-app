@@ -8,14 +8,7 @@ type StoredDraftEntry = {
 };
 
 export function readLocalDrafts(userId: string): ChatDraft[] {
-  const entries = readDraftMap(userId);
-  return Object.entries(entries)
-    .map(([chatId, entry]) => ({
-      chatId,
-      content: entry.content,
-      updatedAt: entry.updatedAt,
-    }))
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  return toDraftList(readDraftMap(userId));
 }
 
 export function writeLocalDraft(userId: string, chatId: string, content: string) {
@@ -30,8 +23,13 @@ export function writeLocalDraft(userId: string, chatId: string, content: string)
     delete drafts[chatId];
   }
 
-  window.localStorage.setItem(storageKey(userId), JSON.stringify(drafts));
-  return readLocalDrafts(userId);
+  try {
+    window.localStorage.setItem(storageKey(userId), JSON.stringify(drafts));
+  } catch {
+    return toDraftList(drafts);
+  }
+
+  return toDraftList(drafts);
 }
 
 export function removeLocalDraft(userId: string, chatId: string) {
@@ -53,4 +51,14 @@ function readDraftMap(userId: string): Record<string, StoredDraftEntry> {
 
 function storageKey(userId: string) {
   return `${DRAFT_STORAGE_PREFIX}${userId}`;
+}
+
+function toDraftList(entries: Record<string, StoredDraftEntry>) {
+  return Object.entries(entries)
+    .map(([chatId, entry]) => ({
+      chatId,
+      content: entry.content,
+      updatedAt: entry.updatedAt,
+    }))
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
