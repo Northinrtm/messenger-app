@@ -9,7 +9,6 @@
     }
 
     redir /meet /meet/ 308
-    redir /observability /observability/ 308
 
     @jitsi_config {
         path /meet/config.js /meet/interface_config.js
@@ -62,13 +61,11 @@
         }
     }
 
-    handle /observability/* {
-        reverse_proxy grafana:3000 {
-            header_up X-Forwarded-Prefix /observability
-            transport http {
-                dial_timeout 5s
-            }
-        }
+    @observability_disabled {
+        path /observability /observability/*
+    }
+    handle @observability_disabled {
+        respond "Not found" 404
     }
 
     handle {

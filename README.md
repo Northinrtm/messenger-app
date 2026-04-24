@@ -418,6 +418,7 @@ Built-in health and telemetry:
 - scheduled websocket storm guard workflow for `/ws` and `429` spikes
 
 For small hosts, observability is intended to stay off by default and be enabled only when needed for diagnostics.
+When it is off, `/observability/` is expected to return `404`.
 
 ### E2EE diagnostics
 

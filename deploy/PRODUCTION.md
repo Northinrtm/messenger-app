@@ -79,7 +79,7 @@ Optional production observability can run on the same server with these internal
 - `promtail`
 - `postgres-exporter`
 
-Only Grafana is exposed externally, through:
+When the observability stack is enabled, only Grafana is exposed externally, through:
 
 - `https://<APP_DOMAIN>/observability/`
 
@@ -97,6 +97,7 @@ Required `.env.prod` values:
 
 Production compose fails closed if the Prometheus scrape credentials are missing.
 Set explicit values in `.env.prod` before enabling the observability stack.
+When `ENABLE_OBSERVABILITY_STACK=false`, `/observability/` intentionally returns `404`.
 
 Production backend logs run in JSON mode and are shipped into Loki by Promtail.
 Production Docker logs use bounded `json-file` rotation controlled by `DOCKER_LOG_MAX_SIZE` and `DOCKER_LOG_MAX_FILE`.
@@ -104,8 +105,8 @@ Alertmanager is part of the stack and can forward alerts through `ALERTMANAGER_W
 
 Recommended memory policy on a `2 GB RAM` VPS:
 
-- keep `ENABLE_OBSERVABILITY_STACK=false`
-- keep `MANAGEMENT_TRACING_ENABLED=false`
+- set `ENABLE_OBSERVABILITY_STACK=false`
+- set `MANAGEMENT_TRACING_ENABLED=false`
 - use observability only temporarily during diagnostics
 - plan a bigger host before keeping Grafana, Prometheus, Tempo, Loki, and Jitsi active together
 - use the `Production WebSocket Guard` GitHub Actions workflow as the lightweight default alert path for websocket storms on small hosts
