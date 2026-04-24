@@ -80,8 +80,7 @@ const REALTIME_RECONNECT_FAILURE_DEDUP_MS = 250;
 const REALTIME_RECONNECT_FAILURE_THRESHOLD = 5;
 const REALTIME_RECONNECT_COOLDOWN_MS = 60_000;
 const REALTIME_VISIBILITY_PAUSE_DELAY_MS = 15_000;
-const REALTIME_SEND_ACK_TIMEOUT_MS = 12_000;
-const GROUP_SENDER_KEY_MESSAGE_SCHEME = "GROUP-SENDER-KEY-AES-GCM";
+const REALTIME_SEND_ACK_TIMEOUT_MS = 2_000;
 const WEB_SOCKET_OPEN_STATE = 1;
 const WEB_SOCKET_CLOSING_STATE = 2;
 const WEB_SOCKET_CLOSED_STATE = 3;
@@ -682,20 +681,6 @@ export function sendMessageRaw(
 ) {
   const connection = activeConnection;
   const realtimeReady = Boolean(connection && isRealtimeClientReady(connection.client));
-  if (body.encryptedPayload.scheme === GROUP_SENDER_KEY_MESSAGE_SCHEME) {
-    recordSendDiagnosticStep(body.clientMessageId ?? "", "transport:selected", {
-      transport: "http",
-      realtimeReady,
-      reason: "group-encrypted",
-    });
-    return createMessage(token, chatId, {
-      clientMessageId: body.clientMessageId ?? "",
-      replyToMessageId: body.replyToMessageId ?? null,
-      attachmentIds: body.attachmentIds ?? [],
-      encryptedPayload: body.encryptedPayload,
-    });
-  }
-
   if (!connection || !realtimeReady) {
     if (connection && shouldReportRealtimeClientFailure(connection)) {
       handleConnectionFailure(connection);
@@ -725,6 +710,36 @@ export function sendMessageRaw(
     replyToMessageId: body.replyToMessageId ?? null,
     encryptedPayload: body.encryptedPayload,
     attachmentIds: body.attachmentIds ?? [],
+  }).catch((error) => {
+    if (!(error instanceof ApiError) || ![503, 504].includes(error.status)) {
+      throw error;
+    }
+
+    recordSendDiagnosticStep(body.clientMessageId ?? "", "transport:httpFallback:start", {
+      triggerStatus: error.status,
+      triggerMessage: error.message,
+    });
+    return createMessage(token, chatId, {
+      clientMessageId: body.clientMessageId ?? "",
+      replyToMessageId: body.replyToMessageId ?? null,
+      attachmentIds: body.attachmentIds ?? [],
+      encryptedPayload: body.encryptedPayload,
+    })
+      .then((response) => {
+        recordSendDiagnosticStep(body.clientMessageId ?? "", "transport:httpFallback:end", {
+          messageId: response.id,
+          serverOrder: response.serverOrder ?? null,
+        });
+        return response;
+      })
+      .catch((fallbackError) => {
+        recordSendDiagnosticStep(body.clientMessageId ?? "", "transport:httpFallback:error", {
+          status: fallbackError instanceof ApiError ? fallbackError.status : null,
+          message:
+            fallbackError instanceof Error ? fallbackError.message : "HTTP fallback failed",
+        });
+        throw fallbackError;
+      });
   });
 }
 

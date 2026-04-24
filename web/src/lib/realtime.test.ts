@@ -660,7 +660,7 @@ describe("realtime reconnect protection", () => {
     });
   });
 
-  it("uses HTTP message send for group sender key payloads even when realtime is connected", async () => {
+  it("sends group sender key payloads over websocket when realtime is connected", async () => {
     const connectionChange = vi.fn();
     const dispose = createSubscription({
       onConnectionChange: connectionChange,
@@ -668,8 +668,8 @@ describe("realtime reconnect protection", () => {
     const client = stompClients[0];
     client.connected = true;
     client.onConnect();
-    createMessageMock.mockResolvedValue({
-      id: "server-http-group",
+    const ackPayload = {
+      id: "server-group-ws",
       chatId: "chat-1",
       sender: {
         id: "user-1",
@@ -683,8 +683,82 @@ describe("realtime reconnect protection", () => {
       createdAt: "2026-04-24T15:20:00.000Z",
       editedAt: null,
       status: null,
-      clientMessageId: "client-group-http",
+      clientMessageId: "client-group-ws",
       serverOrder: 46,
+      replyTo: null,
+      reactions: [],
+      encryptedPayload: {
+        scheme: "GROUP-SENDER-KEY-AES-GCM",
+        encryptedKeysByRecipientId: {
+          "device-1": "{}",
+        },
+        sharedEnvelope: "{\"senderKeyId\":\"group-key\"}",
+      },
+    };
+
+    const sendPromise = sendMessageRaw("test-token", "chat-1", {
+      clientMessageId: "client-group-ws",
+      encryptedPayload: {
+        scheme: "GROUP-SENDER-KEY-AES-GCM",
+        encryptedKeysByRecipientId: {
+          "device-1": "{}",
+        },
+        sharedEnvelope: "{\"senderKeyId\":\"group-key\"}",
+      },
+    });
+
+    expect(client.publishCalls).toEqual([
+      {
+        destination: "/app/chats/chat-1/messages",
+        body: JSON.stringify({
+          clientMessageId: "client-group-ws",
+          replyToMessageId: null,
+          attachmentIds: [],
+          encryptedPayload: {
+            scheme: "GROUP-SENDER-KEY-AES-GCM",
+            encryptedKeysByRecipientId: {
+              "device-1": "{}",
+            },
+            sharedEnvelope: "{\"senderKeyId\":\"group-key\"}",
+          },
+        }),
+      },
+    ]);
+    expect(createMessageMock).not.toHaveBeenCalled();
+
+    emitFrame(client, "/user/queue/message-acks", ackPayload);
+
+    await expect(sendPromise).resolves.toMatchObject({
+      id: "server-group-ws",
+      clientMessageId: "client-group-ws",
+    });
+
+    expect(connectionChange).not.toHaveBeenCalledWith(false);
+    dispose();
+  });
+
+  it("falls back to HTTP when websocket message confirmation times out", async () => {
+    const dispose = createSubscription();
+    const client = stompClients[0];
+    client.connected = true;
+    client.onConnect();
+    createMessageMock.mockResolvedValue({
+      id: "server-http-fallback",
+      chatId: "chat-1",
+      sender: {
+        id: "user-1",
+        username: "north",
+        displayName: "North",
+        profession: null,
+        avatarUrl: null,
+        online: true,
+      },
+      content: null,
+      createdAt: "2026-04-24T15:21:00.000Z",
+      editedAt: null,
+      status: null,
+      clientMessageId: "client-timeout-fallback",
+      serverOrder: 47,
       replyTo: null,
       reactions: [],
       encryptedPayload: {
@@ -696,25 +770,29 @@ describe("realtime reconnect protection", () => {
       },
     });
 
-    await expect(
-      sendMessageRaw("test-token", "chat-1", {
-        clientMessageId: "client-group-http",
-        encryptedPayload: {
-          scheme: "GROUP-SENDER-KEY-AES-GCM",
-          encryptedKeysByRecipientId: {
-            "device-1": "{}",
-          },
-          sharedEnvelope: "{\"senderKeyId\":\"group-key\"}",
+    const sendPromise = sendMessageRaw("test-token", "chat-1", {
+      clientMessageId: "client-timeout-fallback",
+      encryptedPayload: {
+        scheme: "GROUP-SENDER-KEY-AES-GCM",
+        encryptedKeysByRecipientId: {
+          "device-1": "{}",
         },
-      })
-    ).resolves.toMatchObject({
-      id: "server-http-group",
-      clientMessageId: "client-group-http",
+        sharedEnvelope: "{\"senderKeyId\":\"group-key\"}",
+      },
     });
 
-    expect(client.publishCalls).toEqual([]);
+    vi.advanceTimersByTime(2_000);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await expect(sendPromise).resolves.toMatchObject({
+      id: "server-http-fallback",
+      clientMessageId: "client-timeout-fallback",
+    });
+
+    expect(client.publishCalls).toHaveLength(1);
     expect(createMessageMock).toHaveBeenCalledWith("test-token", "chat-1", {
-      clientMessageId: "client-group-http",
+      clientMessageId: "client-timeout-fallback",
       replyToMessageId: null,
       attachmentIds: [],
       encryptedPayload: {
@@ -725,7 +803,6 @@ describe("realtime reconnect protection", () => {
         sharedEnvelope: "{\"senderKeyId\":\"group-key\"}",
       },
     });
-    expect(connectionChange).not.toHaveBeenCalledWith(false);
     dispose();
   });
 
