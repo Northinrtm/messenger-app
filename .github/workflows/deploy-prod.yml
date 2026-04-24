@@ -15,6 +15,7 @@ jobs:
     environment: production
     env:
       PROD_APP_DIR: ${{ vars.PROD_APP_DIR || secrets.PROD_APP_DIR || '/opt/messenger-app' }}
+      PROD_PUBLIC_BASE_URL: ${{ vars.PROD_PUBLIC_BASE_URL || secrets.PROD_PUBLIC_BASE_URL || 'https://pishi.ktsf.ru' }}
       PROD_SSH_HOST: ${{ vars.PROD_SSH_HOST || secrets.PROD_SSH_HOST || '83.147.244.194' }}
       PROD_SSH_PORT: ${{ vars.PROD_SSH_PORT || secrets.PROD_SSH_PORT || '22' }}
       PROD_SSH_USER: ${{ vars.PROD_SSH_USER || secrets.PROD_SSH_USER || 'deploy' }}
@@ -83,4 +84,50 @@ jobs:
           done
 
           echo "Timed out waiting for remote deployment to finish." >&2
+          exit 1
+
+      - name: Verify public revision
+        env:
+          EXPECTED_REVISION: ${{ github.sha }}
+        run: |
+          test -n "$PROD_PUBLIC_BASE_URL"
+          test -n "$EXPECTED_REVISION"
+          base_url="${PROD_PUBLIC_BASE_URL%/}"
+
+          for attempt in $(seq 1 18); do
+            body="$(mktemp)"
+            if curl -fsS --max-time 20 --retry 1 --retry-delay 2 -o "$body" "$base_url/build-meta.json"; then
+              if python - "$body" "$EXPECTED_REVISION" <<'PY'
+import json
+import sys
+
+body_path = sys.argv[1]
+expected_revision = sys.argv[2].strip()
+
+with open(body_path, "r", encoding="utf-8") as handle:
+    payload = json.load(handle)
+
+revision = str(payload.get("revision", "")).strip()
+built_at = str(payload.get("builtAt", "")).strip()
+
+if not revision:
+    raise SystemExit("build-meta.json is missing revision")
+if not built_at:
+    raise SystemExit("build-meta.json is missing builtAt")
+if revision != expected_revision:
+    raise SystemExit(
+        f"Expected public revision {expected_revision}, got {revision}"
+    )
+
+print(f"Verified public revision {revision} built at {built_at}")
+PY
+              then
+                exit 0
+              fi
+            fi
+
+            sleep 10
+          done
+
+          echo "Public deployment never exposed revision $EXPECTED_REVISION" >&2
           exit 1

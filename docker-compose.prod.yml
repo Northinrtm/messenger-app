@@ -478,6 +478,7 @@ services:
       context: ./web
       args:
         VITE_API_URL: ""
+        VITE_APP_REVISION: ${WEB_APP_REVISION:-dev}
         VITE_WS_URL: ""
         VITE_JITSI_BASE_URL: ${JITSI_PUBLIC_URL:?JITSI_PUBLIC_URL must be set}
     restart: unless-stopped

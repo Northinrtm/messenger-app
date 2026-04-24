@@ -68,6 +68,8 @@ fi
 git fetch origin main
 git checkout main
 git pull --ff-only origin main
+WEB_APP_REVISION="$(git rev-parse HEAD)"
+export WEB_APP_REVISION
 
 BACKEND_REPLICAS="${BACKEND_REPLICAS:-$(env_file_value BACKEND_REPLICAS 1)}"
 WEB_REPLICAS="${WEB_REPLICAS:-$(env_file_value WEB_REPLICAS 1)}"
@@ -83,6 +85,7 @@ if [[ " $RUNTIME_SERVICES " == *" web "* ]]; then
 fi
 
 "${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" config >/dev/null
+echo "Building web revision: $WEB_APP_REVISION"
 "${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build $BUILD_SERVICES
 "${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d $SUPPORT_SERVICES
 echo "Runtime replicas: backend=${BACKEND_REPLICAS}, web=${WEB_REPLICAS}"
