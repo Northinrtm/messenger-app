@@ -48,6 +48,18 @@ class ProductionDeploymentConfigTest {
     }
 
     @Test
+    void remoteUpdateShouldRollRuntimeServicesInDependencyOrder() throws Exception {
+        String script = readRepoFile("deploy", "remote-update.sh");
+
+        assertThat(script)
+                .contains("wait_for_service_ready()")
+                .contains("deploy_runtime_service()")
+                .contains("deploy_order=(backend web edge)")
+                .contains("deploy_runtime_service \"$service\" \"$(scale_for_service \"$service\")\"")
+                .doesNotContain("up -d --no-deps --force-recreate \"${runtime_scale_args[@]}\" $RUNTIME_SERVICES");
+    }
+
+    @Test
     void docsShouldNotDescribeWeakPrometheusFallbackOrLegacyCryptoScheme() throws Exception {
         String readme = readRepoFile("README.md");
         String productionRunbook = readRepoFile("deploy", "PRODUCTION.md");
