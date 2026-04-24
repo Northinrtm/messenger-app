@@ -660,6 +660,75 @@ describe("realtime reconnect protection", () => {
     });
   });
 
+  it("uses HTTP message send for group sender key payloads even when realtime is connected", async () => {
+    const connectionChange = vi.fn();
+    const dispose = createSubscription({
+      onConnectionChange: connectionChange,
+    });
+    const client = stompClients[0];
+    client.connected = true;
+    client.onConnect();
+    createMessageMock.mockResolvedValue({
+      id: "server-http-group",
+      chatId: "chat-1",
+      sender: {
+        id: "user-1",
+        username: "north",
+        displayName: "North",
+        profession: null,
+        avatarUrl: null,
+        online: true,
+      },
+      content: null,
+      createdAt: "2026-04-24T15:20:00.000Z",
+      editedAt: null,
+      status: null,
+      clientMessageId: "client-group-http",
+      serverOrder: 46,
+      replyTo: null,
+      reactions: [],
+      encryptedPayload: {
+        scheme: "GROUP-SENDER-KEY-AES-GCM",
+        encryptedKeysByRecipientId: {
+          "device-1": "{}",
+        },
+        sharedEnvelope: "{\"senderKeyId\":\"group-key\"}",
+      },
+    });
+
+    await expect(
+      sendMessageRaw("test-token", "chat-1", {
+        clientMessageId: "client-group-http",
+        encryptedPayload: {
+          scheme: "GROUP-SENDER-KEY-AES-GCM",
+          encryptedKeysByRecipientId: {
+            "device-1": "{}",
+          },
+          sharedEnvelope: "{\"senderKeyId\":\"group-key\"}",
+        },
+      })
+    ).resolves.toMatchObject({
+      id: "server-http-group",
+      clientMessageId: "client-group-http",
+    });
+
+    expect(client.publishCalls).toEqual([]);
+    expect(createMessageMock).toHaveBeenCalledWith("test-token", "chat-1", {
+      clientMessageId: "client-group-http",
+      replyToMessageId: null,
+      attachmentIds: [],
+      encryptedPayload: {
+        scheme: "GROUP-SENDER-KEY-AES-GCM",
+        encryptedKeysByRecipientId: {
+          "device-1": "{}",
+        },
+        sharedEnvelope: "{\"senderKeyId\":\"group-key\"}",
+      },
+    });
+    expect(connectionChange).not.toHaveBeenCalledWith(false);
+    dispose();
+  });
+
   it("drops typing events without publishing when the websocket is closing", () => {
     const connectionChange = vi.fn();
     const dispose = createSubscription({

@@ -81,6 +81,7 @@ const REALTIME_RECONNECT_FAILURE_THRESHOLD = 5;
 const REALTIME_RECONNECT_COOLDOWN_MS = 60_000;
 const REALTIME_VISIBILITY_PAUSE_DELAY_MS = 15_000;
 const REALTIME_SEND_ACK_TIMEOUT_MS = 12_000;
+const GROUP_SENDER_KEY_MESSAGE_SCHEME = "GROUP-SENDER-KEY-AES-GCM";
 const WEB_SOCKET_OPEN_STATE = 1;
 const WEB_SOCKET_CLOSING_STATE = 2;
 const WEB_SOCKET_CLOSED_STATE = 3;
@@ -680,14 +681,30 @@ export function sendMessageRaw(
   }
 ) {
   const connection = activeConnection;
-  if (!connection || !isRealtimeClientReady(connection.client)) {
+  const realtimeReady = Boolean(connection && isRealtimeClientReady(connection.client));
+  if (body.encryptedPayload.scheme === GROUP_SENDER_KEY_MESSAGE_SCHEME) {
+    recordSendDiagnosticStep(body.clientMessageId ?? "", "transport:selected", {
+      transport: "http",
+      realtimeReady,
+      reason: "group-encrypted",
+    });
+    return createMessage(token, chatId, {
+      clientMessageId: body.clientMessageId ?? "",
+      replyToMessageId: body.replyToMessageId ?? null,
+      attachmentIds: body.attachmentIds ?? [],
+      encryptedPayload: body.encryptedPayload,
+    });
+  }
+
+  if (!connection || !realtimeReady) {
     if (connection && shouldReportRealtimeClientFailure(connection)) {
       handleConnectionFailure(connection);
     }
 
     recordSendDiagnosticStep(body.clientMessageId ?? "", "transport:selected", {
       transport: "http",
-      realtimeReady: false,
+      realtimeReady,
+      reason: "realtime-unavailable",
     });
     return createMessage(token, chatId, {
       clientMessageId: body.clientMessageId ?? "",
@@ -700,6 +717,7 @@ export function sendMessageRaw(
   recordSendDiagnosticStep(body.clientMessageId ?? "", "transport:selected", {
     transport: "ws",
     realtimeReady: true,
+    reason: "realtime-ready",
   });
   return sendMessageRealtime({
     chatId,
