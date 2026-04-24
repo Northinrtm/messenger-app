@@ -1961,10 +1961,6 @@ function shouldEstablishDeviceSession(
     return true;
   }
 
-  if (existingSession.sessionOrigin === "responder") {
-    return false;
-  }
-
   return (
     existingSession.remoteSignedPrekeyId !== bundle.signedPrekeyId ||
     existingSession.remoteSignedPrekeyPublicKey !== bundle.signedPrekeyPublicKey

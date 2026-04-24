@@ -1150,7 +1150,7 @@ describe("e2ee hardening", () => {
     expect(secondRemoteEnvelope.recipientOneTimePrekeyId).toBeNull();
   });
 
-  it("reuses a responder-established direct session without consuming a new bootstrap prekey", async () => {
+  it("rebuilds a responder-established direct session before the first outgoing reply", async () => {
     vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
     vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
     vi.spyOn(window.crypto.subtle, "deriveBits").mockResolvedValue(new Uint8Array(32).buffer);
@@ -1213,13 +1213,124 @@ describe("e2ee hardening", () => {
       { currentUserId: USER_ID }
     );
 
-    expect(resolveEncryptionDeviceBundles).toHaveBeenCalledTimes(2);
+    expect(resolveEncryptionDeviceBundles).toHaveBeenCalledTimes(3);
     expect(
-      vi.mocked(resolveEncryptionDeviceBundles).mock.calls.every(
-        ([, , request]) => request?.consumeOneTimePrekeys === false
+      vi.mocked(resolveEncryptionDeviceBundles).mock.calls.some(
+        ([, , request]) => request?.consumeOneTimePrekeys === true
       )
     ).toBe(true);
     expect(sendMessageRaw).toHaveBeenCalledTimes(1);
+
+    const remoteEnvelope = JSON.parse(
+      vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload?.encryptedKeysByRecipientId[
+        "device-id"
+      ] ?? "{}"
+    ) as { recipientSignedPrekeyId?: number };
+    expect(remoteEnvelope.recipientSignedPrekeyId).toBe(deviceBundle.signedPrekeyId);
+  });
+
+  it("rebuilds a responder-established direct session when the remote signed prekey rotated", async () => {
+    const rotatedDeviceBundle = {
+      ...deviceBundle,
+      signedPrekeyId: 8,
+      signedPrekeyPublicKey: '{"kty":"OKP","crv":"X25519","x":"signed-prekey-rotated"}',
+    };
+    const rotatedConsumableDeviceBundle = {
+      ...rotatedDeviceBundle,
+      oneTimePrekey: {
+        keyId: 11,
+        publicKey: '{"kty":"OKP","crv":"X25519","x":"otp-rotated"}',
+      },
+    };
+    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
+    vi.spyOn(window.crypto.subtle, "generateKey").mockResolvedValue({
+      publicKey: {} as CryptoKey,
+      privateKey: {} as CryptoKey,
+    } as CryptoKeyPair);
+    vi.spyOn(window.crypto.subtle, "exportKey").mockResolvedValue({
+      kty: "OKP",
+      crv: "X25519",
+      x: "generated",
+    } as JsonWebKey);
+    vi.spyOn(window.crypto.subtle, "deriveBits").mockResolvedValue(new Uint8Array(32).buffer);
+    vi.spyOn(window.crypto.subtle, "encrypt").mockImplementation(
+      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
+    );
+    vi.mocked(resolveEncryptionDeviceBundles)
+      .mockResolvedValueOnce([rotatedDeviceBundle])
+      .mockResolvedValueOnce([rotatedConsumableDeviceBundle])
+      .mockResolvedValueOnce([rotatedDeviceBundle]);
+    vi.mocked(sendMessageRaw).mockImplementation(async (_token, chatId, request) => ({
+      id: "reply-message-id",
+      chatId,
+      sender: selfParticipant,
+      createdAt: "2026-04-09T10:31:00.000Z",
+      editedAt: null,
+      status: null,
+      clientMessageId: request.clientMessageId ?? null,
+      replyTo: null,
+      reactions: [],
+      encryptedPayload: request.encryptedPayload,
+    }));
+    window.sessionStorage.setItem(DEVICE_MATERIAL_KEY, JSON.stringify(localDeviceMaterial));
+    window.sessionStorage.setItem(
+      DEVICE_SESSION_KEY,
+      JSON.stringify({
+        [`${REMOTE_USER_ID}:device-id`]: {
+          sessionId: "responder-session-record",
+          peerUserId: REMOTE_USER_ID,
+          peerDeviceId: "device-id",
+          sessionOrigin: "responder",
+          ownMaterialId: localDeviceMaterial.materialId,
+          remoteIdentityKey: rotatedDeviceBundle.identityKey,
+          remoteIdentitySignatureKey: rotatedDeviceBundle.identitySignatureKey,
+          remoteSignedPrekeyId: 7,
+          remoteSignedPrekeyPublicKey: deviceBundle.signedPrekeyPublicKey,
+          remoteOneTimePrekeyId: null,
+          initiatorEphemeralPublicKey: '{"kty":"OKP","crv":"X25519","x":"peer-initiator"}',
+          sendingRatchetPublicKey: '{"kty":"OKP","crv":"X25519","x":"local-ratchet"}',
+          sendingRatchetPrivateKey:
+            '{"kty":"OKP","crv":"X25519","d":"local-ratchet-private","x":"local-ratchet"}',
+          remoteRatchetPublicKey: '{"kty":"OKP","crv":"X25519","x":"peer-ratchet"}',
+          sendingRatchetUsed: false,
+          pendingSendingRatchetStep: true,
+          rootKey: utf8ToBase64("12345678901234567890123456789012"),
+          sendingChainKey: utf8ToBase64("abcdefghijklmnopqrstuvwx12345678"),
+          receivingChainKey: utf8ToBase64("zyxwvutsrqponmlkjihgfedcba876543"),
+          sendingCounter: 0,
+          receivingCounter: 0,
+          cachedMessageKeys: {},
+          establishedAt: "2026-04-09T10:00:00.000Z",
+        },
+      })
+    );
+
+    await sendEncryptedMessage(
+      "token",
+      "chat-id",
+      "reply after remote prekey rotation",
+      [selfParticipant, participant],
+      "client-message-id-rotated-reply",
+      null,
+      { currentUserId: USER_ID }
+    );
+
+    expect(resolveEncryptionDeviceBundles).toHaveBeenCalledTimes(3);
+    expect(
+      vi.mocked(resolveEncryptionDeviceBundles).mock.calls.some(
+        ([, , request]) => request?.consumeOneTimePrekeys === true
+      )
+    ).toBe(true);
+    expect(sendMessageRaw).toHaveBeenCalledTimes(1);
+
+    const remoteEnvelope = JSON.parse(
+      vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload?.encryptedKeysByRecipientId[
+        "device-id"
+      ] ?? "{}"
+    ) as { recipientSignedPrekeyId?: number; recipientOneTimePrekeyId?: number | null };
+    expect(remoteEnvelope.recipientSignedPrekeyId).toBe(8);
+    expect(remoteEnvelope.recipientOneTimePrekeyId).toBe(11);
   });
 
   it("imports X25519 public device bundles without deriveBits key usage", async () => {
