@@ -13,6 +13,7 @@ type ReactActEnvironment = typeof globalThis & {
 
 type DraftHarnessState = {
   activeDraft: string;
+  clearDraftForChat: (chatId: string) => void;
   handleComposerChange: (chatId: string | null, nextValue: string) => void;
 };
 
@@ -173,5 +174,47 @@ describe("useChatDrafts reload recovery", () => {
 
     expect(latestDraftStateRef.current?.activeDraft).toBe("");
     expect(readLocalDrafts("user-1")).toEqual([]);
+  });
+
+  it("does not restore a cleared draft on pagehide while an older debounce was still pending", async () => {
+    const latestDraftStateRef: { current: DraftHarnessState | null } = { current: null };
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(
+        <QueryClientProvider client={queryClient}>
+          <Harness
+            activeChatId="chat-1"
+            queryClient={queryClient}
+            onReady={(value) => {
+              latestDraftStateRef.current = value;
+            }}
+          />
+        </QueryClientProvider>
+      );
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      latestDraftStateRef.current?.handleComposerChange("chat-1", "stale draft");
+      await flushMicrotasks();
+    });
+
+    act(() => {
+      latestDraftStateRef.current?.clearDraftForChat("chat-1");
+      window.dispatchEvent(new Event("pagehide"));
+      root?.unmount();
+    });
+    root = null;
+
+    expect(readLocalDrafts("user-1")).toEqual([]);
+    expect(window.localStorage.getItem("north-messenger-local-drafts:user-1")).toBe("{}");
   });
 });

@@ -42,6 +42,7 @@ export function useChatDrafts({
   const [draftsByChatId, setDraftsByChatIdState] = useState<Record<string, string>>({});
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const draftSaveTimeoutsRef = useRef(new Map<string, number>());
+  const pendingDraftContentsRef = useRef(new Map<string, string>());
   const draftSyncLocksRef = useRef(new Set<string>());
   const draftsByChatIdRef = useRef<Record<string, string>>({});
 
@@ -53,6 +54,7 @@ export function useChatDrafts({
 
   const persistDraft = useEffectEvent(async (chatId: string, content: string) => {
     try {
+      pendingDraftContentsRef.current.delete(chatId);
       const nextDrafts = writeLocalDraft(userId, chatId, content);
       queryClient.setQueryData<ChatDraft[]>(["drafts", token], nextDrafts);
     } finally {
@@ -75,8 +77,14 @@ export function useChatDrafts({
         window.clearTimeout(timeoutId);
       }
       draftSaveTimeoutsRef.current.delete(chatId);
+      const pendingContent = pendingDraftContentsRef.current.get(chatId);
+      pendingDraftContentsRef.current.delete(chatId);
       draftSyncLocksRef.current.delete(chatId);
-      nextDrafts = writeLocalDraft(userId, chatId, draftsByChatIdRef.current[chatId] ?? "");
+      nextDrafts = writeLocalDraft(
+        userId,
+        chatId,
+        pendingContent ?? draftsByChatIdRef.current[chatId] ?? ""
+      );
     });
 
     if (nextDrafts) {
@@ -99,6 +107,7 @@ export function useChatDrafts({
 
   const scheduleDraftSave = useEffectEvent((chatId: string, content: string) => {
     draftSyncLocksRef.current.add(chatId);
+    pendingDraftContentsRef.current.set(chatId, content);
     const existingTimeoutId = draftSaveTimeoutsRef.current.get(chatId);
     if (existingTimeoutId !== undefined) {
       window.clearTimeout(existingTimeoutId);
@@ -106,7 +115,10 @@ export function useChatDrafts({
 
     const timeoutId = window.setTimeout(() => {
       draftSaveTimeoutsRef.current.delete(chatId);
-      void persistDraft(chatId, content);
+      void persistDraft(
+        chatId,
+        pendingDraftContentsRef.current.get(chatId) ?? content
+      );
     }, DRAFT_SAVE_DEBOUNCE_MS);
     draftSaveTimeoutsRef.current.set(chatId, timeoutId);
   });
@@ -134,6 +146,13 @@ export function useChatDrafts({
   });
 
   const clearDraftForChat = useEffectEvent((chatId: string) => {
+    const timeoutId = draftSaveTimeoutsRef.current.get(chatId);
+    if (timeoutId !== undefined) {
+      window.clearTimeout(timeoutId);
+      draftSaveTimeoutsRef.current.delete(chatId);
+    }
+    pendingDraftContentsRef.current.delete(chatId);
+    draftSyncLocksRef.current.delete(chatId);
     const nextDrafts = removeLocalDraft(userId, chatId);
     queryClient.setQueryData<ChatDraft[]>(["drafts", token], nextDrafts);
     setDraftsByChatId((current) => {

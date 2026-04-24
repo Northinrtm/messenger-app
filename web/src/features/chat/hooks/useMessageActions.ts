@@ -192,7 +192,7 @@ export function useMessageActions({
           delete next[input.chatId];
           return next;
         });
-        scheduleDraftSave(input.chatId, "");
+        clearDraftForChat(input.chatId);
       }
       queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
         getMessagesKey(input.chatId),
