@@ -8,6 +8,8 @@ BUILD_SERVICES="${BUILD_SERVICES:-web backend edge}"
 SUPPORT_SERVICES="${SUPPORT_SERVICES:-postgres redis jitsi-prosody jitsi-jicofo jitsi-jvb jitsi-web}"
 RUNTIME_SERVICES="${RUNTIME_SERVICES:-web backend edge}"
 OBSERVABILITY_SERVICES="${OBSERVABILITY_SERVICES:-postgres-exporter tempo otel-collector alertmanager loki promtail prometheus grafana}"
+DEPLOY_LOCK_FILE="${DEPLOY_LOCK_FILE:-/tmp/messenger-remote-update.lock}"
+DEPLOY_LOCK_WAIT_SECONDS="${DEPLOY_LOCK_WAIT_SECONDS:-1800}"
 STATUS_FILE="${DEPLOY_STATUS_FILE:-}"
 
 env_file_value() {
@@ -133,6 +135,23 @@ deploy_runtime_service() {
   wait_for_service_ready "$service" "$replicas"
 }
 
+acquire_deploy_lock() {
+  if ! command -v flock >/dev/null 2>&1; then
+    echo "Warning: 'flock' is unavailable; continuing without a host-level deploy lock." >&2
+    return
+  fi
+
+  exec 9>"$DEPLOY_LOCK_FILE"
+  echo "Waiting for deploy lock: $DEPLOY_LOCK_FILE"
+
+  if ! flock -w "$DEPLOY_LOCK_WAIT_SECONDS" 9; then
+    echo "Timed out waiting for deploy lock: $DEPLOY_LOCK_FILE" >&2
+    exit 1
+  fi
+
+  echo "Acquired deploy lock: $DEPLOY_LOCK_FILE"
+}
+
 if [[ -n "$STATUS_FILE" ]]; then
   trap 'status=$?; trap - EXIT; printf "%s" "$status" > "$STATUS_FILE"; exit "$status"' EXIT
 fi
@@ -145,6 +164,8 @@ else
   echo "Neither 'docker compose' nor 'docker-compose' is available." >&2
   exit 1
 fi
+
+acquire_deploy_lock
 
 cd "$APP_DIR"
 

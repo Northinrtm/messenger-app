@@ -54,6 +54,9 @@ class ProductionDeploymentConfigTest {
         assertThat(script)
                 .contains("wait_for_service_ready()")
                 .contains("deploy_runtime_service()")
+                .contains("acquire_deploy_lock()")
+                .contains("DEPLOY_LOCK_FILE")
+                .contains("flock -w \"$DEPLOY_LOCK_WAIT_SECONDS\" 9")
                 .contains("deploy_order=(backend web edge)")
                 .contains("deploy_runtime_service \"$service\" \"$(scale_for_service \"$service\")\"")
                 .doesNotContain("up -d --no-deps --force-recreate \"${runtime_scale_args[@]}\" $RUNTIME_SERVICES");
