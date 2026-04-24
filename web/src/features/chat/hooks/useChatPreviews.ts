@@ -135,11 +135,12 @@ export function useChatPreviews({
   });
 
   const shouldHydrateChatListPreview = useEffectEvent((chat: ChatSummary) => {
+    const localOverride = chatPreviewOverridesRef.current[chat.id];
     if (!chat.lastMessageAt) {
-      return false;
+      return Boolean(localOverride);
     }
 
-    if (chatPreviewOverridesRef.current[chat.id]?.lastMessageAt === chat.lastMessageAt) {
+    if (localOverride?.lastMessageAt === chat.lastMessageAt) {
       return false;
     }
 
@@ -179,6 +180,12 @@ export function useChatPreviews({
           (currentChatSummary?.lastMessageAt &&
             archivedMessage.createdAt.localeCompare(currentChatSummary.lastMessageAt) < 0)
         ) {
+          if (!currentChatSummary?.lastMessageAt) {
+            clearChatPreviewOverride(chatId);
+            queryClient.setQueryData<ChatSummary[]>(["chats", token], (current) =>
+              clearChatMessageActivity(current, chatId)
+            );
+          }
           return;
         }
 
@@ -276,7 +283,12 @@ export function useChatPreviews({
 
     const hydrateVisibleChatPreviews = async () => {
       for (const chat of previewHydrationChats) {
-        if (cancelled || archivedChatIdsLookup.has(chat.id) || !chat.lastMessageAt) {
+        const hasLocalOverride = Boolean(chatPreviewOverridesRef.current[chat.id]);
+        if (
+          cancelled ||
+          archivedChatIdsLookup.has(chat.id) ||
+          (!chat.lastMessageAt && !hasLocalOverride)
+        ) {
           continue;
         }
 

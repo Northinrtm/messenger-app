@@ -28,6 +28,8 @@ type HarnessState = {
 
 type HarnessProps = {
   isRealtimeConnected?: boolean;
+  onApplyChatPreviewMessage?: (message: unknown) => void;
+  onApplyServerChatPreviewMessage?: (message: unknown, mode: "clear" | "keep") => void;
   onReady: (value: HarnessState) => void;
   queryClient: QueryClient;
 };
@@ -103,7 +105,13 @@ function sentMessage(clientMessageId: string) {
   };
 }
 
-function Harness({ isRealtimeConnected = false, onReady, queryClient }: HarnessProps) {
+function Harness({
+  isRealtimeConnected = false,
+  onApplyChatPreviewMessage,
+  onApplyServerChatPreviewMessage,
+  onReady,
+  queryClient,
+}: HarnessProps) {
   const [draftsByChatId, setDraftsByChatId] = useState<Record<string, string>>({
     "chat-1": "message that must not come back",
   });
@@ -122,8 +130,9 @@ function Harness({ isRealtimeConnected = false, onReady, queryClient }: HarnessP
     forwardingMessage: null,
     replyingToMessage: null,
     sessionToken: "session-token",
-    applyChatPreviewMessage: () => undefined,
-    applyServerChatPreviewMessage: () => undefined,
+    applyChatPreviewMessage: (message) => onApplyChatPreviewMessage?.(message),
+    applyServerChatPreviewMessage: (message, mode) =>
+      onApplyServerChatPreviewMessage?.(message, mode),
     clearComposerContext: () => undefined,
     clearDraftForChat: () => undefined,
     deleteChatLocally: () => undefined,
@@ -327,6 +336,51 @@ describe("useMessageActions send failure recovery", () => {
         status: "FAILED",
       }),
     ]);
+  });
+
+  it("does not persist an optimistic chat preview before the server confirms the send", async () => {
+    const applyChatPreviewMessage = vi.fn();
+    const applyServerChatPreviewMessage = vi.fn();
+    vi.mocked(sendEncryptedMessage).mockRejectedValueOnce(new Error("send failed"));
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    const latestStateRef: { current: HarnessState | null } = { current: null };
+
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(
+        <QueryClientProvider client={queryClient}>
+          <Harness
+            queryClient={queryClient}
+            onApplyChatPreviewMessage={applyChatPreviewMessage}
+            onApplyServerChatPreviewMessage={applyServerChatPreviewMessage}
+            onReady={(value) => {
+              latestStateRef.current = value;
+            }}
+          />
+        </QueryClientProvider>
+      );
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      latestStateRef.current?.submitActiveDraft("preview should stay optimistic only");
+      await flushMicrotasks();
+    });
+
+    expect(applyChatPreviewMessage).not.toHaveBeenCalled();
+    expect(applyServerChatPreviewMessage).toHaveBeenCalledTimes(1);
+    expect(applyServerChatPreviewMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clientMessageId: expect.stringMatching(/^client-/),
+      }),
+      "clear"
+    );
   });
 
   it("keeps transient realtime send failures in sending state so reconnect can resume them invisibly", async () => {

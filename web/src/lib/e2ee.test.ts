@@ -1213,7 +1213,7 @@ describe("e2ee hardening", () => {
       { currentUserId: USER_ID }
     );
 
-    expect(resolveEncryptionDeviceBundles).toHaveBeenCalledTimes(3);
+    expect(resolveEncryptionDeviceBundles).toHaveBeenCalledTimes(2);
     expect(
       vi.mocked(resolveEncryptionDeviceBundles).mock.calls.some(
         ([, , request]) => request?.consumeOneTimePrekeys === true
@@ -1391,7 +1391,7 @@ describe("e2ee hardening", () => {
       { currentUserId: USER_ID }
     );
 
-    expect(resolveEncryptionDeviceBundles).toHaveBeenCalledTimes(3);
+    expect(resolveEncryptionDeviceBundles).toHaveBeenCalledTimes(2);
     expect(
       vi.mocked(resolveEncryptionDeviceBundles).mock.calls.some(
         ([, , request]) => request?.consumeOneTimePrekeys === true
@@ -1533,7 +1533,7 @@ describe("e2ee hardening", () => {
     });
 
     expect(sendMessageRaw).toHaveBeenCalledTimes(2);
-    expect(resolveEncryptionDeviceBundles).toHaveBeenCalledTimes(5);
+    expect(resolveEncryptionDeviceBundles).toHaveBeenCalledTimes(4);
 
     const firstRemoteEnvelope = JSON.parse(
       vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload?.encryptedKeysByRecipientId[
@@ -1542,12 +1542,11 @@ describe("e2ee hardening", () => {
     ) as { recipientOneTimePrekeyId?: number | null };
     expect(firstRemoteEnvelope.recipientOneTimePrekeyId).toBe(11);
 
-    const retriedRemoteEnvelope = JSON.parse(
-      vi.mocked(sendMessageRaw).mock.calls[1]?.[2].encryptedPayload?.encryptedKeysByRecipientId[
-        "device-id"
-      ] ?? "{}"
-    ) as { recipientOneTimePrekeyId?: number | null };
-    expect(retriedRemoteEnvelope.recipientOneTimePrekeyId).toBe(12);
+    expect(
+      vi.mocked(resolveEncryptionDeviceBundles).mock.calls.filter(
+        ([, , request]) => request?.consumeOneTimePrekeys === true
+      )
+    ).toHaveLength(2);
   });
 
   it("re-registers the local encryption device when the backend rejects the sender device", async () => {
@@ -1619,7 +1618,7 @@ describe("e2ee hardening", () => {
 
     expect(sendMessageRaw).toHaveBeenCalledTimes(2);
     expect(upsertOwnEncryptionDevice).toHaveBeenCalledTimes(2);
-    expect(resolveEncryptionDeviceBundles).toHaveBeenCalledTimes(5);
+    expect(resolveEncryptionDeviceBundles).toHaveBeenCalledTimes(4);
     expect(JSON.parse(window.sessionStorage.getItem(DEVICE_MATERIAL_KEY) ?? "{}")).toMatchObject({
       deviceId: "self-device",
       materialId: expect.any(String),
@@ -3494,10 +3493,9 @@ describe("e2ee hardening", () => {
     expect(resolveEncryptionDeviceBundles).toHaveBeenNthCalledWith(
       1,
       "token",
-      [REMOTE_USER_ID, REMOTE_USER_ID_TWO],
+      [USER_ID, REMOTE_USER_ID, REMOTE_USER_ID_TWO],
       {
         consumeOneTimePrekeys: false,
-        deviceIds: undefined,
         requesterDeviceId: "self-device",
       }
     );
@@ -3697,7 +3695,7 @@ describe("e2ee hardening", () => {
     });
 
     expect(sendMessageRaw).toHaveBeenCalledTimes(2);
-    expect(resolveEncryptionDeviceBundles).toHaveBeenCalledTimes(5);
+    expect(resolveEncryptionDeviceBundles).toHaveBeenCalledTimes(4);
 
     const firstSharedEnvelope = JSON.parse(
       vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload?.sharedEnvelope ?? "{}"
@@ -3798,7 +3796,7 @@ describe("e2ee hardening", () => {
 
     expect(upsertGroupHistoryKey).toHaveBeenCalledTimes(2);
     expect(sendMessageRaw).toHaveBeenCalledTimes(1);
-    expect(resolveEncryptionDeviceBundles).toHaveBeenCalledTimes(5);
+    expect(resolveEncryptionDeviceBundles).toHaveBeenCalledTimes(4);
 
     const retriedWrappedKeys = vi.mocked(upsertGroupHistoryKey).mock.calls[1]?.[2]
       .wrappedKeysByRecipientDeviceId;

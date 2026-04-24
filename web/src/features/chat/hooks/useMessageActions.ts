@@ -72,6 +72,10 @@ type SendMessageInput = {
   attachments?: ChatMessageAttachment[];
 };
 
+type SendMessageMutationContext = {
+  previousChats: ChatSummary[] | undefined;
+};
+
 type UseMessageActionsOptions = {
   activeChat: ChatSummary | null;
   activePinnedMessageId: string | null;
@@ -154,7 +158,12 @@ export function useMessageActions({
   const AUTO_RESEND_DELAY_MS = 1_500;
   const SEND_ATTEMPT_TIMEOUT_MS = 90_000;
 
-  const sendMessageMutation = useMutation({
+  const sendMessageMutation = useMutation<
+    ChatMessage,
+    unknown,
+    SendMessageInput,
+    SendMessageMutationContext
+  >({
     mutationFn: async (input: SendMessageInput) => {
       recordSendDiagnosticStep(input.clientMessageId, "mutationFn:start");
       const { sendEncryptedMessage } = await import("../../../lib/e2ee");
@@ -178,6 +187,7 @@ export function useMessageActions({
       incrementPendingOutgoing(input.chatId);
       recordSendDiagnosticStep(input.clientMessageId, "onMutate:start");
       void queryClient.cancelQueries({ queryKey: getMessagesKey(input.chatId) });
+      const previousChats = queryClient.getQueryData<ChatSummary[]>(["chats", sessionToken]);
       const optimisticMessage = createOptimisticOutgoingMessage(currentUser, input);
       const nextPendingMessages = upsertLocalPendingMessage(currentUser.id, {
         chatId: input.chatId,
@@ -194,7 +204,6 @@ export function useMessageActions({
         pendingCount: nextPendingMessages.length,
       });
       queryClient.setQueryData(["pending-outgoing-messages", currentUser.id], nextPendingMessages);
-      applyChatPreviewMessage(optimisticMessage);
       applyServerChatPreviewMessage(optimisticMessage, "clear");
       if (input.clearDraftOnMutate) {
         setDraftsByChatId((current) => {
@@ -210,7 +219,9 @@ export function useMessageActions({
         (current) => mergeMessagePages(current, optimisticMessage),
       );
       recordSendDiagnosticStep(input.clientMessageId, "onMutate:end");
-      return input;
+      return {
+        previousChats,
+      };
     },
     onSuccess: (message, input) => {
       if (discardedLocalClientMessageIdsRef.current.has(input.clientMessageId)) {
@@ -239,7 +250,7 @@ export function useMessageActions({
         finalState: nextMessage.status?.state ?? null,
       });
     },
-    onError: (error, input) => {
+    onError: (error, input, context) => {
       if (discardedLocalClientMessageIdsRef.current.has(input.clientMessageId)) {
         const nextPendingMessages = removeLocalPendingMessage(currentUser.id, input.clientMessageId);
         queryClient.setQueryData(["pending-outgoing-messages", currentUser.id], nextPendingMessages);
@@ -313,6 +324,9 @@ export function useMessageActions({
                 }),
           })),
       );
+      if (context?.previousChats) {
+        queryClient.setQueryData(["chats", sessionToken], context.previousChats);
+      }
       void queryClient.invalidateQueries({ queryKey: ["chats", sessionToken] });
       finishSendDiagnostic(input.clientMessageId, "ERROR", {
         transientFailure,

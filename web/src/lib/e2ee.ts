@@ -194,6 +194,13 @@ type AutoUnlockedIdentityRecord = {
   createdAt: string;
 };
 
+type ConversationDeviceBundleResolution = {
+  rawBundles: UserEncryptionDeviceBundle[];
+  trustedBundles: UserEncryptionDeviceBundle[];
+  missingParticipants: Participant[];
+  participantsWithUntrustedDevices: Participant[];
+};
+
 type DeviceOneTimePrekeyMaterial = {
   keyId: number;
   publicKey: string;
@@ -1216,17 +1223,31 @@ export async function sendEncryptedMessage(
 
   const currentUserId = options.currentUserId;
   recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:primeRecipients:start");
-  await primeEncryptedMessageRecipients(token, participants, {
+  const primedConversationBundles = await prepareSendConversationDeviceBundles(
+    token,
     currentUserId,
-    session: options.session,
-  });
+    participants
+  );
   recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:primeRecipients:end");
-  const dispatchMessage = async () => {
+  const dispatchMessage = async (conversationBundles: ConversationDeviceBundleResolution) => {
     const encryptedContent = serializeMessageContent(normalizedContent, attachments);
     recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:encrypt:start");
     const encryptedPayload = options.isDirectChat === false
-      ? await encryptGroupMessage(token, chatId, currentUserId, encryptedContent, participants)
-      : await encryptDirectDeviceMessage(token, currentUserId, encryptedContent, participants);
+      ? await encryptGroupMessage(
+          token,
+          chatId,
+          currentUserId,
+          encryptedContent,
+          participants,
+          conversationBundles
+        )
+      : await encryptDirectDeviceMessage(
+          token,
+          currentUserId,
+          encryptedContent,
+          participants,
+          conversationBundles
+        );
     if (!resolvedClientMessageId) {
       throw new ApiError("Client message id is required", 400);
     }
@@ -1266,7 +1287,7 @@ export async function sendEncryptedMessage(
   };
 
   try {
-    return await dispatchMessage();
+    return await dispatchMessage(primedConversationBundles);
   } catch (error) {
     const recoverableRetryMode = getRecoverableEncryptedEnvelopeErrorMode(error);
     if (!recoverableRetryMode) {
@@ -1285,7 +1306,12 @@ export async function sendEncryptedMessage(
     recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:recoverableRetryRecovered", {
       mode: recoverableRetryMode,
     });
-    return dispatchMessage();
+    const retriedConversationBundles = await prepareSendConversationDeviceBundles(
+      token,
+      currentUserId,
+      participants
+    );
+    return dispatchMessage(retriedConversationBundles);
   }
 }
 
@@ -1320,11 +1346,12 @@ export async function updateEncryptedMessage(
   }
 
   const currentUserId = options?.currentUserId ?? userId;
-  await primeEncryptedMessageRecipients(token, participants, {
+  const primedConversationBundles = await prepareSendConversationDeviceBundles(
+    token,
     currentUserId,
-    session: options?.session,
-  });
-  const dispatchUpdate = async () => {
+    participants
+  );
+  const dispatchUpdate = async (conversationBundles: ConversationDeviceBundleResolution) => {
     const encryptedContent = serializeMessageContent(normalizedContent, attachments);
     const encryptedPayload = options?.isDirectChat === false
       ? await encryptGroupMessage(
@@ -1332,13 +1359,15 @@ export async function updateEncryptedMessage(
           chatId,
           currentUserId,
           encryptedContent,
-          participants
+          participants,
+          conversationBundles
         )
       : await encryptDirectDeviceMessage(
           token,
           currentUserId,
           encryptedContent,
-          participants
+          participants,
+          conversationBundles
         );
     const response = await updateMessage(token, chatId, messageId, {
       encryptedPayload,
@@ -1354,7 +1383,7 @@ export async function updateEncryptedMessage(
   };
 
   try {
-    return await dispatchUpdate();
+    return await dispatchUpdate(primedConversationBundles);
   } catch (error) {
     const recoverableRetryMode = getRecoverableEncryptedEnvelopeErrorMode(error);
     if (!recoverableRetryMode) {
@@ -1367,7 +1396,12 @@ export async function updateEncryptedMessage(
       options?.session,
       recoverableRetryMode
     );
-    return dispatchUpdate();
+    const retriedConversationBundles = await prepareSendConversationDeviceBundles(
+      token,
+      currentUserId,
+      participants
+    );
+    return dispatchUpdate(retriedConversationBundles);
   }
 }
 
@@ -1812,7 +1846,7 @@ async function resolveConversationDeviceBundles(
   participants: Participant[],
   requesterDeviceId?: string | null,
   currentUserId?: string | null
-) {
+): Promise<ConversationDeviceBundleResolution> {
   const { rawBundles, trustedBundles } = await primeDeviceBundles(
     token,
     participants.map((participant) => participant.id),
@@ -1843,6 +1877,44 @@ async function resolveConversationDeviceBundles(
     missingParticipants,
     participantsWithUntrustedDevices,
   };
+}
+
+async function prepareSendConversationDeviceBundles(
+  token: string,
+  currentUserId: string,
+  participants: Participant[]
+) {
+  const ownMaterial = await readEncryptionDeviceMaterial(currentUserId);
+  const resolvedBundles = await resolveConversationDeviceBundles(
+    token,
+    participants,
+    ownMaterial?.deviceId ?? null,
+    currentUserId
+  );
+  if (resolvedBundles.participantsWithUntrustedDevices.length > 0) {
+    throw new ApiError(
+      ENCRYPTION_IDENTITY_CHANGED_MESSAGE,
+      409,
+      resolvedBundles.participantsWithUntrustedDevices.map((participant) => participant.displayName)
+    );
+  }
+
+  const bootstrapped = await bootstrapDeviceSessions(
+    token,
+    currentUserId,
+    resolvedBundles.trustedBundles
+  );
+  if (bootstrapped) {
+    completedDevicePreparation.set(
+      buildDevicePreparationKey(
+        currentUserId,
+        participants.map((participant) => participant.id)
+      ),
+      Date.now()
+    );
+  }
+
+  return resolvedBundles;
 }
 
 async function validateAndPinDeviceBundle(bundle: UserEncryptionDeviceBundle) {
@@ -2094,7 +2166,8 @@ async function encryptDirectDeviceMessage(
   token: string,
   currentUserId: string,
   content: string,
-  participants: Participant[]
+  participants: Participant[],
+  conversationBundles?: ConversationDeviceBundleResolution
 ) {
   const ownMaterial = await readEncryptionDeviceMaterial(currentUserId);
   if (!ownMaterial?.deviceId) {
@@ -2105,7 +2178,7 @@ async function encryptDirectDeviceMessage(
     trustedBundles: previewBundles,
     missingParticipants,
     participantsWithUntrustedDevices,
-  } = await resolveConversationDeviceBundles(
+  } = conversationBundles ?? await resolveConversationDeviceBundles(
     token,
     participants,
     ownMaterial.deviceId,
@@ -2219,10 +2292,16 @@ async function encryptGroupMessage(
   chatId: string,
   currentUserId: string,
   content: string,
-  participants: Participant[]
+  participants: Participant[],
+  conversationBundles?: ConversationDeviceBundleResolution
 ) {
   const { ownMaterial, targetBundles, nextSessions } =
-    await prepareGroupRecipientEncryptionContext(token, currentUserId, participants);
+    await prepareGroupRecipientEncryptionContext(
+      token,
+      currentUserId,
+      participants,
+      conversationBundles
+    );
   const groupSenderChainState = await readGroupSenderChainState(currentUserId);
   const senderChains = groupSenderChainState.outboundChains;
   let senderChain = senderChains[chatId];
@@ -2316,7 +2395,8 @@ async function encryptGroupMessage(
 async function prepareGroupRecipientEncryptionContext(
   token: string,
   currentUserId: string,
-  participants: Participant[]
+  participants: Participant[],
+  conversationBundles?: ConversationDeviceBundleResolution
 ): Promise<{
   ownMaterial: RegisteredDeviceEncryptionMaterial;
   targetBundles: UserEncryptionDeviceBundle[];
@@ -2331,7 +2411,7 @@ async function prepareGroupRecipientEncryptionContext(
     trustedBundles: previewBundles,
     missingParticipants,
     participantsWithUntrustedDevices,
-  } = await resolveConversationDeviceBundles(
+  } = conversationBundles ?? await resolveConversationDeviceBundles(
     token,
     participants,
     ownMaterial.deviceId,
