@@ -37,7 +37,7 @@ class AuthenticatedWebSocketUserDeliveryTest {
     }
 
     @Test
-    void shouldDeliverOnlyToActiveWebSocketSessions() {
+    void shouldDeliverOnlyToAuthorizedWebSocketSessions() {
         UUID userId = UUID.randomUUID();
         UUID activeAuthSessionId = UUID.randomUUID();
         UUID revokedAuthSessionId = UUID.randomUUID();
@@ -45,7 +45,7 @@ class AuthenticatedWebSocketUserDeliveryTest {
         webSocketSessionRegistry.register("ws-active", "north", userId, activeAuthSessionId);
         webSocketSessionRegistry.register("ws-revoked", "north", userId, revokedAuthSessionId);
 
-        when(authService.findActiveSessionIds(userId, java.util.Set.of(activeAuthSessionId, revokedAuthSessionId)))
+        when(authService.findAuthorizedSessionIds(userId, java.util.Set.of(activeAuthSessionId, revokedAuthSessionId)))
                 .thenReturn(java.util.Set.of(activeAuthSessionId));
 
         delivery.sendToUser("north", "/queue/messages", payload);
@@ -65,12 +65,12 @@ class AuthenticatedWebSocketUserDeliveryTest {
     }
 
     @Test
-    void shouldDropInactiveWebSocketSessionForSessionEventsToo() {
+    void shouldDropUnauthorizedWebSocketSessionForSessionEventsToo() {
         UUID userId = UUID.randomUUID();
         UUID revokedAuthSessionId = UUID.randomUUID();
         Map<String, String> payload = Map.of("type", "SESSION_REVOKED");
         webSocketSessionRegistry.register("ws-revoked", "north", userId, revokedAuthSessionId);
-        when(authService.findActiveSessionIds(userId, java.util.Set.of(revokedAuthSessionId)))
+        when(authService.findAuthorizedSessionIds(userId, java.util.Set.of(revokedAuthSessionId)))
                 .thenReturn(java.util.Set.of());
 
         delivery.sendToUser("north", "/queue/sessions", payload);
@@ -94,7 +94,7 @@ class AuthenticatedWebSocketUserDeliveryTest {
         when(transportSession.isOpen()).thenReturn(true);
         webSocketSessionRegistry.register("ws-live", "north", userId, activeAuthSessionId);
         webSocketSessionRegistry.attachTransportSession(transportSession);
-        when(authService.findActiveSessionIds(userId, java.util.Set.of(activeAuthSessionId)))
+        when(authService.findAuthorizedSessionIds(userId, java.util.Set.of(activeAuthSessionId)))
                 .thenReturn(java.util.Set.of(activeAuthSessionId));
 
         delivery.sendToUser("north", "/queue/messages", payload);

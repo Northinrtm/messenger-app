@@ -64,10 +64,10 @@ public class WebSocketOutboundSecurityInterceptor implements ChannelInterceptor 
         }
 
         AuthenticatedWebSocketSessionRegistry.RegisteredWebSocketSession session = registeredSession.get();
-        if (!authService.isSessionActive(session.userId(), session.authSessionId())) {
+        if (!authService.isSessionAuthorized(session.userId(), session.authSessionId())) {
             webSocketSessionRegistry.unregister(webSocketSessionId);
             log.warn(
-                    "Dropping websocket outbound topic event for inactive session user={} authSessionId={} destination={}",
+                    "Dropping websocket outbound topic event for unauthorized session user={} authSessionId={} destination={}",
                     session.username(),
                     session.authSessionId(),
                     destination

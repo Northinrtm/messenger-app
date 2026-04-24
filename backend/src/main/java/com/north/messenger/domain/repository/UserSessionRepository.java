@@ -50,6 +50,20 @@ public interface UserSessionRepository extends JpaRepository<UserSession, UUID> 
               and session.id in :sessionIds
               and session.revokedAt is null
               and session.expiresAt > :now
+            """)
+    List<UUID> findValidIdsByUserIdAndIdIn(
+            @Param("userId") UUID userId,
+            @Param("sessionIds") Collection<UUID> sessionIds,
+            @Param("now") Instant now
+    );
+
+    @Query("""
+            select session.id
+            from UserSession session
+            where session.userId = :userId
+              and session.id in :sessionIds
+              and session.revokedAt is null
+              and session.expiresAt > :now
               and session.lastUsedAt > :activeAfter
             """)
     List<UUID> findActiveIdsByUserIdAndIdIn(
@@ -63,6 +77,12 @@ public interface UserSessionRepository extends JpaRepository<UserSession, UUID> 
             UUID userId,
             Instant expiresAfter,
             Instant activeAfter
+    );
+
+    boolean existsByIdAndUserIdAndRevokedAtIsNullAndExpiresAtAfter(
+            UUID id,
+            UUID userId,
+            Instant expiresAfter
     );
 
     boolean existsByIdAndUserIdAndRevokedAtIsNullAndExpiresAtAfterAndLastUsedAtAfter(

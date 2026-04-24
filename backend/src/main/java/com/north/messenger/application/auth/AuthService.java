@@ -418,6 +418,30 @@ public class AuthService {
         );
     }
 
+    // Presence uses a short online window, but websocket authorization should only depend on
+    // whether the auth session is still valid and not revoked.
+    public boolean isSessionAuthorized(UUID userId, UUID sessionId) {
+        if (userId == null || sessionId == null) {
+            return false;
+        }
+        return userSessionRepository.existsByIdAndUserIdAndRevokedAtIsNullAndExpiresAtAfter(
+                sessionId,
+                userId,
+                Instant.now()
+        );
+    }
+
+    public Set<UUID> findAuthorizedSessionIds(UUID userId, Collection<UUID> sessionIds) {
+        if (userId == null || sessionIds == null || sessionIds.isEmpty()) {
+            return Set.of();
+        }
+        return Set.copyOf(userSessionRepository.findValidIdsByUserIdAndIdIn(
+                userId,
+                Set.copyOf(sessionIds),
+                Instant.now()
+        ));
+    }
+
     public Set<UUID> findActiveSessionIds(UUID userId, Collection<UUID> sessionIds) {
         if (userId == null || sessionIds == null || sessionIds.isEmpty()) {
             return Set.of();

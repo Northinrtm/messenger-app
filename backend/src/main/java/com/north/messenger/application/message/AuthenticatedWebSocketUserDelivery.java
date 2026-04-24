@@ -37,14 +37,14 @@ public class AuthenticatedWebSocketUserDelivery {
         }
 
         UUID userId = sessions.get(0).userId();
-        Set<UUID> activeSessionIds = authService.findActiveSessionIds(
+        Set<UUID> authorizedSessionIds = authService.findAuthorizedSessionIds(
                 userId,
                 sessions.stream()
                         .map(RegisteredWebSocketSession::authSessionId)
                         .collect(Collectors.toSet())
         );
         for (RegisteredWebSocketSession session : sessions) {
-            if (!activeSessionIds.contains(session.authSessionId())) {
+            if (!authorizedSessionIds.contains(session.authSessionId())) {
                 webSocketSessionRegistry.unregister(session.webSocketSessionId());
                 continue;
             }
