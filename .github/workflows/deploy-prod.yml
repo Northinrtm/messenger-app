@@ -97,30 +97,7 @@ jobs:
           for attempt in $(seq 1 18); do
             body="$(mktemp)"
             if curl -fsS --max-time 20 --retry 1 --retry-delay 2 -o "$body" "$base_url/build-meta.json"; then
-              if python - "$body" "$EXPECTED_REVISION" <<'PY'
-import json
-import sys
-
-body_path = sys.argv[1]
-expected_revision = sys.argv[2].strip()
-
-with open(body_path, "r", encoding="utf-8") as handle:
-    payload = json.load(handle)
-
-revision = str(payload.get("revision", "")).strip()
-built_at = str(payload.get("builtAt", "")).strip()
-
-if not revision:
-    raise SystemExit("build-meta.json is missing revision")
-if not built_at:
-    raise SystemExit("build-meta.json is missing builtAt")
-if revision != expected_revision:
-    raise SystemExit(
-        f"Expected public revision {expected_revision}, got {revision}"
-    )
-
-print(f"Verified public revision {revision} built at {built_at}")
-PY
+              if python -c 'import json, sys; body_path = sys.argv[1]; expected_revision = sys.argv[2].strip(); payload = json.load(open(body_path, encoding="utf-8")); revision = str(payload.get("revision", "")).strip(); built_at = str(payload.get("builtAt", "")).strip(); revision or sys.exit("build-meta.json is missing revision"); built_at or sys.exit("build-meta.json is missing builtAt"); revision == expected_revision or sys.exit(f"Expected public revision {expected_revision}, got {revision}"); print(f"Verified public revision {revision} built at {built_at}")' "$body" "$EXPECTED_REVISION"
               then
                 exit 0
               fi
