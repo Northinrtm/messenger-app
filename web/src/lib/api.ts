@@ -1,4 +1,5 @@
 import { API_URL } from "./config";
+import { recordSendDiagnosticStep } from "./sendDiagnostics";
 import type {
   ApiErrorResponse,
   ApiChatMessage,
@@ -699,10 +700,26 @@ export function createMessage(
     };
   }
 ) {
+  const clientMessageId = body.clientMessageId.trim();
+  recordSendDiagnosticStep(clientMessageId, "http:createMessage:start", {
+    path: `/api/chats/${chatId}/messages`,
+  });
   return request<ApiChatMessage>(`/api/chats/${chatId}/messages`, {
     method: "POST",
     token,
     body,
+  }).then((response) => {
+    recordSendDiagnosticStep(clientMessageId, "http:createMessage:end", {
+      messageId: response.id,
+      serverOrder: response.serverOrder ?? null,
+    });
+    return response;
+  }).catch((error) => {
+    recordSendDiagnosticStep(clientMessageId, "http:createMessage:error", {
+      message: describeError(error),
+      status: error instanceof ApiError ? error.status : null,
+    });
+    throw error;
   });
 }
 

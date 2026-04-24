@@ -7,6 +7,7 @@ import {
 } from "@stomp/stompjs";
 import { ApiError, createMessage } from "./api";
 import { WS_URL } from "./config";
+import { recordSendDiagnosticStep } from "./sendDiagnostics";
 import type {
   ApiChatMessage,
   ChatRemovalEvent,
@@ -630,6 +631,7 @@ export function sendMessageRealtime(input: {
   return new Promise<ApiChatMessage>((resolve, reject) => {
     const timeoutId = window.setTimeout(() => {
       pendingSendRequests.delete(input.clientMessageId);
+      recordSendDiagnosticStep(input.clientMessageId, "realtime:ackTimeout");
       reject(
         new ApiError("Message send confirmation timed out. Retry the same message.", 504)
       );
@@ -642,6 +644,7 @@ export function sendMessageRealtime(input: {
     });
 
     try {
+      recordSendDiagnosticStep(input.clientMessageId, "realtime:publish:start");
       connection.client.publish({
         destination: `/app/chats/${input.chatId}/messages`,
         body: JSON.stringify({
@@ -651,9 +654,11 @@ export function sendMessageRealtime(input: {
           encryptedPayload: input.encryptedPayload,
         }),
       });
+      recordSendDiagnosticStep(input.clientMessageId, "realtime:publish:end");
     } catch {
       clearPendingSendRequest(input.clientMessageId);
       handleConnectionFailure(connection);
+      recordSendDiagnosticStep(input.clientMessageId, "realtime:publish:error");
       reject(new ApiError("Realtime message send failed before it left the client.", 503));
     }
   });
@@ -680,6 +685,10 @@ export function sendMessageRaw(
       handleConnectionFailure(connection);
     }
 
+    recordSendDiagnosticStep(body.clientMessageId ?? "", "transport:selected", {
+      transport: "http",
+      realtimeReady: false,
+    });
     return createMessage(token, chatId, {
       clientMessageId: body.clientMessageId ?? "",
       replyToMessageId: body.replyToMessageId ?? null,
@@ -688,6 +697,10 @@ export function sendMessageRaw(
     });
   }
 
+  recordSendDiagnosticStep(body.clientMessageId ?? "", "transport:selected", {
+    transport: "ws",
+    realtimeReady: true,
+  });
   return sendMessageRealtime({
     chatId,
     clientMessageId: body.clientMessageId ?? "",
@@ -710,6 +723,10 @@ function resolvePendingSendRequest(message: ApiChatMessage) {
 
   pendingSendRequests.delete(clientMessageId);
   window.clearTimeout(pendingRequest.timeoutId);
+  recordSendDiagnosticStep(clientMessageId, "realtime:ack:success", {
+    messageId: message.id,
+    serverOrder: message.serverOrder ?? null,
+  });
   pendingRequest.resolve(message);
 }
 
@@ -726,6 +743,10 @@ function rejectPendingSendRequest(error: MessageSendErrorEvent) {
 
   pendingSendRequests.delete(clientMessageId);
   window.clearTimeout(pendingRequest.timeoutId);
+  recordSendDiagnosticStep(clientMessageId, "realtime:ack:error", {
+    status: error.status,
+    error: error.error,
+  });
   pendingRequest.reject(new ApiError(error.error, error.status, error.details));
 }
 

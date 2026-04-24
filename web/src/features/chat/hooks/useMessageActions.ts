@@ -14,6 +14,11 @@ import {
   toggleMessageReaction as toggleMessageReactionRequest,
   updatePinnedMessage as updatePinnedMessageRequest,
 } from "../../../lib/api";
+import {
+  finishSendDiagnostic,
+  recordSendDiagnosticStep,
+  startSendDiagnostic,
+} from "../../../lib/sendDiagnostics";
 import type { AttachmentUploadProgress } from "../../../lib/e2ee";
 import {
   type LocalPendingMessage,
@@ -151,6 +156,7 @@ export function useMessageActions({
 
   const sendMessageMutation = useMutation({
     mutationFn: async (input: SendMessageInput) => {
+      recordSendDiagnosticStep(input.clientMessageId, "mutationFn:start");
       const { sendEncryptedMessage } = await import("../../../lib/e2ee");
       const targetChat = chats.find((chat) => chat.id === input.chatId) ?? activeChat;
       return withSendAttemptTimeout(sendEncryptedMessage(
@@ -170,6 +176,7 @@ export function useMessageActions({
     },
     onMutate: (input) => {
       incrementPendingOutgoing(input.chatId);
+      recordSendDiagnosticStep(input.clientMessageId, "onMutate:start");
       void queryClient.cancelQueries({ queryKey: getMessagesKey(input.chatId) });
       const optimisticMessage = createOptimisticOutgoingMessage(currentUser, input);
       const nextPendingMessages = upsertLocalPendingMessage(currentUser.id, {
@@ -183,6 +190,9 @@ export function useMessageActions({
         status: "SENDING",
         attachments: input.attachments ?? [],
       });
+      recordSendDiagnosticStep(input.clientMessageId, "onMutate:pendingPersisted", {
+        pendingCount: nextPendingMessages.length,
+      });
       queryClient.setQueryData(["pending-outgoing-messages", currentUser.id], nextPendingMessages);
       applyChatPreviewMessage(optimisticMessage);
       applyServerChatPreviewMessage(optimisticMessage, "clear");
@@ -193,11 +203,13 @@ export function useMessageActions({
           return next;
         });
         clearDraftForChat(input.chatId);
+        recordSendDiagnosticStep(input.clientMessageId, "onMutate:draftCleared");
       }
       queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
         getMessagesKey(input.chatId),
         (current) => mergeMessagePages(current, optimisticMessage),
       );
+      recordSendDiagnosticStep(input.clientMessageId, "onMutate:end");
       return input;
     },
     onSuccess: (message, input) => {
@@ -221,6 +233,11 @@ export function useMessageActions({
       if (input.replyTo) {
         clearComposerContext("reply");
       }
+      finishSendDiagnostic(input.clientMessageId, "SUCCESS", {
+        messageId: nextMessage.id,
+        serverOrder: nextMessage.serverOrder ?? null,
+        finalState: nextMessage.status?.state ?? null,
+      });
     },
     onError: (error, input) => {
       if (discardedLocalClientMessageIdsRef.current.has(input.clientMessageId)) {
@@ -233,6 +250,11 @@ export function useMessageActions({
         return;
       }
       const transientFailure = isTransientSendFailure(error);
+      recordSendDiagnosticStep(input.clientMessageId, "onError", {
+        transientFailure,
+        message: describeError(error),
+        status: error instanceof ApiError ? error.status : null,
+      });
       const nextPendingStatus = transientFailure ? "SENDING" : "FAILED";
       if (!transientFailure) {
         clearAutoResendTimer(input.clientMessageId);
@@ -292,6 +314,12 @@ export function useMessageActions({
           })),
       );
       void queryClient.invalidateQueries({ queryKey: ["chats", sessionToken] });
+      finishSendDiagnostic(input.clientMessageId, "ERROR", {
+        transientFailure,
+        message: describeError(error),
+        status: error instanceof ApiError ? error.status : null,
+        pendingStatus: nextPendingStatus,
+      });
     },
     onSettled: (_result, _error, input) => {
       inFlightSendClientMessageIdsRef.current.delete(input.clientMessageId);
@@ -304,6 +332,14 @@ export function useMessageActions({
       return false;
     }
 
+    startSendDiagnostic({
+      clientMessageId: input.clientMessageId,
+      chatId: input.chatId,
+      contentLength: input.content.length,
+      attachmentCount: input.attachments?.length ?? 0,
+      participantCount: input.participants.length,
+    });
+    recordSendDiagnosticStep(input.clientMessageId, "sendOutgoingMessage:accepted");
     clearAutoResendTimer(input.clientMessageId);
     inFlightSendClientMessageIdsRef.current.add(input.clientMessageId);
     sendMessageMutation.mutate(input);

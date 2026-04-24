@@ -42,6 +42,7 @@ import {
   hasTrustedDeviceUnlock,
   isTrustedDeviceUnlockSupported,
 } from "./e2eeTrustedDevice";
+import { recordSendDiagnosticStep } from "./sendDiagnostics";
 
 const MESSAGE_SCHEME_DEVICE = "X3DH-DEVICE-AES-GCM";
 const MESSAGE_SCHEME_GROUP_SENDER_KEY = "GROUP-SENDER-KEY-AES-GCM";
@@ -1186,6 +1187,14 @@ export async function sendEncryptedMessage(
   }
 ) {
   ensureE2eeTransportStorageSchema();
+  const resolvedClientMessageId = clientMessageId?.trim() ?? "";
+  if (resolvedClientMessageId) {
+    recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:start", {
+      participantCount: participants.length,
+      directChat: options?.isDirectChat !== false,
+      attachmentCount: options?.attachments?.length ?? 0,
+    });
+  }
 
   const attachments = normalizeChatMessageAttachments(options?.attachments ?? []);
   const normalizedContent = content.trim() || buildAttachmentOnlyContent(attachments);
@@ -1198,29 +1207,41 @@ export async function sendEncryptedMessage(
   }
 
   if (options.session && options.session.user.id === options.currentUserId) {
+    recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:waitDeviceRegistration:start");
     await waitForEncryptionDeviceRegistration(options.session);
+    recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:waitDeviceRegistration:end");
   }
 
   const currentUserId = options.currentUserId;
+  recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:primeRecipients:start");
   await primeEncryptedMessageRecipients(token, participants, {
     currentUserId,
     session: options.session,
   });
+  recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:primeRecipients:end");
   const dispatchMessage = async () => {
     const encryptedContent = serializeMessageContent(normalizedContent, attachments);
+    recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:encrypt:start");
     const encryptedPayload = options.isDirectChat === false
       ? await encryptGroupMessage(token, chatId, currentUserId, encryptedContent, participants)
       : await encryptDirectDeviceMessage(token, currentUserId, encryptedContent, participants);
-    const resolvedClientMessageId = clientMessageId?.trim();
     if (!resolvedClientMessageId) {
       throw new ApiError("Client message id is required", 400);
     }
+    recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:encrypt:end", {
+      scheme: encryptedPayload.scheme,
+    });
 
+    recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:transportDispatch:start");
     const response = await sendMessageRaw(token, chatId, {
       clientMessageId: resolvedClientMessageId,
       replyToMessageId,
       attachmentIds: attachments.map((attachment) => attachment.id),
       encryptedPayload,
+    });
+    recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:transportDispatch:end", {
+      messageId: response.id,
+      serverOrder: response.serverOrder ?? null,
     });
 
     const sentMessage = {
@@ -1238,6 +1259,7 @@ export async function sendEncryptedMessage(
       attachments,
     } satisfies ChatMessage;
     void rememberArchivedDecryptedMessage(currentUserId, sentMessage);
+    recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:archiveRemembered");
     return sentMessage;
   };
 
@@ -1249,12 +1271,18 @@ export async function sendEncryptedMessage(
       throw error;
     }
 
+    recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:recoverableRetry", {
+      mode: recoverableRetryMode,
+    });
     await recoverLocalEncryptionStateForRetry(
       currentUserId,
       options.isDirectChat === false,
       options.session,
       recoverableRetryMode
     );
+    recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:recoverableRetryRecovered", {
+      mode: recoverableRetryMode,
+    });
     return dispatchMessage();
   }
 }
