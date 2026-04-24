@@ -97,6 +97,8 @@ const inFlightEncryptionDeviceRegistration = new Map<string, Promise<void>>();
 const completedEncryptionDeviceRegistration = new Map<string, number>();
 const inFlightDevicePreparation = new Map<string, Promise<void>>();
 const completedDevicePreparation = new Map<string, number>();
+const restoredPersistentDeviceSessionKeysByUserId = new Map<string, Set<string>>();
+const restoredPersistentOutboundGroupChatsByUserId = new Map<string, Set<string>>();
 const inFlightMessageHydrationBatchByUserId = new Map<string, Promise<void>>();
 const inFlightMessageHydrationByUserId = new Map<string, Promise<void>>();
 const recoverySyncSessionByUserId = new Map<string, AuthResponse>();
@@ -2134,20 +2136,27 @@ async function encryptDirectDeviceMessage(
     ),
     currentSelfBundle,
   ];
+  const shouldRefreshRestoredSelfSession = wasCurrentDeviceSessionRestoredFromPersistent(
+    currentUserId,
+    currentSelfBundle.userId,
+    currentSelfBundle.deviceId
+  );
   const unresolvedRemoteBundles = targetBundles
     .filter((bundle) => getDeviceBundleMapKey(bundle.userId, bundle.deviceId) !== currentSelfBundleKey)
     .filter((bundle) =>
-      shouldEstablishDeviceSession(existingSessions, bundle)
+      shouldEstablishDeviceSession(existingSessions, bundle) ||
+      wasCurrentDeviceSessionRestoredFromPersistent(currentUserId, bundle.userId, bundle.deviceId)
     );
 
   const nextSessions = { ...existingSessions };
-  if (shouldEstablishDeviceSession(existingSessions, currentSelfBundle)) {
+  if (shouldEstablishDeviceSession(existingSessions, currentSelfBundle) || shouldRefreshRestoredSelfSession) {
     const selfSession = await establishInitiatorDeviceSession(
       currentUserId,
       ownMaterial,
       currentSelfBundle
     );
     setCurrentDeviceSessionRecord(nextSessions, selfSession);
+    markCurrentDeviceSessionAsReactivated(currentUserId, currentSelfBundle.userId, currentSelfBundle.deviceId);
   }
 
   if (unresolvedRemoteBundles.length > 0) {
@@ -2170,10 +2179,9 @@ async function encryptDirectDeviceMessage(
       if (!(await validateAndPinDeviceBundle(bundle))) {
         continue;
       }
-      setCurrentDeviceSessionRecord(
-        nextSessions,
-        await establishInitiatorDeviceSession(currentUserId, ownMaterial, bundle)
-      );
+      const nextSession = await establishInitiatorDeviceSession(currentUserId, ownMaterial, bundle);
+      setCurrentDeviceSessionRecord(nextSessions, nextSession);
+      markCurrentDeviceSessionAsReactivated(currentUserId, bundle.userId, bundle.deviceId);
     }
   }
 
@@ -2218,13 +2226,18 @@ async function encryptGroupMessage(
   const groupSenderChainState = await readGroupSenderChainState(currentUserId);
   const senderChains = groupSenderChainState.outboundChains;
   let senderChain = senderChains[chatId];
+  const shouldRefreshRestoredOutboundChain = wasOutboundGroupSenderChainRestoredFromPersistent(
+    currentUserId,
+    chatId
+  );
   const recipientDeviceSetHash = buildRecipientDeviceSetHash(targetBundles);
   if (
     !senderChain ||
     senderChain.ownMaterialId !== ownMaterial.materialId ||
     senderChain.senderDeviceId !== ownMaterial.deviceId ||
     senderChain.recipientDeviceSetHash !== recipientDeviceSetHash ||
-    isGroupSenderChainRotationDue(senderChain)
+    isGroupSenderChainRotationDue(senderChain) ||
+    shouldRefreshRestoredOutboundChain
   ) {
     senderChain = createGroupSenderChain(chatId, ownMaterial, recipientDeviceSetHash);
   }
@@ -2288,6 +2301,7 @@ async function encryptGroupMessage(
   await rememberDeviceSessions(currentUserId, nextSessions);
   writeGroupSenderChainState(currentUserId, groupSenderChainState);
   await rememberGroupSenderChainState(currentUserId, groupSenderChainState);
+  markOutboundGroupSenderChainAsReactivated(currentUserId, chatId);
 
   return {
     scheme: MESSAGE_SCHEME_GROUP_SENDER_KEY,
@@ -2348,20 +2362,27 @@ async function prepareGroupRecipientEncryptionContext(
     ),
     currentSelfBundle,
   ];
+  const shouldRefreshRestoredSelfSession = wasCurrentDeviceSessionRestoredFromPersistent(
+    currentUserId,
+    currentSelfBundle.userId,
+    currentSelfBundle.deviceId
+  );
   const unresolvedRemoteBundles = targetBundles
     .filter((bundle) => getDeviceBundleMapKey(bundle.userId, bundle.deviceId) !== currentSelfBundleKey)
     .filter((bundle) =>
-      shouldEstablishDeviceSession(existingSessions, bundle)
+      shouldEstablishDeviceSession(existingSessions, bundle) ||
+      wasCurrentDeviceSessionRestoredFromPersistent(currentUserId, bundle.userId, bundle.deviceId)
     );
 
   const nextSessions = { ...existingSessions };
-  if (shouldEstablishDeviceSession(existingSessions, currentSelfBundle)) {
+  if (shouldEstablishDeviceSession(existingSessions, currentSelfBundle) || shouldRefreshRestoredSelfSession) {
     const selfSession = await establishInitiatorDeviceSession(
       currentUserId,
       ownMaterial,
       currentSelfBundle
     );
     setCurrentDeviceSessionRecord(nextSessions, selfSession);
+    markCurrentDeviceSessionAsReactivated(currentUserId, currentSelfBundle.userId, currentSelfBundle.deviceId);
   }
 
   if (unresolvedRemoteBundles.length > 0) {
@@ -2389,10 +2410,9 @@ async function prepareGroupRecipientEncryptionContext(
           affectedParticipant ? [affectedParticipant.displayName] : []
         );
       }
-      setCurrentDeviceSessionRecord(
-        nextSessions,
-        await establishInitiatorDeviceSession(currentUserId, ownMaterial, bundle)
-      );
+      const nextSession = await establishInitiatorDeviceSession(currentUserId, ownMaterial, bundle);
+      setCurrentDeviceSessionRecord(nextSessions, nextSession);
+      markCurrentDeviceSessionAsReactivated(currentUserId, bundle.userId, bundle.deviceId);
     }
   }
   return {
@@ -5169,6 +5189,7 @@ async function readGroupSenderChainState(userId: string): Promise<GroupSenderCha
     const rememberedState = await readRememberedGroupSenderChainState(userId);
     if (rememberedState) {
       writeGroupSenderChainState(userId, rememberedState);
+      markPersistentRestoredOutboundGroupChats(userId, rememberedState);
       return rememberedState;
     }
   } catch {
@@ -5220,6 +5241,7 @@ function removeGroupSenderChains(userId: string) {
   }
 
   try {
+    clearPersistentRestoredOutboundGroupChats(userId);
     window.sessionStorage.removeItem(getGroupSenderChainStorageKey(userId));
     window.localStorage.removeItem(getRememberedGroupSenderChainStorageKey(userId));
   } catch {
@@ -5595,6 +5617,7 @@ async function readDeviceSessions(userId: string): Promise<Record<string, Device
     if (rememberedSessions) {
       const sanitizedSessions = sanitizeStoredDeviceSessions(rememberedSessions);
       writeDeviceSessions(userId, sanitizedSessions);
+      markPersistentRestoredCurrentDeviceSessions(userId, sanitizedSessions);
       if (sanitizedSessions !== rememberedSessions) {
         await rememberDeviceSessions(userId, sanitizedSessions);
       }
@@ -5778,6 +5801,7 @@ function removeDeviceSessions(userId: string) {
   }
 
   try {
+    clearPersistentRestoredCurrentDeviceSessions(userId);
     window.sessionStorage.removeItem(getDeviceSessionStorageKey(userId));
   } catch {
     return;
@@ -6799,6 +6823,85 @@ function getDeviceSessionArchivePrefix(userId: string, deviceId: string) {
 
 function getDeviceSessionArchiveKey(userId: string, deviceId: string, sessionId: string) {
   return `${getDeviceSessionArchivePrefix(userId, deviceId)}${sessionId}`;
+}
+
+function listCurrentDeviceSessionKeys(sessions: Record<string, DeviceSessionRecord>) {
+  return Object.keys(sessions).filter((key) => !key.includes(":archive:"));
+}
+
+function markPersistentRestoredCurrentDeviceSessions(
+  userId: string,
+  sessions: Record<string, DeviceSessionRecord>
+) {
+  const restoredKeys = listCurrentDeviceSessionKeys(sessions);
+  if (restoredKeys.length === 0) {
+    restoredPersistentDeviceSessionKeysByUserId.delete(userId);
+    return;
+  }
+
+  restoredPersistentDeviceSessionKeysByUserId.set(userId, new Set(restoredKeys));
+}
+
+function wasCurrentDeviceSessionRestoredFromPersistent(
+  userId: string,
+  peerUserId: string,
+  peerDeviceId: string
+) {
+  return (
+    restoredPersistentDeviceSessionKeysByUserId
+      .get(userId)
+      ?.has(getDeviceSessionMapKey(peerUserId, peerDeviceId)) ?? false
+  );
+}
+
+function markCurrentDeviceSessionAsReactivated(
+  userId: string,
+  peerUserId: string,
+  peerDeviceId: string
+) {
+  const restoredKeys = restoredPersistentDeviceSessionKeysByUserId.get(userId);
+  if (!restoredKeys) {
+    return;
+  }
+
+  restoredKeys.delete(getDeviceSessionMapKey(peerUserId, peerDeviceId));
+  if (restoredKeys.size === 0) {
+    restoredPersistentDeviceSessionKeysByUserId.delete(userId);
+  }
+}
+
+function clearPersistentRestoredCurrentDeviceSessions(userId: string) {
+  restoredPersistentDeviceSessionKeysByUserId.delete(userId);
+}
+
+function markPersistentRestoredOutboundGroupChats(userId: string, state: GroupSenderChainState) {
+  const restoredChatIds = Object.keys(state.outboundChains);
+  if (restoredChatIds.length === 0) {
+    restoredPersistentOutboundGroupChatsByUserId.delete(userId);
+    return;
+  }
+
+  restoredPersistentOutboundGroupChatsByUserId.set(userId, new Set(restoredChatIds));
+}
+
+function wasOutboundGroupSenderChainRestoredFromPersistent(userId: string, chatId: string) {
+  return restoredPersistentOutboundGroupChatsByUserId.get(userId)?.has(chatId) ?? false;
+}
+
+function markOutboundGroupSenderChainAsReactivated(userId: string, chatId: string) {
+  const restoredChatIds = restoredPersistentOutboundGroupChatsByUserId.get(userId);
+  if (!restoredChatIds) {
+    return;
+  }
+
+  restoredChatIds.delete(chatId);
+  if (restoredChatIds.size === 0) {
+    restoredPersistentOutboundGroupChatsByUserId.delete(userId);
+  }
+}
+
+function clearPersistentRestoredOutboundGroupChats(userId: string) {
+  restoredPersistentOutboundGroupChatsByUserId.delete(userId);
 }
 
 function sanitizeStoredDeviceSessions(sessions: Record<string, DeviceSessionRecord>) {
