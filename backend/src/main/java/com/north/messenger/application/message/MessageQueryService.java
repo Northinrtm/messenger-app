@@ -4,6 +4,7 @@ import com.north.messenger.api.dto.MessageReactionSummaryResponse;
 import com.north.messenger.api.dto.MessageResponse;
 import com.north.messenger.api.dto.MessageSnippetResponse;
 import com.north.messenger.api.dto.EncryptedMessagePayloadResponse;
+import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.chat.ChatService;
 import com.north.messenger.domain.model.ChatMessage;
@@ -156,37 +157,39 @@ class MessageQueryService {
             return Optional.empty();
         }
 
+        ParticipantResponse senderParticipant = authService.toParticipant(sender);
+        EncryptedMessagePayloadResponse encryptedPayload = null;
         try {
-            EncryptedMessagePayloadResponse encryptedPayload = messageSupport.toEncryptedPayload(
+            encryptedPayload = messageSupport.toEncryptedPayload(
                     message,
                     currentUser.getId(),
                     messageSupport.deserializeEncryptedKeys(message),
                     visibleCurrentUserDeviceIds
             );
-            return Optional.of(new RenderedMessage(
-                    message,
-                    messageSupport.toResponse(
-                            message,
-                            authService.toParticipant(sender),
-                            currentUser.getId(),
-                            summariesByMessageId.getOrDefault(message.getId(), MessageSupport.MessageReceiptSummary.empty()),
-                            reactionsByMessageId.getOrDefault(message.getId(), List.of()),
-                            message.getSenderId().equals(currentUser.getId()) ? message.getClientMessageId() : null,
-                            repliesByMessageId.get(message.getId()),
-                            encryptedPayload
-                    )
-            ));
         } catch (IllegalStateException exception) {
             log.warn(
-                    "Skipping malformed chat message chatId={} messageId={} senderId={} currentUserId={} reason={}",
+                    "Returning chat message without encrypted payload chatId={} messageId={} senderId={} currentUserId={} reason={}",
                     chatId,
                     message.getId(),
                     message.getSenderId(),
                     currentUser.getId(),
                     exception.getMessage()
             );
-            return Optional.empty();
         }
+
+        return Optional.of(new RenderedMessage(
+                message,
+                messageSupport.toResponse(
+                        message,
+                        senderParticipant,
+                        currentUser.getId(),
+                        summariesByMessageId.getOrDefault(message.getId(), MessageSupport.MessageReceiptSummary.empty()),
+                        reactionsByMessageId.getOrDefault(message.getId(), List.of()),
+                        message.getSenderId().equals(currentUser.getId()) ? message.getClientMessageId() : null,
+                        repliesByMessageId.get(message.getId()),
+                        encryptedPayload
+                )
+        ));
     }
 
     private record RenderedMessage(

@@ -309,6 +309,10 @@ describe("e2ee hardening", () => {
     window.localStorage.clear();
     window.localStorage.setItem(STORAGE_SCHEMA_KEY, "5");
     vi.restoreAllMocks();
+    vi.mocked(getOwnEncryptionRecoverySnapshot).mockRejectedValue(
+      new ApiError("Recovery snapshot not found", 404)
+    );
+    vi.mocked(listOwnEncryptionDevices).mockResolvedValue([]);
     vi.mocked(getOwnGroupHistoryKeys).mockResolvedValue([]);
     vi.mocked(resolveEncryptionDeviceBundles).mockResolvedValue([]);
     vi.mocked(upsertGroupHistoryKey).mockResolvedValue({
@@ -1895,6 +1899,19 @@ describe("e2ee hardening", () => {
     await expect(hydrateChatMessage(incomingMessage, USER_ID)).resolves.toMatchObject({
       content: "archived fallback",
     });
+  });
+
+  it("refuses to silently create a fresh encryption identity when the account already has server devices", async () => {
+    vi.mocked(listOwnEncryptionDevices).mockResolvedValue([currentRegisteredDevice]);
+
+    await expect(ensureEncryptionReady(currentSession, "password")).rejects.toMatchObject({
+      message:
+        "Encrypted chats already exist for this account, but this device could not restore their keys",
+      status: 409,
+    });
+
+    expect(window.localStorage.getItem(REMEMBERED_KEY)).toBeNull();
+    expect(window.sessionStorage.getItem(DEVICE_MATERIAL_KEY)).toBeNull();
   });
 
   it("restores archived history from the remote recovery snapshot on a fresh unlock", async () => {

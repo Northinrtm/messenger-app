@@ -1638,7 +1638,7 @@ class MessageServiceTest {
     }
 
     @Test
-    void listMessagesShouldSkipMalformedEncryptedMessages() throws Exception {
+    void listMessagesShouldReturnMalformedEncryptedMessagesWithoutPayload() throws Exception {
         UUID chatId = UUID.randomUUID();
         UserAccount currentUser = user("alice");
         UserAccount sender = user("north");
@@ -1681,12 +1681,15 @@ class MessageServiceTest {
 
         List<MessageResponse> response = messageService.listMessages(chatId, "alice", null, 50, true);
 
-        assertThat(response).hasSize(1);
-        assertThat(response.get(0).id()).isEqualTo(validMessage.getId());
+        assertThat(response).hasSize(2);
+        assertThat(response).extracting(MessageResponse::id)
+                .containsExactly(malformedMessage.getId(), validMessage.getId());
+        assertThat(response.get(0).encryptedPayload()).isNull();
+        assertThat(response.get(1).encryptedPayload()).isNotNull();
         verify(messageReceiptRepository).findAllByUserIdAndChatIdAndMessageIdIn(
                 currentUser.getId(),
                 chatId,
-                List.of(validMessage.getId())
+                List.of(malformedMessage.getId(), validMessage.getId())
         );
     }
 
@@ -1791,6 +1794,46 @@ class MessageServiceTest {
                 .containsExactly(firstMessage.getId(), secondMessage.getId());
         verify(userEncryptionDeviceRepository, times(1))
                 .findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDesc(currentUser.getId());
+    }
+
+    @Test
+    void listMessagesShouldKeepDirectMessagesWhenOnlyHistoricalRecipientDevicesMatch() throws Exception {
+        UUID chatId = UUID.randomUUID();
+        UserAccount currentUser = user("alice");
+        UserAccount sender = user("north");
+        UUID historicalDeviceId = UUID.randomUUID();
+        ChatMessage historicalDirectMessage = withServerOrder(new ChatMessage(
+                UUID.fromString("00000000-0000-0000-0000-0000000000c1"),
+                chatId,
+                sender.getId(),
+                "ciphertext-historical",
+                "X3DH-DEVICE-AES-GCM",
+                "iv-historical",
+                objectMapper.writeValueAsString(Map.of(
+                        historicalDeviceId.toString(),
+                        "recipient-device-payload-historical"
+                )),
+                Instant.parse("2026-03-24T12:00:00Z")
+        ), 10L);
+
+        when(authService.requireAuthenticatedUser("alice")).thenReturn(currentUser);
+        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
+                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
+        );
+        when(chatMessageRepository.findVisibleEncryptedByChatIdOrderByServerOrderDesc(eq(chatId), eq(currentUser.getId()), any()))
+                .thenReturn(List.of(historicalDirectMessage));
+        when(userAccountRepository.findAllByIdIn(any())).thenReturn(List.of(sender));
+        when(messageReceiptRepository.findAllByMessageIdIn(any())).thenReturn(List.of());
+        when(messageReactionRepository.findAllByMessageIdIn(any())).thenReturn(List.of());
+        when(authService.toParticipant(sender)).thenReturn(participant(sender));
+        when(userEncryptionDeviceRepository.findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDesc(currentUser.getId()))
+                .thenReturn(List.of());
+
+        List<MessageResponse> response = messageService.listMessages(chatId, "alice", null, 50, false);
+
+        assertThat(response).hasSize(1);
+        assertThat(response.get(0).id()).isEqualTo(historicalDirectMessage.getId());
+        assertThat(response.get(0).encryptedPayload()).isNull();
     }
 
     @Test

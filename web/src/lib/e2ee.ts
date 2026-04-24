@@ -27,6 +27,7 @@ import type {
 import {
   ENCRYPTED_MESSAGE_UNAVAILABLE,
   ENCRYPTION_IDENTITY_CHANGED_MESSAGE,
+  ENCRYPTION_RECOVERY_EXISTING_CHATS_MESSAGE,
   ENCRYPTION_RECOVERY_PASSWORD_RESTORE_FAILED_MESSAGE,
   ENCRYPTION_RECOVERY_SNAPSHOT_DECRYPT_FAILED_MESSAGE,
   ENCRYPTION_RECOVERY_SNAPSHOT_INVALID_MESSAGE,
@@ -813,6 +814,11 @@ export async function ensureEncryptionReady(session: AuthResponse, password: str
       // Recovery snapshot upload is best-effort after a successful local unlock.
     }
     return;
+  }
+
+  const existingDevices = await listOwnEncryptionDevices(session.token);
+  if (existingDevices.length > 0) {
+    throw new ApiError(ENCRYPTION_RECOVERY_EXISTING_CHATS_MESSAGE, 409);
   }
 
   const localVaultIdentity = createLocalVaultIdentity();
