@@ -115,7 +115,7 @@ class MessageDispatchService {
                     participants.stream().collect(Collectors.toMap(UserAccount::getId, Function.identity()))
             );
             ParticipantResponse senderParticipant = authService.toParticipant(sender);
-            Map<String, String> encryptedKeysByUserId = messageSupport.deserializeEncryptedKeys(message);
+            Map<String, String> encryptedKeysByUserId = messageSupport.loadEncryptedKeys(message);
             Map<UUID, Set<String>> visibleDeviceIdsByUserId = messageSupport.loadVisibleDeviceIdsByUserId(
                     participants.stream()
                             .map(UserAccount::getId)
@@ -220,7 +220,7 @@ class MessageDispatchService {
                     messageSupport.toEncryptedPayload(
                             message,
                             sender.getId(),
-                            messageSupport.deserializeEncryptedKeys(message),
+                            messageSupport.loadEncryptedKeys(message),
                             visibleDeviceIdsByUserId.getOrDefault(sender.getId(), Set.of())
                     )
             );

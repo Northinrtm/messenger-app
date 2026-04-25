@@ -94,6 +94,10 @@ class MessageQueryService {
                 recentMessages.stream().map(ChatMessage::getId).toList(),
                 currentUser.getId()
         );
+        Map<UUID, Map<String, String>> encryptedKeysByMessageId = messageSupport.loadEncryptedKeysByMessageIdForUser(
+                recentMessages,
+                currentUser.getId()
+        );
         Set<String> visibleCurrentUserDeviceIds = recentMessages.isEmpty()
                 ? Set.of()
                 : messageSupport.loadVisibleDeviceIds(currentUser.getId());
@@ -106,12 +110,13 @@ class MessageQueryService {
                 .map(message -> tryRenderMessage(
                         chatId,
                         currentUser,
-                        message,
-                        usersById,
-                        summariesByMessageId,
-                        reactionsByMessageId,
-                        visibleCurrentUserDeviceIds,
-                        repliesByMessageId
+                    message,
+                    usersById,
+                    summariesByMessageId,
+                    reactionsByMessageId,
+                    encryptedKeysByMessageId,
+                    visibleCurrentUserDeviceIds,
+                    repliesByMessageId
                 ))
                 .flatMap(Optional::stream)
                 .toList();
@@ -142,6 +147,7 @@ class MessageQueryService {
             Map<UUID, UserAccount> usersById,
             Map<UUID, MessageSupport.MessageReceiptSummary> summariesByMessageId,
             Map<UUID, List<MessageReactionSummaryResponse>> reactionsByMessageId,
+            Map<UUID, Map<String, String>> encryptedKeysByMessageId,
             Set<String> visibleCurrentUserDeviceIds,
             Map<UUID, MessageSnippetResponse> repliesByMessageId
     ) {
@@ -163,7 +169,7 @@ class MessageQueryService {
             encryptedPayload = messageSupport.toEncryptedPayload(
                     message,
                     currentUser.getId(),
-                    messageSupport.deserializeEncryptedKeys(message),
+                    encryptedKeysByMessageId.getOrDefault(message.getId(), Map.of()),
                     visibleCurrentUserDeviceIds
             );
         } catch (IllegalStateException exception) {

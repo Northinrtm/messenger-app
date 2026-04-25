@@ -201,7 +201,6 @@ public class ChatMessage {
     public boolean isEncrypted() {
         return encryptionScheme != null && !encryptionScheme.isBlank()
                 && encryptionIv != null && !encryptionIv.isBlank()
-                && encryptedKeysJson != null && !encryptedKeysJson.isBlank()
                 && content != null && !content.isBlank();
     }
 

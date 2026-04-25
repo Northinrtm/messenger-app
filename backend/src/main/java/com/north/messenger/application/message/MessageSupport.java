@@ -17,6 +17,7 @@ import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.e2ee.DeviceKeyValidationService;
 import com.north.messenger.domain.model.ChatGroupSenderKeyCounter;
 import com.north.messenger.domain.model.ChatMessage;
+import com.north.messenger.domain.model.ChatMessageRecipientPayload;
 import com.north.messenger.domain.model.MessageReceipt;
 import com.north.messenger.domain.model.MessageReaction;
 import com.north.messenger.domain.model.ChatRoom;
@@ -31,9 +32,11 @@ import com.north.messenger.domain.repository.UserEncryptionEnvelopeCounterReposi
 import com.north.messenger.domain.repository.UserEncryptionOneTimePrekeyRepository;
 import com.north.messenger.domain.repository.UserEncryptionSignedPrekeyRepository;
 import com.north.messenger.domain.repository.ChatMessageRepository;
+import com.north.messenger.domain.repository.ChatMessageRecipientPayloadRepository;
 import com.north.messenger.domain.repository.MessageReceiptRepository;
 import com.north.messenger.domain.repository.MessageReactionRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
+import com.north.messenger.observability.MessengerTelemetry;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -63,6 +66,7 @@ class MessageSupport {
 
     private final AuthService authService;
     private final ChatMessageRepository chatMessageRepository;
+    private final ChatMessageRecipientPayloadRepository chatMessageRecipientPayloadRepository;
     private final MessageReceiptRepository messageReceiptRepository;
     private final MessageReactionRepository messageReactionRepository;
     private final UserAccountRepository userAccountRepository;
@@ -72,11 +76,13 @@ class MessageSupport {
     private final UserEncryptionSignedPrekeyRepository userEncryptionSignedPrekeyRepository;
     private final ChatGroupSenderKeyCounterRepository chatGroupSenderKeyCounterRepository;
     private final DeviceKeyValidationService deviceKeyValidationService;
+    private final MessengerTelemetry telemetry;
     private final ObjectMapper objectMapper;
 
     MessageSupport(
             AuthService authService,
             ChatMessageRepository chatMessageRepository,
+            ChatMessageRecipientPayloadRepository chatMessageRecipientPayloadRepository,
             MessageReceiptRepository messageReceiptRepository,
             MessageReactionRepository messageReactionRepository,
             UserAccountRepository userAccountRepository,
@@ -86,10 +92,12 @@ class MessageSupport {
             UserEncryptionSignedPrekeyRepository userEncryptionSignedPrekeyRepository,
             ChatGroupSenderKeyCounterRepository chatGroupSenderKeyCounterRepository,
             DeviceKeyValidationService deviceKeyValidationService,
+            MessengerTelemetry telemetry,
             ObjectMapper objectMapper
     ) {
         this.authService = authService;
         this.chatMessageRepository = chatMessageRepository;
+        this.chatMessageRecipientPayloadRepository = chatMessageRecipientPayloadRepository;
         this.messageReceiptRepository = messageReceiptRepository;
         this.messageReactionRepository = messageReactionRepository;
         this.userAccountRepository = userAccountRepository;
@@ -99,6 +107,7 @@ class MessageSupport {
         this.userEncryptionSignedPrekeyRepository = userEncryptionSignedPrekeyRepository;
         this.chatGroupSenderKeyCounterRepository = chatGroupSenderKeyCounterRepository;
         this.deviceKeyValidationService = deviceKeyValidationService;
+        this.telemetry = telemetry;
         this.objectMapper = objectMapper;
     }
 
@@ -391,7 +400,7 @@ class MessageSupport {
         }
     }
 
-    Map<String, String> validateEncryptedPayload(
+    ValidatedEncryptedPayload validateEncryptedPayload(
             EncryptedMessagePayloadRequest payload,
             ChatRoom room,
             UserAccount currentUser,
@@ -587,7 +596,20 @@ class MessageSupport {
             validateAndAdvanceEnvelopeCounters(senderDevice, validatedEnvelopesByRecipientDeviceId);
             acceptBootstrapPrekeys(bootstrapPrekeyBindingsByRecipientDeviceId, Instant.now());
         }
-        return validatedEncryptedKeysByRecipientId;
+        List<StoredRecipientPayload> storedRecipientPayloads = validatedEncryptedKeysByRecipientId.entrySet().stream()
+                .map(entry -> {
+                    UserEncryptionDevice recipientDevice = knownDevicesById.get(entry.getKey());
+                    if (recipientDevice == null) {
+                        throw new IllegalStateException("Validated recipient device disappeared before persistence");
+                    }
+                    return new StoredRecipientPayload(
+                            recipientDevice.getUserId(),
+                            recipientDevice.getId(),
+                            entry.getValue()
+                    );
+                })
+                .toList();
+        return new ValidatedEncryptedPayload(validatedEncryptedKeysByRecipientId, storedRecipientPayloads);
     }
 
     private void validateAndAdvanceEnvelopeCounters(
@@ -1043,6 +1065,59 @@ class MessageSupport {
         }
     }
 
+    Map<String, String> loadEncryptedKeys(ChatMessage message) {
+        Map<UUID, Map<String, String>> encryptedKeysByMessageId = loadEncryptedKeysByMessageId(List.of(message));
+        return encryptedKeysByMessageId.getOrDefault(message.getId(), Map.of());
+    }
+
+    Map<UUID, Map<String, String>> loadEncryptedKeysByMessageId(Collection<ChatMessage> messages) {
+        if (messages == null || messages.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<UUID, ChatMessage> messagesById = messages.stream()
+                .collect(Collectors.toMap(ChatMessage::getId, Function.identity()));
+        Map<UUID, Map<String, String>> encryptedKeysByMessageId = groupRecipientPayloadsByMessageId(
+                chatMessageRecipientPayloadRepository.findAllByMessageIdIn(messagesById.keySet())
+        );
+        int normalizedMessageCount = encryptedKeysByMessageId.size();
+        mergeLegacyEncryptedKeys(messagesById, encryptedKeysByMessageId);
+        telemetry.recordMessagePayloadStorageSource("normalized", "all_devices", normalizedMessageCount);
+        telemetry.recordMessagePayloadStorageSource(
+                "legacy_fallback",
+                "all_devices",
+                encryptedKeysByMessageId.size() - normalizedMessageCount
+        );
+        return encryptedKeysByMessageId;
+    }
+
+    Map<UUID, Map<String, String>> loadEncryptedKeysByMessageIdForUser(
+            Collection<ChatMessage> messages,
+            UUID recipientUserId
+    ) {
+        if (messages == null || messages.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<UUID, ChatMessage> messagesById = messages.stream()
+                .collect(Collectors.toMap(ChatMessage::getId, Function.identity()));
+        Map<UUID, Map<String, String>> encryptedKeysByMessageId = groupRecipientPayloadsByMessageId(
+                chatMessageRecipientPayloadRepository.findAllByMessageIdInAndRecipientUserId(
+                        messagesById.keySet(),
+                        recipientUserId
+                )
+        );
+        int normalizedMessageCount = encryptedKeysByMessageId.size();
+        mergeLegacyEncryptedKeys(messagesById, encryptedKeysByMessageId);
+        telemetry.recordMessagePayloadStorageSource("normalized", "recipient_user", normalizedMessageCount);
+        telemetry.recordMessagePayloadStorageSource(
+                "legacy_fallback",
+                "recipient_user",
+                encryptedKeysByMessageId.size() - normalizedMessageCount
+        );
+        return encryptedKeysByMessageId;
+    }
+
     Map<String, String> deserializeEncryptedKeys(ChatMessage message) {
         if (message.getEncryptedKeysJson() == null || message.getEncryptedKeysJson().isBlank()) {
             return Map.of();
@@ -1057,7 +1132,38 @@ class MessageSupport {
     }
 
     EncryptedMessagePayloadResponse toEncryptedPayload(ChatMessage message, UUID currentUserId) {
-        return toEncryptedPayload(message, currentUserId, deserializeEncryptedKeys(message));
+        return toEncryptedPayload(message, currentUserId, loadEncryptedKeys(message));
+    }
+
+    void storeRecipientPayloads(
+            UUID messageId,
+            Instant createdAt,
+            List<StoredRecipientPayload> storedRecipientPayloads
+    ) {
+        if (storedRecipientPayloads == null || storedRecipientPayloads.isEmpty()) {
+            return;
+        }
+
+        chatMessageRecipientPayloadRepository.saveAll(
+                storedRecipientPayloads.stream()
+                        .map(payload -> new ChatMessageRecipientPayload(
+                                messageId,
+                                payload.recipientDeviceId(),
+                                payload.recipientUserId(),
+                                payload.encryptedPayload(),
+                                createdAt
+                        ))
+                        .toList()
+        );
+    }
+
+    void replaceRecipientPayloads(
+            UUID messageId,
+            Instant createdAt,
+            List<StoredRecipientPayload> storedRecipientPayloads
+    ) {
+        chatMessageRecipientPayloadRepository.deleteAllByMessageId(messageId);
+        storeRecipientPayloads(messageId, createdAt, storedRecipientPayloads);
     }
 
     EncryptedMessagePayloadResponse toEncryptedPayload(
@@ -1160,6 +1266,32 @@ class MessageSupport {
                 ));
     }
 
+    private Map<UUID, Map<String, String>> groupRecipientPayloadsByMessageId(
+            Collection<ChatMessageRecipientPayload> payloads
+    ) {
+        Map<UUID, Map<String, String>> encryptedKeysByMessageId = new LinkedHashMap<>();
+        payloads.forEach(payload -> encryptedKeysByMessageId
+                .computeIfAbsent(payload.getMessageId(), ignored -> new LinkedHashMap<>())
+                .put(payload.getRecipientDeviceId().toString(), payload.getEncryptedPayload()));
+        return encryptedKeysByMessageId;
+    }
+
+    private void mergeLegacyEncryptedKeys(
+            Map<UUID, ChatMessage> messagesById,
+            Map<UUID, Map<String, String>> encryptedKeysByMessageId
+    ) {
+        messagesById.forEach((messageId, message) -> {
+            if (encryptedKeysByMessageId.containsKey(messageId)) {
+                return;
+            }
+
+            Map<String, String> legacyEncryptedKeys = deserializeEncryptedKeys(message);
+            if (!legacyEncryptedKeys.isEmpty()) {
+                encryptedKeysByMessageId.put(messageId, new LinkedHashMap<>(legacyEncryptedKeys));
+            }
+        });
+    }
+
     String summarizeMessagePreview(ChatMessage message) {
         return message.getEncryptionScheme() != null && !message.getEncryptionScheme().isBlank()
                 ? "Encrypted message"
@@ -1220,6 +1352,19 @@ class MessageSupport {
     record DeviceSignedPrekeyRef(
             UUID deviceId,
             int keyId
+    ) {
+    }
+
+    record StoredRecipientPayload(
+            UUID recipientUserId,
+            UUID recipientDeviceId,
+            String encryptedPayload
+    ) {
+    }
+
+    record ValidatedEncryptedPayload(
+            Map<String, String> encryptedKeysByRecipientId,
+            List<StoredRecipientPayload> storedRecipientPayloads
     ) {
     }
 

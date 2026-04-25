@@ -122,8 +122,14 @@ class MessageCommandService {
             );
         }
 
+        MessageSupport.ValidatedEncryptedPayload validatedEncryptedPayload = messageSupport.validateEncryptedPayload(
+                encryptedPayload,
+                room,
+                currentUser,
+                participants
+        );
         String encryptedKeysJson = messageSupport.serializeEncryptedKeys(
-                messageSupport.validateEncryptedPayload(encryptedPayload, room, currentUser, participants)
+                validatedEncryptedPayload.encryptedKeysByRecipientId()
         );
         MessageSupport.StoredEncryptedEnvelope storedEnvelope = messageSupport.extractStoredEnvelope(encryptedPayload);
         ChatGroupHistoryKeyService.ValidatedGroupMessageHistoryEnvelope historyEnvelope =
@@ -146,6 +152,11 @@ class MessageCommandService {
             );
             ChatMessage persistedMessage = chatMessageRepository.saveAndFlush(message);
             entityManager.refresh(persistedMessage);
+            messageSupport.storeRecipientPayloads(
+                    persistedMessage.getId(),
+                    persistedMessage.getCreatedAt(),
+                    validatedEncryptedPayload.storedRecipientPayloads()
+            );
             chatAttachmentService.attachUploadedAttachments(
                     currentUser,
                     chatId,
@@ -317,8 +328,14 @@ class MessageCommandService {
         }
 
         List<UserAccount> participants = chatService.findParticipants(chatId);
+        MessageSupport.ValidatedEncryptedPayload validatedEncryptedPayload = messageSupport.validateEncryptedPayload(
+                encryptedPayload,
+                room,
+                currentUser,
+                participants
+        );
         String encryptedKeysJson = messageSupport.serializeEncryptedKeys(
-                messageSupport.validateEncryptedPayload(encryptedPayload, room, currentUser, participants)
+                validatedEncryptedPayload.encryptedKeysByRecipientId()
         );
         MessageSupport.StoredEncryptedEnvelope storedEnvelope = messageSupport.extractStoredEnvelope(encryptedPayload);
         ChatGroupHistoryKeyService.ValidatedGroupMessageHistoryEnvelope historyEnvelope =
@@ -333,6 +350,11 @@ class MessageCommandService {
                 Instant.now()
         );
         chatMessageRepository.saveAndFlush(message);
+        messageSupport.replaceRecipientPayloads(
+                message.getId(),
+                message.getCreatedAt(),
+                validatedEncryptedPayload.storedRecipientPayloads()
+        );
         messageDispatchOutboxService.enqueue(new MessageDispatchEvent(
                 chatId,
                 message.getId(),
