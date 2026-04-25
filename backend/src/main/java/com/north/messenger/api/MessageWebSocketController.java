@@ -1,6 +1,7 @@
 package com.north.messenger.api;
 
 import com.north.messenger.api.dto.CreateMessageRequest;
+import com.north.messenger.api.dto.MessageResponse;
 import com.north.messenger.api.dto.MessageSendErrorResponse;
 import com.north.messenger.application.auth.PasswordPolicyViolationException;
 import com.north.messenger.application.message.MessageService;
@@ -25,6 +26,7 @@ import org.springframework.web.server.ResponseStatusException;
 public class MessageWebSocketController {
 
     private static final Logger log = LoggerFactory.getLogger(MessageWebSocketController.class);
+    private static final String MESSAGE_ACK_DESTINATION = "/queue/message-acks";
     private static final String MESSAGE_ERROR_DESTINATION = "/queue/message-errors";
 
     private final MessageService messageService;
@@ -64,7 +66,8 @@ public class MessageWebSocketController {
         }
 
         try {
-            messageService.sendMessage(chatId, principal.getName(), request);
+            MessageResponse response = messageService.sendMessage(chatId, principal.getName(), request);
+            realtimeMessagingGateway.sendToUser(principal.getName(), MESSAGE_ACK_DESTINATION, response);
         } catch (ResponseStatusException exception) {
             sendError(principal.getName(), new MessageSendErrorResponse(
                     chatId,

@@ -41,7 +41,7 @@ public class PushNotificationDeliveryService {
                 .build();
     }
 
-    @Async
+    @Async("pushNotificationExecutor")
     @Transactional
     public void notifyNewMessage(ChatMessage message, List<UserAccount> participants, UserAccount sender) {
         if (!properties.enabled() || participants.isEmpty()) {

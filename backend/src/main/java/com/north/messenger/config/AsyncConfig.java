@@ -12,18 +12,48 @@ public class AsyncConfig {
 
     @Bean(name = "messageDispatchExecutor")
     public Executor messageDispatchExecutor(MeterRegistry meterRegistry) {
+        return buildMonitoredExecutor(
+                meterRegistry,
+                "message-dispatch-",
+                4,
+                16,
+                500,
+                "messenger.message.dispatch.executor"
+        );
+    }
+
+    @Bean(name = "pushNotificationExecutor")
+    public Executor pushNotificationExecutor(MeterRegistry meterRegistry) {
+        return buildMonitoredExecutor(
+                meterRegistry,
+                "push-notify-",
+                2,
+                8,
+                200,
+                "messenger.push.notification.executor"
+        );
+    }
+
+    private Executor buildMonitoredExecutor(
+            MeterRegistry meterRegistry,
+            String threadNamePrefix,
+            int corePoolSize,
+            int maxPoolSize,
+            int queueCapacity,
+            String metricName
+    ) {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(4);
-        executor.setMaxPoolSize(16);
-        executor.setQueueCapacity(500);
-        executor.setThreadNamePrefix("message-dispatch-");
+        executor.setCorePoolSize(corePoolSize);
+        executor.setMaxPoolSize(maxPoolSize);
+        executor.setQueueCapacity(queueCapacity);
+        executor.setThreadNamePrefix(threadNamePrefix);
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(10);
         executor.initialize();
         ExecutorServiceMetrics.monitor(
                 meterRegistry,
                 executor.getThreadPoolExecutor(),
-                "messenger.message.dispatch.executor"
+                metricName
         );
         return executor;
     }
