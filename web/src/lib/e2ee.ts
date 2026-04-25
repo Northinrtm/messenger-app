@@ -97,6 +97,7 @@ const inFlightEncryptionDeviceRegistration = new Map<string, Promise<void>>();
 const completedEncryptionDeviceRegistration = new Map<string, number>();
 const inFlightDevicePreparation = new Map<string, Promise<void>>();
 const completedDevicePreparation = new Map<string, number>();
+const preparedConversationDeviceStates = new Map<string, PreparedConversationDeviceState>();
 const restoredPersistentDeviceSessionKeysByUserId = new Map<string, Set<string>>();
 const restoredPersistentOutboundGroupChatsByUserId = new Map<string, Set<string>>();
 const inFlightMessageHydrationBatchByUserId = new Map<string, Promise<void>>();
@@ -141,6 +142,7 @@ function ensureE2eeTransportStorageSchema() {
     importedDevicePublicKeyCache.clear();
     completedEncryptionDeviceRegistration.clear();
     completedDevicePreparation.clear();
+    preparedConversationDeviceStates.clear();
     window.localStorage.setItem(
       E2EE_STORAGE_SCHEMA_VERSION_KEY,
       E2EE_TRANSPORT_STORAGE_SCHEMA_VERSION
@@ -200,6 +202,11 @@ type ConversationDeviceBundleResolution = {
   missingParticipants: Participant[];
   participantsWithUntrustedDevices: Participant[];
 };
+
+type PreparedConversationDeviceState = Pick<
+  ConversationDeviceBundleResolution,
+  "rawBundles" | "trustedBundles"
+>;
 
 type DeviceOneTimePrekeyMaterial = {
   keyId: number;
@@ -748,6 +755,7 @@ export function clearUnlockedEncryptionState(userId?: string) {
   importedDevicePublicKeyCache.clear();
   completedEncryptionDeviceRegistration.clear();
   completedDevicePreparation.clear();
+  preparedConversationDeviceStates.clear();
   clearRecoverySnapshotSyncState();
   clearInFlightMessageHydration();
 }
@@ -783,6 +791,7 @@ export function lockUnlockedEncryptionState(userId?: string) {
   unlockedIdentityByUserId.clear();
   completedEncryptionDeviceRegistration.clear();
   completedDevicePreparation.clear();
+  preparedConversationDeviceStates.clear();
   clearRecoverySnapshotSyncState();
   clearInFlightMessageHydration();
 }
@@ -1439,15 +1448,8 @@ async function prepareDeviceEncryptionState(
 ) {
   const preparationKey = buildDevicePreparationKey(currentUserId, remoteParticipantIds);
   if (!forceRefresh) {
-    const cachedPreparationTimestamp = completedDevicePreparation.get(preparationKey);
-    if (
-      cachedPreparationTimestamp &&
-      Date.now() - cachedPreparationTimestamp < DEVICE_PREPARATION_CACHE_TTL_MS
-    ) {
+    if (readPreparedConversationDeviceState(preparationKey)) {
       return;
-    }
-    if (cachedPreparationTimestamp) {
-      completedDevicePreparation.delete(preparationKey);
     }
 
     const inFlightPreparation = inFlightDevicePreparation.get(preparationKey);
@@ -1456,7 +1458,7 @@ async function prepareDeviceEncryptionState(
       return;
     }
   } else {
-    completedDevicePreparation.delete(preparationKey);
+    clearPreparedConversationDeviceState(preparationKey);
     inFlightDevicePreparation.delete(preparationKey);
   }
 
@@ -1484,7 +1486,10 @@ async function prepareDeviceEncryptionState(
 
     const bootstrapped = await bootstrapDeviceSessions(token, currentUserId, trustedBundles);
     if (bootstrapped) {
-      completedDevicePreparation.set(preparationKey, Date.now());
+      rememberPreparedConversationDeviceState(preparationKey, {
+        rawBundles,
+        trustedBundles,
+      });
     }
   })();
   inFlightDevicePreparation.set(preparationKey, preparationPromise);
@@ -1507,10 +1512,48 @@ function buildDevicePreparationKey(
     .join(",")}`;
 }
 
+function readPreparedConversationDeviceState(preparationKey: string) {
+  const cachedPreparationTimestamp = completedDevicePreparation.get(preparationKey);
+  const cachedPreparedState = preparedConversationDeviceStates.get(preparationKey);
+  if (!cachedPreparationTimestamp || !cachedPreparedState) {
+    clearPreparedConversationDeviceState(preparationKey);
+    return null;
+  }
+
+  if (Date.now() - cachedPreparationTimestamp >= DEVICE_PREPARATION_CACHE_TTL_MS) {
+    clearPreparedConversationDeviceState(preparationKey);
+    return null;
+  }
+
+  return cachedPreparedState;
+}
+
+function rememberPreparedConversationDeviceState(
+  preparationKey: string,
+  preparedState: PreparedConversationDeviceState
+) {
+  completedDevicePreparation.set(preparationKey, Date.now());
+  preparedConversationDeviceStates.set(preparationKey, {
+    rawBundles: [...preparedState.rawBundles],
+    trustedBundles: [...preparedState.trustedBundles],
+  });
+}
+
+function clearPreparedConversationDeviceState(preparationKey: string) {
+  completedDevicePreparation.delete(preparationKey);
+  preparedConversationDeviceStates.delete(preparationKey);
+}
+
 function clearCompletedDevicePreparation(userId: string) {
   for (const cacheKey of Array.from(completedDevicePreparation.keys())) {
     if (cacheKey.startsWith(`${userId}:`)) {
-      completedDevicePreparation.delete(cacheKey);
+      clearPreparedConversationDeviceState(cacheKey);
+    }
+  }
+
+  for (const cacheKey of Array.from(preparedConversationDeviceStates.keys())) {
+    if (cacheKey.startsWith(`${userId}:`)) {
+      preparedConversationDeviceStates.delete(cacheKey);
     }
   }
 }
@@ -1841,17 +1884,12 @@ function getDeviceBundleMapKey(userId: string, deviceId: string) {
   return `${userId}:${deviceId}`;
 }
 
-async function resolveConversationDeviceBundles(
-  token: string,
+function buildConversationDeviceBundleResolution(
   participants: Participant[],
-  requesterDeviceId?: string | null,
+  rawBundles: UserEncryptionDeviceBundle[],
+  trustedBundles: UserEncryptionDeviceBundle[],
   currentUserId?: string | null
-): Promise<ConversationDeviceBundleResolution> {
-  const { rawBundles, trustedBundles } = await primeDeviceBundles(
-    token,
-    participants.map((participant) => participant.id),
-    requesterDeviceId
-  );
+): ConversationDeviceBundleResolution {
   const participantById = new Map(participants.map((participant) => [participant.id, participant]));
   const trustedBundleKeys = new Set(
     trustedBundles.map((bundle) => getDeviceBundleMapKey(bundle.userId, bundle.deviceId))
@@ -1879,11 +1917,58 @@ async function resolveConversationDeviceBundles(
   };
 }
 
+async function resolveConversationDeviceBundles(
+  token: string,
+  participants: Participant[],
+  requesterDeviceId?: string | null,
+  currentUserId?: string | null
+): Promise<ConversationDeviceBundleResolution> {
+  const { rawBundles, trustedBundles } = await primeDeviceBundles(
+    token,
+    participants.map((participant) => participant.id),
+    requesterDeviceId
+  );
+  return buildConversationDeviceBundleResolution(
+    participants,
+    rawBundles,
+    trustedBundles,
+    currentUserId
+  );
+}
+
 async function prepareSendConversationDeviceBundles(
   token: string,
   currentUserId: string,
   participants: Participant[]
 ) {
+  const remoteParticipantIds = participants
+    .map((participant) => participant.id)
+    .filter((participantId) => participantId !== currentUserId);
+  const preparationKey = buildDevicePreparationKey(currentUserId, remoteParticipantIds);
+  const cachedPreparedState = readPreparedConversationDeviceState(preparationKey);
+  if (cachedPreparedState) {
+    return buildConversationDeviceBundleResolution(
+      participants,
+      cachedPreparedState.rawBundles,
+      cachedPreparedState.trustedBundles,
+      currentUserId
+    );
+  }
+
+  const inFlightPreparation = inFlightDevicePreparation.get(preparationKey);
+  if (inFlightPreparation) {
+    await inFlightPreparation.catch(() => undefined);
+    const preparedStateAfterWait = readPreparedConversationDeviceState(preparationKey);
+    if (preparedStateAfterWait) {
+      return buildConversationDeviceBundleResolution(
+        participants,
+        preparedStateAfterWait.rawBundles,
+        preparedStateAfterWait.trustedBundles,
+        currentUserId
+      );
+    }
+  }
+
   const ownMaterial = await readEncryptionDeviceMaterial(currentUserId);
   const resolvedBundles = await resolveConversationDeviceBundles(
     token,
@@ -1905,13 +1990,7 @@ async function prepareSendConversationDeviceBundles(
     resolvedBundles.trustedBundles
   );
   if (bootstrapped) {
-    completedDevicePreparation.set(
-      buildDevicePreparationKey(
-        currentUserId,
-        participants.map((participant) => participant.id)
-      ),
-      Date.now()
-    );
+    rememberPreparedConversationDeviceState(preparationKey, resolvedBundles);
   }
 
   return resolvedBundles;
