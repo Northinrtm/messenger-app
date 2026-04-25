@@ -99,6 +99,8 @@ const inFlightDevicePreparation = new Map<string, Promise<void>>();
 const completedDevicePreparation = new Map<string, number>();
 const preparedConversationDeviceStates = new Map<string, PreparedConversationDeviceState>();
 const restoredPersistentDeviceSessionKeysByUserId = new Map<string, Set<string>>();
+const hydratedRuntimeDeviceSessionsByUserId = new Set<string>();
+const runtimeWrittenDeviceSessionsByUserId = new Set<string>();
 const restoredPersistentOutboundGroupChatsByUserId = new Map<string, Set<string>>();
 const inFlightMessageHydrationBatchByUserId = new Map<string, Promise<void>>();
 const inFlightMessageHydrationByUserId = new Map<string, Promise<void>>();
@@ -1464,11 +1466,36 @@ async function prepareDeviceEncryptionState(
 
   const preparationPromise = (async () => {
     const ownMaterial = currentUserId ? await readEncryptionDeviceMaterial(currentUserId) : null;
-    const { rawBundles, trustedBundles } = await primeDeviceBundles(
+    const {
+      rawBundles: remoteRawBundles,
+      trustedBundles: remoteTrustedBundles,
+    } = await primeDeviceBundles(
       token,
       remoteParticipantIds,
       ownMaterial?.deviceId ?? null
     );
+    let rawBundles = remoteRawBundles;
+    let trustedBundles = remoteTrustedBundles;
+    let cachePreparedState = true;
+    if (currentUserId && ownMaterial?.deviceId) {
+      const preparedOwnDeviceBundles = await listPreparedOwnSiblingDeviceBundles(
+        token,
+        currentUserId,
+        ownMaterial.deviceId
+      );
+      if (preparedOwnDeviceBundles) {
+        rawBundles = mergePreparedConversationDeviceBundles(
+          rawBundles,
+          preparedOwnDeviceBundles.rawBundles
+        );
+        trustedBundles = mergePreparedConversationDeviceBundles(
+          trustedBundles,
+          preparedOwnDeviceBundles.trustedBundles
+        );
+      } else {
+        cachePreparedState = false;
+      }
+    }
     const rawUserIds = new Set(rawBundles.map((bundle) => bundle.userId));
     const trustedBundleKeys = new Set(
       trustedBundles.map((bundle) => getDeviceBundleMapKey(bundle.userId, bundle.deviceId))
@@ -1485,7 +1512,7 @@ async function prepareDeviceEncryptionState(
     }
 
     const bootstrapped = await bootstrapDeviceSessions(token, currentUserId, trustedBundles);
-    if (bootstrapped) {
+    if (bootstrapped && cachePreparedState) {
       rememberPreparedConversationDeviceState(preparationKey, {
         rawBundles,
         trustedBundles,
@@ -1526,6 +1553,78 @@ function readPreparedConversationDeviceState(preparationKey: string) {
   }
 
   return cachedPreparedState;
+}
+
+async function listPreparedOwnSiblingDeviceBundles(
+  token: string,
+  currentUserId: string,
+  currentDeviceId: string
+) {
+  let ownDevices: UserEncryptionDevice[] = [];
+  try {
+    ownDevices = await listOwnEncryptionDevices(token);
+  } catch {
+    return null;
+  }
+
+  const rawBundles = ownDevices
+    .filter((device) => device.deviceId !== currentDeviceId)
+    .map((device) => buildOwnSiblingDeviceBundle(device, currentUserId));
+  const trustedBundles = await Promise.all(
+    rawBundles.map(async (bundle) => {
+      try {
+        return (await validateAndPinDeviceBundle(bundle)) ? bundle : null;
+      } catch {
+        return null;
+      }
+    })
+  );
+
+  return {
+    rawBundles,
+    trustedBundles: trustedBundles.filter(
+      (bundle): bundle is UserEncryptionDeviceBundle => bundle !== null
+    ),
+  };
+}
+
+function buildOwnSiblingDeviceBundle(
+  device: UserEncryptionDevice,
+  currentUserId: string
+): UserEncryptionDeviceBundle {
+  return {
+    userId: currentUserId,
+    deviceId: device.deviceId,
+    deviceName: device.deviceName,
+    identityKey: device.identityKey,
+    identityKeyAlgorithm: device.identityKeyAlgorithm,
+    identitySignatureKey: device.identitySignatureKey,
+    identitySignatureKeyAlgorithm: device.identitySignatureKeyAlgorithm,
+    signedPrekeyId: device.signedPrekeyId,
+    signedPrekeyPublicKey: device.signedPrekeyPublicKey,
+    signedPrekeySignature: device.signedPrekeySignature,
+    signedPrekeyAlgorithm: device.signedPrekeyAlgorithm,
+    oneTimePrekey: null,
+    registeredAt: device.registeredAt,
+    lastSeenAt: device.lastSeenAt,
+  };
+}
+
+function mergePreparedConversationDeviceBundles(
+  currentBundles: UserEncryptionDeviceBundle[],
+  additionalBundles: UserEncryptionDeviceBundle[]
+) {
+  const mergedBundles = new Map(
+    currentBundles.map((bundle) => [getDeviceBundleMapKey(bundle.userId, bundle.deviceId), bundle])
+  );
+  for (const bundle of additionalBundles) {
+    const bundleKey = getDeviceBundleMapKey(bundle.userId, bundle.deviceId);
+    if (!mergedBundles.has(bundleKey)) {
+      mergedBundles.set(bundleKey, bundle);
+    }
+  }
+
+  return Array.from(mergedBundles.values());
 }
 
 function rememberPreparedConversationDeviceState(
@@ -5765,6 +5864,12 @@ async function readDeviceSessions(userId: string): Promise<Record<string, Device
       }
 
       const sanitizedSessions = sanitizeStoredDeviceSessions(parsedSessions);
+      if (!hydratedRuntimeDeviceSessionsByUserId.has(userId)) {
+        if (!runtimeWrittenDeviceSessionsByUserId.has(userId)) {
+          markPersistentRestoredCurrentDeviceSessions(userId, sanitizedSessions);
+        }
+        hydratedRuntimeDeviceSessionsByUserId.add(userId);
+      }
       if (sanitizedSessions !== parsedSessions) {
         writeDeviceSessions(userId, sanitizedSessions);
         void rememberDeviceSessions(userId, sanitizedSessions);
@@ -5777,6 +5882,7 @@ async function readDeviceSessions(userId: string): Promise<Record<string, Device
       const sanitizedSessions = sanitizeStoredDeviceSessions(rememberedSessions);
       writeDeviceSessions(userId, sanitizedSessions);
       markPersistentRestoredCurrentDeviceSessions(userId, sanitizedSessions);
+      hydratedRuntimeDeviceSessionsByUserId.add(userId);
       if (sanitizedSessions !== rememberedSessions) {
         await rememberDeviceSessions(userId, sanitizedSessions);
       }
@@ -5820,6 +5926,7 @@ function writeDeviceSessions(userId: string, sessions: Record<string, DeviceSess
   }
 
   try {
+    runtimeWrittenDeviceSessionsByUserId.add(userId);
     window.sessionStorage.setItem(getDeviceSessionStorageKey(userId), JSON.stringify(sessions));
   } catch {
     return;
@@ -5961,6 +6068,8 @@ function removeDeviceSessions(userId: string) {
 
   try {
     clearPersistentRestoredCurrentDeviceSessions(userId);
+    hydratedRuntimeDeviceSessionsByUserId.delete(userId);
+    runtimeWrittenDeviceSessionsByUserId.delete(userId);
     window.sessionStorage.removeItem(getDeviceSessionStorageKey(userId));
   } catch {
     return;
