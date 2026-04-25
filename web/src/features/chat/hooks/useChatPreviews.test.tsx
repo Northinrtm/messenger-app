@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ChatSummary, UserProfile } from "../../../lib/types";
 import { useChatPreviews } from "./useChatPreviews";
+import { readLatestArchivedDecryptedChatMessage } from "../../../lib/e2ee";
 
 vi.mock("../../../lib/e2ee", () => ({
   readLatestArchivedDecryptedChatMessage: vi.fn(),
@@ -54,11 +55,27 @@ function emptyGroupChat(): ChatSummary {
   };
 }
 
-function Harness({ queryClient }: { queryClient: QueryClient }) {
+function encryptedGroupChat(lastMessageAt = "2026-04-18T12:10:00.000Z"): ChatSummary {
+  return {
+    ...emptyGroupChat(),
+    lastMessage: "Encrypted message",
+    lastMessageAt,
+    lastMessageServerOrder: 42,
+    updatedAt: lastMessageAt,
+  };
+}
+
+function Harness({
+  previewHydrationChats,
+  queryClient,
+}: {
+  previewHydrationChats: ChatSummary[];
+  queryClient: QueryClient;
+}) {
   useChatPreviews({
     archivedChatIds: [],
     formatPreviewText: (message) => message.content,
-    previewHydrationChats: [emptyGroupChat()],
+    previewHydrationChats,
     queryClient,
     token: "session-token",
     userId: "user-1",
@@ -76,6 +93,7 @@ async function flushMicrotasks(iterations = 8) {
 describe("useChatPreviews stale preview cleanup", () => {
   let container: HTMLDivElement;
   let root: Root | null;
+  const archivedPreviewMock = vi.mocked(readLatestArchivedDecryptedChatMessage);
 
   beforeEach(() => {
     (globalThis as ReactActEnvironment).IS_REACT_ACT_ENVIRONMENT = true;
@@ -114,12 +132,21 @@ describe("useChatPreviews stale preview cleanup", () => {
         },
       })
     );
+    archivedPreviewMock.mockResolvedValue({
+      id: "message-1",
+      chatId: "chat-1",
+      content: "stale archived preview",
+      createdAt: "2026-04-24T16:42:28.848563Z",
+      editedAt: null,
+      replyTo: null,
+      attachments: [],
+    });
 
     root = createRoot(container);
     await act(async () => {
       root!.render(
         <QueryClientProvider client={queryClient}>
-          <Harness queryClient={queryClient} />
+          <Harness previewHydrationChats={[emptyGroupChat()]} queryClient={queryClient} />
         </QueryClientProvider>
       );
       await flushMicrotasks();
@@ -133,5 +160,45 @@ describe("useChatPreviews stale preview cleanup", () => {
       JSON.parse(window.localStorage.getItem("north-messenger-chat-previews:user-1") ?? "{}")
     ).toEqual({});
     expect(queryClient.getQueryData(["chats", "session-token"])).toEqual([emptyGroupChat()]);
+  });
+
+  it("does not replace the server preview with a newer archived message that is no longer visible", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    const serverChat = encryptedGroupChat("2026-04-18T12:10:00.000Z");
+    queryClient.setQueryData(["chats", "session-token"], [serverChat]);
+    archivedPreviewMock.mockResolvedValue({
+      id: "message-2",
+      chatId: "chat-1",
+      content: "deleted newer message",
+      createdAt: "2026-04-18T12:11:00.000Z",
+      editedAt: null,
+      replyTo: null,
+      attachments: [],
+    });
+
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(
+        <QueryClientProvider client={queryClient}>
+          <Harness previewHydrationChats={[serverChat]} queryClient={queryClient} />
+        </QueryClientProvider>
+      );
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      await flushMicrotasks(12);
+    });
+
+    expect(queryClient.getQueryData(["chats", "session-token"])).toEqual([serverChat]);
+    expect(
+      JSON.parse(window.localStorage.getItem("north-messenger-chat-previews:user-1") ?? "{}")
+    ).toEqual({});
   });
 });

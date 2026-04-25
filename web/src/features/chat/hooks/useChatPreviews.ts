@@ -173,15 +173,16 @@ export function useChatPreviews({
       try {
         const { readLatestArchivedDecryptedChatMessage } = await import("../../../lib/e2ee");
         const archivedMessage = await readLatestArchivedDecryptedChatMessage(userId, chatId);
+        const expectedLastMessageAt = currentChatSummary?.lastMessageAt ?? null;
         if (
           !archivedMessage ||
+          !expectedLastMessageAt ||
           !archivedMessage.content.trim() ||
           isUnavailableEncryptedMessage(archivedMessage.content) ||
-          (currentChatSummary?.lastMessageAt &&
-            archivedMessage.createdAt.localeCompare(currentChatSummary.lastMessageAt) < 0)
+          archivedMessage.createdAt !== expectedLastMessageAt
         ) {
+          clearChatPreviewOverride(chatId);
           if (!currentChatSummary?.lastMessageAt) {
-            clearChatPreviewOverride(chatId);
             queryClient.setQueryData<ChatSummary[]>(["chats", token], (current) =>
               clearChatMessageActivity(current, chatId)
             );
