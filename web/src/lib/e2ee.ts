@@ -613,7 +613,23 @@ async function syncEncryptionRecoverySnapshotInternal(session: AuthResponse) {
     return;
   }
 
-  const archivedMessages = await readAllStoredArchivedDecryptedMessageRecords(userId);
+  let archivedMessages = await readAllStoredArchivedDecryptedMessageRecords(userId);
+  const remoteArchivedMessages = await readRemoteRecoverySnapshotArchivedMessages(
+    session.token,
+    identity.privateKey
+  );
+  if (remoteArchivedMessages.length > 0) {
+    const localArchivedMessagesById = new Map(
+      archivedMessages.map((record) => [record.messageId, record])
+    );
+    const remoteUpdatesForLocalArchive = remoteArchivedMessages.filter((record) =>
+      shouldReplaceArchivedDecryptedMessageRecord(localArchivedMessagesById.get(record.messageId), record)
+    );
+    if (remoteUpdatesForLocalArchive.length > 0) {
+      await writeArchivedDecryptedMessageRecords(userId, remoteUpdatesForLocalArchive);
+    }
+    archivedMessages = mergeArchivedDecryptedMessageRecords(remoteArchivedMessages, archivedMessages);
+  }
   const snapshotPayloadRecord = await encryptRecoverySnapshotPayload(
     identity.privateKey,
     archivedMessages
@@ -637,6 +653,48 @@ function shouldReplaceArchivedDecryptedMessageRecord(
   }
 
   return (nextRecord.editedAt ?? "") > (currentRecord.editedAt ?? "");
+}
+
+function mergeArchivedDecryptedMessageRecords(
+  baseRecords: RememberedDecryptedMessageArchiveRecord[],
+  nextRecords: RememberedDecryptedMessageArchiveRecord[]
+) {
+  const mergedRecordsByMessageId = new Map(
+    baseRecords.map((record) => [record.messageId, record])
+  );
+  nextRecords.forEach((record) => {
+    if (shouldReplaceArchivedDecryptedMessageRecord(mergedRecordsByMessageId.get(record.messageId), record)) {
+      mergedRecordsByMessageId.set(record.messageId, record);
+    }
+  });
+  return sortArchivedDecryptedMessageRecords(Array.from(mergedRecordsByMessageId.values()));
+}
+
+async function readRemoteRecoverySnapshotArchivedMessages(token: string, privateKey: string) {
+  let remoteSnapshot: UserEncryptionRecoverySnapshot;
+  try {
+    remoteSnapshot = await getOwnEncryptionRecoverySnapshot(token);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      return [];
+    }
+    return [];
+  }
+
+  let snapshotPayloadRecord: EncryptedRecoverySnapshotPayloadRecord | null = null;
+  try {
+    snapshotPayloadRecord = normalizeEncryptedRecoverySnapshotPayloadRecord(
+      JSON.parse(remoteSnapshot.snapshotPayloadJson) as unknown
+    );
+  } catch {
+    snapshotPayloadRecord = null;
+  }
+  if (!snapshotPayloadRecord) {
+    return [];
+  }
+
+  const snapshotPayload = await decryptRecoverySnapshotPayload(privateKey, snapshotPayloadRecord);
+  return snapshotPayload?.archivedMessages ?? [];
 }
 
 async function refreshArchivedMessagesFromRemoteRecoverySnapshot(userId: string) {
@@ -665,33 +723,11 @@ async function refreshArchivedMessagesFromRemoteRecoverySnapshot(userId: string)
       return false;
     }
 
-    let remoteSnapshot: UserEncryptionRecoverySnapshot;
-    try {
-      remoteSnapshot = await getOwnEncryptionRecoverySnapshot(session.token);
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 404) {
-        return false;
-      }
-      return false;
-    }
-
-    let snapshotPayloadRecord: EncryptedRecoverySnapshotPayloadRecord | null = null;
-    try {
-      snapshotPayloadRecord = normalizeEncryptedRecoverySnapshotPayloadRecord(
-        JSON.parse(remoteSnapshot.snapshotPayloadJson) as unknown
-      );
-    } catch {
-      snapshotPayloadRecord = null;
-    }
-    if (!snapshotPayloadRecord) {
-      return false;
-    }
-
-    const snapshotPayload = await decryptRecoverySnapshotPayload(
-      unlockedIdentity.privateKey,
-      snapshotPayloadRecord
+    const remoteArchivedMessages = await readRemoteRecoverySnapshotArchivedMessages(
+      session.token,
+      unlockedIdentity.privateKey
     );
-    if (!snapshotPayload || snapshotPayload.archivedMessages.length === 0) {
+    if (remoteArchivedMessages.length === 0) {
       return false;
     }
 
@@ -701,7 +737,7 @@ async function refreshArchivedMessagesFromRemoteRecoverySnapshot(userId: string)
         record,
       ])
     );
-    const nextRecords = snapshotPayload.archivedMessages.filter((record) =>
+    const nextRecords = remoteArchivedMessages.filter((record) =>
       shouldReplaceArchivedDecryptedMessageRecord(existingRecords.get(record.messageId), record)
     );
     if (nextRecords.length === 0) {

@@ -998,6 +998,105 @@ describe("e2ee hardening", () => {
     expect(vi.mocked(upsertOwnEncryptionDevice)).not.toHaveBeenCalled();
   });
 
+  it("merges remote recovery history into sync uploads when the local archive is missing", async () => {
+    Object.defineProperty(window, "isSecureContext", {
+      configurable: true,
+      value: true,
+    });
+    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "deriveKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "encrypt").mockImplementation(
+      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
+    );
+    vi.spyOn(window.crypto.subtle, "decrypt").mockImplementation(
+      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
+    );
+    window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(identity));
+    window.sessionStorage.setItem(DEVICE_MATERIAL_KEY, JSON.stringify(readyLocalDeviceMaterial));
+    window.localStorage.setItem(
+      REMEMBERED_KEY,
+      JSON.stringify({
+        salt: utf8ToBase64("remembered-salt"),
+        iv: utf8ToBase64("remembered-iv"),
+        ciphertext: utf8ToBase64(JSON.stringify(identity)),
+        createdAt: "2026-04-25T13:04:50.000Z",
+      })
+    );
+    vi.mocked(listOwnEncryptionDevices).mockResolvedValue([currentRegisteredDevice]);
+
+    const archivedRecord = {
+      messageId: "remote-sync-preserved-message-id",
+      chatId: "chat-id",
+      createdAt: "2026-04-25T13:04:55.000Z",
+      editedAt: null,
+      salt: utf8ToBase64("archive-salt"),
+      iv: utf8ToBase64("archive-iv"),
+      ciphertext: utf8ToBase64(
+        JSON.stringify({
+          content: "preserved remote archive",
+        })
+      ),
+      archivedAt: "2026-04-25T13:05:00.000Z",
+    };
+
+    const remoteSnapshot = {
+      snapshotPayloadJson: JSON.stringify({
+        salt: utf8ToBase64("snapshot-salt"),
+        iv: utf8ToBase64("snapshot-iv"),
+        ciphertext: utf8ToBase64(
+          JSON.stringify({
+            version: 1,
+            archivedMessages: [archivedRecord],
+          })
+        ),
+        createdAt: "2026-04-25T13:05:10.000Z",
+      }),
+      wrappedIdentityRecordJson: JSON.stringify({
+        salt: utf8ToBase64("identity-salt"),
+        iv: utf8ToBase64("identity-iv"),
+        ciphertext: utf8ToBase64(JSON.stringify(identity)),
+        createdAt: "2026-04-25T13:05:11.000Z",
+      }),
+      createdAt: "2026-04-25T13:05:12.000Z",
+      updatedAt: "2026-04-25T13:05:13.000Z",
+    };
+
+    vi.mocked(getOwnEncryptionRecoverySnapshot).mockResolvedValue(remoteSnapshot);
+    vi.mocked(upsertOwnEncryptionRecoverySnapshot).mockResolvedValue(remoteSnapshot);
+
+    await syncEncryptionDeviceState(currentSession);
+
+    const uploadedSnapshotJson = vi.mocked(upsertOwnEncryptionRecoverySnapshot).mock.calls[0]?.[1]
+      ?.snapshotPayloadJson;
+    expect(uploadedSnapshotJson).toBeTruthy();
+
+    const uploadedSnapshot = JSON.parse(uploadedSnapshotJson ?? "{}") as { ciphertext?: string };
+    const uploadedPayload = JSON.parse(window.atob(uploadedSnapshot.ciphertext ?? "")) as {
+      archivedMessages: typeof archivedRecord[];
+    };
+    expect(uploadedPayload.archivedMessages).toEqual([archivedRecord]);
+
+    await expect(
+      hydrateChatMessage(
+        {
+          id: "remote-sync-preserved-message-id",
+          chatId: "chat-id",
+          sender: selfParticipant,
+          createdAt: "2026-04-25T13:04:55.000Z",
+          editedAt: null,
+          status: null,
+          clientMessageId: "remote-sync-preserved-client-id",
+          replyTo: null,
+          reactions: [],
+          encryptedPayload: null,
+        },
+        USER_ID
+      )
+    ).resolves.toMatchObject({
+      content: "preserved remote archive",
+    });
+  });
+
   it("keeps the current encryption device usable after auth session rotation without forcing a rebind", async () => {
     Object.defineProperty(window, "isSecureContext", {
       configurable: true,
