@@ -431,6 +431,9 @@ class MessageServiceTest {
                 )
         );
 
+        verify(chatMessageRepository).saveAndFlush(argThat((ChatMessage message) ->
+                message.getEncryptedKeysJson() == null
+        ));
         verify(chatMessageRecipientPayloadRepository).saveAll(argThat(
                 (List<ChatMessageRecipientPayload> payloads) -> payloads.size() == 2
                         && payloads.stream().anyMatch(payload ->
@@ -558,6 +561,26 @@ class MessageServiceTest {
                 .thenReturn(List.of(existingReceipt));
         when(messageReactionRepository.findAllByMessageIdIn(List.of(existingMessage.getId())))
                 .thenReturn(List.of());
+        when(chatMessageRecipientPayloadRepository.findAllByMessageIdIn(
+                argThat(messageIds -> messageIds != null
+                        && messageIds.size() == 1
+                        && messageIds.contains(existingMessage.getId()))
+        )).thenReturn(List.of(
+                new ChatMessageRecipientPayload(
+                        existingMessage.getId(),
+                        currentDevice.getId(),
+                        currentUser.getId(),
+                        deviceEnvelope(currentUser, currentDevice, currentDevice, "self-existing", "iv-self-existing"),
+                        existingMessage.getCreatedAt()
+                ),
+                new ChatMessageRecipientPayload(
+                        existingMessage.getId(),
+                        recipientDevice.getId(),
+                        recipient.getId(),
+                        deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer-existing", "iv-peer-existing"),
+                        existingMessage.getCreatedAt()
+                )
+        ));
 
         MessageResponse response = messageService.sendMessage(
                 chatId,
@@ -1738,7 +1761,6 @@ class MessageServiceTest {
         when(messageReceiptRepository.findAllByUserIdAndChatIdAndMessageIdIn(eq(currentUser.getId()), eq(chatId), any()))
                 .thenReturn(List.of());
         when(authService.toParticipant(sender)).thenReturn(participant(sender));
-
         List<MessageResponse> response = messageService.listMessages(chatId, "alice", null, 50, true);
 
         assertThat(response).hasSize(2);
@@ -1907,6 +1929,42 @@ class MessageServiceTest {
         assertThat(response.get(0).encryptedPayload().encryptedKeysByRecipientId())
                 .hasSize(1)
                 .containsEntry(currentDevice.getId().toString(), "normalized-recipient-payload");
+    }
+
+    @Test
+    void listMessagesShouldIgnoreLegacyEncryptedKeysJsonWithoutNormalizedRows() throws Exception {
+        UUID chatId = UUID.randomUUID();
+        UserAccount currentUser = user("alice");
+        UserAccount sender = user("north");
+        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
+        ChatMessage message = withServerOrder(new ChatMessage(
+                UUID.fromString("00000000-0000-0000-0000-0000000000d2"),
+                chatId,
+                sender.getId(),
+                "ciphertext-a",
+                "X3DH-DEVICE-AES-GCM",
+                "iv-a",
+                objectMapper.writeValueAsString(Map.of(currentDevice.getId().toString(), "legacy-json-payload")),
+                Instant.parse("2026-03-24T12:00:00Z")
+        ), 10L);
+
+        when(authService.requireAuthenticatedUser("alice")).thenReturn(currentUser);
+        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
+                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
+        );
+        when(chatMessageRepository.findVisibleEncryptedByChatIdOrderByServerOrderDesc(eq(chatId), eq(currentUser.getId()), any()))
+                .thenReturn(List.of(message));
+        when(userAccountRepository.findAllByIdIn(any())).thenReturn(List.of(sender));
+        when(messageReceiptRepository.findAllByMessageIdIn(any())).thenReturn(List.of());
+        when(messageReactionRepository.findAllByMessageIdIn(any())).thenReturn(List.of());
+        when(authService.toParticipant(sender)).thenReturn(participant(sender));
+        when(userEncryptionDeviceRepository.findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDesc(currentUser.getId()))
+                .thenReturn(List.of(currentDevice));
+
+        List<MessageResponse> response = messageService.listMessages(chatId, "alice", null, 50, false);
+
+        assertThat(response).hasSize(1);
+        assertThat(response.get(0).encryptedPayload()).isNull();
     }
 
     @Test

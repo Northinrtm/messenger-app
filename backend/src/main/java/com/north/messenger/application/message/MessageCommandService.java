@@ -128,9 +128,6 @@ class MessageCommandService {
                 currentUser,
                 participants
         );
-        String encryptedKeysJson = messageSupport.serializeEncryptedKeys(
-                validatedEncryptedPayload.encryptedKeysByRecipientId()
-        );
         MessageSupport.StoredEncryptedEnvelope storedEnvelope = messageSupport.extractStoredEnvelope(encryptedPayload);
         ChatGroupHistoryKeyService.ValidatedGroupMessageHistoryEnvelope historyEnvelope =
                 chatGroupHistoryKeyService.validateMessageHistoryEnvelope(room, encryptedPayload.historyEnvelope());
@@ -143,7 +140,7 @@ class MessageCommandService {
                     storedEnvelope.ciphertext(),
                     encryptedPayload.scheme(),
                     storedEnvelope.iv(),
-                    encryptedKeysJson,
+                    null,
                     historyEnvelope == null ? null : historyEnvelope.historyKeyId(),
                     historyEnvelope == null ? null : historyEnvelope.serializedEnvelope(),
                     clientMessageId,
@@ -188,6 +185,12 @@ class MessageCommandService {
                     List.of(persistedMessage),
                     Map.of(currentUser.getId(), currentUser)
             ).get(persistedMessage.getId());
+            var responsePayload = messageSupport.toEncryptedPayload(
+                    persistedMessage,
+                    currentUser.getId(),
+                    validatedEncryptedPayload.encryptedKeysByRecipientId(),
+                    messageSupport.loadVisibleDeviceIds(currentUser.getId())
+            );
             MessageResponse responseForSender = messageSupport.toResponse(
                     persistedMessage,
                     currentUser,
@@ -195,7 +198,8 @@ class MessageCommandService {
                     summary,
                     List.of(),
                     clientMessageId,
-                    replyTo
+                    replyTo,
+                    responsePayload
             );
 
             messageDispatchOutboxService.enqueue(new MessageDispatchEvent(
@@ -334,9 +338,6 @@ class MessageCommandService {
                 currentUser,
                 participants
         );
-        String encryptedKeysJson = messageSupport.serializeEncryptedKeys(
-                validatedEncryptedPayload.encryptedKeysByRecipientId()
-        );
         MessageSupport.StoredEncryptedEnvelope storedEnvelope = messageSupport.extractStoredEnvelope(encryptedPayload);
         ChatGroupHistoryKeyService.ValidatedGroupMessageHistoryEnvelope historyEnvelope =
                 chatGroupHistoryKeyService.validateMessageHistoryEnvelope(room, encryptedPayload.historyEnvelope());
@@ -344,7 +345,7 @@ class MessageCommandService {
                 storedEnvelope.ciphertext(),
                 encryptedPayload.scheme(),
                 storedEnvelope.iv(),
-                encryptedKeysJson,
+                null,
                 historyEnvelope == null ? null : historyEnvelope.historyKeyId(),
                 historyEnvelope == null ? null : historyEnvelope.serializedEnvelope(),
                 Instant.now()
@@ -367,6 +368,12 @@ class MessageCommandService {
                 .getOrDefault(message.getId(), MessageSupport.MessageReceiptSummary.empty());
         MessageSnippetResponse replyTo = messageSupport.loadReplySnippetsByMessageId(List.of(message), Map.of(sender.getId(), sender))
                 .get(message.getId());
-        return messageSupport.toResponse(message, sender, currentUser.getId(), summary, List.of(), null, replyTo);
+        var responsePayload = messageSupport.toEncryptedPayload(
+                message,
+                currentUser.getId(),
+                validatedEncryptedPayload.encryptedKeysByRecipientId(),
+                messageSupport.loadVisibleDeviceIds(currentUser.getId())
+        );
+        return messageSupport.toResponse(message, sender, currentUser.getId(), summary, List.of(), null, replyTo, responsePayload);
     }
 }

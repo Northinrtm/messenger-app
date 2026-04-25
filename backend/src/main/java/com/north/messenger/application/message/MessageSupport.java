@@ -220,6 +220,28 @@ class MessageSupport {
 
     MessageResponse toResponse(
             ChatMessage message,
+            UserAccount sender,
+            UUID currentUserId,
+            MessageReceiptSummary summary,
+            List<MessageReactionSummaryResponse> reactions,
+            String clientMessageId,
+            MessageSnippetResponse replyTo,
+            EncryptedMessagePayloadResponse encryptedPayload
+    ) {
+        return toResponse(
+                message,
+                authService.toParticipant(sender),
+                currentUserId,
+                summary,
+                reactions,
+                clientMessageId,
+                replyTo,
+                encryptedPayload
+        );
+    }
+
+    MessageResponse toResponse(
+            ChatMessage message,
             ParticipantResponse sender,
             UUID currentUserId,
             MessageReceiptSummary summary,
@@ -1057,14 +1079,6 @@ class MessageSupport {
                 .toList();
     }
 
-    String serializeEncryptedKeys(Map<String, String> encryptedKeysByUserId) {
-        try {
-            return objectMapper.writeValueAsString(encryptedKeysByUserId);
-        } catch (JsonProcessingException exception) {
-            throw new IllegalStateException("Failed to serialize encrypted message keys", exception);
-        }
-    }
-
     Map<String, String> loadEncryptedKeys(ChatMessage message) {
         Map<UUID, Map<String, String>> encryptedKeysByMessageId = loadEncryptedKeysByMessageId(List.of(message));
         return encryptedKeysByMessageId.getOrDefault(message.getId(), Map.of());
@@ -1081,12 +1095,13 @@ class MessageSupport {
                 chatMessageRecipientPayloadRepository.findAllByMessageIdIn(messagesById.keySet())
         );
         int normalizedMessageCount = encryptedKeysByMessageId.size();
-        mergeLegacyEncryptedKeys(messagesById, encryptedKeysByMessageId);
+        int legacySchemeFallbackCount = mergeLegacyEncryptedKeysForLegacySchemes(messagesById, encryptedKeysByMessageId);
         telemetry.recordMessagePayloadStorageSource("normalized", "all_devices", normalizedMessageCount);
+        telemetry.recordMessagePayloadStorageSource("legacy_scheme_fallback", "all_devices", legacySchemeFallbackCount);
         telemetry.recordMessagePayloadStorageSource(
-                "legacy_fallback",
+                "missing",
                 "all_devices",
-                encryptedKeysByMessageId.size() - normalizedMessageCount
+                messagesById.size() - normalizedMessageCount - legacySchemeFallbackCount
         );
         return encryptedKeysByMessageId;
     }
@@ -1108,12 +1123,13 @@ class MessageSupport {
                 )
         );
         int normalizedMessageCount = encryptedKeysByMessageId.size();
-        mergeLegacyEncryptedKeys(messagesById, encryptedKeysByMessageId);
+        int legacySchemeFallbackCount = mergeLegacyEncryptedKeysForLegacySchemes(messagesById, encryptedKeysByMessageId);
         telemetry.recordMessagePayloadStorageSource("normalized", "recipient_user", normalizedMessageCount);
+        telemetry.recordMessagePayloadStorageSource("legacy_scheme_fallback", "recipient_user", legacySchemeFallbackCount);
         telemetry.recordMessagePayloadStorageSource(
-                "legacy_fallback",
+                "missing",
                 "recipient_user",
-                encryptedKeysByMessageId.size() - normalizedMessageCount
+                messagesById.size() - normalizedMessageCount - legacySchemeFallbackCount
         );
         return encryptedKeysByMessageId;
     }
@@ -1276,20 +1292,29 @@ class MessageSupport {
         return encryptedKeysByMessageId;
     }
 
-    private void mergeLegacyEncryptedKeys(
+    private int mergeLegacyEncryptedKeysForLegacySchemes(
             Map<UUID, ChatMessage> messagesById,
             Map<UUID, Map<String, String>> encryptedKeysByMessageId
     ) {
-        messagesById.forEach((messageId, message) -> {
+        int mergedCount = 0;
+        for (Map.Entry<UUID, ChatMessage> entry : messagesById.entrySet()) {
+            UUID messageId = entry.getKey();
+            ChatMessage message = entry.getValue();
             if (encryptedKeysByMessageId.containsKey(messageId)) {
-                return;
+                continue;
+            }
+            if (DEVICE_TRANSPORT_SCHEME.equals(message.getEncryptionScheme())
+                    || GROUP_SENDER_KEY_SCHEME.equals(message.getEncryptionScheme())) {
+                continue;
             }
 
             Map<String, String> legacyEncryptedKeys = deserializeEncryptedKeys(message);
             if (!legacyEncryptedKeys.isEmpty()) {
                 encryptedKeysByMessageId.put(messageId, new LinkedHashMap<>(legacyEncryptedKeys));
+                mergedCount += 1;
             }
-        });
+        }
+        return mergedCount;
     }
 
     String summarizeMessagePreview(ChatMessage message) {
