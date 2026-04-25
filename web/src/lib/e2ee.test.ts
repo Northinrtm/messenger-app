@@ -5005,6 +5005,137 @@ describe("e2ee hardening", () => {
     expect(historySnapshot.rawMessages).toEqual([incomingGroupMessage]);
   });
 
+  it("inline-hydrates the newest unavailable encrypted snapshot message on the latest page", async () => {
+    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
+    vi.spyOn(window.crypto.subtle, "generateKey").mockResolvedValue({
+      publicKey: {} as CryptoKey,
+      privateKey: {} as CryptoKey,
+    } as CryptoKeyPair);
+    vi.spyOn(window.crypto.subtle, "exportKey").mockResolvedValue({
+      kty: "OKP",
+      crv: "X25519",
+      x: "generated",
+    } as JsonWebKey);
+    vi.spyOn(window.crypto.subtle, "deriveBits").mockResolvedValue(new Uint8Array(32).buffer);
+    vi.spyOn(window.crypto.subtle, "deriveKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "encrypt").mockImplementation(
+      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
+    );
+    vi.spyOn(window.crypto.subtle, "decrypt").mockImplementation(
+      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
+    );
+    window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(identity));
+    window.sessionStorage.setItem(
+      DEVICE_MATERIAL_KEY,
+      JSON.stringify({
+        ...localDeviceMaterial,
+        oneTimePrekeys: [
+          {
+            keyId: 21,
+            publicKey: '{"kty":"OKP","crv":"X25519","x":"otp-local"}',
+            privateKey:
+              '{"kty":"OKP","crv":"X25519","d":"otp-local-private","x":"otp-local"}',
+          },
+        ],
+        signedPrekey: {
+          keyId: 9,
+          publicKey: '{"kty":"OKP","crv":"X25519","x":"spk-local"}',
+          privateKey:
+            '{"kty":"OKP","crv":"X25519","d":"spk-local-private","x":"spk-local"}',
+        },
+      })
+    );
+    window.sessionStorage.setItem(
+      DEVICE_SESSION_KEY,
+      JSON.stringify({
+        [`${REMOTE_USER_ID}:device-id`]: {
+          remoteUserId: REMOTE_USER_ID,
+          remoteDeviceId: "device-id",
+          rootKey: utf8ToBase64("group-root-key-4"),
+          sendingChainKey: utf8ToBase64("group-send-chain-4"),
+          receivingChainKey: utf8ToBase64("group-recv-chain-4"),
+          lastSentCounter: 0,
+          lastReceivedCounter: -1,
+          createdAt: "2026-04-09T10:30:00.000Z",
+          updatedAt: "2026-04-09T10:30:00.000Z",
+          localEphemeralKeyPair: {
+            publicKey: '{"kty":"OKP","crv":"X25519","x":"group-initiator"}',
+            privateKey:
+              '{"kty":"OKP","crv":"X25519","d":"group-initiator-private","x":"group-initiator"}',
+          },
+          remoteEphemeralPublicKey: '{"kty":"OKP","crv":"X25519","x":"group-ratchet"}',
+          remoteIdentityKey: deviceBundle.identityKey,
+          remoteIdentitySignatureKey: deviceBundle.identitySignatureKey,
+        },
+      })
+    );
+
+    const incomingGroupMessage: ApiChatMessage = {
+      id: "latest-group-inline-hydration-message-id",
+      chatId: "group-chat-id",
+      sender: participant,
+      createdAt: "2026-04-09T10:35:00.000Z",
+      editedAt: null,
+      status: null,
+      clientMessageId: null,
+      replyTo: null,
+      reactions: [],
+      encryptedPayload: {
+        scheme: "GROUP-SENDER-KEY-AES-GCM",
+        sharedEnvelope: JSON.stringify({
+          aadVersion: 1,
+          chatId: "group-chat-id",
+          senderUserId: REMOTE_USER_ID,
+          senderDeviceId: "device-id",
+          senderKeyId: "group-sender-key",
+          messageCounter: 0,
+          ciphertext: utf8ToBase64("latest group inline hydration"),
+          iv: utf8ToBase64("groupinline12"),
+          signature: "c2ln",
+        }),
+        encryptedKeysByRecipientId: {
+          "self-device": JSON.stringify({
+            aadVersion: 1,
+            senderUserId: REMOTE_USER_ID,
+            senderDeviceId: "device-id",
+            recipientDeviceId: "self-device",
+            senderIdentityKey: deviceBundle.identityKey,
+            senderIdentitySignatureKey: deviceBundle.identitySignatureKey,
+            initiatorEphemeralPublicKey: '{"kty":"OKP","crv":"X25519","x":"group-initiator"}',
+            ratchetPublicKey: '{"kty":"OKP","crv":"X25519","x":"group-ratchet"}',
+            recipientSignedPrekeyId: 9,
+            recipientOneTimePrekeyId: 21,
+            messageCounter: 0,
+            ciphertext: utf8ToBase64(
+              JSON.stringify({
+                aadVersion: 1,
+                chatId: "group-chat-id",
+                senderUserId: REMOTE_USER_ID,
+                senderDeviceId: "device-id",
+                senderKeyId: "group-sender-key",
+                chainKey: utf8ToBase64("group-next-chain-key-inline"),
+                messageCounter: 0,
+              })
+            ),
+            iv: utf8ToBase64("groupdistiv4"),
+          }),
+        },
+      },
+    };
+
+    vi.mocked(getMessagesRaw).mockResolvedValue([incomingGroupMessage]);
+
+    const historySnapshot = await getEncryptedMessagesSnapshot("token", USER_ID, "group-chat-id");
+
+    expect(historySnapshot.hydratedMessages).toEqual([
+      expect.objectContaining({
+        id: "latest-group-inline-hydration-message-id",
+        content: "latest group inline hydration",
+      }),
+    ]);
+  });
+
   it("waits for history hydration batches before hydrating later realtime messages", async () => {
     const deferredMessages = createDeferred<ApiChatMessage[]>();
     vi.mocked(getMessagesRaw).mockReturnValue(deferredMessages.promise);

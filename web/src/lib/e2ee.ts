@@ -89,6 +89,7 @@ const RECOVERY_SYNC_SESSION_WAIT_TIMEOUT_MS = 1_000;
 const RECOVERY_SYNC_SESSION_WAIT_POLL_MS = 25;
 const RECOVERY_SNAPSHOT_PAYLOAD_VERSION = 1;
 const REMOTE_RECOVERY_ARCHIVE_REFRESH_TTL_MS = 5_000;
+const FAST_HISTORY_INLINE_HYDRATION_SUFFIX_SIZE = 3;
 const SIGNED_PREKEY_SIGNATURE_CONTEXT = "north-signed-prekey-v1";
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -1180,6 +1181,30 @@ export async function getEncryptedMessagesSnapshot(
   const hydratedMessages = await Promise.all(
     rawMessages.map((message) => hydrateChatMessageSnapshot(message, userId))
   );
+
+  if ((options.beforeServerOrder ?? null) === null && rawMessages.length > 0) {
+    const inlineHydrationStartIndex = Math.max(
+      0,
+      rawMessages.length - FAST_HISTORY_INLINE_HYDRATION_SUFFIX_SIZE
+    );
+    const inlineHydrationIndexes: number[] = [];
+    for (let index = rawMessages.length - 1; index >= inlineHydrationStartIndex; index -= 1) {
+      if (
+        rawMessages[index]?.encryptedPayload &&
+        isUnavailableEncryptedMessage(hydratedMessages[index]?.content ?? "")
+      ) {
+        inlineHydrationIndexes.push(index);
+      }
+    }
+
+    if (inlineHydrationIndexes.length > 0) {
+      await withSerializedMessageHydrationBatch(userId, async () => {
+        for (const index of inlineHydrationIndexes) {
+          hydratedMessages[index] = await hydrateChatMessageInternal(rawMessages[index], userId);
+        }
+      });
+    }
+  }
 
   return {
     rawMessages,
