@@ -88,6 +88,7 @@ const RECOVERY_SNAPSHOT_SYNC_DEBOUNCE_MS = 1_000;
 const RECOVERY_SYNC_SESSION_WAIT_TIMEOUT_MS = 1_000;
 const RECOVERY_SYNC_SESSION_WAIT_POLL_MS = 25;
 const RECOVERY_SNAPSHOT_PAYLOAD_VERSION = 1;
+const REMOTE_RECOVERY_ARCHIVE_REFRESH_TTL_MS = 5_000;
 const SIGNED_PREKEY_SIGNATURE_CONTEXT = "north-signed-prekey-v1";
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -109,6 +110,8 @@ const scheduledRecoverySnapshotSyncByUserId = new Map<string, number>();
 const inFlightRecoverySnapshotSyncByUserId = new Map<string, Promise<void>>();
 const queuedRecoverySnapshotSyncByUserId = new Set<string>();
 const inFlightRecoverySyncSessionWaitByUserId = new Map<string, Promise<AuthResponse | null>>();
+const inFlightRecoveryArchiveRefreshByUserId = new Map<string, Promise<boolean>>();
+const completedRecoveryArchiveRefreshByUserId = new Map<string, number>();
 const DECRYPTED_ATTACHMENT_CACHE_MAX_BYTES = 64 * 1024 * 1024;
 const decryptedAttachmentCache = new Map<
   string,
@@ -461,6 +464,11 @@ function rememberRecoverySyncSession(session: AuthResponse) {
   recoverySyncSessionByUserId.set(session.user.id, session);
 }
 
+function shouldRefreshRemoteRecoveryArchive(userId: string) {
+  const lastCompletedRefresh = completedRecoveryArchiveRefreshByUserId.get(userId);
+  return !lastCompletedRefresh || Date.now() - lastCompletedRefresh >= REMOTE_RECOVERY_ARCHIVE_REFRESH_TTL_MS;
+}
+
 function waitForRecoverySyncSession(userId: string) {
   const existingSession = recoverySyncSessionByUserId.get(userId);
   if (existingSession) {
@@ -523,6 +531,8 @@ function clearRecoverySnapshotSyncState(userId?: string) {
     recoverySyncSessionByUserId.delete(userId);
     inFlightRecoverySnapshotSyncByUserId.delete(userId);
     inFlightRecoverySyncSessionWaitByUserId.delete(userId);
+    inFlightRecoveryArchiveRefreshByUserId.delete(userId);
+    completedRecoveryArchiveRefreshByUserId.delete(userId);
     scheduledRecoverySnapshotSyncByUserId.delete(userId);
     queuedRecoverySnapshotSyncByUserId.delete(userId);
     return;
@@ -531,6 +541,8 @@ function clearRecoverySnapshotSyncState(userId?: string) {
   recoverySyncSessionByUserId.clear();
   inFlightRecoverySnapshotSyncByUserId.clear();
   inFlightRecoverySyncSessionWaitByUserId.clear();
+  inFlightRecoveryArchiveRefreshByUserId.clear();
+  completedRecoveryArchiveRefreshByUserId.clear();
   scheduledRecoverySnapshotSyncByUserId.clear();
   queuedRecoverySnapshotSyncByUserId.clear();
 }
@@ -610,6 +622,103 @@ async function syncEncryptionRecoverySnapshotInternal(session: AuthResponse) {
     snapshotPayloadJson: JSON.stringify(snapshotPayloadRecord),
     wrappedIdentityRecordJson: JSON.stringify(rememberedIdentityRecord),
   });
+}
+
+function shouldReplaceArchivedDecryptedMessageRecord(
+  currentRecord: RememberedDecryptedMessageArchiveRecord | null | undefined,
+  nextRecord: RememberedDecryptedMessageArchiveRecord
+) {
+  if (!currentRecord) {
+    return true;
+  }
+
+  if (nextRecord.archivedAt !== currentRecord.archivedAt) {
+    return nextRecord.archivedAt > currentRecord.archivedAt;
+  }
+
+  return (nextRecord.editedAt ?? "") > (currentRecord.editedAt ?? "");
+}
+
+async function refreshArchivedMessagesFromRemoteRecoverySnapshot(userId: string) {
+  if (!hasUnlockedPrivateEncryptionKey(userId)) {
+    return false;
+  }
+
+  if (!shouldRefreshRemoteRecoveryArchive(userId)) {
+    return false;
+  }
+
+  const inFlightRefresh = inFlightRecoveryArchiveRefreshByUserId.get(userId);
+  if (inFlightRefresh) {
+    return inFlightRefresh;
+  }
+
+  const refreshPromise = (async () => {
+    const session =
+      recoverySyncSessionByUserId.get(userId) ?? (await waitForRecoverySyncSession(userId));
+    if (!session) {
+      return false;
+    }
+
+    const unlockedIdentity = readUnlockedIdentity(userId);
+    if (!unlockedIdentity) {
+      return false;
+    }
+
+    let remoteSnapshot: UserEncryptionRecoverySnapshot;
+    try {
+      remoteSnapshot = await getOwnEncryptionRecoverySnapshot(session.token);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        return false;
+      }
+      return false;
+    }
+
+    let snapshotPayloadRecord: EncryptedRecoverySnapshotPayloadRecord | null = null;
+    try {
+      snapshotPayloadRecord = normalizeEncryptedRecoverySnapshotPayloadRecord(
+        JSON.parse(remoteSnapshot.snapshotPayloadJson) as unknown
+      );
+    } catch {
+      snapshotPayloadRecord = null;
+    }
+    if (!snapshotPayloadRecord) {
+      return false;
+    }
+
+    const snapshotPayload = await decryptRecoverySnapshotPayload(
+      unlockedIdentity.privateKey,
+      snapshotPayloadRecord
+    );
+    if (!snapshotPayload || snapshotPayload.archivedMessages.length === 0) {
+      return false;
+    }
+
+    const existingRecords = new Map(
+      (await readAllStoredArchivedDecryptedMessageRecords(userId)).map((record) => [
+        record.messageId,
+        record,
+      ])
+    );
+    const nextRecords = snapshotPayload.archivedMessages.filter((record) =>
+      shouldReplaceArchivedDecryptedMessageRecord(existingRecords.get(record.messageId), record)
+    );
+    if (nextRecords.length === 0) {
+      return false;
+    }
+
+    await writeArchivedDecryptedMessageRecords(userId, nextRecords);
+    return true;
+  })().finally(() => {
+    completedRecoveryArchiveRefreshByUserId.set(userId, Date.now());
+    if (inFlightRecoveryArchiveRefreshByUserId.get(userId) === refreshPromise) {
+      inFlightRecoveryArchiveRefreshByUserId.delete(userId);
+    }
+  });
+
+  inFlightRecoveryArchiveRefreshByUserId.set(userId, refreshPromise);
+  return refreshPromise;
 }
 
 export async function syncEncryptionDeviceState(session: AuthResponse) {
@@ -1705,7 +1814,10 @@ async function hydrateChatMessageInternal(
       void rememberArchivedDecryptedMessage(userId, hydratedMessage);
       return hydratedMessage;
     } catch {
-      const archivedMessage = await readArchivedDecryptedMessageRecord(userId, message.id);
+      let archivedMessage = await readArchivedDecryptedMessageRecord(userId, message.id);
+      if (!archivedMessage && (await refreshArchivedMessagesFromRemoteRecoverySnapshot(userId))) {
+        archivedMessage = await readArchivedDecryptedMessageRecord(userId, message.id);
+      }
       return archivedMessage
         ? buildHydratedChatMessage(
             message,
@@ -3572,6 +3684,23 @@ async function decryptDirectMessage(payload: EncryptedMessagePayload, userId: st
   return decryptDirectRecipientEnvelopeContent(serializedEnvelope, userId, ownMaterial);
 }
 
+function isRecoverableGroupHistoryFallbackError(error: unknown) {
+  if (error instanceof ApiError) {
+    return false;
+  }
+
+  return (
+    error instanceof Error &&
+    [
+      "Encrypted device session is not available in this browser",
+      "Encrypted message chain is no longer available for this session",
+      "Encrypted message key is no longer available for this session",
+      "Encrypted message counter gap is too large for this session",
+      "Encrypted message key could not be derived for this session",
+    ].includes(error.message)
+  );
+}
+
 async function decryptGroupMessage(message: ApiChatMessage, userId: string) {
   const payload = message.encryptedPayload;
   if (!payload) {
@@ -3624,8 +3753,17 @@ async function decryptGroupMessage(message: ApiChatMessage, userId: string) {
     }
   }
 
-  const { content: distributionContent, envelope: distributionEnvelope } =
-    await decryptDirectRecipientEnvelope(serializedDistributionEnvelope, userId, ownMaterial);
+  let distributionContent: string;
+  let distributionEnvelope: DirectDeviceEnvelope;
+  try {
+    ({ content: distributionContent, envelope: distributionEnvelope } =
+      await decryptDirectRecipientEnvelope(serializedDistributionEnvelope, userId, ownMaterial));
+  } catch (error) {
+    if (payload.historyEnvelope && isRecoverableGroupHistoryFallbackError(error)) {
+      return decryptGroupHistoryMessage(message, userId, ownMaterial, sharedEnvelope);
+    }
+    throw error;
+  }
   assertGroupDistributionSenderMatchesSharedEnvelope(distributionEnvelope, sharedEnvelope);
 
   const distribution = parseGroupSenderKeyDistribution(distributionContent);
@@ -4564,6 +4702,7 @@ async function ensureRegisteredEncryptionDevice(session: AuthResponse) {
 }
 
 async function waitForEncryptionDeviceRegistration(session: AuthResponse) {
+  rememberRecoverySyncSession(session);
   const registrationKey = session.user.id;
   const inFlightRegistration = inFlightEncryptionDeviceRegistration.get(registrationKey);
   if (inFlightRegistration) {

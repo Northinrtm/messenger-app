@@ -2413,6 +2413,130 @@ describe("e2ee hardening", () => {
     });
   });
 
+  it("refreshes archived direct history from the remote recovery snapshot when local self-session keys are gone", async () => {
+    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "deriveKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "decrypt").mockImplementation(
+      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
+    );
+    window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(identity));
+    window.sessionStorage.setItem(DEVICE_MATERIAL_KEY, JSON.stringify(readyLocalDeviceMaterial));
+    window.sessionStorage.setItem(
+      DEVICE_SESSION_KEY,
+      JSON.stringify({
+        [`${USER_ID}:self-device`]: {
+          sessionId: "self-current-session",
+          peerUserId: USER_ID,
+          peerDeviceId: "self-device",
+          ownMaterialId: readyLocalDeviceMaterial.materialId,
+          remoteIdentityKey: readyLocalDeviceMaterial.identityKey,
+          remoteIdentitySignatureKey: readyLocalDeviceMaterial.identitySignatureKey,
+          remoteSignedPrekeyId: readyLocalDeviceMaterial.signedPrekeyId,
+          remoteSignedPrekeyPublicKey: readyLocalDeviceMaterial.signedPrekeyPublicKey,
+          remoteOneTimePrekeyId: null,
+          initiatorEphemeralPublicKey: '{"kty":"OKP","crv":"X25519","x":"self-initiator"}',
+          sendingRatchetPublicKey: '{"kty":"OKP","crv":"X25519","x":"current-self-ratchet"}',
+          sendingRatchetPrivateKey:
+            '{"kty":"OKP","crv":"X25519","d":"current-self-ratchet-private","x":"current-self-ratchet"}',
+          remoteRatchetPublicKey: null,
+          sendingRatchetUsed: false,
+          pendingSendingRatchetStep: false,
+          rootKey: utf8ToBase64("root"),
+          sendingChainKey: utf8ToBase64("send"),
+          receivingChainKey: utf8ToBase64("recv"),
+          sendingCounter: 2,
+          receivingCounter: 0,
+          cachedMessageKeys: {},
+          establishedAt: "2026-04-10T10:00:00.000Z",
+        },
+      })
+    );
+    vi.mocked(listOwnEncryptionDevices).mockResolvedValue([currentRegisteredDevice]);
+
+    await primeEncryptedMessageRecipients("token", [selfParticipant], {
+      currentUserId: USER_ID,
+      session: currentSession,
+    });
+
+    const archivedRecord = {
+      messageId: "remote-refresh-message-id",
+      chatId: "chat-id",
+      createdAt: "2026-04-25T09:41:00.000Z",
+      editedAt: null,
+      salt: utf8ToBase64("archive-salt"),
+      iv: utf8ToBase64("archive-iv"),
+      ciphertext: utf8ToBase64(
+        JSON.stringify({
+          content: "restored after remote archive refresh",
+        })
+      ),
+      archivedAt: "2026-04-25T09:41:05.000Z",
+    };
+
+    vi.mocked(getOwnEncryptionRecoverySnapshot).mockResolvedValue({
+      snapshotPayloadJson: JSON.stringify({
+        salt: utf8ToBase64("snapshot-salt"),
+        iv: utf8ToBase64("snapshot-iv"),
+        ciphertext: utf8ToBase64(
+          JSON.stringify({
+            version: 1,
+            archivedMessages: [archivedRecord],
+          })
+        ),
+        createdAt: "2026-04-25T09:41:10.000Z",
+      }),
+      wrappedIdentityRecordJson: JSON.stringify({
+        salt: utf8ToBase64("identity-salt"),
+        iv: utf8ToBase64("identity-iv"),
+        ciphertext: utf8ToBase64(JSON.stringify(identity)),
+        createdAt: "2026-04-25T09:41:11.000Z",
+      }),
+      createdAt: "2026-04-25T09:41:12.000Z",
+      updatedAt: "2026-04-25T09:41:13.000Z",
+    });
+
+    const message = {
+      id: "remote-refresh-message-id",
+      chatId: "chat-id",
+      sender: selfParticipant,
+      createdAt: "2026-04-25T09:41:00.000Z",
+      editedAt: null,
+      status: null,
+      clientMessageId: "remote-refresh-client-id",
+      replyTo: null,
+      reactions: [],
+      encryptedPayload: {
+        scheme: "X3DH-DEVICE-AES-GCM",
+        encryptedKeysByRecipientId: {
+          "self-device": JSON.stringify({
+            aadVersion: 1,
+            senderUserId: USER_ID,
+            senderDeviceId: "self-device",
+            recipientDeviceId: "self-device",
+            senderIdentityKey: readyLocalDeviceMaterial.identityKey,
+            senderIdentitySignatureKey: readyLocalDeviceMaterial.identitySignatureKey,
+            initiatorEphemeralPublicKey: '{"kty":"OKP","crv":"X25519","x":"self-initiator"}',
+            ratchetPublicKey: '{"kty":"OKP","crv":"X25519","x":"old-self-ratchet"}',
+            recipientSignedPrekeyId: readyLocalDeviceMaterial.signedPrekeyId,
+            recipientOneTimePrekeyId: null,
+            messageCounter: 0,
+            ciphertext: utf8ToBase64("payload no longer decryptable locally"),
+            iv: utf8ToBase64("selfarchiv12"),
+          }),
+        },
+      },
+    } satisfies ApiChatMessage;
+
+    await expect(hydrateChatMessage(message, USER_ID)).resolves.toMatchObject({
+      content: "restored after remote archive refresh",
+    });
+    await expect(hydrateChatMessage(message, USER_ID)).resolves.toMatchObject({
+      content: "restored after remote archive refresh",
+    });
+    expect(getOwnEncryptionRecoverySnapshot).toHaveBeenCalledTimes(1);
+    expect(getOwnEncryptionRecoverySnapshot).toHaveBeenCalledWith("token");
+  });
+
   it("silently re-establishes an inbound responder session when bootstrap metadata changes", async () => {
     vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
     vi.spyOn(window.crypto.subtle, "generateKey").mockResolvedValue({
@@ -4215,6 +4339,116 @@ describe("e2ee hardening", () => {
     );
 
     expect(hydrated.content).toBe("visible after joining later");
+  });
+
+  it("falls back to the group history envelope when self distribution keys are no longer available", async () => {
+    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "decrypt").mockImplementation(
+      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
+    );
+    window.sessionStorage.setItem(DEVICE_MATERIAL_KEY, JSON.stringify(localDeviceMaterial));
+    window.sessionStorage.setItem(
+      DEVICE_SESSION_KEY,
+      JSON.stringify({
+        [`${USER_ID}:self-device`]: {
+          sessionId: "self-group-session",
+          peerUserId: USER_ID,
+          peerDeviceId: "self-device",
+          ownMaterialId: localDeviceMaterial.materialId,
+          remoteIdentityKey: localDeviceMaterial.identityKey,
+          remoteIdentitySignatureKey: localDeviceMaterial.identitySignatureKey,
+          remoteSignedPrekeyId: localDeviceMaterial.signedPrekeyId,
+          remoteSignedPrekeyPublicKey: localDeviceMaterial.signedPrekeyPublicKey,
+          remoteOneTimePrekeyId: null,
+          initiatorEphemeralPublicKey: '{"kty":"OKP","crv":"X25519","x":"self-group-init"}',
+          sendingRatchetPublicKey: '{"kty":"OKP","crv":"X25519","x":"current-self-ratchet"}',
+          sendingRatchetPrivateKey:
+            '{"kty":"OKP","crv":"X25519","d":"current-self-ratchet-private","x":"current-self-ratchet"}',
+          remoteRatchetPublicKey: null,
+          sendingRatchetUsed: false,
+          pendingSendingRatchetStep: false,
+          rootKey: utf8ToBase64("root"),
+          sendingChainKey: utf8ToBase64("send"),
+          receivingChainKey: utf8ToBase64("recv"),
+          sendingCounter: 2,
+          receivingCounter: 0,
+          cachedMessageKeys: {},
+          establishedAt: "2026-04-25T09:40:00.000Z",
+        },
+      })
+    );
+    window.sessionStorage.setItem(
+      GROUP_HISTORY_KEY,
+      JSON.stringify({
+        currentKeyIdsByChatId: {
+          "group-chat-id": "group-history-key-id",
+        },
+        keysById: {
+          "group-history-key-id": {
+            historyKeyId: "group-history-key-id",
+            chatId: "group-chat-id",
+            keyMaterial: utf8ToBase64("group-history-key-material"),
+            createdAt: "2026-04-25T09:40:00.000Z",
+            updatedAt: "2026-04-25T09:40:00.000Z",
+          },
+        },
+      })
+    );
+
+    const hydrated = await hydrateChatMessage(
+      {
+        id: "self-group-history-fallback-message-id",
+        chatId: "group-chat-id",
+        sender: selfParticipant,
+        createdAt: "2026-04-25T09:42:00.000Z",
+        editedAt: null,
+        status: null,
+        clientMessageId: "self-group-history-fallback-client-id",
+        replyTo: null,
+        reactions: [],
+        encryptedPayload: {
+          scheme: "GROUP-SENDER-KEY-AES-GCM",
+          sharedEnvelope: JSON.stringify({
+            aadVersion: 1,
+            chatId: "group-chat-id",
+            senderUserId: USER_ID,
+            senderDeviceId: "self-device",
+            senderKeyId: "group-sender-key",
+            messageCounter: 0,
+            ciphertext: utf8ToBase64("group payload not decryptable from self session"),
+            iv: utf8ToBase64("groupsharediv"),
+            signature: "c2ln",
+          }),
+          historyEnvelope: JSON.stringify({
+            aadVersion: 1,
+            historyKeyId: "group-history-key-id",
+            ciphertext: utf8ToBase64("group message restored from history"),
+            iv: utf8ToBase64("grouphistory"),
+          }),
+          encryptedKeysByRecipientId: {
+            "self-device": JSON.stringify({
+              aadVersion: 1,
+              senderUserId: USER_ID,
+              senderDeviceId: "self-device",
+              recipientDeviceId: "self-device",
+              senderIdentityKey: localDeviceMaterial.identityKey,
+              senderIdentitySignatureKey: localDeviceMaterial.identitySignatureKey,
+              initiatorEphemeralPublicKey: '{"kty":"OKP","crv":"X25519","x":"self-group-init"}',
+              ratchetPublicKey: '{"kty":"OKP","crv":"X25519","x":"old-self-ratchet"}',
+              recipientSignedPrekeyId: localDeviceMaterial.signedPrekeyId,
+              recipientOneTimePrekeyId: null,
+              messageCounter: 0,
+              ciphertext: utf8ToBase64("self distribution no longer decryptable"),
+              iv: utf8ToBase64("groupdistiv1"),
+            }),
+          },
+        },
+      },
+      USER_ID
+    );
+
+    expect(hydrated.content).toBe("group message restored from history");
+    expect(getOwnGroupHistoryKeys).not.toHaveBeenCalled();
   });
 
   it("waits briefly for the recovery sync session before fetching remote group history keys", async () => {

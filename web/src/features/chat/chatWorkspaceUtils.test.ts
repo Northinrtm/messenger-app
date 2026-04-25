@@ -57,11 +57,11 @@ function conference(overrides: Partial<VideoConference>): VideoConference {
 }
 
 describe("shouldPrimeEncryptionRecipientsOnChatOpen", () => {
-  it("keeps recipient priming off the critical path while the first page is still loading", () => {
-    expect(shouldPrimeEncryptionRecipientsOnChatOpen(true)).toBe(false);
+  it("starts recipient priming immediately when the chat opens", () => {
+    expect(shouldPrimeEncryptionRecipientsOnChatOpen(true)).toBe(true);
   });
 
-  it("allows recipient priming after the first visible message page is ready", () => {
+  it("keeps recipient priming enabled after the first visible message page is ready", () => {
     expect(shouldPrimeEncryptionRecipientsOnChatOpen(false)).toBe(true);
   });
 });
