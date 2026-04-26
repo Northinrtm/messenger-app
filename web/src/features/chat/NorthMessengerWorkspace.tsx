@@ -47,6 +47,7 @@ import {
   syncPushSubscription,
   type PushNotificationClientState,
 } from "../../lib/pushNotifications";
+import { rememberCurrentBuildRevision } from "../../lib/messageHydrationDiagnostics";
 import {
   clearPinnedEncryptionIdentity,
   isEncryptionIdentityChangedError,
@@ -329,6 +330,8 @@ export function NorthMessengerWorkspace({
       if (cancelled || !nextBuildRevision?.revision) {
         return;
       }
+
+      rememberCurrentBuildRevision(nextBuildRevision.revision);
 
       if (!loadedBuildRevisionRef.current) {
         loadedBuildRevisionRef.current = nextBuildRevision.revision;

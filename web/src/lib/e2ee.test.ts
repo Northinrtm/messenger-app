@@ -51,11 +51,16 @@ import {
   getEncryptedMessagesSnapshot,
   hasUnlockedPrivateEncryptionKey,
   hydrateChatMessage,
+  hydrateChatMessageSnapshot,
   isEncryptionIdentityChangedError,
   primeEncryptedMessageRecipients,
   sendEncryptedMessage,
   syncEncryptionDeviceState,
 } from "./e2ee";
+import {
+  readMessageHydrationDiagnostics,
+  rememberCurrentBuildRevision,
+} from "./messageHydrationDiagnostics";
 import type { ApiChatMessage } from "./types";
 
 const USER_ID = "user-id";
@@ -5136,6 +5141,52 @@ describe("e2ee hardening", () => {
     ]);
   });
 
+  it("records snapshot unavailable diagnostics when no local readback fallback exists", async () => {
+    rememberCurrentBuildRevision("test-build-revision");
+
+    const hydratedMessage = await hydrateChatMessageSnapshot(
+      {
+        id: "snapshot-unavailable-message-id",
+        chatId: "group-chat-id",
+        sender: selfParticipant,
+        createdAt: "2026-04-09T10:35:00.000Z",
+        editedAt: null,
+        status: null,
+        clientMessageId: "client-snapshot-unavailable-message-id",
+        replyTo: null,
+        reactions: [],
+        encryptedPayload: {
+          scheme: "GROUP-SENDER-KEY-AES-GCM",
+          sharedEnvelope: JSON.stringify({
+            aadVersion: 1,
+            chatId: "group-chat-id",
+            senderUserId: USER_ID,
+            senderDeviceId: "self-device",
+            senderKeyId: "group-sender-key",
+            messageCounter: 0,
+            ciphertext: utf8ToBase64("snapshot unavailable content"),
+            iv: utf8ToBase64("groupsnapiv1"),
+            signature: "c2ln",
+          }),
+          encryptedKeysByRecipientId: {},
+        },
+      },
+      USER_ID
+    );
+
+    expect(hydratedMessage.content).toBe("[Encrypted message unavailable]");
+    expect(readMessageHydrationDiagnostics()[0]).toMatchObject({
+      messageId: "snapshot-unavailable-message-id",
+      phase: "snapshot",
+      outcome: "snapshot-unavailable",
+      ownMessage: true,
+      scheme: "GROUP-SENDER-KEY-AES-GCM",
+      mirrorHit: false,
+      archiveHit: false,
+      buildRevision: "test-build-revision",
+    });
+  });
+
   it("restores a newly confirmed own message from the local outgoing mirror when archive persistence was skipped", async () => {
     vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
     vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
@@ -5206,6 +5257,81 @@ describe("e2ee hardening", () => {
         content: "mirror-protected own message",
       }),
     ]);
+  });
+
+  it("records decrypt-failed mirror diagnostics when an own encrypted message falls back to the local mirror", async () => {
+    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
+    vi.spyOn(window.crypto.subtle, "generateKey").mockResolvedValue({
+      publicKey: {} as CryptoKey,
+      privateKey: {} as CryptoKey,
+    } as CryptoKeyPair);
+    vi.spyOn(window.crypto.subtle, "exportKey").mockResolvedValue({
+      kty: "OKP",
+      crv: "X25519",
+      x: "generated",
+    } as JsonWebKey);
+    vi.spyOn(window.crypto.subtle, "deriveBits").mockResolvedValue(new Uint8Array(32).buffer);
+    vi.spyOn(window.crypto.subtle, "deriveKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "encrypt").mockImplementation(
+      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
+    );
+    vi.mocked(resolveEncryptionDeviceBundles).mockResolvedValue([consumableDeviceBundle]);
+    vi.mocked(sendMessageRaw).mockImplementation(async (_token, chatId, request) => ({
+      id: "mirror-diagnostic-message-id",
+      chatId,
+      sender: selfParticipant,
+      createdAt: "2026-04-09T10:31:00.000Z",
+      editedAt: null,
+      status: null,
+      clientMessageId: request.clientMessageId ?? null,
+      replyTo: null,
+      reactions: [],
+      encryptedPayload: request.encryptedPayload,
+    }));
+    window.sessionStorage.setItem(DEVICE_MATERIAL_KEY, JSON.stringify(localDeviceMaterial));
+
+    await sendEncryptedMessage(
+      "token",
+      "chat-id",
+      "mirror diagnostics own message",
+      [selfParticipant, participant],
+      "client-mirror-diagnostic-message-id",
+      null,
+      { currentUserId: USER_ID }
+    );
+
+    const encryptedPayload =
+      vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload ?? null;
+    expect(encryptedPayload).not.toBeNull();
+
+    window.sessionStorage.removeItem(DEVICE_MATERIAL_KEY);
+
+    const hydratedMessage = await hydrateChatMessage(
+      {
+        id: "mirror-diagnostic-message-id",
+        chatId: "chat-id",
+        sender: selfParticipant,
+        createdAt: "2026-04-09T10:31:00.000Z",
+        editedAt: null,
+        status: null,
+        clientMessageId: "client-mirror-diagnostic-message-id",
+        replyTo: null,
+        reactions: [],
+        encryptedPayload,
+      },
+      USER_ID
+    );
+
+    expect(hydratedMessage.content).toBe("mirror diagnostics own message");
+    expect(readMessageHydrationDiagnostics()[0]).toMatchObject({
+      messageId: "mirror-diagnostic-message-id",
+      phase: "hydrate",
+      outcome: "decrypt-failed-mirror-hit",
+      ownMessage: true,
+      mirrorHit: true,
+      archiveHit: false,
+    });
   });
 
   it("waits for history hydration batches before hydrating later realtime messages", async () => {

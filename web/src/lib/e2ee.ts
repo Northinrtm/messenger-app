@@ -43,6 +43,7 @@ import {
   isTrustedDeviceUnlockSupported,
 } from "./e2eeTrustedDevice";
 import { recordSendDiagnosticStep } from "./sendDiagnostics";
+import { recordMessageHydrationDiagnostic } from "./messageHydrationDiagnostics";
 
 const MESSAGE_SCHEME_DEVICE = "X3DH-DEVICE-AES-GCM";
 const MESSAGE_SCHEME_GROUP_SENDER_KEY = "GROUP-SENDER-KEY-AES-GCM";
@@ -1860,6 +1861,18 @@ export async function hydrateChatMessageSnapshot(
   const archivedMessage = await readArchivedDecryptedMessageRecord(userId, message.id);
   const readableMessage =
     archivedMessage ?? readOutgoingMessageMirror(userId, message, userId);
+  recordMessageHydrationDiagnostic({
+    message,
+    currentUserId: userId,
+    phase: "snapshot",
+    outcome: archivedMessage
+      ? "snapshot-archive-hit"
+      : readableMessage
+        ? "snapshot-mirror-hit"
+        : "snapshot-unavailable",
+    mirrorHit: Boolean(!archivedMessage && readableMessage),
+    archiveHit: Boolean(archivedMessage),
+  });
   return buildHydratedChatMessage(
     message,
     readableMessage?.content ?? ENCRYPTED_MESSAGE_UNAVAILABLE,
@@ -1879,6 +1892,18 @@ async function hydrateChatMessageInternal(
       const archivedMessage = await readArchivedDecryptedMessageRecord(userId, message.id);
       const readableMessage =
         archivedMessage ?? readOutgoingMessageMirror(userId, message, userId);
+      recordMessageHydrationDiagnostic({
+        message,
+        currentUserId: userId,
+        phase: "hydrate",
+        outcome: archivedMessage
+          ? "plain-archive-hit"
+          : readableMessage
+            ? "plain-mirror-hit"
+            : "plain-unavailable",
+        mirrorHit: Boolean(!archivedMessage && readableMessage),
+        archiveHit: Boolean(archivedMessage),
+      });
       return archivedMessage
         ? buildHydratedChatMessage(
             message,
@@ -1899,6 +1924,14 @@ async function hydrateChatMessageInternal(
     try {
       const content = await decryptMessage(message, userId);
       const hydratedMessage = buildHydratedChatMessage(message, content);
+      recordMessageHydrationDiagnostic({
+        message,
+        currentUserId: userId,
+        phase: "hydrate",
+        outcome: "decrypt-success",
+        mirrorHit: false,
+        archiveHit: false,
+      });
       if (message.sender.id === userId) {
         rememberOutgoingMessageMirror(userId, hydratedMessage);
       }
@@ -1907,6 +1940,14 @@ async function hydrateChatMessageInternal(
     } catch {
       const mirroredOwnMessage = readOutgoingMessageMirror(userId, message, userId);
       if (mirroredOwnMessage) {
+        recordMessageHydrationDiagnostic({
+          message,
+          currentUserId: userId,
+          phase: "hydrate",
+          outcome: "decrypt-failed-mirror-hit",
+          mirrorHit: true,
+          archiveHit: false,
+        });
         return buildHydratedChatMessage(
           message,
           mirroredOwnMessage.content,
@@ -1915,9 +1956,26 @@ async function hydrateChatMessageInternal(
         );
       }
       let archivedMessage = await readArchivedDecryptedMessageRecord(userId, message.id);
+      const remoteArchiveRefreshAttempted = !archivedMessage;
+      let remoteArchiveRefreshHit = false;
       if (!archivedMessage && (await refreshArchivedMessagesFromRemoteRecoverySnapshot(userId))) {
         archivedMessage = await readArchivedDecryptedMessageRecord(userId, message.id);
+        remoteArchiveRefreshHit = Boolean(archivedMessage);
       }
+      recordMessageHydrationDiagnostic({
+        message,
+        currentUserId: userId,
+        phase: "hydrate",
+        outcome: archivedMessage
+          ? remoteArchiveRefreshHit
+            ? "decrypt-failed-archive-refresh-hit"
+            : "decrypt-failed-archive-hit"
+          : "decrypt-failed-unavailable",
+        mirrorHit: false,
+        archiveHit: Boolean(archivedMessage),
+        remoteArchiveRefreshAttempted,
+        remoteArchiveRefreshHit,
+      });
       return archivedMessage
         ? buildHydratedChatMessage(
             message,
