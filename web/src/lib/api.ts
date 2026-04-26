@@ -772,6 +772,20 @@ export function deleteMessage(
   });
 }
 
+export function deleteMessages(
+  token: string,
+  chatId: string,
+  messageIds: string[],
+  scope: "SELF" | "EVERYONE" = "EVERYONE"
+) {
+  return request<void>(`/api/chats/${chatId}/messages/delete-batch`, {
+    method: "POST",
+    token,
+    body: { messageIds },
+    query: { scope },
+  });
+}
+
 export function toggleMessageReaction(
   token: string,
   chatId: string,

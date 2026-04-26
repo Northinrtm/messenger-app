@@ -6,6 +6,7 @@ import com.north.messenger.api.dto.MessageResponse;
 import com.north.messenger.api.dto.ToggleMessageReactionRequest;
 import com.north.messenger.api.dto.UpdateMessageRequest;
 import com.north.messenger.api.dto.CreateMessageRequest;
+import com.north.messenger.api.dto.DeleteMessagesRequest;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.message.MessageService;
 import jakarta.validation.Valid;
@@ -98,6 +99,17 @@ public class MessageController {
             @RequestParam(defaultValue = "EVERYONE") String scope
     ) {
         messageService.deleteMessage(chatId, messageId, authentication.getName(), scope);
+    }
+
+    @PostMapping("/delete-batch")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteMessages(
+            Authentication authentication,
+            @PathVariable UUID chatId,
+            @Valid @RequestBody DeleteMessagesRequest request,
+            @RequestParam(defaultValue = "EVERYONE") String scope
+    ) {
+        messageService.deleteMessages(chatId, request.messageIds(), authentication.getName(), scope);
     }
 
     @PutMapping("/{messageId}")

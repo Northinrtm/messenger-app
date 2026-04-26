@@ -59,6 +59,11 @@ public class MessageService {
     }
 
     @Transactional
+    public void deleteMessages(UUID chatId, List<UUID> messageIds, String username, String rawScope) {
+        messageCommandService.deleteMessages(chatId, messageIds, username, rawScope);
+    }
+
+    @Transactional
     public MessageResponse updateMessage(UUID chatId, UUID messageId, String username, UpdateMessageRequest request) {
         return messageCommandService.updateMessage(chatId, messageId, username, request);
     }

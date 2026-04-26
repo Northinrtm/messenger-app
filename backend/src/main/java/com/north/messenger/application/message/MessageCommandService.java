@@ -21,9 +21,14 @@ import com.north.messenger.domain.repository.UserDeletedMessageRepository;
 import com.north.messenger.observability.MessengerTelemetry;
 import io.micrometer.core.instrument.Timer;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -266,49 +271,89 @@ class MessageCommandService {
 
     @Transactional
     void deleteMessage(UUID chatId, UUID messageId, String username, String rawScope) {
+        deleteMessages(chatId, List.of(messageId), username, rawScope);
+    }
+
+    @Transactional
+    void deleteMessages(UUID chatId, List<UUID> messageIds, String username, String rawScope) {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
         ChatRoom room = chatService.requireChatMembership(chatId, currentUser);
         chatService.assertChatInteractionAllowed(room, currentUser);
 
-        ChatMessage message = chatMessageRepository.findById(messageId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found"));
-        if (!message.getChatId().equals(chatId)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found in this chat");
+        LinkedHashSet<UUID> uniqueMessageIds = new LinkedHashSet<>(messageIds);
+        if (uniqueMessageIds.isEmpty()) {
+            return;
+        }
+        List<UUID> orderedMessageIds = List.copyOf(uniqueMessageIds);
+        List<ChatMessage> foundMessages = chatMessageRepository.findAllById(orderedMessageIds);
+        if (foundMessages.size() != orderedMessageIds.size()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found");
+        }
+
+        Map<UUID, ChatMessage> messagesById = new HashMap<>();
+        for (ChatMessage message : foundMessages) {
+            if (!message.getChatId().equals(chatId)) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found in this chat");
+            }
+            messagesById.put(message.getId(), message);
+        }
+
+        List<ChatMessage> orderedMessages = new ArrayList<>(orderedMessageIds.size());
+        for (UUID messageId : orderedMessageIds) {
+            ChatMessage message = messagesById.get(messageId);
+            if (message == null) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found");
+            }
+            orderedMessages.add(message);
         }
 
         MessageSupport.DeleteScope scope = messageSupport.parseDeleteScope(rawScope);
         if (scope == MessageSupport.DeleteScope.SELF) {
-            userDeletedMessageRepository.findByUserIdAndMessageId(currentUser.getId(), messageId)
-                    .orElseGet(() -> userDeletedMessageRepository.save(
-                            new UserDeletedMessage(UUID.randomUUID(), currentUser.getId(), messageId, Instant.now())
-                    ));
-            eventPublisher.publishEvent(new MessageDeletionBroadcastEvent(
+            Set<UUID> existingDeletedMessageIds = userDeletedMessageRepository
+                    .findAllByUserIdAndMessageIdIn(currentUser.getId(), orderedMessageIds)
+                    .stream()
+                    .map(UserDeletedMessage::getMessageId)
+                    .collect(java.util.stream.Collectors.toCollection(HashSet::new));
+            List<UserDeletedMessage> tombstonesToCreate = orderedMessageIds.stream()
+                    .filter(messageId -> !existingDeletedMessageIds.contains(messageId))
+                    .map(messageId -> new UserDeletedMessage(
+                            UUID.randomUUID(),
+                            currentUser.getId(),
+                            messageId,
+                            Instant.now()
+                    ))
+                    .toList();
+            if (!tombstonesToCreate.isEmpty()) {
+                userDeletedMessageRepository.saveAll(tombstonesToCreate);
+            }
+            orderedMessageIds.forEach(messageId -> eventPublisher.publishEvent(new MessageDeletionBroadcastEvent(
                     chatId,
                     messageId,
                     List.of(currentUser.getUsername())
-            ));
+            )));
             return;
         }
 
-        if (!message.getSenderId().equals(currentUser.getId())) {
+        if (orderedMessages.stream().anyMatch(message -> !message.getSenderId().equals(currentUser.getId()))) {
             throw new ResponseStatusException(
                     HttpStatus.FORBIDDEN,
                     "Delete for everyone is only available for your own messages"
             );
         }
 
-        if (Objects.equals(room.getPinnedMessageId(), messageId)) {
+        if (room.getPinnedMessageId() != null && orderedMessageIds.contains(room.getPinnedMessageId())) {
             room.clearPinnedMessage();
         }
 
-        chatAttachmentService.deleteAttachmentsForMessage(messageId);
         List<UserAccount> participants = chatService.findParticipants(chatId);
-        chatMessageRepository.delete(message);
-        eventPublisher.publishEvent(new MessageDeletionBroadcastEvent(
+        orderedMessages.forEach(message -> chatAttachmentService.deleteAttachmentsForMessage(message.getId()));
+        chatMessageRepository.deleteAll(orderedMessages);
+        List<String> usernames = participants.stream().map(UserAccount::getUsername).toList();
+        orderedMessageIds.forEach(messageId -> eventPublisher.publishEvent(new MessageDeletionBroadcastEvent(
                 chatId,
                 messageId,
-                participants.stream().map(UserAccount::getUsername).toList()
-        ));
+                usernames
+        )));
     }
 
     @Transactional

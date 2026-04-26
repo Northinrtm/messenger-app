@@ -21,6 +21,7 @@ import com.north.messenger.domain.model.ChatGroupSenderKeyCounter;
 import com.north.messenger.domain.model.MessageReceipt;
 import com.north.messenger.domain.model.MessageReaction;
 import com.north.messenger.domain.model.UserAccount;
+import com.north.messenger.domain.model.UserDeletedMessage;
 import com.north.messenger.domain.model.UserEncryptionDevice;
 import com.north.messenger.domain.model.UserEncryptionEnvelopeCounter;
 import com.north.messenger.domain.model.UserEncryptionOneTimePrekey;
@@ -2062,14 +2063,14 @@ class MessageServiceTest {
         );
         when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
         when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(room);
-        when(chatMessageRepository.findById(messageId)).thenReturn(java.util.Optional.of(message));
+        when(chatMessageRepository.findAllById(List.of(messageId))).thenReturn(List.of(message));
         when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
 
         messageService.deleteMessage(chatId, messageId, "north", "EVERYONE");
 
         ArgumentCaptor<MessageDeletionBroadcastEvent> eventCaptor = ArgumentCaptor.forClass(MessageDeletionBroadcastEvent.class);
         verify(eventPublisher).publishEvent(eventCaptor.capture());
-        verify(chatMessageRepository).delete(message);
+        verify(chatMessageRepository).deleteAll(List.of(message));
         assertThat(eventCaptor.getValue().chatId()).isEqualTo(chatId);
         assertThat(eventCaptor.getValue().messageId()).isEqualTo(messageId);
         assertThat(eventCaptor.getValue().usernames()).containsExactly("north", "alice");
@@ -2091,12 +2092,116 @@ class MessageServiceTest {
         );
         when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
         when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(room);
-        when(chatMessageRepository.findById(messageId)).thenReturn(Optional.of(message));
+        when(chatMessageRepository.findAllById(List.of(messageId))).thenReturn(List.of(message));
 
         assertThatThrownBy(() -> messageService.deleteMessage(chatId, messageId, "north", "EVERYONE"))
                 .hasMessageContaining("only available for your own messages");
 
         verify(chatMessageRepository, never()).delete(any(ChatMessage.class));
+    }
+
+    @Test
+    void deleteMessagesShouldDeleteAllSelectedMessagesForEveryoneInOneOperation() {
+        UUID chatId = UUID.randomUUID();
+        UUID firstMessageId = UUID.randomUUID();
+        UUID secondMessageId = UUID.randomUUID();
+        UserAccount currentUser = user("north");
+        UserAccount recipient = user("alice");
+        ChatRoom room = new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"));
+        room.pinMessage(firstMessageId, Instant.parse("2026-03-24T11:30:00Z"));
+        ChatMessage firstMessage = new ChatMessage(
+                firstMessageId,
+                chatId,
+                currentUser.getId(),
+                "ciphertext-1",
+                Instant.parse("2026-03-24T12:00:00Z")
+        );
+        ChatMessage secondMessage = new ChatMessage(
+                secondMessageId,
+                chatId,
+                currentUser.getId(),
+                "ciphertext-2",
+                Instant.parse("2026-03-24T12:01:00Z")
+        );
+        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
+        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(room);
+        when(chatMessageRepository.findAllById(List.of(firstMessageId, secondMessageId)))
+                .thenReturn(List.of(firstMessage, secondMessage));
+        when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
+
+        messageService.deleteMessages(chatId, List.of(firstMessageId, secondMessageId), "north", "EVERYONE");
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ChatMessage>> deletedMessagesCaptor = ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<MessageDeletionBroadcastEvent> eventCaptor =
+                ArgumentCaptor.forClass(MessageDeletionBroadcastEvent.class);
+        verify(chatAttachmentService).deleteAttachmentsForMessage(firstMessageId);
+        verify(chatAttachmentService).deleteAttachmentsForMessage(secondMessageId);
+        verify(chatMessageRepository).deleteAll(deletedMessagesCaptor.capture());
+        verify(chatMessageRepository, never()).delete(any(ChatMessage.class));
+        verify(eventPublisher, times(2)).publishEvent(eventCaptor.capture());
+        assertThat(deletedMessagesCaptor.getValue())
+                .extracting(ChatMessage::getId)
+                .containsExactly(firstMessageId, secondMessageId);
+        assertThat(room.getPinnedMessageId()).isNull();
+        assertThat(eventCaptor.getAllValues())
+                .extracting(MessageDeletionBroadcastEvent::messageId)
+                .containsExactly(firstMessageId, secondMessageId);
+        assertThat(eventCaptor.getAllValues())
+                .extracting(MessageDeletionBroadcastEvent::usernames)
+                .allSatisfy(usernames -> assertThat(usernames).containsExactly("north", "alice"));
+    }
+
+    @Test
+    void deleteMessagesShouldCreateOnlyMissingSelfDeletionMarkers() {
+        UUID chatId = UUID.randomUUID();
+        UUID firstMessageId = UUID.randomUUID();
+        UUID secondMessageId = UUID.randomUUID();
+        UserAccount currentUser = user("north");
+        ChatRoom room = new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"));
+        ChatMessage firstMessage = new ChatMessage(
+                firstMessageId,
+                chatId,
+                currentUser.getId(),
+                "ciphertext-1",
+                Instant.parse("2026-03-24T12:00:00Z")
+        );
+        ChatMessage secondMessage = new ChatMessage(
+                secondMessageId,
+                chatId,
+                currentUser.getId(),
+                "ciphertext-2",
+                Instant.parse("2026-03-24T12:01:00Z")
+        );
+        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
+        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(room);
+        when(chatMessageRepository.findAllById(List.of(firstMessageId, secondMessageId)))
+                .thenReturn(List.of(firstMessage, secondMessage));
+        when(userDeletedMessageRepository.findAllByUserIdAndMessageIdIn(
+                currentUser.getId(),
+                List.of(firstMessageId, secondMessageId)
+        )).thenReturn(List.of(
+                new UserDeletedMessage(UUID.randomUUID(), currentUser.getId(), firstMessageId, Instant.now())
+        ));
+
+        messageService.deleteMessages(chatId, List.of(firstMessageId, secondMessageId), "north", "SELF");
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<UserDeletedMessage>> tombstonesCaptor = ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<MessageDeletionBroadcastEvent> eventCaptor =
+                ArgumentCaptor.forClass(MessageDeletionBroadcastEvent.class);
+        verify(userDeletedMessageRepository).saveAll(tombstonesCaptor.capture());
+        verify(eventPublisher, times(2)).publishEvent(eventCaptor.capture());
+        verify(chatMessageRepository, never()).deleteAll(any());
+        assertThat(tombstonesCaptor.getValue())
+                .extracting(UserDeletedMessage::getMessageId)
+                .containsExactly(secondMessageId);
+        assertThat(eventCaptor.getAllValues())
+                .extracting(MessageDeletionBroadcastEvent::messageId)
+                .containsExactly(firstMessageId, secondMessageId);
+        assertThat(eventCaptor.getAllValues())
+                .extracting(MessageDeletionBroadcastEvent::usernames)
+                .allSatisfy(usernames -> assertThat(usernames).containsExactly("north"));
     }
 
     private UserAccount user(String username) {

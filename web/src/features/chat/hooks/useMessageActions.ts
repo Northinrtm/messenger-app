@@ -9,6 +9,7 @@ import {
   createDirectChat,
   deleteChat as deleteChatRequest,
   deleteMessage as deleteMessageRequest,
+  deleteMessages as deleteMessagesRequest,
   describeError,
   isAbortError,
   toggleMessageReaction as toggleMessageReactionRequest,
@@ -489,6 +490,36 @@ export function useMessageActions({
     },
   });
 
+  const applyDeletedMessagesLocally = (chatId: string, messageIds: string[]) => {
+    const uniqueMessageIds = [...new Set(messageIds)];
+    if (uniqueMessageIds.length === 0) {
+      return;
+    }
+
+    const deletedMessageIdSet = new Set(uniqueMessageIds);
+    queryClient.setQueryData<InfiniteData<ChatMessage[]>>(getMessagesKey(chatId), (current) =>
+      uniqueMessageIds.reduce(
+        (pages, deletedMessageId) => removeMessageById(pages, deletedMessageId),
+        current,
+      ),
+    );
+    if (activePinnedMessageId && deletedMessageIdSet.has(activePinnedMessageId)) {
+      syncChatPinnedSummary(chatId, null);
+    }
+    if (replyingToMessage && deletedMessageIdSet.has(replyingToMessage.id)) {
+      setReplyingToMessageId(null);
+    }
+    if (editingMessage && deletedMessageIdSet.has(editingMessage.id)) {
+      setEditingMessageId(null);
+    }
+    if (forwardingMessages.some((message) => deletedMessageIdSet.has(message.id))) {
+      setForwardingMessageIds((current) =>
+        current.filter((forwardingMessageId) => !deletedMessageIdSet.has(forwardingMessageId)),
+      );
+    }
+    syncChatPreviewFromCache(chatId);
+  };
+
   const deleteMessageMutation = useMutation({
     mutationFn: ({
       chatId,
@@ -503,24 +534,40 @@ export function useMessageActions({
       const messageKey = getMessagesKey(chatId);
       await queryClient.cancelQueries({ queryKey: messageKey });
       const previousMessages = queryClient.getQueryData<InfiniteData<ChatMessage[]>>(messageKey);
-      queryClient.setQueryData<InfiniteData<ChatMessage[]>>(messageKey, (current) =>
-        removeMessageById(current, messageId),
-      );
-      if (activePinnedMessageId === messageId) {
-        syncChatPinnedSummary(chatId, null);
+      applyDeletedMessagesLocally(chatId, [messageId]);
+      return {
+        chatId,
+        previousMessages,
+      };
+    },
+    onError: (_error, variables, context) => {
+      if (context?.previousMessages) {
+        queryClient.setQueryData(getMessagesKey(variables.chatId), context.previousMessages);
       }
-      if (replyingToMessage?.id === messageId) {
-        setReplyingToMessageId(null);
-      }
-      if (editingMessage?.id === messageId) {
-        setEditingMessageId(null);
-      }
-      if (forwardingMessages.some((message) => message.id === messageId)) {
-        setForwardingMessageIds((current) =>
-          current.filter((forwardingMessageId) => forwardingMessageId !== messageId),
-        );
-      }
-      syncChatPreviewFromCache(chatId);
+      void queryClient.invalidateQueries({ queryKey: getMessagesKey(variables.chatId) });
+      void queryClient.invalidateQueries({ queryKey: ["chats", sessionToken] });
+    },
+    onSuccess: (_result, variables) => {
+      syncChatPreviewFromCache(variables.chatId);
+      void refreshChatPreviewFromServer(variables.chatId);
+    },
+  });
+
+  const deleteMessagesMutation = useMutation({
+    mutationFn: ({
+      chatId,
+      messageIds,
+      scope,
+    }: {
+      chatId: string;
+      messageIds: string[];
+      scope: "SELF" | "EVERYONE";
+    }) => deleteMessagesRequest(sessionToken, chatId, messageIds, scope),
+    onMutate: async ({ chatId, messageIds }) => {
+      const messageKey = getMessagesKey(chatId);
+      await queryClient.cancelQueries({ queryKey: messageKey });
+      const previousMessages = queryClient.getQueryData<InfiniteData<ChatMessage[]>>(messageKey);
+      applyDeletedMessagesLocally(chatId, messageIds);
       return {
         chatId,
         previousMessages,
@@ -810,16 +857,51 @@ export function useMessageActions({
 
   const deleteMessagesForEveryone = async (chatId: string, messageIds: string[]) => {
     const uniqueMessageIds = [...new Set(messageIds)];
-    for (const messageId of uniqueMessageIds) {
-      await deleteMessageForEveryoneInternal(chatId, messageId, true);
+    if (uniqueMessageIds.length === 0) {
+      return;
     }
+
+    setContextMenu(null);
+    await deleteMessagesMutation.mutateAsync({
+      chatId,
+      messageIds: uniqueMessageIds,
+      scope: "EVERYONE",
+    });
   };
 
   const deleteMessagesForSelf = async (chatId: string, messageIds: string[]) => {
     const uniqueMessageIds = [...new Set(messageIds)];
-    for (const messageId of uniqueMessageIds) {
-      await deleteMessageForSelfInternal(chatId, messageId, true);
+    if (uniqueMessageIds.length === 0) {
+      return;
     }
+
+    setContextMenu(null);
+    const pendingMessages =
+      queryClient.getQueryData<LocalPendingMessage[]>(["pending-outgoing-messages", currentUser.id]) ??
+      pendingOutgoingMessages;
+    const pendingMessageIdSet = new Set(
+      pendingMessages.map((pendingMessage) => pendingMessage.clientMessageId),
+    );
+    const localPendingMessageIds = uniqueMessageIds.filter((messageId) =>
+      pendingMessageIdSet.has(messageId),
+    );
+    const persistedMessageIds = uniqueMessageIds.filter(
+      (messageId) => !pendingMessageIdSet.has(messageId),
+    );
+
+    for (const pendingMessageId of localPendingMessageIds) {
+      await deleteMessageForSelfInternal(chatId, pendingMessageId, true);
+    }
+
+    if (persistedMessageIds.length === 0) {
+      return;
+    }
+
+    await deleteMessagesMutation.mutateAsync({
+      chatId,
+      messageIds: persistedMessageIds,
+      scope: "SELF",
+    });
   };
 
   const toggleReactionForMessage = (
