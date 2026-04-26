@@ -2503,6 +2503,49 @@ select {
   align-self: center;
 }
 
+.north-conversation-header.is-selection-mode {
+  padding-block: 0.55rem;
+}
+
+.message-selection-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.message-selection-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.message-selection-action {
+  min-height: 3rem;
+  padding-inline: 1.05rem;
+  border-radius: 0.9rem;
+  background: #3d76a9;
+  color: #f4fbff;
+  font-size: 0.98rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.message-selection-action:hover:not(:disabled) {
+  background: #4988c2;
+}
+
+.message-selection-action:disabled {
+  background: rgba(61, 118, 169, 0.45);
+  color: rgba(244, 251, 255, 0.65);
+}
+
+.message-selection-cancel {
+  color: #7eb8ff;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
 .north-message-stream {
   grid-row: 3;
   min-height: 0;
@@ -2681,6 +2724,10 @@ select {
   width: 100%;
 }
 
+.message-row.is-selecting {
+  align-items: center;
+}
+
 .message-row.is-mine {
   justify-content: flex-end;
 }
@@ -2695,6 +2742,12 @@ select {
   flex: 0 0 2.4rem;
   align-self: flex-end;
   margin-bottom: 0.15rem;
+}
+
+.message-bubble-shell {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
 }
 
 .north-workspace .message-bubble {
@@ -2757,6 +2810,51 @@ select {
 
 .message-row.is-direct.is-mine .message-body {
   line-height: 1.18;
+}
+
+.message-bubble.is-selection-mode {
+  cursor: pointer;
+}
+
+.message-bubble.is-selection-mode.is-selected {
+  box-shadow: inset 0 0 0 1px rgba(142, 199, 255, 0.45);
+}
+
+.message-selection-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+}
+
+.message-select-toggle {
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 2rem;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.message-select-toggle-ring {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 999px;
+  border: 2px solid rgba(96, 121, 148, 0.78);
+  background: rgba(18, 29, 42, 0.66);
+  box-shadow: inset 0 0 0 3px rgba(14, 22, 33, 0.92);
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.message-select-toggle.is-selected .message-select-toggle-ring {
+  border-color: #7eb8ff;
+  background: #4f93d9;
+  box-shadow: inset 0 0 0 4px rgba(244, 251, 255, 0.95);
 }
 
 .message-body {
@@ -3068,6 +3166,90 @@ select {
   padding: 0;
   font-size: 1.15rem;
   line-height: 1;
+}
+
+.message-selection-dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(5, 12, 19, 0.58);
+  backdrop-filter: blur(8px);
+}
+
+.message-selection-dialog {
+  width: min(29rem, calc(100vw - 2rem));
+  display: grid;
+  gap: 1rem;
+  padding: 1.1rem;
+  border-radius: 1.2rem;
+  background: #172534;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.34);
+}
+
+.message-selection-dialog-copy {
+  display: grid;
+  gap: 0.35rem;
+  color: #a9bfd5;
+}
+
+.message-selection-dialog-copy strong {
+  color: #f4fbff;
+  font-size: 1.02rem;
+}
+
+.message-selection-dialog-actions {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.message-selection-dialog-option {
+  width: 100%;
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.95rem 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1rem;
+  background: #203244;
+  color: #f4fbff;
+  text-align: left;
+}
+
+.message-selection-dialog-option:hover:not(:disabled) {
+  background: #284058;
+  border-color: rgba(126, 184, 255, 0.28);
+}
+
+.message-selection-dialog-option span {
+  color: #9fb7ce;
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+
+.message-selection-dialog-option.is-danger {
+  color: #ffd4d4;
+}
+
+.message-selection-dialog-option.is-danger span {
+  color: #e9b9b9;
+}
+
+.message-selection-dialog-option:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.message-selection-dialog-cancel {
+  justify-self: end;
+}
+
+.forward-preview-more {
+  color: #8fd2ff;
+  font-size: 0.86rem;
+  font-weight: 700;
 }
 
 .north-composer {

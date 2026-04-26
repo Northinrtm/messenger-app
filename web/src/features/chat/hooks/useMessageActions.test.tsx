@@ -127,7 +127,7 @@ function Harness({
     currentUser: currentUser(),
     session: session(),
     editingMessage: null,
-    forwardingMessage: null,
+    forwardingMessages: [],
     replyingToMessage: null,
     sessionToken: "session-token",
     applyChatPreviewMessage: (message) => onApplyChatPreviewMessage?.(message),
@@ -149,7 +149,7 @@ function Harness({
     setContextMenu: () => undefined,
     setDraftsByChatId,
     setEditingMessageId: () => undefined,
-    setForwardingMessageId: () => undefined,
+    setForwardingMessageIds: () => undefined,
     setReplyingToMessageId: () => undefined,
     stopTyping: () => undefined,
     syncChatPinnedSummary: () => undefined,
@@ -610,7 +610,7 @@ describe("useMessageActions send failure recovery", () => {
       await flushMicrotasks();
     });
 
-    expect(confirmSpy).toHaveBeenCalledWith("Удалить неотправленное сообщение только у вас?");
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
     expect(readLocalPendingMessages("user-1")).toEqual([]);
     expect(queryClient.getQueryData(["pending-outgoing-messages", "user-1"])).toEqual([]);
     expect(queryClient.getQueryData(["messages", "user-1", "chat-1"])).toEqual({

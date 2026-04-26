@@ -2,6 +2,7 @@ import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatMessage, ChatSummary, MessageSnippet, Participant, UserProfile } from "../../../lib/types";
+import type { TimelineItem } from "../chatWorkspaceUtils";
 import { ActiveChatConversation } from "./ActiveChatConversation.next";
 
 type ReactActEnvironment = typeof globalThis & {
@@ -46,6 +47,24 @@ function chatSummary(overrides: Partial<ChatSummary> = {}): ChatSummary {
   };
 }
 
+function chatMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
+  return {
+    id: overrides.id ?? "message-1",
+    chatId: overrides.chatId ?? "chat-1",
+    serverOrder: overrides.serverOrder ?? 1,
+    sender: overrides.sender ?? userProfile(),
+    content: overrides.content ?? "Hello",
+    createdAt: overrides.createdAt ?? "2026-04-19T10:00:00.000Z",
+    editedAt: overrides.editedAt ?? null,
+    status: overrides.status ?? null,
+    clientMessageId: overrides.clientMessageId ?? null,
+    localOrder: overrides.localOrder ?? null,
+    replyTo: overrides.replyTo ?? null,
+    reactions: overrides.reactions ?? [],
+    attachments: overrides.attachments ?? [],
+  };
+}
+
 function setTextareaValue(input: HTMLTextAreaElement, value: string) {
   const descriptor = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value");
   descriptor?.set?.call(input, value);
@@ -77,6 +96,12 @@ function conversationProps(
     isFetchingNextPage: false,
     replyingToMessage: null,
     editingMessage: null,
+    isSelectingMessages: false,
+    selectedMessageCount: 0,
+    selectedMessageIdSet: new Set<string>(),
+    canForwardSelectedMessages: false,
+    canDeleteSelectedMessagesForEveryone: false,
+    isDeleteSelectedMessagesDialogOpen: false,
     activeDraft: "",
     isChatMenuOpen: false,
     isDirectChatBlocked: false,
@@ -96,6 +121,13 @@ function conversationProps(
     onJumpToMessage: () => {},
     onClearReply: () => {},
     onClearEdit: () => {},
+    onToggleSelectedMessage: () => {},
+    onCancelMessageSelection: () => {},
+    onForwardSelectedMessages: () => {},
+    onRequestDeleteSelectedMessages: () => {},
+    onCloseDeleteSelectedMessagesDialog: () => {},
+    onDeleteSelectedMessagesForSelf: () => {},
+    onDeleteSelectedMessagesForEveryone: () => {},
     onRecoverEncryptionIdentity: () => {},
     onRetryMessage: (_message: ChatMessage) => {},
     onDownloadAttachment: () => {},
@@ -255,5 +287,105 @@ describe("ActiveChatConversation composer", () => {
 
     expect(container.querySelector(".composer-upload-progress")).toBeNull();
     expect(container.querySelector(".composer-attachment-chip")?.textContent).toContain("image.png");
+  });
+
+  it("renders the selection toolbar and delete dialog actions", async () => {
+    const forwardSpy = vi.fn();
+    const requestDeleteSpy = vi.fn();
+    const deleteForSelfSpy = vi.fn();
+    const deleteForEveryoneSpy = vi.fn();
+    const cancelSelectionSpy = vi.fn();
+    const closeDeleteDialogSpy = vi.fn();
+    const timelineItems: TimelineItem[] = [
+      {
+        type: "message",
+        key: "message-1",
+        message: chatMessage(),
+      },
+    ];
+
+    await act(async () => {
+      root!.render(
+        <ActiveChatConversation
+          {...conversationProps({
+            isSelectingMessages: true,
+            selectedMessageCount: 2,
+            selectedMessageIdSet: new Set(["message-1"]),
+            canForwardSelectedMessages: true,
+            canDeleteSelectedMessagesForEveryone: false,
+            isDeleteSelectedMessagesDialogOpen: true,
+            timelineItems,
+            onForwardSelectedMessages: forwardSpy,
+            onRequestDeleteSelectedMessages: requestDeleteSpy,
+            onDeleteSelectedMessagesForSelf: deleteForSelfSpy,
+            onDeleteSelectedMessagesForEveryone: deleteForEveryoneSpy,
+            onCancelMessageSelection: cancelSelectionSpy,
+            onCloseDeleteSelectedMessagesDialog: closeDeleteDialogSpy,
+          })}
+        />
+      );
+      await Promise.resolve();
+    });
+
+    const toolbarButtons = Array.from(
+      container.querySelectorAll(".message-selection-toolbar .ghost-button")
+    ) as HTMLButtonElement[];
+    expect(toolbarButtons.some((button) => button.textContent?.includes("ПЕРЕСЛАТЬ 2"))).toBe(true);
+    expect(toolbarButtons.some((button) => button.textContent?.includes("УДАЛИТЬ 2"))).toBe(true);
+
+    const deleteButton = toolbarButtons.find((button) => button.textContent?.includes("УДАЛИТЬ 2"));
+    if (!deleteButton) {
+      throw new Error("Delete selection button is missing");
+    }
+
+    await act(async () => {
+      deleteButton.click();
+      await Promise.resolve();
+    });
+
+    expect(requestDeleteSpy).toHaveBeenCalledTimes(1);
+
+    const deleteForSelfButton = Array.from(
+      container.querySelectorAll(".message-selection-dialog-option")
+    )[0] as HTMLButtonElement | undefined;
+    const deleteForEveryoneButton = Array.from(
+      container.querySelectorAll(".message-selection-dialog-option")
+    )[1] as HTMLButtonElement | undefined;
+    const cancelDialogButton = container.querySelector(
+      ".message-selection-dialog-cancel"
+    ) as HTMLButtonElement | null;
+
+    if (!deleteForSelfButton || !deleteForEveryoneButton || !cancelDialogButton) {
+      throw new Error("Delete dialog actions are missing");
+    }
+
+    await act(async () => {
+      deleteForSelfButton.click();
+      await Promise.resolve();
+    });
+
+    expect(deleteForSelfSpy).toHaveBeenCalledTimes(1);
+    expect(deleteForEveryoneButton.disabled).toBe(true);
+
+    await act(async () => {
+      cancelDialogButton.click();
+      await Promise.resolve();
+    });
+
+    expect(closeDeleteDialogSpy).toHaveBeenCalledTimes(1);
+
+    const cancelSelectionButton = toolbarButtons.find((button) => button.textContent?.includes("ОТМЕНА"));
+    if (!cancelSelectionButton) {
+      throw new Error("Selection cancel button is missing");
+    }
+
+    await act(async () => {
+      cancelSelectionButton.click();
+      await Promise.resolve();
+    });
+
+    expect(cancelSelectionSpy).toHaveBeenCalledTimes(1);
+    expect(forwardSpy).not.toHaveBeenCalled();
+    expect(deleteForEveryoneSpy).not.toHaveBeenCalled();
   });
 });

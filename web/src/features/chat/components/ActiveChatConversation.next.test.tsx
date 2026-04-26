@@ -88,6 +88,7 @@ const timelineItems: TimelineItem[] = [
 ];
 
 const timelineSessionUser = userProfile();
+const emptySelectionSet = new Set<string>();
 const noop = () => undefined;
 const loadAttachmentPreview = () => Promise.resolve(new Blob());
 const formatClock = (value: string) => value;
@@ -111,14 +112,17 @@ function TimelineHarness({ onReady, onTimelineRender }: HarnessProps) {
 
   return (
     <div data-draft={draft}>
-      <ConversationTimeline
-        activeChatId="chat-1"
-        directChat={true}
+        <ConversationTimeline
+          activeChatId="chat-1"
+          directChat={true}
+          isSelectingMessages={false}
+          selectedMessageIdSet={emptySelectionSet}
         timelineItems={timelineItems}
         sessionUser={timelineSessionUser}
         onRender={onTimelineRender}
         onOpenMessageContextMenu={noop}
         onJumpToMessage={noop}
+        onToggleSelectedMessage={noop}
         onToggleReaction={noop}
         onRetryMessage={noop}
         onDownloadAttachment={noop}
@@ -179,5 +183,49 @@ describe("ActiveChatConversation timeline memoization", () => {
     });
 
     expect(onTimelineRender).toHaveBeenCalledTimes(renderCountAfterMount);
+  });
+
+  it("toggles a message from the selection circle when selection mode is active", async () => {
+    const onToggleSelectedMessage = vi.fn();
+
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(
+        <ConversationTimeline
+          activeChatId="chat-1"
+          directChat={true}
+          isSelectingMessages
+          selectedMessageIdSet={emptySelectionSet}
+          timelineItems={timelineItems}
+          sessionUser={timelineSessionUser}
+          onRender={noop}
+          onOpenMessageContextMenu={noop}
+          onJumpToMessage={noop}
+          onToggleSelectedMessage={onToggleSelectedMessage}
+          onToggleReaction={noop}
+          onRetryMessage={noop}
+          onDownloadAttachment={noop}
+          onLoadAttachmentPreview={loadAttachmentPreview}
+          formatClock={formatClock}
+          getMessageStatusClassName={getMessageStatusClassName}
+          getMessageStatusGlyph={getMessageStatusGlyph}
+          getMessageStatusLabel={getMessageStatusLabel}
+          getReactionOption={getReactionOption}
+        />
+      );
+      await Promise.resolve();
+    });
+
+    const selectionToggle = container.querySelector(".message-select-toggle") as HTMLButtonElement | null;
+    if (!selectionToggle) {
+      throw new Error("Selection toggle is missing");
+    }
+
+    await act(async () => {
+      selectionToggle.click();
+      await Promise.resolve();
+    });
+
+    expect(onToggleSelectedMessage).toHaveBeenCalledWith("message-1");
   });
 });

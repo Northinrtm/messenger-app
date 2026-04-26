@@ -83,7 +83,7 @@ type UseMessageActionsOptions = {
   currentUser: UserProfile;
   session: AuthResponse;
   editingMessage: ChatMessage | null;
-  forwardingMessage: ChatMessage | null;
+  forwardingMessages: ChatMessage[];
   replyingToMessage: ChatMessage | null;
   sessionToken: string;
   applyChatPreviewMessage: (message: ChatMessage) => void;
@@ -107,7 +107,7 @@ type UseMessageActionsOptions = {
   setContextMenu: Dispatch<SetStateAction<ContextMenuState | null>>;
   setDraftsByChatId: Dispatch<SetStateAction<Record<string, string>>>;
   setEditingMessageId: Dispatch<SetStateAction<string | null>>;
-  setForwardingMessageId: Dispatch<SetStateAction<string | null>>;
+  setForwardingMessageIds: Dispatch<SetStateAction<string[]>>;
   setReplyingToMessageId: Dispatch<SetStateAction<string | null>>;
   stopTyping: (chatId: string) => void;
   syncChatPinnedSummary: (chatId: string, snippet: MessageSnippet | null) => void;
@@ -127,7 +127,7 @@ export function useMessageActions({
   deleteChatLocally,
   editingMessage,
   focusComposer,
-  forwardingMessage,
+  forwardingMessages,
   incrementPendingOutgoing,
   decrementPendingOutgoing,
   isRealtimeConnected,
@@ -142,7 +142,7 @@ export function useMessageActions({
   setContextMenu,
   setDraftsByChatId,
   setEditingMessageId,
-  setForwardingMessageId,
+  setForwardingMessageIds,
   setReplyingToMessageId,
   stopTyping,
   syncChatPinnedSummary,
@@ -515,8 +515,10 @@ export function useMessageActions({
       if (editingMessage?.id === messageId) {
         setEditingMessageId(null);
       }
-      if (forwardingMessage?.id === messageId) {
-        clearComposerContext("forward");
+      if (forwardingMessages.some((message) => message.id === messageId)) {
+        setForwardingMessageIds((current) =>
+          current.filter((forwardingMessageId) => forwardingMessageId !== messageId),
+        );
       }
       syncChatPreviewFromCache(chatId);
       return {
@@ -597,11 +599,11 @@ export function useMessageActions({
 
   const forwardMessageMutation = useMutation({
     mutationFn: async ({
-      message,
+      messages,
       targetChatId,
       targetUsername,
     }: {
-      message: ChatMessage;
+      messages: ChatMessage[];
       targetChatId?: string;
       targetUsername?: string;
     }) => {
@@ -614,32 +616,42 @@ export function useMessageActions({
         targetChat = await createDirectChat(sessionToken, targetUsername);
       }
 
-      const sentMessage = await sendEncryptedMessage(
-        sessionToken,
-        targetChat.id,
-        message.content,
-        targetChat.members,
-        crypto.randomUUID(),
-        null,
-        {
-          currentUserId: currentUser.id,
-          isDirectChat: targetChat.direct,
-          session,
-        },
-      );
+      const sentMessages: ChatMessage[] = [];
+      for (const message of messages) {
+        const sentMessage = await sendEncryptedMessage(
+          sessionToken,
+          targetChat.id,
+          message.content,
+          targetChat.members,
+          crypto.randomUUID(),
+          null,
+          {
+            currentUserId: currentUser.id,
+            isDirectChat: targetChat.direct,
+            session,
+          },
+        );
+        sentMessages.push(sentMessage);
+      }
 
-      return { targetChat, sentMessage };
+      return { sentMessages, targetChat };
     },
-    onSuccess: ({ targetChat, sentMessage }) => {
+    onSuccess: ({ sentMessages, targetChat }) => {
       queryClient.setQueryData<ChatSummary[]>(["chats", sessionToken], (current) =>
         upsertChat(current, targetChat),
       );
-      queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
-        getMessagesKey(targetChat.id),
-        (current) => mergeMessagePages(current, ensureOwnMessageStatus(sentMessage, currentUser)),
+      queryClient.setQueryData<InfiniteData<ChatMessage[]>>(getMessagesKey(targetChat.id), (current) =>
+        sentMessages.reduce(
+          (pages, sentMessage) =>
+            mergeMessagePages(pages, ensureOwnMessageStatus(sentMessage, currentUser)),
+          current,
+        ),
       );
-      applyChatPreviewMessage(sentMessage);
-      applyServerChatPreviewMessage(sentMessage, "clear");
+      const latestSentMessage = sentMessages[sentMessages.length - 1] ?? null;
+      if (latestSentMessage) {
+        applyChatPreviewMessage(latestSentMessage);
+        applyServerChatPreviewMessage(latestSentMessage, "clear");
+      }
       clearComposerContext("forward");
       onOpenChat(targetChat.id, "chats");
     },
@@ -674,7 +686,75 @@ export function useMessageActions({
     deleteChatMutation.mutate(chatId);
   };
 
+  const deleteMessageForEveryoneInternal = async (
+    chatId: string,
+    messageId: string,
+    skipConfirm = false,
+  ) => {
+    setContextMenu(null);
+    if (
+      !skipConfirm &&
+      !window.confirm("РЈРґР°Р»РёС‚СЊ СЃРѕРѕР±С‰РµРЅРёРµ РґР»СЏ РІСЃРµС… СѓС‡Р°СЃС‚РЅРёРєРѕРІ С‡Р°С‚Р°?")
+    ) {
+      return false;
+    }
+
+    await deleteMessageMutation.mutateAsync({ chatId, messageId, scope: "EVERYONE" });
+    return true;
+  };
+
+  const deleteMessageForSelfInternal = async (
+    chatId: string,
+    messageId: string,
+    skipConfirm = false,
+  ) => {
+    setContextMenu(null);
+    const pendingMessages =
+      queryClient.getQueryData<LocalPendingMessage[]>(["pending-outgoing-messages", currentUser.id]) ??
+      pendingOutgoingMessages;
+    const pendingMessage = pendingMessages.find((message) => message.clientMessageId === messageId);
+    if (pendingMessage) {
+      if (
+        !skipConfirm &&
+        !window.confirm("РЈРґР°Р»РёС‚СЊ РЅРµРѕС‚РїСЂР°РІР»РµРЅРЅРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ С‚РѕР»СЊРєРѕ Сѓ РІР°СЃ?")
+      ) {
+        return false;
+      }
+
+      discardedLocalClientMessageIdsRef.current.add(messageId);
+      clearAutoResendTimer(messageId);
+      lastAutoResendAttemptAtRef.current.delete(messageId);
+      const nextPendingMessages = removeLocalPendingMessage(currentUser.id, messageId);
+      queryClient.setQueryData(["pending-outgoing-messages", currentUser.id], nextPendingMessages);
+      queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
+        getMessagesKey(chatId),
+        (current) => removeMessageByClientMessageId(current, messageId),
+      );
+      syncChatPreviewFromCache(chatId);
+      return true;
+    }
+
+    if (
+      !skipConfirm &&
+      !window.confirm("РЈРґР°Р»РёС‚СЊ СЃРѕРѕР±С‰РµРЅРёРµ С‚РѕР»СЊРєРѕ Сѓ РІР°СЃ?")
+    ) {
+      return false;
+    }
+
+    await deleteMessageMutation.mutateAsync({ chatId, messageId, scope: "SELF" });
+    return true;
+  };
+
   const deleteMessageForEveryone = (chatId: string, messageId: string) => {
+    if (
+      !window.confirm(
+        "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435 \u0434\u043b\u044f \u0432\u0441\u0435\u0445 \u0443\u0447\u0430\u0441\u0442\u043d\u0438\u043a\u043e\u0432 \u0447\u0430\u0442\u0430?"
+      )
+    ) {
+      return;
+    }
+    void deleteMessageForEveryoneInternal(chatId, messageId, true);
+    return;
     setContextMenu(null);
     if (!window.confirm("Удалить сообщение для всех участников чата?")) {
       return;
@@ -684,6 +764,20 @@ export function useMessageActions({
   };
 
   const deleteMessageForSelf = (chatId: string, messageId: string) => {
+    const localPendingMessages =
+      queryClient.getQueryData<LocalPendingMessage[]>(["pending-outgoing-messages", currentUser.id]) ??
+      pendingOutgoingMessages;
+    const localPendingMessage = localPendingMessages.find(
+      (message) => message.clientMessageId === messageId
+    );
+    const confirmationText = localPendingMessage
+      ? "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u043d\u0435\u043e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u043d\u043e\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435 \u0442\u043e\u043b\u044c\u043a\u043e \u0443 \u0432\u0430\u0441?"
+      : "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435 \u0442\u043e\u043b\u044c\u043a\u043e \u0443 \u0432\u0430\u0441?";
+    if (!window.confirm(confirmationText)) {
+      return;
+    }
+    void deleteMessageForSelfInternal(chatId, messageId, true);
+    return;
     setContextMenu(null);
     const pendingMessages =
       queryClient.getQueryData<LocalPendingMessage[]>(["pending-outgoing-messages", currentUser.id]) ??
@@ -712,6 +806,20 @@ export function useMessageActions({
     }
 
     deleteMessageMutation.mutate({ chatId, messageId, scope: "SELF" });
+  };
+
+  const deleteMessagesForEveryone = async (chatId: string, messageIds: string[]) => {
+    const uniqueMessageIds = [...new Set(messageIds)];
+    for (const messageId of uniqueMessageIds) {
+      await deleteMessageForEveryoneInternal(chatId, messageId, true);
+    }
+  };
+
+  const deleteMessagesForSelf = async (chatId: string, messageIds: string[]) => {
+    const uniqueMessageIds = [...new Set(messageIds)];
+    for (const messageId of uniqueMessageIds) {
+      await deleteMessageForSelfInternal(chatId, messageId, true);
+    }
   };
 
   const toggleReactionForMessage = (
@@ -752,7 +860,17 @@ export function useMessageActions({
 
   const forwardMessageAction = (message: ChatMessage) => {
     setContextMenu(null);
-    setForwardingMessageId(message.id);
+    setForwardingMessageIds([message.id]);
+    onOpenForwardSheet();
+  };
+
+  const forwardMessagesAction = (messages: ChatMessage[]) => {
+    if (messages.length === 0) {
+      return;
+    }
+
+    setContextMenu(null);
+    setForwardingMessageIds(messages.map((message) => message.id));
     onOpenForwardSheet();
   };
 
@@ -772,23 +890,23 @@ export function useMessageActions({
   };
 
   const forwardMessageToChat = (chatId: string) => {
-    if (!forwardingMessage) {
+    if (forwardingMessages.length === 0) {
       return;
     }
 
     forwardMessageMutation.mutate({
-      message: forwardingMessage,
+      messages: forwardingMessages,
       targetChatId: chatId,
     });
   };
 
   const forwardMessageToContact = (username: string) => {
-    if (!forwardingMessage) {
+    if (forwardingMessages.length === 0) {
       return;
     }
 
     forwardMessageMutation.mutate({
-      message: forwardingMessage,
+      messages: forwardingMessages,
       targetUsername: username,
     });
   };
@@ -876,11 +994,14 @@ export function useMessageActions({
     deleteChatMutation,
     deleteChatForSelf,
     deleteMessageForEveryone,
+    deleteMessagesForEveryone,
     deleteMessageForSelf,
+    deleteMessagesForSelf,
     deleteMessageMutation,
     editMessageAction,
     editMessageMutation,
     forwardMessageAction,
+    forwardMessagesAction,
     forwardMessageMutation,
     forwardMessageToChat,
     forwardMessageToContact,

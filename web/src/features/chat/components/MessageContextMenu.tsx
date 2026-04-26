@@ -29,6 +29,7 @@ type Props = {
   onReply: (message: ChatMessage) => void;
   onEdit: (message: ChatMessage) => void;
   onForward: (message: ChatMessage) => void;
+  onSelect: (message: ChatMessage) => void;
   onTogglePinned: (message: ChatMessage) => void;
   onCopy: (message: ChatMessage) => void;
   onDeleteForSelf: (chatId: string, messageId: string) => void;
@@ -56,6 +57,7 @@ export function MessageContextMenu({
   onReply,
   onEdit,
   onForward,
+  onSelect,
   onTogglePinned,
   onCopy,
   onDeleteForSelf,
@@ -122,6 +124,13 @@ export function MessageContextMenu({
                 </span>
               </button>
             ) : null}
+            <button type="button" className="context-menu-item" role="menuitem" onClick={() => onSelect(contextMenuMessage)}>
+              <span className="context-menu-item-icon">◉</span>
+              <span className="context-menu-item-copy">
+                <span className="context-menu-item-label">Р’С‹Р±СЂР°С‚СЊ</span>
+                <span className="context-menu-item-hint">РћС‚РјРµС‚РёС‚СЊ СЌС‚Рѕ Рё РґСЂСѓРіРёРµ СЃРѕРѕР±С‰РµРЅРёСЏ</span>
+              </span>
+            </button>
             {canPinContextMenuMessage ? (
               <button type="button" className="context-menu-item" role="menuitem" onClick={() => onTogglePinned(contextMenuMessage)}>
                 <span className="context-menu-item-icon">📌</span>

@@ -52,6 +52,12 @@ type Props = {
   isFetchingNextPage: boolean;
   replyingToMessage: ChatMessage | null;
   editingMessage: ChatMessage | null;
+  isSelectingMessages: boolean;
+  selectedMessageCount: number;
+  selectedMessageIdSet: ReadonlySet<string>;
+  canForwardSelectedMessages: boolean;
+  canDeleteSelectedMessagesForEveryone: boolean;
+  isDeleteSelectedMessagesDialogOpen: boolean;
   activeDraft: string;
   isChatMenuOpen: boolean;
   isDirectChatBlocked: boolean;
@@ -79,6 +85,13 @@ type Props = {
   onJumpToMessage: (chatId: string, messageId: string) => void;
   onClearReply: () => void;
   onClearEdit: () => void;
+  onToggleSelectedMessage: (messageId: string) => void;
+  onCancelMessageSelection: () => void;
+  onForwardSelectedMessages: () => void;
+  onRequestDeleteSelectedMessages: () => void;
+  onCloseDeleteSelectedMessagesDialog: () => void;
+  onDeleteSelectedMessagesForSelf: () => void;
+  onDeleteSelectedMessagesForEveryone: () => void;
   onRecoverEncryptionIdentity: () => void;
   onRetryMessage: (message: ChatMessage) => void;
   onDownloadAttachment: (chatId: string, attachment: ChatMessageAttachment) => void;
@@ -107,6 +120,12 @@ export function ActiveChatConversation({
   isFetchingNextPage,
   replyingToMessage,
   editingMessage,
+  isSelectingMessages,
+  selectedMessageCount,
+  selectedMessageIdSet,
+  canForwardSelectedMessages,
+  canDeleteSelectedMessagesForEveryone,
+  isDeleteSelectedMessagesDialogOpen,
   activeDraft,
   isChatMenuOpen,
   isDirectChatBlocked,
@@ -126,6 +145,13 @@ export function ActiveChatConversation({
   onJumpToMessage,
   onClearReply,
   onClearEdit,
+  onToggleSelectedMessage,
+  onCancelMessageSelection,
+  onForwardSelectedMessages,
+  onRequestDeleteSelectedMessages,
+  onCloseDeleteSelectedMessagesDialog,
+  onDeleteSelectedMessagesForSelf,
+  onDeleteSelectedMessagesForEveryone,
   onRecoverEncryptionIdentity,
   onRetryMessage,
   onDownloadAttachment,
@@ -236,7 +262,42 @@ export function ActiveChatConversation({
 
   return (
     <>
-      <header className="conversation-header north-conversation-header">
+      <header
+        className={
+          isSelectingMessages
+            ? "conversation-header north-conversation-header is-selection-mode"
+            : "conversation-header north-conversation-header"
+        }
+      >
+        {isSelectingMessages ? (
+          <div className="message-selection-toolbar">
+            <div className="message-selection-toolbar-actions">
+              <button
+                type="button"
+                className="ghost-button compact message-selection-action"
+                onClick={onForwardSelectedMessages}
+                disabled={!canForwardSelectedMessages}
+              >
+                ПЕРЕСЛАТЬ {selectedMessageCount}
+              </button>
+              <button
+                type="button"
+                className="ghost-button compact message-selection-action"
+                onClick={onRequestDeleteSelectedMessages}
+              >
+                УДАЛИТЬ {selectedMessageCount}
+              </button>
+            </div>
+            <button
+              type="button"
+              className="ghost-button compact message-selection-cancel"
+              onClick={onCancelMessageSelection}
+            >
+              ОТМЕНА
+            </button>
+          </div>
+        ) : (
+        <>
         <div className="conversation-heading">
           <button type="button" className="ghost-button compact mobile-back" onClick={onBack}>
             Чаты
@@ -324,6 +385,8 @@ export function ActiveChatConversation({
             Закрыть
           </button>
         </div>
+        </>
+        )}
       </header>
 
       {activePinnedMessage ? (
@@ -378,10 +441,13 @@ export function ActiveChatConversation({
           <ConversationTimeline
             activeChatId={activeChat.id}
             directChat={activeChat.direct}
+            isSelectingMessages={isSelectingMessages}
+            selectedMessageIdSet={selectedMessageIdSet}
             timelineItems={timelineItems}
             sessionUser={sessionUser}
             onOpenMessageContextMenu={onOpenMessageContextMenu}
             onJumpToMessage={onJumpToMessage}
+            onToggleSelectedMessage={onToggleSelectedMessage}
             onToggleReaction={onToggleReaction}
             onRetryMessage={onRetryMessage}
             onDownloadAttachment={onDownloadAttachment}
@@ -605,6 +671,53 @@ export function ActiveChatConversation({
           </button>
         </div>
       </form>
+      {isDeleteSelectedMessagesDialogOpen ? (
+        <div className="message-selection-dialog-backdrop" role="presentation">
+          <div
+            className="message-selection-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-selected-messages-title"
+          >
+            <div className="message-selection-dialog-copy">
+              <strong id="delete-selected-messages-title">Удалить сообщения</strong>
+              <span>
+                Выберите, где удалить {selectedMessageCount === 1 ? "сообщение" : `сообщения (${selectedMessageCount})`}.
+              </span>
+            </div>
+            <div className="message-selection-dialog-actions">
+              <button
+                type="button"
+                className="message-selection-dialog-option"
+                onClick={onDeleteSelectedMessagesForSelf}
+              >
+                <strong>Удалить у себя</strong>
+                <span>Сообщения исчезнут только у вас.</span>
+              </button>
+              <button
+                type="button"
+                className="message-selection-dialog-option is-danger"
+                onClick={onDeleteSelectedMessagesForEveryone}
+                disabled={!canDeleteSelectedMessagesForEveryone}
+              >
+                <strong>Удалить для всех</strong>
+                <span>
+                  {canDeleteSelectedMessagesForEveryone
+                    ? "Сообщения исчезнут у всех участников чата."
+                    : "Для всех можно удалить только сообщения, которые это позволяют."}
+                </span>
+              </button>
+            </div>
+            <button
+              type="button"
+              className="ghost-button compact message-selection-dialog-cancel"
+              onClick={onCloseDeleteSelectedMessagesDialog}
+            >
+              Отмена
+            </button>
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }
@@ -612,6 +725,8 @@ export function ActiveChatConversation({
 type ConversationTimelineProps = {
   activeChatId: string;
   directChat: boolean;
+  isSelectingMessages: boolean;
+  selectedMessageIdSet: ReadonlySet<string>;
   timelineItems: TimelineItem[];
   sessionUser: UserProfile;
   onRender?: () => void;
@@ -621,6 +736,7 @@ type ConversationTimelineProps = {
     messageId: string,
   ) => void;
   onJumpToMessage: (chatId: string, messageId: string) => void;
+  onToggleSelectedMessage: (messageId: string) => void;
   onToggleReaction: (
     chatId: string,
     messageId: string,
@@ -639,11 +755,14 @@ type ConversationTimelineProps = {
 export const ConversationTimeline = memo(function ConversationTimeline({
   activeChatId,
   directChat,
+  isSelectingMessages,
+  selectedMessageIdSet,
   timelineItems,
   sessionUser,
   onRender,
   onOpenMessageContextMenu,
   onJumpToMessage,
+  onToggleSelectedMessage,
   onToggleReaction,
   onRetryMessage,
   onDownloadAttachment,
@@ -667,10 +786,13 @@ export const ConversationTimeline = memo(function ConversationTimeline({
             key={item.key}
             chatId={activeChatId}
             directChat={directChat}
+            isSelectingMessages={isSelectingMessages}
+            selected={selectedMessageIdSet.has(item.message.id)}
             message={item.message}
             sessionUser={sessionUser}
             onOpenContextMenu={onOpenMessageContextMenu}
             onJumpToMessage={onJumpToMessage}
+            onToggleSelectedMessage={onToggleSelectedMessage}
             onToggleReaction={onToggleReaction}
             formatClock={formatClock}
             getMessageStatusClassName={getMessageStatusClassName}
@@ -691,10 +813,13 @@ ConversationTimeline.displayName = "ConversationTimeline";
 type MessageRowProps = {
   chatId: string;
   directChat: boolean;
+  isSelectingMessages: boolean;
+  selected: boolean;
   message: ChatMessage;
   sessionUser: UserProfile;
   onOpenContextMenu: (event: ReactMouseEvent<HTMLElement>, chatId: string, messageId: string) => void;
   onJumpToMessage: (chatId: string, messageId: string) => void;
+  onToggleSelectedMessage: (messageId: string) => void;
   onToggleReaction: (chatId: string, messageId: string, key: MessageReaction["key"]) => void;
   onRetryMessage: (message: ChatMessage) => void;
   onDownloadAttachment: (chatId: string, attachment: ChatMessageAttachment) => void;
@@ -709,10 +834,13 @@ type MessageRowProps = {
 const MessageRow = memo(function MessageRow({
   chatId,
   directChat,
+  isSelectingMessages,
+  selected,
   message,
   sessionUser,
   onOpenContextMenu,
   onJumpToMessage,
+  onToggleSelectedMessage,
   onToggleReaction,
   onRetryMessage,
   onDownloadAttachment,
@@ -747,12 +875,19 @@ const MessageRow = memo(function MessageRow({
     : ownMessage
       ? "message-row is-mine"
       : "message-row";
+  const selectionRowClassName = isSelectingMessages
+    ? `${rowClassName} is-selecting${selected ? " is-selected" : ""}`
+    : rowClassName;
+  const bubbleClassName = ownMessage ? "message-bubble is-mine" : "message-bubble";
+  const selectionBubbleClassName = isSelectingMessages
+    ? `${bubbleClassName} is-selection-mode${selected ? " is-selected" : ""}`
+    : bubbleClassName;
   const attachments = message.attachments ?? [];
   const shouldShowMessageText =
     message.content.trim().length > 0 && !isAttachmentOnlyFallback(message.content, attachments);
 
   return (
-    <div className={rowClassName}>
+    <div className={selectionRowClassName}>
       {showSenderAvatar ? (
         <AvatarCircle
           className="avatar message-row-avatar north-avatar"
@@ -761,12 +896,28 @@ const MessageRow = memo(function MessageRow({
           online={message.sender.online}
         />
       ) : null}
+      <div className="message-bubble-shell">
       <article
         data-message-id={message.id}
         data-message-anchor-key={message.clientMessageId ?? message.id}
-        className={ownMessage ? "message-bubble is-mine" : "message-bubble"}
-        onContextMenu={(event) => onOpenContextMenu(event, chatId, message.id)}
+        className={selectionBubbleClassName}
+        onContextMenu={(event) => {
+          if (isSelectingMessages) {
+            event.preventDefault();
+            return;
+          }
+          onOpenContextMenu(event, chatId, message.id);
+        }}
       >
+        {isSelectingMessages ? (
+          <button
+            type="button"
+            className="message-selection-overlay"
+            onClick={() => onToggleSelectedMessage(message.id)}
+            aria-label={selected ? "Снять выделение" : "Выделить сообщение"}
+            aria-pressed={selected}
+          />
+        ) : null}
         <div className={directChat ? "message-meta is-compact" : "message-meta"}>
           {!directChat ? <strong>{ownMessage ? "Вы" : message.sender.displayName}</strong> : <span />}
           <div className="message-meta-trailing">
@@ -851,6 +1002,18 @@ const MessageRow = memo(function MessageRow({
           </div>
         ) : null}
       </article>
+      {isSelectingMessages ? (
+        <button
+          type="button"
+          className={selected ? "message-select-toggle is-selected" : "message-select-toggle"}
+          onClick={() => onToggleSelectedMessage(message.id)}
+          aria-label={selected ? "Снять выделение" : "Выделить сообщение"}
+          aria-pressed={selected}
+        >
+          <span className="message-select-toggle-ring" aria-hidden="true" />
+        </button>
+      ) : null}
+      </div>
     </div>
   );
 });

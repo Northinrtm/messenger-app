@@ -50,7 +50,7 @@ type UseRealtimeChatSubscriptionOptions = {
   sendTypingHeartbeat: (chatId: string) => void;
   sessionToken: string;
   setEditingMessageId: React.Dispatch<React.SetStateAction<string | null>>;
-  setForwardingMessageId: React.Dispatch<React.SetStateAction<string | null>>;
+  setForwardingMessageIds: React.Dispatch<React.SetStateAction<string[]>>;
   setReplyingToMessageId: React.Dispatch<React.SetStateAction<string | null>>;
   setTypingByChatId: React.Dispatch<React.SetStateAction<Record<string, Participant[]>>>;
   showIncomingToast: (message: ChatMessage) => void;
@@ -118,7 +118,7 @@ export function useRealtimeChatSubscription({
   sendTypingHeartbeat,
   sessionToken,
   setEditingMessageId,
-  setForwardingMessageId,
+  setForwardingMessageIds,
   setReplyingToMessageId,
   setTypingByChatId,
   showIncomingToast,
@@ -258,12 +258,15 @@ export function useRealtimeChatSubscription({
     setReplyingToMessageId((current) => (current === event.messageId ? null : current));
     setEditingMessageId((current) => (current === event.messageId ? null : current));
     if (event.messageId) {
-      setForwardingMessageId((current) => {
-        if (current === event.messageId) {
-          clearComposerContext("forward");
-          return null;
+      setForwardingMessageIds((current) => {
+        if (!current.includes(event.messageId)) {
+          return current;
         }
-        return current;
+        const next = current.filter((messageId) => messageId !== event.messageId);
+        if (next.length === 0) {
+          clearComposerContext("forward");
+        }
+        return next;
       });
     }
     syncChatPreviewFromCache(event.chatId);

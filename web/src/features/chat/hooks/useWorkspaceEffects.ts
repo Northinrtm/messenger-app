@@ -22,9 +22,9 @@ type UseWorkspaceEffectsOptions = {
   clearChatAttention: (chatId: string) => void;
   editingMessageId: string | null;
   extractImageFromClipboard: (clipboardData: DataTransfer | null) => File | null;
-  forwardingMessageId: string | null;
+  forwardingMessageIds: string[];
   hasEditingMessage: boolean;
-  hasForwardingMessage: boolean;
+  hasForwardingMessages: boolean;
   hasReplyingMessage: boolean;
   hydratedPinnedMessage: MessageSnippet | null;
   lastMessage: ChatMessage | null;
@@ -39,7 +39,7 @@ type UseWorkspaceEffectsOptions = {
   setActiveConferenceId: React.Dispatch<React.SetStateAction<string | null>>;
   setConferenceInviteUsernames: React.Dispatch<React.SetStateAction<string[]>>;
   setEditingMessageId: React.Dispatch<React.SetStateAction<string | null>>;
-  setForwardingMessageId: React.Dispatch<React.SetStateAction<string | null>>;
+  setForwardingMessageIds: React.Dispatch<React.SetStateAction<string[]>>;
   setGroupInviteUsernames: React.Dispatch<React.SetStateAction<string[]>>;
   setIsConferenceInfoOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setIsGroupCreatePickerOpen: React.Dispatch<React.SetStateAction<boolean>>;
@@ -71,9 +71,9 @@ export function useWorkspaceEffects({
   clearChatAttention,
   editingMessageId,
   extractImageFromClipboard,
-  forwardingMessageId,
+  forwardingMessageIds,
   hasEditingMessage,
-  hasForwardingMessage,
+  hasForwardingMessages,
   hasReplyingMessage,
   hydratedPinnedMessage,
   lastMessage,
@@ -88,7 +88,7 @@ export function useWorkspaceEffects({
   setActiveConferenceId,
   setConferenceInviteUsernames,
   setEditingMessageId,
-  setForwardingMessageId,
+  setForwardingMessageIds,
   setGroupInviteUsernames,
   setIsConferenceInfoOpen,
   setIsGroupCreatePickerOpen,
@@ -188,11 +188,11 @@ export function useWorkspaceEffects({
     }
 
     if (sidebarSheet !== "forward") {
-      setForwardingMessageId(null);
+      setForwardingMessageIds([]);
     }
   }, [
     setConferenceInviteUsernames,
-    setForwardingMessageId,
+    setForwardingMessageIds,
     setGroupInviteUsernames,
     setIsGroupCreatePickerOpen,
     setIsGroupInvitePickerOpen,
@@ -212,11 +212,17 @@ export function useWorkspaceEffects({
   }, [editingMessageId, hasEditingMessage, setEditingMessageId]);
 
   useEffect(() => {
-    if (forwardingMessageId && !hasForwardingMessage && sidebarSheet === "forward") {
+    if (forwardingMessageIds.length > 0 && !hasForwardingMessages && sidebarSheet === "forward") {
       setSidebarSheet(null);
-      setForwardingMessageId(null);
+      setForwardingMessageIds([]);
     }
-  }, [forwardingMessageId, hasForwardingMessage, setForwardingMessageId, setSidebarSheet, sidebarSheet]);
+  }, [
+    forwardingMessageIds,
+    hasForwardingMessages,
+    setForwardingMessageIds,
+    setSidebarSheet,
+    sidebarSheet,
+  ]);
 
   useEffect(() => {
     if (sidebarSheet !== "profile") {

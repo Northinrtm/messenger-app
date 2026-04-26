@@ -18,7 +18,7 @@ type Props = {
   updateConferencePending: boolean;
   archivedChatsLoading: boolean;
   archivedChats: ChatSummary[];
-  forwardingMessage: ChatMessage | null;
+  forwardingMessages: ChatMessage[];
   forwardableChats: ChatSummary[];
   forwardContactOptions: UserProfile[];
   forwardPending: boolean;
@@ -59,7 +59,7 @@ export function SidebarUtilitySheets({
   updateConferencePending,
   archivedChatsLoading,
   archivedChats,
-  forwardingMessage,
+  forwardingMessages,
   forwardableChats,
   forwardContactOptions,
   forwardPending,
@@ -293,6 +293,7 @@ export function SidebarUtilitySheets({
   }
 
   if (sheet === "forward") {
+    const forwardingMessage = forwardingMessages[0] ?? null;
     return (
       <div className="sheet-card">
         <div className="sheet-head">
@@ -307,29 +308,34 @@ export function SidebarUtilitySheets({
           </button>
         </div>
 
-        {!forwardingMessage ? (
+        {forwardingMessages.length === 0 ? (
           <div className="empty-list">Сообщение для пересылки не найдено.</div>
         ) : (
           <div className="sheet-list">
             <div className="forward-preview-card">
               <span className="forward-preview-label">Сообщение</span>
-              {forwardingMessage.replyTo ? (
+              {forwardingMessage?.replyTo ? (
                 <button
                   type="button"
                   className="message-reply-card is-compact"
-                  onClick={() => onJumpToReplyTarget(forwardingMessage.chatId, forwardingMessage.replyTo!.id)}
+                  onClick={() => onJumpToReplyTarget(forwardingMessage!.chatId, forwardingMessage!.replyTo!.id)}
                 >
                   <span className="message-reply-accent" aria-hidden="true" />
                   <span className="message-reply-copy">
-                    <strong>{forwardingMessage.replyTo.sender.displayName}</strong>
-                    <span>{forwardingMessage.replyTo.preview}</span>
+                    <strong>{forwardingMessage!.replyTo!.sender.displayName}</strong>
+                    <span>{forwardingMessage!.replyTo!.preview}</span>
                   </span>
                 </button>
               ) : null}
               <div className="forward-preview-body">
-                <strong>{forwardingMessage.sender.displayName}</strong>
-                <p>{buildMessagePreview(forwardingMessage.content, 180)}</p>
+                <strong>{forwardingMessage!.sender.displayName}</strong>
+                <p>{buildMessagePreview(forwardingMessage!.content, 180)}</p>
               </div>
+              {forwardingMessages.length > 1 ? (
+                <div className="forward-preview-more">
+                  +{forwardingMessages.length - 1}
+                </div>
+              ) : null}
             </div>
 
             <div className="forward-target-section">

@@ -265,7 +265,10 @@ export function NorthMessengerWorkspace({
   const [conferenceExitRequestToken, setConferenceExitRequestToken] = useState(0);
   const [replyingToMessageId, setReplyingToMessageId] = useState<string | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
-  const [forwardingMessageId, setForwardingMessageId] = useState<string | null>(null);
+  const [forwardingMessageIds, setForwardingMessageIds] = useState<string[]>([]);
+  const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
+  const [isDeleteSelectedMessagesDialogOpen, setIsDeleteSelectedMessagesDialogOpen] =
+    useState(false);
   const [groupInviteCodesByChatId, setGroupInviteCodesByChatId] = useState<Record<string, string>>({});
   const [conferenceInviteCodesById, setConferenceInviteCodesById] = useState<Record<string, string>>({});
   const [pendingGroupMenuOpenChatId, setPendingGroupMenuOpenChatId] = useState<string | null>(null);
@@ -294,6 +297,7 @@ export function NorthMessengerWorkspace({
   const deferredSearch = useDeferredValue(search);
   const deferredContactSearch = useDeferredValue(contactSearch);
   const { sidebarWidth, startSidebarResize } = useSidebarResize();
+
   useEffect(() => {
     if (navigationUserIdRef.current === session.user.id) {
       return;
@@ -931,10 +935,66 @@ export function NorthMessengerWorkspace({
     editingMessageId && activeChat
       ? messages.find((message) => message.id === editingMessageId) ?? null
       : null;
-  const forwardingMessage =
-    forwardingMessageId && activeChat
-      ? messages.find((message) => message.id === forwardingMessageId) ?? null
-      : null;
+  const forwardingMessageIdSet = useMemo(
+    () => new Set(forwardingMessageIds),
+    [forwardingMessageIds]
+  );
+  const forwardingMessages =
+    activeChat && forwardingMessageIdSet.size > 0
+      ? messages.filter((message) => forwardingMessageIdSet.has(message.id))
+      : [];
+  const selectedMessageIdSet = useMemo(
+    () => new Set(selectedMessageIds),
+    [selectedMessageIds]
+  );
+  const selectedMessages =
+    activeChat && selectedMessageIdSet.size > 0
+      ? messages.filter((message) => selectedMessageIdSet.has(message.id))
+      : [];
+  const isSelectingMessages = selectedMessages.length > 0;
+  const canForwardSelectedMessages =
+    selectedMessages.length > 0 &&
+    selectedMessages.every((message) => !isUnavailableEncryptedMessage(message.content));
+  const canDeleteSelectedMessagesForEveryone = Boolean(
+    selectedMessages.length > 0 &&
+      selectedMessages.every(
+        (message) =>
+          message.id !== message.clientMessageId &&
+          (activeChat?.direct || isOwnMessage(message, session.user))
+      )
+  );
+
+  useEffect(() => {
+    if (selectedMessageIds.length === 0) {
+      if (isDeleteSelectedMessagesDialogOpen) {
+        setIsDeleteSelectedMessagesDialogOpen(false);
+      }
+      return;
+    }
+
+    const validSelectedMessageIds = messages
+      .filter((message) => selectedMessageIdSet.has(message.id))
+      .map((message) => message.id);
+    if (validSelectedMessageIds.length === 0) {
+      setSelectedMessageIds([]);
+      setIsDeleteSelectedMessagesDialogOpen(false);
+      return;
+    }
+
+    if (validSelectedMessageIds.length !== selectedMessageIds.length) {
+      setSelectedMessageIds(validSelectedMessageIds);
+    }
+  }, [
+    isDeleteSelectedMessagesDialogOpen,
+    messages,
+    selectedMessageIds,
+    selectedMessageIdSet,
+  ]);
+
+  useEffect(() => {
+    setSelectedMessageIds([]);
+    setIsDeleteSelectedMessagesDialogOpen(false);
+  }, [activeChat?.id]);
   const hydratedPinnedMessage =
     activeChat?.pinnedMessage &&
     messages.find((message) => message.id === activeChat.pinnedMessage?.id)
@@ -1212,7 +1272,7 @@ export function NorthMessengerWorkspace({
       setEditingMessageId(null);
     }
     if (mode === "all" || mode === "forward") {
-      setForwardingMessageId(null);
+      setForwardingMessageIds([]);
       if (sidebarSheet === "forward") {
         setSidebarSheet(null);
       }
@@ -1296,11 +1356,14 @@ export function NorthMessengerWorkspace({
     deleteChatForSelf,
     deleteChatMutation,
     deleteMessageForEveryone,
+    deleteMessagesForEveryone,
     deleteMessageForSelf,
+    deleteMessagesForSelf,
     deleteMessageMutation,
     editMessageAction,
     editMessageMutation,
     forwardMessageAction,
+    forwardMessagesAction,
     forwardMessageMutation,
     forwardMessageToChat,
     forwardMessageToContact,
@@ -1326,7 +1389,7 @@ export function NorthMessengerWorkspace({
     deleteChatLocally,
     editingMessage,
     focusComposer,
-    forwardingMessage,
+    forwardingMessages,
     incrementPendingOutgoing,
     decrementPendingOutgoing,
     isRealtimeConnected,
@@ -1341,11 +1404,64 @@ export function NorthMessengerWorkspace({
     setContextMenu,
     setDraftsByChatId,
     setEditingMessageId,
-    setForwardingMessageId,
+    setForwardingMessageIds,
     setReplyingToMessageId,
     stopTyping,
     syncChatPinnedSummary,
     syncChatPreviewFromCache,
+  });
+
+  const clearMessageSelection = useEffectEvent(() => {
+    setSelectedMessageIds([]);
+    setIsDeleteSelectedMessagesDialogOpen(false);
+  });
+
+  const startMessageSelection = useEffectEvent((message: ChatMessage) => {
+    setContextMenu(null);
+    setSelectedMessageIds([message.id]);
+    setIsDeleteSelectedMessagesDialogOpen(false);
+  });
+
+  const toggleMessageSelection = useEffectEvent((messageId: string) => {
+    setSelectedMessageIds((current) =>
+      current.includes(messageId)
+        ? current.filter((selectedMessageId) => selectedMessageId !== messageId)
+        : [...current, messageId]
+    );
+    setIsDeleteSelectedMessagesDialogOpen(false);
+  });
+
+  const openSelectedMessagesForward = useEffectEvent(() => {
+    if (selectedMessages.length === 0) {
+      return;
+    }
+
+    forwardMessagesAction(selectedMessages);
+    clearMessageSelection();
+  });
+
+  const confirmDeleteSelectedMessagesForSelf = useEffectEvent(() => {
+    if (!activeChat || selectedMessages.length === 0) {
+      return;
+    }
+
+    void deleteMessagesForSelf(
+      activeChat.id,
+      selectedMessages.map((message) => message.id)
+    );
+    clearMessageSelection();
+  });
+
+  const confirmDeleteSelectedMessagesForEveryone = useEffectEvent(() => {
+    if (!activeChat || selectedMessages.length === 0 || !canDeleteSelectedMessagesForEveryone) {
+      return;
+    }
+
+    void deleteMessagesForEveryone(
+      activeChat.id,
+      selectedMessages.map((message) => message.id)
+    );
+    clearMessageSelection();
   });
 
   const handleRecoverEncryptionIdentity = useEffectEvent(async () => {
@@ -1876,9 +1992,9 @@ export function NorthMessengerWorkspace({
     clearChatAttention,
     editingMessageId,
     extractImageFromClipboard,
-    forwardingMessageId,
+    forwardingMessageIds,
     hasEditingMessage: Boolean(editingMessage),
-    hasForwardingMessage: Boolean(forwardingMessage),
+    hasForwardingMessages: forwardingMessages.length > 0,
     hasReplyingMessage: Boolean(replyingToMessage),
     hydratedPinnedMessage,
     lastMessage,
@@ -1893,7 +2009,7 @@ export function NorthMessengerWorkspace({
     setActiveConferenceId,
     setConferenceInviteUsernames,
     setEditingMessageId,
-    setForwardingMessageId,
+    setForwardingMessageIds,
     setGroupInviteUsernames,
     setIsConferenceInfoOpen,
     setIsGroupCreatePickerOpen,
@@ -1936,7 +2052,7 @@ export function NorthMessengerWorkspace({
     sendTypingHeartbeat,
     sessionToken: session.token,
     setEditingMessageId,
-    setForwardingMessageId,
+    setForwardingMessageIds,
     setReplyingToMessageId,
     setTypingByChatId,
     showIncomingToast,
@@ -2129,7 +2245,7 @@ export function NorthMessengerWorkspace({
     updateConferencePending: updateConferenceMutation.isPending,
     archivedChatsLoading,
     archivedChats,
-    forwardingMessage,
+    forwardingMessages,
     forwardableChats,
     forwardContactOptions,
     forwardPending: forwardMessageMutation.isPending,
@@ -2330,6 +2446,12 @@ export function NorthMessengerWorkspace({
           isFetchingNextPage: messagesQuery.isFetchingNextPage,
           replyingToMessage,
           editingMessage,
+          isSelectingMessages,
+          selectedMessageCount: selectedMessages.length,
+          selectedMessageIdSet,
+          canForwardSelectedMessages,
+          canDeleteSelectedMessagesForEveryone,
+          isDeleteSelectedMessagesDialogOpen,
           activeDraft,
           isChatMenuOpen,
           isDirectChatBlocked: activeDirectBlockedByMe,
@@ -2360,6 +2482,13 @@ export function NorthMessengerWorkspace({
           onJumpToMessage: scrollToMessage,
           onClearReply: () => clearComposerContext("reply"),
           onClearEdit: () => clearComposerContext("edit"),
+          onToggleSelectedMessage: toggleMessageSelection,
+          onCancelMessageSelection: clearMessageSelection,
+          onForwardSelectedMessages: openSelectedMessagesForward,
+          onRequestDeleteSelectedMessages: () => setIsDeleteSelectedMessagesDialogOpen(true),
+          onCloseDeleteSelectedMessagesDialog: () => setIsDeleteSelectedMessagesDialogOpen(false),
+          onDeleteSelectedMessagesForSelf: confirmDeleteSelectedMessagesForSelf,
+          onDeleteSelectedMessagesForEveryone: confirmDeleteSelectedMessagesForEveryone,
           onRecoverEncryptionIdentity: handleRecoverEncryptionIdentity,
           onRetryMessage: retryFailedMessage,
           onDownloadAttachment: handleDownloadAttachment,
@@ -2482,6 +2611,7 @@ export function NorthMessengerWorkspace({
         onReply: replyToMessage,
         onEdit: editMessageAction,
         onForward: forwardMessageAction,
+        onSelect: startMessageSelection,
         onTogglePinned: togglePinnedMessageAction,
         onCopy: copyMessageText,
         onDeleteForSelf: deleteMessageForSelf,
