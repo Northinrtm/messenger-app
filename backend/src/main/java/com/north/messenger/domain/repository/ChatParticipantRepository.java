@@ -1,8 +1,10 @@
 package com.north.messenger.domain.repository;
 
 import com.north.messenger.domain.model.ChatParticipant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -32,6 +34,19 @@ public interface ChatParticipantRepository extends JpaRepository<ChatParticipant
     boolean existsSharedChatBetweenUsers(
             @Param("firstUserId") UUID firstUserId,
             @Param("secondUserId") UUID secondUserId
+    );
+
+    @Query("""
+            select distinct otherMembership.userId
+            from ChatParticipant sharedMembership
+            join ChatParticipant otherMembership
+              on otherMembership.chatId = sharedMembership.chatId
+            where sharedMembership.userId = :currentUserId
+              and otherMembership.userId in :otherUserIds
+            """)
+    Set<UUID> findUserIdsSharingAnyChatWithUser(
+            @Param("currentUserId") UUID currentUserId,
+            @Param("otherUserIds") Collection<UUID> otherUserIds
     );
 
     void deleteByChatIdAndUserId(UUID chatId, UUID userId);

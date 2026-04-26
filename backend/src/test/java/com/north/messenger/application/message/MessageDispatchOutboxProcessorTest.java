@@ -32,6 +32,7 @@ class MessageDispatchOutboxProcessorTest {
                 messageDispatchService,
                 clusterJobLockService,
                 32,
+                4,
                 3_000L
         );
         when(messageDispatchOutboxRepository.save(any(MessageDispatchOutboxEntry.class)))
@@ -46,10 +47,10 @@ class MessageDispatchOutboxProcessorTest {
                 new MessageDispatchEvent(UUID.randomUUID(), UUID.randomUUID(), "client-1", MessageDispatchMode.FULL),
                 now.minusSeconds(5)
         );
-        when(messageDispatchOutboxRepository.findAllByProcessedAtIsNullAndAvailableAtLessThanEqualOrderByCreatedAtAsc(
+        when(messageDispatchOutboxRepository.lockDueEntriesForProcessing(
                 any(),
-                any()
-        )).thenReturn(List.of(entry));
+                any(Integer.class)
+        )).thenReturn(List.of(entry), List.of());
 
         int processedCount = messageDispatchOutboxProcessor.processDueEntries(now);
 
@@ -70,10 +71,10 @@ class MessageDispatchOutboxProcessorTest {
                 new MessageDispatchEvent(UUID.randomUUID(), UUID.randomUUID(), "client-2", MessageDispatchMode.ACK_ONLY),
                 now.minusSeconds(5)
         );
-        when(messageDispatchOutboxRepository.findAllByProcessedAtIsNullAndAvailableAtLessThanEqualOrderByCreatedAtAsc(
+        when(messageDispatchOutboxRepository.lockDueEntriesForProcessing(
                 any(),
-                any()
-        )).thenReturn(List.of(entry));
+                any(Integer.class)
+        )).thenReturn(List.of(entry), List.of());
         doThrow(new IllegalStateException("simulated dispatch failure"))
                 .when(messageDispatchService)
                 .dispatchMessage(any(MessageDispatchEvent.class), any());
@@ -86,5 +87,41 @@ class MessageDispatchOutboxProcessorTest {
         assertThat(entry.getAvailableAt()).isEqualTo(now.plusSeconds(3));
         assertThat(entry.getLastError()).contains("simulated dispatch failure");
         verify(messageDispatchOutboxRepository).save(entry);
+    }
+
+    @Test
+    void processDueEntriesShouldDrainMultipleBatchesInSingleRun() {
+        Instant now = Instant.parse("2026-04-23T16:00:00Z");
+        MessageDispatchOutboxEntry firstEntry = new MessageDispatchOutboxEntry(
+                UUID.randomUUID(),
+                new MessageDispatchEvent(UUID.randomUUID(), UUID.randomUUID(), "client-1", MessageDispatchMode.FULL),
+                now.minusSeconds(5)
+        );
+        MessageDispatchOutboxEntry secondEntry = new MessageDispatchOutboxEntry(
+                UUID.randomUUID(),
+                new MessageDispatchEvent(UUID.randomUUID(), UUID.randomUUID(), "client-2", MessageDispatchMode.FULL),
+                now.minusSeconds(4)
+        );
+
+        messageDispatchOutboxProcessor = new MessageDispatchOutboxProcessor(
+                messageDispatchOutboxRepository,
+                messageDispatchService,
+                mock(ClusterJobLockService.class),
+                1,
+                4,
+                3_000L
+        );
+        when(messageDispatchOutboxRepository.save(any(MessageDispatchOutboxEntry.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(messageDispatchOutboxRepository.lockDueEntriesForProcessing(any(), any(Integer.class)))
+                .thenReturn(List.of(firstEntry), List.of(secondEntry), List.of());
+
+        int processedCount = messageDispatchOutboxProcessor.processDueEntries(now);
+
+        assertThat(processedCount).isEqualTo(2);
+        verify(messageDispatchService).dispatchMessage(firstEntry.toEvent(), "outbox");
+        verify(messageDispatchService).dispatchMessage(secondEntry.toEvent(), "outbox");
+        verify(messageDispatchOutboxRepository).save(firstEntry);
+        verify(messageDispatchOutboxRepository).save(secondEntry);
     }
 }

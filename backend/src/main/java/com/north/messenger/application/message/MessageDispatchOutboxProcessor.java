@@ -8,7 +8,6 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,19 +23,22 @@ class MessageDispatchOutboxProcessor {
     private final MessageDispatchService messageDispatchService;
     private final ClusterJobLockService clusterJobLockService;
     private final int batchSize;
+    private final int maxBatchesPerDrain;
     private final long retryDelayMs;
 
     MessageDispatchOutboxProcessor(
             MessageDispatchOutboxRepository messageDispatchOutboxRepository,
             MessageDispatchService messageDispatchService,
             ClusterJobLockService clusterJobLockService,
-            @Value("${app.outbox.message-dispatch.batch-size:32}") int batchSize,
+            @Value("${app.outbox.message-dispatch.batch-size:128}") int batchSize,
+            @Value("${app.outbox.message-dispatch.max-batches-per-drain:16}") int maxBatchesPerDrain,
             @Value("${app.outbox.message-dispatch.retry-delay-ms:3000}") long retryDelayMs
     ) {
         this.messageDispatchOutboxRepository = messageDispatchOutboxRepository;
         this.messageDispatchService = messageDispatchService;
         this.clusterJobLockService = clusterJobLockService;
         this.batchSize = Math.max(1, batchSize);
+        this.maxBatchesPerDrain = Math.max(1, maxBatchesPerDrain);
         this.retryDelayMs = Math.max(250L, retryDelayMs);
     }
 
@@ -46,8 +48,8 @@ class MessageDispatchOutboxProcessor {
     }
 
     @Scheduled(
-            fixedDelayString = "${app.outbox.message-dispatch.poll-fixed-delay-ms:5000}",
-            initialDelayString = "${app.outbox.message-dispatch.poll-fixed-delay-ms:5000}"
+            fixedDelayString = "${app.outbox.message-dispatch.poll-fixed-delay-ms:1000}",
+            initialDelayString = "${app.outbox.message-dispatch.poll-fixed-delay-ms:1000}"
     )
     @Transactional
     public void drainScheduledEntries() {
@@ -55,17 +57,21 @@ class MessageDispatchOutboxProcessor {
     }
 
     int processDueEntries(Instant now) {
-        List<MessageDispatchOutboxEntry> dueEntries =
-                messageDispatchOutboxRepository.findAllByProcessedAtIsNullAndAvailableAtLessThanEqualOrderByCreatedAtAsc(
-                        now,
-                        PageRequest.of(0, batchSize)
-                );
-        if (dueEntries.isEmpty()) {
-            return 0;
-        }
+        int processedCount = 0;
+        for (int batchIndex = 0; batchIndex < maxBatchesPerDrain; batchIndex += 1) {
+            List<MessageDispatchOutboxEntry> dueEntries =
+                    messageDispatchOutboxRepository.lockDueEntriesForProcessing(now, batchSize);
+            if (dueEntries.isEmpty()) {
+                break;
+            }
 
-        dueEntries.forEach(entry -> processEntry(entry, now));
-        return dueEntries.size();
+            dueEntries.forEach(entry -> processEntry(entry, now));
+            processedCount += dueEntries.size();
+            if (dueEntries.size() < batchSize) {
+                break;
+            }
+        }
+        return processedCount;
     }
 
     private void processEntry(MessageDispatchOutboxEntry entry, Instant now) {
@@ -89,7 +95,15 @@ class MessageDispatchOutboxProcessor {
         clusterJobLockService.runIfLockAcquired(
                 MESSAGE_DISPATCH_OUTBOX_LOCK_ID,
                 () -> {
-                    processDueEntries(now);
+                    int processedCount = processDueEntries(now);
+                    if (processedCount >= batchSize * maxBatchesPerDrain) {
+                        LOGGER.debug(
+                                "Message dispatch outbox drain reached per-run budget processedCount={} batchSize={} maxBatchesPerDrain={}",
+                                processedCount,
+                                batchSize,
+                                maxBatchesPerDrain
+                        );
+                    }
                 }
         );
     }

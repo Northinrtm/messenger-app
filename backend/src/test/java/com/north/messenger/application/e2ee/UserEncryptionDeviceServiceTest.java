@@ -25,6 +25,7 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
@@ -484,8 +485,10 @@ class UserEncryptionDeviceServiceTest {
 
         when(authService.requireAuthenticatedSession("north", "token"))
                 .thenReturn(new AuthService.AuthenticatedSession(currentUser, currentSessionId));
-        when(chatParticipantRepository.existsSharedChatBetweenUsers(currentUser.getId(), remoteUser.getId()))
-                .thenReturn(true);
+        when(authService.findUsersBlockedEitherDirection(currentUser.getId(), Set.of(remoteUser.getId())))
+                .thenReturn(Set.of());
+        when(chatParticipantRepository.findUserIdsSharingAnyChatWithUser(currentUser.getId(), Set.of(remoteUser.getId())))
+                .thenReturn(Set.of(remoteUser.getId()));
         when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(remoteUser.getId())))
                 .thenReturn(List.of(remoteDevice));
         when(userEncryptionOneTimePrekeyRepository.findFirstByDeviceIdAndClaimedAtIsNullOrderByCreatedAtAsc(remoteDevice.getId()))
@@ -541,8 +544,10 @@ class UserEncryptionDeviceServiceTest {
 
         when(authService.requireAuthenticatedSession("north", "token"))
                 .thenReturn(new AuthService.AuthenticatedSession(currentUser, currentSessionId));
-        when(chatParticipantRepository.existsSharedChatBetweenUsers(currentUser.getId(), remoteUser.getId()))
-                .thenReturn(false);
+        when(authService.findUsersBlockedEitherDirection(currentUser.getId(), Set.of(remoteUser.getId())))
+                .thenReturn(Set.of());
+        when(chatParticipantRepository.findUserIdsSharingAnyChatWithUser(currentUser.getId(), Set.of(remoteUser.getId())))
+                .thenReturn(Set.of());
 
         assertThatThrownBy(() -> userEncryptionDeviceService.resolveDeviceBundles(
                 "north",
@@ -592,9 +597,10 @@ class UserEncryptionDeviceServiceTest {
 
         when(authService.requireAuthenticatedSession("north", "token"))
                 .thenReturn(new AuthService.AuthenticatedSession(currentUser, currentSessionId));
-        when(authService.isBlockedEitherDirection(currentUser.getId(), remoteUser.getId())).thenReturn(false);
-        when(chatParticipantRepository.existsSharedChatBetweenUsers(currentUser.getId(), remoteUser.getId()))
-                .thenReturn(true);
+        when(authService.findUsersBlockedEitherDirection(currentUser.getId(), Set.of(remoteUser.getId())))
+                .thenReturn(Set.of());
+        when(chatParticipantRepository.findUserIdsSharingAnyChatWithUser(currentUser.getId(), Set.of(remoteUser.getId())))
+                .thenReturn(Set.of(remoteUser.getId()));
         when(userEncryptionDeviceRepository.findById(requesterDevice.getId())).thenReturn(Optional.of(requesterDevice));
         when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(remoteUser.getId())))
                 .thenReturn(List.of(remoteDevice));
@@ -638,7 +644,8 @@ class UserEncryptionDeviceServiceTest {
 
         when(authService.requireAuthenticatedSession("north", "token"))
                 .thenReturn(new AuthService.AuthenticatedSession(currentUser, currentSessionId));
-        when(authService.isBlockedEitherDirection(currentUser.getId(), remoteUser.getId())).thenReturn(true);
+        when(authService.findUsersBlockedEitherDirection(currentUser.getId(), Set.of(remoteUser.getId())))
+                .thenReturn(Set.of(remoteUser.getId()));
 
         assertThatThrownBy(() -> userEncryptionDeviceService.resolveDeviceBundles(
                 "north",
@@ -651,7 +658,7 @@ class UserEncryptionDeviceServiceTest {
                 )
         )).hasMessageContaining("unavailable for this user");
 
-        verify(chatParticipantRepository, never()).existsSharedChatBetweenUsers(any(UUID.class), any(UUID.class));
+        verify(chatParticipantRepository, never()).findUserIdsSharingAnyChatWithUser(any(UUID.class), any());
         verify(userEncryptionDeviceRepository, never()).findAllByUserIdInAndRetiredAtIsNull(any());
     }
 

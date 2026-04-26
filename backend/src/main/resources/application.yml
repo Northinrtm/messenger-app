@@ -35,7 +35,10 @@ spring:
     properties:
       hibernate:
         jdbc:
+          batch_size: ${APP_JPA_HIBERNATE_BATCH_SIZE:128}
           time_zone: UTC
+        order_inserts: true
+        order_updates: true
         format_sql: true
   flyway:
     enabled: true
@@ -123,9 +126,19 @@ app:
     generate-secret-if-missing: ${APP_JWT_GENERATE_SECRET_IF_MISSING:false}
   outbox:
     message-dispatch:
-      batch-size: ${APP_OUTBOX_MESSAGE_DISPATCH_BATCH_SIZE:32}
-      poll-fixed-delay-ms: ${APP_OUTBOX_MESSAGE_DISPATCH_POLL_FIXED_DELAY_MS:5000}
+      batch-size: ${APP_OUTBOX_MESSAGE_DISPATCH_BATCH_SIZE:128}
+      max-batches-per-drain: ${APP_OUTBOX_MESSAGE_DISPATCH_MAX_BATCHES_PER_DRAIN:16}
+      poll-fixed-delay-ms: ${APP_OUTBOX_MESSAGE_DISPATCH_POLL_FIXED_DELAY_MS:1000}
       retry-delay-ms: ${APP_OUTBOX_MESSAGE_DISPATCH_RETRY_DELAY_MS:3000}
+  async:
+    message-dispatch:
+      core-pool-size: ${APP_ASYNC_MESSAGE_DISPATCH_CORE_POOL_SIZE:4}
+      max-pool-size: ${APP_ASYNC_MESSAGE_DISPATCH_MAX_POOL_SIZE:16}
+      queue-capacity: ${APP_ASYNC_MESSAGE_DISPATCH_QUEUE_CAPACITY:500}
+    push-notification:
+      core-pool-size: ${APP_ASYNC_PUSH_NOTIFICATION_CORE_POOL_SIZE:2}
+      max-pool-size: ${APP_ASYNC_PUSH_NOTIFICATION_MAX_POOL_SIZE:8}
+      queue-capacity: ${APP_ASYNC_PUSH_NOTIFICATION_QUEUE_CAPACITY:200}
   media:
     conference-recordings:
       directory: ${APP_MEDIA_CONFERENCE_RECORDINGS_DIRECTORY:./storage/conference-recordings}

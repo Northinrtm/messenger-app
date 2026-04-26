@@ -3,6 +3,7 @@ package com.north.messenger.config;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
 import java.util.concurrent.Executor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -11,25 +12,35 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 public class AsyncConfig {
 
     @Bean(name = "messageDispatchExecutor")
-    public Executor messageDispatchExecutor(MeterRegistry meterRegistry) {
+    public Executor messageDispatchExecutor(
+            MeterRegistry meterRegistry,
+            @Value("${app.async.message-dispatch.core-pool-size:4}") int corePoolSize,
+            @Value("${app.async.message-dispatch.max-pool-size:16}") int maxPoolSize,
+            @Value("${app.async.message-dispatch.queue-capacity:500}") int queueCapacity
+    ) {
         return buildMonitoredExecutor(
                 meterRegistry,
                 "message-dispatch-",
-                4,
-                16,
-                500,
+                corePoolSize,
+                maxPoolSize,
+                queueCapacity,
                 "messenger.message.dispatch.executor"
         );
     }
 
     @Bean(name = "pushNotificationExecutor")
-    public Executor pushNotificationExecutor(MeterRegistry meterRegistry) {
+    public Executor pushNotificationExecutor(
+            MeterRegistry meterRegistry,
+            @Value("${app.async.push-notification.core-pool-size:2}") int corePoolSize,
+            @Value("${app.async.push-notification.max-pool-size:8}") int maxPoolSize,
+            @Value("${app.async.push-notification.queue-capacity:200}") int queueCapacity
+    ) {
         return buildMonitoredExecutor(
                 meterRegistry,
                 "push-notify-",
-                2,
-                8,
-                200,
+                corePoolSize,
+                maxPoolSize,
+                queueCapacity,
                 "messenger.push.notification.executor"
         );
     }
@@ -43,9 +54,9 @@ public class AsyncConfig {
             String metricName
     ) {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(corePoolSize);
-        executor.setMaxPoolSize(maxPoolSize);
-        executor.setQueueCapacity(queueCapacity);
+        executor.setCorePoolSize(Math.max(1, corePoolSize));
+        executor.setMaxPoolSize(Math.max(Math.max(1, corePoolSize), maxPoolSize));
+        executor.setQueueCapacity(Math.max(0, queueCapacity));
         executor.setThreadNamePrefix(threadNamePrefix);
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(10);

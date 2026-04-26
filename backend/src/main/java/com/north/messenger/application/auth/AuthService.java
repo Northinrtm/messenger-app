@@ -27,6 +27,7 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collection;
 import java.util.HexFormat;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -535,6 +536,26 @@ public class AuthService {
     public boolean isBlockedEitherDirection(UUID firstUserId, UUID secondUserId) {
         return userBlockRepository.existsByUserIdAndBlockedUserId(firstUserId, secondUserId)
                 || userBlockRepository.existsByUserIdAndBlockedUserId(secondUserId, firstUserId);
+    }
+
+    public Set<UUID> findUsersBlockedEitherDirection(UUID userId, Collection<UUID> otherUserIds) {
+        if (userId == null || otherUserIds == null || otherUserIds.isEmpty()) {
+            return Set.of();
+        }
+
+        LinkedHashSet<UUID> normalizedUserIds = otherUserIds.stream()
+                .filter(Objects::nonNull)
+                .filter(otherUserId -> !userId.equals(otherUserId))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (normalizedUserIds.isEmpty()) {
+            return Set.of();
+        }
+
+        LinkedHashSet<UUID> blockedUserIds = new LinkedHashSet<>(
+                userBlockRepository.findBlockedUserIds(userId, normalizedUserIds)
+        );
+        blockedUserIds.addAll(userBlockRepository.findBlockingUserIds(userId, normalizedUserIds));
+        return Set.copyOf(blockedUserIds);
     }
 
     public void assertUsersCanCommunicate(UserAccount currentUser, UserAccount otherUser) {

@@ -240,7 +240,7 @@ public class UserEncryptionDeviceService {
         }
         Set<UUID> requestedUserIds = request.userIds().stream()
                 .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
+                .collect(Collectors.toCollection(LinkedHashSet::new));
         if (requestedUserIds.isEmpty()) {
             return List.of();
         }
@@ -419,17 +419,29 @@ public class UserEncryptionDeviceService {
     }
 
     private void assertBundleAccess(UUID currentUserId, Set<UUID> requestedUserIds) {
-        for (UUID requestedUserId : requestedUserIds) {
-            if (requestedUserId.equals(currentUserId)) {
-                continue;
-            }
-            if (authService.isBlockedEitherDirection(currentUserId, requestedUserId)) {
+        LinkedHashSet<UUID> otherUserIds = requestedUserIds.stream()
+                .filter(requestedUserId -> !requestedUserId.equals(currentUserId))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (otherUserIds.isEmpty()) {
+            return;
+        }
+
+        Set<UUID> blockedUserIds = authService.findUsersBlockedEitherDirection(currentUserId, otherUserIds);
+        for (UUID requestedUserId : otherUserIds) {
+            if (blockedUserIds.contains(requestedUserId)) {
                 throw new ResponseStatusException(
                         HttpStatus.FORBIDDEN,
                         "Encryption device bundles are unavailable for this user"
                 );
             }
-            if (!chatParticipantRepository.existsSharedChatBetweenUsers(currentUserId, requestedUserId)) {
+        }
+
+        Set<UUID> sharedChatUserIds = chatParticipantRepository.findUserIdsSharingAnyChatWithUser(
+                currentUserId,
+                otherUserIds
+        );
+        for (UUID requestedUserId : otherUserIds) {
+            if (!sharedChatUserIds.contains(requestedUserId)) {
                 throw new ResponseStatusException(
                         HttpStatus.FORBIDDEN,
                         "Encryption device bundles are only available for users who share a chat"
