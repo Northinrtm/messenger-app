@@ -15,6 +15,7 @@ public record UserEncryptionDeviceBundleResponse(
         String signedPrekeyPublicKey,
         String signedPrekeySignature,
         String signedPrekeyAlgorithm,
+        String deviceVersion,
         UserEncryptionDevicePrekeyResponse oneTimePrekey,
         Instant registeredAt,
         Instant lastSeenAt

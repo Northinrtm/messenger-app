@@ -21,7 +21,17 @@ class WebSocketConfigTest {
                 new String[]{"http://localhost:5173"},
                 8_388_608,
                 4_194_304,
-                20_000
+                20_000,
+                "simple",
+                "localhost",
+                61_613,
+                "",
+                "",
+                "",
+                "",
+                "",
+                10_000L,
+                10_000L
         );
         InspectableWebSocketTransportRegistration registration =
                 new InspectableWebSocketTransportRegistration();
@@ -43,7 +53,17 @@ class WebSocketConfigTest {
                 new String[]{"http://localhost:5173"},
                 8_388_608,
                 4_194_304,
-                20_000
+                20_000,
+                "simple",
+                "localhost",
+                61_613,
+                "",
+                "",
+                "",
+                "",
+                "",
+                10_000L,
+                10_000L
         );
 
         ServletServerContainerFactoryBean container = config.webSocketContainer();

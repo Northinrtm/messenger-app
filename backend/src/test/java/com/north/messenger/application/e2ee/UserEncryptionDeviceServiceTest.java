@@ -2,9 +2,11 @@ package com.north.messenger.application.e2ee;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.north.messenger.api.dto.ResolveEncryptionDeviceBundlesRequest;
+import com.north.messenger.api.dto.ResolveEncryptionDeviceManifestRequest;
 import com.north.messenger.api.dto.UserEncryptionDeviceBundleResponse;
 import com.north.messenger.api.dto.UserEncryptionDeviceResponse;
 import com.north.messenger.api.dto.UserEncryptionDeviceRequest;
+import com.north.messenger.api.dto.UserEncryptionDeviceManifestResponse;
 import com.north.messenger.api.dto.UserEncryptionOneTimePrekeyRequest;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.domain.model.UserAccount;
@@ -520,8 +522,135 @@ class UserEncryptionDeviceServiceTest {
         assertThat(bundles.get(0).deviceId()).isEqualTo(remoteDevice.getId());
         assertThat(bundles.get(0).userId()).isEqualTo(remoteUser.getId());
         assertThat(bundles.get(0).deviceName()).isNull();
+        assertThat(bundles.get(0).deviceVersion()).isNotBlank();
         assertThat(bundles.get(0).registeredAt()).isNull();
         assertThat(bundles.get(0).lastSeenAt()).isNull();
+    }
+
+    @Test
+    void resolveDeviceManifestShouldReturnFullSyncForFirstRead() {
+        UserAccount currentUser = testUserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "hash",
+                Instant.parse("2026-04-10T10:00:00Z")
+        );
+        UserAccount remoteUser = testUserAccount(
+                UUID.randomUUID(),
+                "alice",
+                "Alice",
+                "hash",
+                Instant.parse("2026-04-10T10:00:00Z")
+        );
+        UUID currentSessionId = UUID.randomUUID();
+        UserEncryptionDevice remoteDevice = device(remoteUser.getId());
+
+        when(authService.requireAuthenticatedSession("north", "token"))
+                .thenReturn(new AuthService.AuthenticatedSession(currentUser, currentSessionId));
+        when(authService.findUsersBlockedEitherDirection(currentUser.getId(), Set.of(remoteUser.getId())))
+                .thenReturn(Set.of());
+        when(chatParticipantRepository.findUserIdsSharingAnyChatWithUser(currentUser.getId(), Set.of(remoteUser.getId())))
+                .thenReturn(Set.of(remoteUser.getId()));
+        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(remoteUser.getId())))
+                .thenReturn(List.of(remoteDevice));
+
+        UserEncryptionDeviceManifestResponse manifest = userEncryptionDeviceService.resolveDeviceManifest(
+                "north",
+                "token",
+                new ResolveEncryptionDeviceManifestRequest(
+                        List.of(remoteUser.getId()),
+                        null,
+                        null,
+                        null
+                )
+        );
+
+        assertThat(manifest.fullSync()).isTrue();
+        assertThat(manifest.version()).isNotBlank();
+        assertThat(manifest.bundles()).hasSize(1);
+        assertThat(manifest.bundles().get(0).deviceId()).isEqualTo(remoteDevice.getId());
+        assertThat(manifest.bundles().get(0).deviceVersion()).isNotBlank();
+        assertThat(manifest.removedDeviceIds()).isEmpty();
+    }
+
+    @Test
+    void resolveDeviceManifestShouldReturnOnlyChangedAndRemovedDevicesForDeltaReads() {
+        UserAccount currentUser = testUserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "hash",
+                Instant.parse("2026-04-10T10:00:00Z")
+        );
+        UserAccount remoteUser = testUserAccount(
+                UUID.randomUUID(),
+                "alice",
+                "Alice",
+                "hash",
+                Instant.parse("2026-04-10T10:00:00Z")
+        );
+        UUID currentSessionId = UUID.randomUUID();
+        UserEncryptionDevice remoteDevice = device(remoteUser.getId());
+
+        when(authService.requireAuthenticatedSession("north", "token"))
+                .thenReturn(new AuthService.AuthenticatedSession(currentUser, currentSessionId));
+        when(authService.findUsersBlockedEitherDirection(currentUser.getId(), Set.of(remoteUser.getId())))
+                .thenReturn(Set.of());
+        when(chatParticipantRepository.findUserIdsSharingAnyChatWithUser(currentUser.getId(), Set.of(remoteUser.getId())))
+                .thenReturn(Set.of(remoteUser.getId()));
+        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(remoteUser.getId())))
+                .thenReturn(List.of(remoteDevice));
+
+        UserEncryptionDeviceManifestResponse initialManifest = userEncryptionDeviceService.resolveDeviceManifest(
+                "north",
+                "token",
+                new ResolveEncryptionDeviceManifestRequest(
+                        List.of(remoteUser.getId()),
+                        null,
+                        null,
+                        null
+                )
+        );
+
+        UserEncryptionDeviceManifestResponse unchangedManifest = userEncryptionDeviceService.resolveDeviceManifest(
+                "north",
+                "token",
+                new ResolveEncryptionDeviceManifestRequest(
+                        List.of(remoteUser.getId()),
+                        null,
+                        List.of(new com.north.messenger.api.dto.EncryptionDeviceManifestKnownDeviceRequest(
+                                remoteDevice.getId(),
+                                initialManifest.bundles().get(0).deviceVersion()
+                        )),
+                        initialManifest.version()
+                )
+        );
+
+        assertThat(unchangedManifest.fullSync()).isFalse();
+        assertThat(unchangedManifest.bundles()).isEmpty();
+        assertThat(unchangedManifest.removedDeviceIds()).isEmpty();
+
+        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(remoteUser.getId())))
+                .thenReturn(List.of());
+
+        UserEncryptionDeviceManifestResponse removedManifest = userEncryptionDeviceService.resolveDeviceManifest(
+                "north",
+                "token",
+                new ResolveEncryptionDeviceManifestRequest(
+                        List.of(remoteUser.getId()),
+                        null,
+                        List.of(new com.north.messenger.api.dto.EncryptionDeviceManifestKnownDeviceRequest(
+                                remoteDevice.getId(),
+                                initialManifest.bundles().get(0).deviceVersion()
+                        )),
+                        initialManifest.version()
+                )
+        );
+
+        assertThat(removedManifest.fullSync()).isFalse();
+        assertThat(removedManifest.bundles()).isEmpty();
+        assertThat(removedManifest.removedDeviceIds()).containsExactly(remoteDevice.getId());
     }
 
     @Test

@@ -3,9 +3,11 @@ package com.north.messenger.api;
 import com.north.messenger.api.dto.GroupHistoryKeyAccessResponse;
 import com.north.messenger.api.dto.GroupHistoryKeyResponse;
 import com.north.messenger.api.dto.ResolveEncryptionDeviceBundlesRequest;
+import com.north.messenger.api.dto.ResolveEncryptionDeviceManifestRequest;
 import com.north.messenger.api.dto.UpsertGroupHistoryKeyRequest;
 import com.north.messenger.api.dto.UserEncryptionDeviceBundleResponse;
 import com.north.messenger.api.dto.UserEncryptionDeviceRequest;
+import com.north.messenger.api.dto.UserEncryptionDeviceManifestResponse;
 import com.north.messenger.api.dto.UserEncryptionDeviceResponse;
 import com.north.messenger.api.dto.UserEncryptionRecoverySnapshotRequest;
 import com.north.messenger.api.dto.UserEncryptionRecoverySnapshotResponse;
@@ -70,6 +72,19 @@ public class UserEncryptionController {
             @Valid @RequestBody ResolveEncryptionDeviceBundlesRequest request
     ) {
         return userEncryptionDeviceService.resolveDeviceBundles(
+                authentication.getName(),
+                extractBearerToken(authorization),
+                request
+        );
+    }
+
+    @PostMapping("/devices/bundles/manifest")
+    public UserEncryptionDeviceManifestResponse resolveDeviceManifest(
+            Authentication authentication,
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+            @Valid @RequestBody ResolveEncryptionDeviceManifestRequest request
+    ) {
+        return userEncryptionDeviceService.resolveDeviceManifest(
                 authentication.getName(),
                 extractBearerToken(authorization),
                 request

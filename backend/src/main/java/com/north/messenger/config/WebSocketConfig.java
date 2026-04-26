@@ -22,6 +22,16 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final int messageSizeLimitBytes;
     private final int sendBufferSizeLimitBytes;
     private final int sendTimeLimitMs;
+    private final String brokerMode;
+    private final String brokerRelayHost;
+    private final int brokerRelayPort;
+    private final String brokerRelayClientLogin;
+    private final String brokerRelayClientPasscode;
+    private final String brokerRelaySystemLogin;
+    private final String brokerRelaySystemPasscode;
+    private final String brokerRelayVirtualHost;
+    private final long brokerRelaySystemHeartbeatSendIntervalMs;
+    private final long brokerRelaySystemHeartbeatReceiveIntervalMs;
 
     public WebSocketConfig(
             WebSocketAuthChannelInterceptor authChannelInterceptor,
@@ -30,7 +40,17 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
             @Value("${app.cors.allowed-origins:http://localhost:5173}") String[] allowedOrigins,
             @Value("${app.realtime.websocket.message-size-limit-bytes:8388608}") int messageSizeLimitBytes,
             @Value("${app.realtime.websocket.send-buffer-size-limit-bytes:8388608}") int sendBufferSizeLimitBytes,
-            @Value("${app.realtime.websocket.send-time-limit-ms:20000}") int sendTimeLimitMs
+            @Value("${app.realtime.websocket.send-time-limit-ms:20000}") int sendTimeLimitMs,
+            @Value("${app.realtime.broker.mode:simple}") String brokerMode,
+            @Value("${app.realtime.broker.relay.host:localhost}") String brokerRelayHost,
+            @Value("${app.realtime.broker.relay.port:61613}") int brokerRelayPort,
+            @Value("${app.realtime.broker.relay.client-login:}") String brokerRelayClientLogin,
+            @Value("${app.realtime.broker.relay.client-passcode:}") String brokerRelayClientPasscode,
+            @Value("${app.realtime.broker.relay.system-login:}") String brokerRelaySystemLogin,
+            @Value("${app.realtime.broker.relay.system-passcode:}") String brokerRelaySystemPasscode,
+            @Value("${app.realtime.broker.relay.virtual-host:}") String brokerRelayVirtualHost,
+            @Value("${app.realtime.broker.relay.system-heartbeat-send-interval-ms:10000}") long brokerRelaySystemHeartbeatSendIntervalMs,
+            @Value("${app.realtime.broker.relay.system-heartbeat-receive-interval-ms:10000}") long brokerRelaySystemHeartbeatReceiveIntervalMs
     ) {
         this.authChannelInterceptor = authChannelInterceptor;
         this.outboundSecurityInterceptor = outboundSecurityInterceptor;
@@ -39,6 +59,16 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         this.messageSizeLimitBytes = messageSizeLimitBytes;
         this.sendBufferSizeLimitBytes = sendBufferSizeLimitBytes;
         this.sendTimeLimitMs = sendTimeLimitMs;
+        this.brokerMode = brokerMode;
+        this.brokerRelayHost = brokerRelayHost;
+        this.brokerRelayPort = brokerRelayPort;
+        this.brokerRelayClientLogin = brokerRelayClientLogin;
+        this.brokerRelayClientPasscode = brokerRelayClientPasscode;
+        this.brokerRelaySystemLogin = brokerRelaySystemLogin;
+        this.brokerRelaySystemPasscode = brokerRelaySystemPasscode;
+        this.brokerRelayVirtualHost = brokerRelayVirtualHost;
+        this.brokerRelaySystemHeartbeatSendIntervalMs = brokerRelaySystemHeartbeatSendIntervalMs;
+        this.brokerRelaySystemHeartbeatReceiveIntervalMs = brokerRelaySystemHeartbeatReceiveIntervalMs;
     }
 
     @Override
@@ -49,7 +79,22 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
-        registry.enableSimpleBroker("/topic", "/queue");
+        if ("relay".equalsIgnoreCase(brokerMode)) {
+            var relay = registry.enableStompBrokerRelay("/topic", "/queue")
+                    .setRelayHost(brokerRelayHost)
+                    .setRelayPort(brokerRelayPort)
+                    .setClientLogin(brokerRelayClientLogin)
+                    .setClientPasscode(brokerRelayClientPasscode)
+                    .setSystemLogin(brokerRelaySystemLogin)
+                    .setSystemPasscode(brokerRelaySystemPasscode)
+                    .setSystemHeartbeatSendInterval(brokerRelaySystemHeartbeatSendIntervalMs)
+                    .setSystemHeartbeatReceiveInterval(brokerRelaySystemHeartbeatReceiveIntervalMs);
+            if (!brokerRelayVirtualHost.isBlank()) {
+                relay.setVirtualHost(brokerRelayVirtualHost);
+            }
+        } else {
+            registry.enableSimpleBroker("/topic", "/queue");
+        }
         registry.setApplicationDestinationPrefixes("/app");
         registry.setUserDestinationPrefix("/user");
     }

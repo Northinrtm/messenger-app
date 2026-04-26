@@ -247,9 +247,22 @@ export type UserEncryptionDeviceBundle = {
   signedPrekeyPublicKey: string;
   signedPrekeySignature: string;
   signedPrekeyAlgorithm: string;
+  deviceVersion: string | null;
   oneTimePrekey: UserEncryptionDevicePrekey | null;
   registeredAt: string;
   lastSeenAt: string;
+};
+
+export type KnownEncryptionDeviceManifestEntry = {
+  deviceId: string;
+  version: string;
+};
+
+export type UserEncryptionDeviceManifest = {
+  version: string;
+  fullSync: boolean;
+  bundles: UserEncryptionDeviceBundle[];
+  removedDeviceIds: string[];
 };
 
 export type UserEncryptionRecoverySnapshot = {

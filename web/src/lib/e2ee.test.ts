@@ -19,6 +19,7 @@ vi.mock("./api", () => {
     getOwnGroupHistoryKeys: vi.fn(),
     getOwnEncryptionRecoverySnapshot: vi.fn(),
     listOwnEncryptionDevices: vi.fn(),
+    resolveEncryptionDeviceManifest: vi.fn(),
     resolveEncryptionDeviceBundles: vi.fn(),
     updateMessage: vi.fn(),
     upsertGroupHistoryKey: vi.fn(),
@@ -37,6 +38,7 @@ import {
   getOwnGroupHistoryKeys,
   getOwnEncryptionRecoverySnapshot,
   listOwnEncryptionDevices,
+  resolveEncryptionDeviceManifest,
   resolveEncryptionDeviceBundles,
   upsertGroupHistoryKey,
   upsertOwnEncryptionRecoverySnapshot,
@@ -163,6 +165,7 @@ const deviceBundle = {
   signedPrekeyPublicKey: publicOkpJwk("X25519", "signed-prekey"),
   signedPrekeySignature: "c2lnbmF0dXJl",
   signedPrekeyAlgorithm: "X25519",
+  deviceVersion: "device-version-1",
   oneTimePrekey: null,
   registeredAt: "2026-04-09T10:00:00.000Z",
   lastSeenAt: "2026-04-09T10:00:00.000Z",
@@ -300,6 +303,7 @@ const siblingOwnDeviceBundle = {
   signedPrekeyPublicKey: siblingRegisteredDevice.signedPrekeyPublicKey,
   signedPrekeySignature: siblingRegisteredDevice.signedPrekeySignature,
   signedPrekeyAlgorithm: siblingRegisteredDevice.signedPrekeyAlgorithm,
+  deviceVersion: "self-device-version-2",
   oneTimePrekey: null,
   registeredAt: siblingRegisteredDevice.registeredAt,
   lastSeenAt: siblingRegisteredDevice.lastSeenAt,
@@ -427,6 +431,65 @@ describe("e2ee hardening", () => {
       consumeOneTimePrekeys: false,
       requesterDeviceId: undefined,
     });
+  });
+
+  it("uses the device manifest endpoint for priming when a full manifest is available", async () => {
+    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
+    vi.mocked(resolveEncryptionDeviceManifest).mockResolvedValue({
+      version: "manifest-version-1",
+      fullSync: true,
+      bundles: [deviceBundle],
+      removedDeviceIds: [],
+    });
+
+    await primeEncryptedMessageRecipients("token", [selfParticipant, participant], {
+      currentUserId: USER_ID,
+    });
+
+    expect(resolveEncryptionDeviceManifest).toHaveBeenCalledWith("token", [REMOTE_USER_ID], {
+      knownVersion: undefined,
+      knownDevices: undefined,
+    });
+    expect(resolveEncryptionDeviceBundles).not.toHaveBeenCalled();
+  });
+
+  it("merges manifest deltas for priming without falling back to legacy bundle resolve", async () => {
+    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
+    const rotatedManifestBundle = {
+      ...deviceBundle,
+      signedPrekeyId: 8,
+      signedPrekeyPublicKey: publicOkpJwk("X25519", "signed-prekey-rotated"),
+      deviceVersion: "device-version-2",
+    };
+    vi.mocked(resolveEncryptionDeviceManifest)
+      .mockResolvedValueOnce({
+        version: "manifest-version-1",
+        fullSync: true,
+        bundles: [deviceBundle],
+        removedDeviceIds: [],
+      })
+      .mockResolvedValueOnce({
+        version: "manifest-version-2",
+        fullSync: false,
+        bundles: [rotatedManifestBundle],
+        removedDeviceIds: [],
+      });
+
+    await primeEncryptedMessageRecipients("token", [selfParticipant, participant], {
+      currentUserId: USER_ID,
+    });
+    await primeEncryptedMessageRecipients("token", [selfParticipant, participant], {
+      currentUserId: USER_ID,
+      forceRefresh: true,
+    });
+
+    expect(resolveEncryptionDeviceManifest).toHaveBeenNthCalledWith(2, "token", [REMOTE_USER_ID], {
+      knownVersion: "manifest-version-1",
+      knownDevices: [{ deviceId: "device-id", version: "device-version-1" }],
+    });
+    expect(resolveEncryptionDeviceBundles).not.toHaveBeenCalled();
   });
 
   it("normalizes public Ed25519 key_ops metadata when validating device bundles", async () => {

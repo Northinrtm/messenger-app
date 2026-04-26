@@ -12,8 +12,10 @@ import type {
   Participant,
   PushNotificationConfig,
   PushSubscriptionPayload,
+  KnownEncryptionDeviceManifestEntry,
   UserEncryptionDevice,
   UserEncryptionDeviceBundle,
+  UserEncryptionDeviceManifest,
   UserEncryptionRecoverySnapshot,
   VideoConference,
   UserProfile,
@@ -938,6 +940,27 @@ export function resolveEncryptionDeviceBundles(
       consumeOneTimePrekeys: options?.consumeOneTimePrekeys === true,
       deviceIds: options?.deviceIds,
       requesterDeviceId: options?.requesterDeviceId,
+    },
+  });
+}
+
+export function resolveEncryptionDeviceManifest(
+  token: string,
+  userIds: string[],
+  options?: {
+    deviceIds?: string[];
+    knownDevices?: KnownEncryptionDeviceManifestEntry[];
+    knownVersion?: string;
+  }
+) {
+  return request<UserEncryptionDeviceManifest>("/api/e2ee/devices/bundles/manifest", {
+    method: "POST",
+    token,
+    body: {
+      userIds,
+      deviceIds: options?.deviceIds,
+      knownDevices: options?.knownDevices,
+      knownVersion: options?.knownVersion,
     },
   });
 }

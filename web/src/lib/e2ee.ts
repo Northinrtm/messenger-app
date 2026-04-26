@@ -5,6 +5,7 @@ import {
   getOwnGroupHistoryKeys,
   getOwnEncryptionRecoverySnapshot,
   listOwnEncryptionDevices,
+  resolveEncryptionDeviceManifest,
   resolveEncryptionDeviceBundles,
   upsertGroupHistoryKey,
   upsertOwnEncryptionRecoverySnapshot,
@@ -19,9 +20,11 @@ import type {
   ChatMessage,
   ChatMessageAttachment,
   EncryptedMessagePayload,
+  KnownEncryptionDeviceManifestEntry,
   Participant,
   UserEncryptionDevice,
   UserEncryptionDeviceBundle,
+  UserEncryptionDeviceManifest,
   UserEncryptionRecoverySnapshot,
 } from "./types";
 import {
@@ -104,6 +107,8 @@ const completedEncryptionDeviceRegistration = new Map<string, number>();
 const inFlightDevicePreparation = new Map<string, Promise<void>>();
 const completedDevicePreparation = new Map<string, number>();
 const preparedConversationDeviceStates = new Map<string, PreparedConversationDeviceState>();
+const completedDeviceManifestPreparation = new Map<string, number>();
+const preparedDeviceManifestStates = new Map<string, PreparedDeviceManifestState>();
 const restoredPersistentDeviceSessionKeysByUserId = new Map<string, Set<string>>();
 const hydratedRuntimeDeviceSessionsByUserId = new Set<string>();
 const runtimeWrittenDeviceSessionsByUserId = new Set<string>();
@@ -153,6 +158,8 @@ function ensureE2eeTransportStorageSchema() {
     completedEncryptionDeviceRegistration.clear();
     completedDevicePreparation.clear();
     preparedConversationDeviceStates.clear();
+    completedDeviceManifestPreparation.clear();
+    preparedDeviceManifestStates.clear();
     window.localStorage.setItem(
       E2EE_STORAGE_SCHEMA_VERSION_KEY,
       E2EE_TRANSPORT_STORAGE_SCHEMA_VERSION
@@ -217,6 +224,11 @@ type PreparedConversationDeviceState = Pick<
   ConversationDeviceBundleResolution,
   "rawBundles" | "trustedBundles"
 >;
+
+type PreparedDeviceManifestState = {
+  version: string;
+  rawBundles: UserEncryptionDeviceBundle[];
+};
 
 type DeviceOneTimePrekeyMaterial = {
   keyId: number;
@@ -1659,7 +1671,8 @@ async function prepareDeviceEncryptionState(
     } = await primeDeviceBundles(
       token,
       remoteParticipantIds,
-      ownMaterial?.deviceId ?? null
+      ownMaterial?.deviceId ?? null,
+      currentUserId
     );
     let rawBundles = remoteRawBundles;
     let trustedBundles = remoteTrustedBundles;
@@ -1791,6 +1804,7 @@ function buildOwnSiblingDeviceBundle(
     signedPrekeyPublicKey: device.signedPrekeyPublicKey,
     signedPrekeySignature: device.signedPrekeySignature,
     signedPrekeyAlgorithm: device.signedPrekeyAlgorithm,
+    deviceVersion: null,
     oneTimePrekey: null,
     registeredAt: device.registeredAt,
     lastSeenAt: device.lastSeenAt,
@@ -1825,6 +1839,49 @@ function rememberPreparedConversationDeviceState(
   });
 }
 
+function buildDeviceManifestPreparationKey(
+  currentUserId: string | null | undefined,
+  userIds: string[]
+) {
+  const normalizedUserIds = Array.from(new Set(userIds.filter(Boolean))).sort();
+  return `${currentUserId ?? "anonymous"}:${normalizedUserIds.join(",")}`;
+}
+
+function readPreparedDeviceManifestState(preparationKey: string) {
+  const preparedAt = completedDeviceManifestPreparation.get(preparationKey);
+  if (!preparedAt || Date.now() - preparedAt > DEVICE_PREPARATION_CACHE_TTL_MS) {
+    clearPreparedDeviceManifestState(preparationKey);
+    return null;
+  }
+
+  const cachedPreparedState = preparedDeviceManifestStates.get(preparationKey);
+  if (!cachedPreparedState) {
+    clearPreparedDeviceManifestState(preparationKey);
+    return null;
+  }
+
+  return {
+    version: cachedPreparedState.version,
+    rawBundles: [...cachedPreparedState.rawBundles],
+  } satisfies PreparedDeviceManifestState;
+}
+
+function rememberPreparedDeviceManifestState(
+  preparationKey: string,
+  preparedState: PreparedDeviceManifestState
+) {
+  completedDeviceManifestPreparation.set(preparationKey, Date.now());
+  preparedDeviceManifestStates.set(preparationKey, {
+    version: preparedState.version,
+    rawBundles: [...preparedState.rawBundles],
+  });
+}
+
+function clearPreparedDeviceManifestState(preparationKey: string) {
+  completedDeviceManifestPreparation.delete(preparationKey);
+  preparedDeviceManifestStates.delete(preparationKey);
+}
+
 function clearPreparedConversationDeviceState(preparationKey: string) {
   completedDevicePreparation.delete(preparationKey);
   preparedConversationDeviceStates.delete(preparationKey);
@@ -1840,6 +1897,18 @@ function clearCompletedDevicePreparation(userId: string) {
   for (const cacheKey of Array.from(preparedConversationDeviceStates.keys())) {
     if (cacheKey.startsWith(`${userId}:`)) {
       preparedConversationDeviceStates.delete(cacheKey);
+    }
+  }
+
+  for (const cacheKey of Array.from(completedDeviceManifestPreparation.keys())) {
+    if (cacheKey.startsWith(`${userId}:`)) {
+      clearPreparedDeviceManifestState(cacheKey);
+    }
+  }
+
+  for (const cacheKey of Array.from(preparedDeviceManifestStates.keys())) {
+    if (cacheKey.startsWith(`${userId}:`)) {
+      preparedDeviceManifestStates.delete(cacheKey);
     }
   }
 }
@@ -2209,7 +2278,51 @@ export function clearInFlightMessageHydration(userId?: string) {
   inFlightMessageHydrationByUserId.clear();
 }
 
-async function primeDeviceBundles(token: string, userIds: string[], requesterDeviceId?: string | null) {
+function mergeResolvedDeviceManifestBundles(
+  currentBundles: UserEncryptionDeviceBundle[],
+  nextBundles: UserEncryptionDeviceBundle[],
+  removedDeviceIds: string[]
+) {
+  const bundlesByKey = new Map(
+    currentBundles.map((bundle) => [getDeviceBundleMapKey(bundle.userId, bundle.deviceId), bundle])
+  );
+  const removedDeviceIdSet = new Set(removedDeviceIds);
+
+  for (const bundle of nextBundles) {
+    bundlesByKey.set(getDeviceBundleMapKey(bundle.userId, bundle.deviceId), bundle);
+  }
+
+  for (const [bundleKey, bundle] of Array.from(bundlesByKey.entries())) {
+    if (removedDeviceIdSet.has(bundle.deviceId)) {
+      bundlesByKey.delete(bundleKey);
+    }
+  }
+
+  return Array.from(bundlesByKey.values());
+}
+
+function isResolvedDeviceManifestResponse(
+  value: unknown
+): value is UserEncryptionDeviceManifest {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Partial<UserEncryptionDeviceManifest>;
+  return (
+    typeof candidate.version === "string" &&
+    typeof candidate.fullSync === "boolean" &&
+    Array.isArray(candidate.bundles) &&
+    Array.isArray(candidate.removedDeviceIds)
+  );
+}
+
+async function primeDeviceBundles(
+  token: string,
+  userIds: string[],
+  requesterDeviceId?: string | null,
+  currentUserId?: string | null
+) {
   const uniqueUserIds = Array.from(new Set(userIds.filter(Boolean)));
   if (uniqueUserIds.length === 0) {
     return {
@@ -2220,15 +2333,53 @@ async function primeDeviceBundles(token: string, userIds: string[], requesterDev
 
   let rawBundles: UserEncryptionDeviceBundle[] = [];
   try {
-    rawBundles = await resolveEncryptionDeviceBundles(token, uniqueUserIds, {
-      consumeOneTimePrekeys: false,
-      requesterDeviceId: requesterDeviceId ?? undefined,
+    const manifestPreparationKey = buildDeviceManifestPreparationKey(currentUserId, uniqueUserIds);
+    const cachedManifestState = readPreparedDeviceManifestState(manifestPreparationKey);
+    const knownDevices: KnownEncryptionDeviceManifestEntry[] | undefined = cachedManifestState
+      ? cachedManifestState.rawBundles
+          .filter(
+            (bundle): bundle is UserEncryptionDeviceBundle & { deviceVersion: string } =>
+              typeof bundle.deviceVersion === "string" && bundle.deviceVersion.length > 0
+          )
+          .map((bundle) => ({
+            deviceId: bundle.deviceId,
+            version: bundle.deviceVersion,
+          }))
+      : undefined;
+    const manifestResponse = await resolveEncryptionDeviceManifest(token, uniqueUserIds, {
+      knownVersion: cachedManifestState?.version,
+      knownDevices,
+    });
+    if (!isResolvedDeviceManifestResponse(manifestResponse)) {
+      throw new Error("Invalid encryption device manifest response");
+    }
+
+    rawBundles = manifestResponse.fullSync
+      ? manifestResponse.bundles
+      : cachedManifestState
+        ? mergeResolvedDeviceManifestBundles(
+            cachedManifestState.rawBundles,
+            manifestResponse.bundles,
+            manifestResponse.removedDeviceIds
+          )
+        : manifestResponse.bundles;
+
+    rememberPreparedDeviceManifestState(manifestPreparationKey, {
+      version: manifestResponse.version,
+      rawBundles,
     });
   } catch {
-    return {
-      rawBundles: [] as UserEncryptionDeviceBundle[],
-      trustedBundles: [] as UserEncryptionDeviceBundle[],
-    };
+    try {
+      rawBundles = await resolveEncryptionDeviceBundles(token, uniqueUserIds, {
+        consumeOneTimePrekeys: false,
+        requesterDeviceId: requesterDeviceId ?? undefined,
+      });
+    } catch {
+      return {
+        rawBundles: [] as UserEncryptionDeviceBundle[],
+        trustedBundles: [] as UserEncryptionDeviceBundle[],
+      };
+    }
   }
 
   const trustedBundles = await Promise.all(
@@ -2295,7 +2446,8 @@ async function resolveConversationDeviceBundles(
   const { rawBundles, trustedBundles } = await primeDeviceBundles(
     token,
     participants.map((participant) => participant.id),
-    requesterDeviceId
+    requesterDeviceId,
+    currentUserId
   );
   return buildConversationDeviceBundleResolution(
     participants,
@@ -3227,6 +3379,7 @@ function buildSelfDeviceBundle(
     signedPrekeyPublicKey: ownMaterial.signedPrekeyPublicKey,
     signedPrekeySignature: ownMaterial.signedPrekeySignature,
     signedPrekeyAlgorithm: ownMaterial.signedPrekeyAlgorithm,
+    deviceVersion: null,
     oneTimePrekey: null,
     registeredAt: ownMaterial.createdAt,
     lastSeenAt: ownMaterial.createdAt,

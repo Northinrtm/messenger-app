@@ -1,16 +1,22 @@
 package com.north.messenger.application.e2ee;
 
 import com.north.messenger.api.dto.ResolveEncryptionDeviceBundlesRequest;
+import com.north.messenger.api.dto.ResolveEncryptionDeviceManifestRequest;
 import com.north.messenger.api.dto.UserEncryptionDeviceBundleResponse;
 import com.north.messenger.api.dto.UserEncryptionDeviceRequest;
+import com.north.messenger.api.dto.UserEncryptionDeviceManifestResponse;
 import com.north.messenger.api.dto.UserEncryptionDevicePrekeyResponse;
 import com.north.messenger.api.dto.UserEncryptionDeviceResponse;
 import com.north.messenger.api.dto.UserEncryptionOneTimePrekeyRequest;
+import com.north.messenger.api.dto.EncryptionDeviceManifestKnownDeviceRequest;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.domain.model.UserEncryptionDevice;
 import com.north.messenger.domain.model.UserEncryptionOneTimePrekey;
 import com.north.messenger.domain.model.UserEncryptionSignedPrekey;
 import com.north.messenger.domain.model.UserSession;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import com.north.messenger.domain.repository.ChatParticipantRepository;
 import com.north.messenger.domain.repository.UserEncryptionDeviceRepository;
 import com.north.messenger.domain.repository.UserEncryptionOneTimePrekeyRepository;
@@ -19,7 +25,10 @@ import com.north.messenger.domain.repository.UserSessionRepository;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -299,6 +308,90 @@ public class UserEncryptionDeviceService {
         return bundles;
     }
 
+    @Transactional
+    public UserEncryptionDeviceManifestResponse resolveDeviceManifest(
+            String username,
+            String accessToken,
+            ResolveEncryptionDeviceManifestRequest request
+    ) {
+        AuthService.AuthenticatedSession authenticatedSession = authService.requireAuthenticatedSession(
+                username,
+                accessToken
+        );
+        UUID currentUserId = authenticatedSession.user().getId();
+        Set<UUID> requestedUserIds = normalizeRequestedUserIds(request.userIds());
+        if (requestedUserIds.isEmpty()) {
+            return new UserEncryptionDeviceManifestResponse(
+                    computeManifestVersion(List.of()),
+                    true,
+                    List.of(),
+                    List.of()
+            );
+        }
+        assertBundleAccess(currentUserId, requestedUserIds);
+
+        Set<UUID> requestedDeviceIds = request.deviceIds() == null
+                ? Set.of()
+                : request.deviceIds().stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        List<UserEncryptionDeviceBundleResponse> currentBundles = visibleDevices(
+                userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.copyOf(requestedUserIds))
+        ).stream()
+                .filter(device -> requestedDeviceIds.isEmpty() || requestedDeviceIds.contains(device.getId()))
+                .map(device -> toBundleResponse(device, null))
+                .sorted(Comparator
+                        .comparing(UserEncryptionDeviceBundleResponse::userId)
+                        .thenComparing(UserEncryptionDeviceBundleResponse::deviceId))
+                .toList();
+
+        String currentVersion = computeManifestVersion(currentBundles);
+        if (request.knownVersion() != null && request.knownVersion().equals(currentVersion)) {
+            return new UserEncryptionDeviceManifestResponse(
+                    currentVersion,
+                    false,
+                    List.of(),
+                    List.of()
+            );
+        }
+
+        Map<UUID, String> knownDeviceVersions = normalizeKnownDeviceVersions(request.knownDevices());
+        if (knownDeviceVersions.isEmpty()) {
+            return new UserEncryptionDeviceManifestResponse(
+                    currentVersion,
+                    true,
+                    currentBundles,
+                    List.of()
+            );
+        }
+
+        Map<UUID, UserEncryptionDeviceBundleResponse> currentBundlesByDeviceId = currentBundles.stream()
+                .collect(Collectors.toMap(
+                        UserEncryptionDeviceBundleResponse::deviceId,
+                        Function.identity(),
+                        (left, right) -> right,
+                        LinkedHashMap::new
+                ));
+        List<UserEncryptionDeviceBundleResponse> changedBundles = currentBundles.stream()
+                .filter(bundle -> !Objects.equals(
+                        knownDeviceVersions.get(bundle.deviceId()),
+                        bundle.deviceVersion()
+                ))
+                .toList();
+        List<UUID> removedDeviceIds = knownDeviceVersions.keySet().stream()
+                .filter(deviceId -> !currentBundlesByDeviceId.containsKey(deviceId))
+                .sorted()
+                .toList();
+
+        return new UserEncryptionDeviceManifestResponse(
+                currentVersion,
+                false,
+                changedBundles,
+                removedDeviceIds
+        );
+    }
+
     private void syncSignedPrekeys(UserEncryptionDevice device, UserEncryptionDeviceRequest request, Instant now) {
         userEncryptionSignedPrekeyRepository.deleteExpiredByDeviceId(device.getId(), now);
 
@@ -410,12 +503,79 @@ public class UserEncryptionDeviceService {
                 device.getSignedPrekeyPublicKey(),
                 device.getSignedPrekeySignature(),
                 device.getSignedPrekeyAlgorithm(),
+                computeDeviceVersion(device),
                 oneTimePrekey != null
                         ? new UserEncryptionDevicePrekeyResponse(oneTimePrekey.getKeyId(), oneTimePrekey.getPublicKey())
                         : null,
                 null,
                 null
         );
+    }
+
+    private Set<UUID> normalizeRequestedUserIds(List<UUID> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return Set.of();
+        }
+
+        return userIds.stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private Map<UUID, String> normalizeKnownDeviceVersions(
+            List<EncryptionDeviceManifestKnownDeviceRequest> knownDevices
+    ) {
+        if (knownDevices == null || knownDevices.isEmpty()) {
+            return Map.of();
+        }
+
+        LinkedHashMap<UUID, String> normalizedVersions = new LinkedHashMap<>();
+        for (EncryptionDeviceManifestKnownDeviceRequest knownDevice : knownDevices) {
+            if (knownDevice == null || knownDevice.deviceId() == null) {
+                continue;
+            }
+            String normalizedVersion = knownDevice.version() == null ? "" : knownDevice.version().trim();
+            if (normalizedVersion.isEmpty()) {
+                continue;
+            }
+            normalizedVersions.put(knownDevice.deviceId(), normalizedVersion);
+        }
+        return normalizedVersions;
+    }
+
+    private String computeManifestVersion(List<UserEncryptionDeviceBundleResponse> bundles) {
+        String manifestPayload = bundles.stream()
+                .sorted(Comparator
+                        .comparing(UserEncryptionDeviceBundleResponse::userId)
+                        .thenComparing(UserEncryptionDeviceBundleResponse::deviceId))
+                .map(bundle -> bundle.userId() + ":" + bundle.deviceId() + ":" + bundle.deviceVersion())
+                .collect(Collectors.joining("\n"));
+        return sha256Hex(manifestPayload);
+    }
+
+    private String computeDeviceVersion(UserEncryptionDevice device) {
+        return sha256Hex(String.join(
+                "\n",
+                device.getUserId().toString(),
+                device.getId().toString(),
+                device.getIdentityKeyAlgorithm(),
+                device.getIdentityKey(),
+                device.getIdentitySignatureKeyAlgorithm(),
+                device.getIdentitySignatureKey(),
+                Integer.toString(device.getSignedPrekeyId()),
+                device.getSignedPrekeyAlgorithm(),
+                device.getSignedPrekeyPublicKey(),
+                device.getSignedPrekeySignature()
+        ));
+    }
+
+    private String sha256Hex(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(value.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is required for device manifest hashing", exception);
+        }
     }
 
     private void assertBundleAccess(UUID currentUserId, Set<UUID> requestedUserIds) {

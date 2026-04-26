@@ -109,6 +109,18 @@ app:
   e2ee:
     max-active-devices-per-user: ${APP_E2EE_MAX_ACTIVE_DEVICES_PER_USER:8}
   realtime:
+    broker:
+      mode: ${APP_REALTIME_BROKER_MODE:simple}
+      relay:
+        host: ${APP_REALTIME_BROKER_RELAY_HOST:localhost}
+        port: ${APP_REALTIME_BROKER_RELAY_PORT:61613}
+        client-login: ${APP_REALTIME_BROKER_RELAY_CLIENT_LOGIN:}
+        client-passcode: ${APP_REALTIME_BROKER_RELAY_CLIENT_PASSCODE:}
+        system-login: ${APP_REALTIME_BROKER_RELAY_SYSTEM_LOGIN:}
+        system-passcode: ${APP_REALTIME_BROKER_RELAY_SYSTEM_PASSCODE:}
+        virtual-host: ${APP_REALTIME_BROKER_RELAY_VIRTUAL_HOST:}
+        system-heartbeat-send-interval-ms: ${APP_REALTIME_BROKER_RELAY_SYSTEM_HEARTBEAT_SEND_INTERVAL_MS:10000}
+        system-heartbeat-receive-interval-ms: ${APP_REALTIME_BROKER_RELAY_SYSTEM_HEARTBEAT_RECEIVE_INTERVAL_MS:10000}
     redis:
       enabled: ${APP_REALTIME_REDIS_ENABLED:false}
       mac-secret: ${APP_REALTIME_REDIS_MAC_SECRET:}
