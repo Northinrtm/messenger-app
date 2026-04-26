@@ -177,6 +177,7 @@ const TYPING_QUERY_GC_TIME_MS = 15_000;
 const SEARCH_QUERY_GC_TIME_MS = 30_000;
 const CONFERENCE_ACTIVATION_LEAD_MS = 5 * 60 * 1000;
 const CHAT_ENCRYPTION_WARNING_GRACE_MS = 500;
+const BUILD_META_POLL_MS = 60_000;
 
 const initialPushNotificationState = (): PushNotificationClientState => ({
   supported: isPushNotificationSupported(),
@@ -190,6 +191,11 @@ type ChatEncryptionIdentityWarning = {
   participantIds: string[];
   errorText: string | null;
   isVisible: boolean;
+};
+
+type BuildRevisionMeta = {
+  revision: string;
+  builtAt: string | null;
 };
 
 function buildInviteUrl(code: string) {
@@ -279,7 +285,9 @@ export function NorthMessengerWorkspace({
   const [seenConferenceActivitySnapshot, setSeenConferenceActivitySnapshot] = useState<
     Record<string, string> | null
   >(null);
+  const [availableBuildUpdate, setAvailableBuildUpdate] = useState<BuildRevisionMeta | null>(null);
   const navigationUserIdRef = useRef(session.user.id);
+  const loadedBuildRevisionRef = useRef<string | null>(null);
   const handledRealtimeMessageIdsRef = useRef(new Map<string, true>());
   const conferenceListScrollRef = useRef<HTMLDivElement | null>(null);
   const conferenceSurfaceRef = useRef<HTMLDivElement | null>(null);
@@ -307,6 +315,46 @@ export function NorthMessengerWorkspace({
     setConferenceEditingId(null);
     setSearch("");
   }, [session.user.id]);
+  useEffect(() => {
+    let cancelled = false;
+
+    const syncBuildRevision = async () => {
+      const nextBuildRevision = await readCurrentBuildRevision();
+      if (cancelled || !nextBuildRevision?.revision) {
+        return;
+      }
+
+      if (!loadedBuildRevisionRef.current) {
+        loadedBuildRevisionRef.current = nextBuildRevision.revision;
+        return;
+      }
+
+      if (nextBuildRevision.revision !== loadedBuildRevisionRef.current) {
+        setAvailableBuildUpdate(nextBuildRevision);
+      }
+    };
+
+    const handleForegroundSync = () => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+      void syncBuildRevision();
+    };
+
+    void syncBuildRevision();
+    const intervalId = window.setInterval(() => {
+      void syncBuildRevision();
+    }, BUILD_META_POLL_MS);
+    window.addEventListener("focus", handleForegroundSync);
+    document.addEventListener("visibilitychange", handleForegroundSync);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleForegroundSync);
+      document.removeEventListener("visibilitychange", handleForegroundSync);
+    };
+  }, []);
   useEffect(() => {
     if (navigationUserIdRef.current !== session.user.id) {
       return;
@@ -2039,6 +2087,29 @@ export function NorthMessengerWorkspace({
   const workspaceStyle: CSSProperties = {
     ["--north-sidebar-width" as string]: `${sidebarWidth}px`,
   };
+  const buildUpdateBannerStyle: CSSProperties = {
+    position: "fixed",
+    top: 16,
+    left: "50%",
+    transform: "translateX(-50%)",
+    zIndex: 30,
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    maxWidth: "min(680px, calc(100vw - 32px))",
+    padding: "12px 16px",
+    borderRadius: 16,
+    background: "rgba(20, 34, 53, 0.96)",
+    border: "1px solid rgba(125, 181, 255, 0.28)",
+    boxShadow: "0 18px 40px rgba(0, 0, 0, 0.28)",
+    color: "rgba(245, 248, 255, 0.96)",
+    backdropFilter: "blur(14px)",
+  };
+  const buildUpdateMessageStyle: CSSProperties = {
+    margin: 0,
+    fontSize: 14,
+    lineHeight: 1.4,
+  };
   const sidebarUtilitySheetProps: ComponentProps<typeof SidebarUtilitySheets> = {
     sheet:
       sidebarSheet === "conference" ||
@@ -2425,6 +2496,17 @@ export function NorthMessengerWorkspace({
       data-mobile-pane={mobilePane}
       style={workspaceStyle}
     >
+      {availableBuildUpdate ? (
+        <div style={buildUpdateBannerStyle} role="status" aria-live="polite">
+          <p style={buildUpdateMessageStyle}>
+            Доступна новая версия приложения. Обновите вкладку, чтобы применить последние
+            исправления доставки и шифрования.
+          </p>
+          <button type="button" className="ghost-button compact" onClick={() => window.location.reload()}>
+            Обновить
+          </button>
+        </div>
+      ) : null}
       <WorkspaceSidebar
         activeListTab={activeListTab}
         chatListContent={chatListContent}
@@ -2483,5 +2565,28 @@ export function NorthMessengerWorkspace({
 
 function isTransientSendConfirmationError(error: unknown) {
   return error instanceof ApiError && [0, 503, 504].includes(error.status);
+}
+
+async function readCurrentBuildRevision(): Promise<BuildRevisionMeta | null> {
+  try {
+    const response = await fetch("/build-meta.json", {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return null;
+    }
+
+    const candidate = (await response.json()) as Partial<BuildRevisionMeta> | null;
+    if (!candidate || typeof candidate.revision !== "string" || candidate.revision.length === 0) {
+      return null;
+    }
+
+    return {
+      revision: candidate.revision,
+      builtAt: typeof candidate.builtAt === "string" ? candidate.builtAt : null,
+    };
+  } catch {
+    return null;
+  }
 }
 
