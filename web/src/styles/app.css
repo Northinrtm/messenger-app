@@ -2725,7 +2725,7 @@ select {
 }
 
 .message-row.is-selecting {
-  align-items: center;
+  align-items: flex-end;
 }
 
 .message-row.is-mine {
@@ -2745,9 +2745,15 @@ select {
 }
 
 .message-bubble-shell {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 0.85rem;
+}
+
+.message-row.is-mine .message-bubble-shell {
+  justify-content: flex-end;
 }
 
 .north-workspace .message-bubble {
@@ -2833,6 +2839,7 @@ select {
   width: 2rem;
   height: 2rem;
   flex: 0 0 2rem;
+  align-self: center;
   display: grid;
   place-items: center;
   padding: 0;

@@ -9,13 +9,52 @@ type ReactionOption = {
   label: string;
 };
 
+const MENU_COPY = {
+  reactionsAria: "\u0420\u0435\u0430\u043A\u0446\u0438\u0438 \u043D\u0430 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435",
+  replyLabel: "\u041E\u0442\u0432\u0435\u0442\u0438\u0442\u044C",
+  replyHint:
+    "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0446\u0438\u0442\u0430\u0442\u0443 \u043D\u0430\u0434 \u043F\u043E\u043B\u0435\u043C \u0432\u0432\u043E\u0434\u0430",
+  editLabel: "\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C",
+  editHint:
+    "\u0418\u0437\u043C\u0435\u043D\u0438\u0442\u044C \u0442\u0435\u043A\u0441\u0442 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F",
+  forwardLabel: "\u041F\u0435\u0440\u0435\u0441\u043B\u0430\u0442\u044C",
+  forwardHint:
+    "\u041E\u0442\u043F\u0440\u0430\u0432\u0438\u0442\u044C \u0432 \u0434\u0440\u0443\u0433\u043E\u0439 \u0447\u0430\u0442 \u0438\u043B\u0438 \u0433\u0440\u0443\u043F\u043F\u0443",
+  selectLabel: "\u0412\u044B\u0431\u0440\u0430\u0442\u044C",
+  selectHint:
+    "\u041E\u0442\u043C\u0435\u0442\u0438\u0442\u044C \u044D\u0442\u043E \u0438 \u0434\u0440\u0443\u0433\u0438\u0435 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F",
+  pinLabel: "\u0417\u0430\u043A\u0440\u0435\u043F\u0438\u0442\u044C",
+  unpinLabel: "\u041E\u0442\u043A\u0440\u0435\u043F\u0438\u0442\u044C",
+  pinHint:
+    "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435 \u0441\u0432\u0435\u0440\u0445\u0443 \u0447\u0430\u0442\u0430",
+  unpinHint:
+    "\u0423\u0431\u0440\u0430\u0442\u044C \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435 \u0438\u0437 \u0448\u0430\u043F\u043A\u0438 \u0447\u0430\u0442\u0430",
+  copyLabel:
+    "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0442\u0435\u043A\u0441\u0442",
+  copyHint:
+    "\u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435 \u0432 \u0431\u0443\u0444\u0435\u0440",
+  deleteForSelfLabel:
+    "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0443 \u0441\u0435\u0431\u044F",
+  deleteForSelfHint:
+    "\u0421\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435 \u0438\u0441\u0447\u0435\u0437\u043D\u0435\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u0443 \u0432\u0430\u0441",
+  deleteForEveryoneDisabled:
+    "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0434\u043B\u044F \u0432\u0441\u0435\u0445 \u043C\u043E\u0436\u043D\u043E \u0442\u043E\u043B\u044C\u043A\u043E \u0441\u0432\u043E\u0438 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F",
+  deleteChatForSelfLabel:
+    "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0447\u0430\u0442 \u0443 \u0441\u0435\u0431\u044F",
+  deleteChatForSelfHint:
+    "\u0427\u0430\u0442 \u0438\u0441\u0447\u0435\u0437\u043D\u0435\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u0438\u0437 \u0432\u0430\u0448\u0435\u0433\u043E \u0441\u043F\u0438\u0441\u043A\u0430",
+};
+
 type Props = {
   contextMenu: ContextMenuState;
   contextMenuRef: RefObject<HTMLDivElement | null>;
   contextMenuStyle?: CSSProperties;
   contextMenuMessage: ChatMessage | null;
   reactionOptions: ReactionOption[];
-  getMessageReaction: (message: ChatMessage, key: MessageReaction["key"]) => MessageReaction | null | undefined;
+  getMessageReaction: (
+    message: ChatMessage,
+    key: MessageReaction["key"]
+  ) => MessageReaction | null | undefined;
   onToggleReaction: (chatId: string, messageId: string, key: MessageReaction["key"]) => void;
   canReactContextMenuMessage: boolean;
   canEditContextMenuMessage: boolean;
@@ -67,7 +106,7 @@ export function MessageContextMenu({
   return (
     <div ref={contextMenuRef} className="context-menu-shell" style={contextMenuStyle}>
       {contextMenu.kind === "message" && contextMenuMessage ? (
-        <div className="context-menu-reaction-bar" aria-label="Реакции на сообщение">
+        <div className="context-menu-reaction-bar" aria-label={MENU_COPY.reactionsAria}>
           {reactionOptions.map((reactionOption) => {
             const reaction = getMessageReaction(contextMenuMessage, reactionOption.key);
             return (
@@ -99,56 +138,86 @@ export function MessageContextMenu({
       >
         {contextMenu.kind === "message" && contextMenuMessage ? (
           <>
-            <button type="button" className="context-menu-item" role="menuitem" onClick={() => onReply(contextMenuMessage)}>
+            <button
+              type="button"
+              className="context-menu-item"
+              role="menuitem"
+              onClick={() => onReply(contextMenuMessage)}
+            >
               <span className="context-menu-item-icon">↩</span>
               <span className="context-menu-item-copy">
-                <span className="context-menu-item-label">Ответить</span>
-                <span className="context-menu-item-hint">Показать цитату над полем ввода</span>
+                <span className="context-menu-item-label">{MENU_COPY.replyLabel}</span>
+                <span className="context-menu-item-hint">{MENU_COPY.replyHint}</span>
               </span>
             </button>
             {canEditContextMenuMessage ? (
-              <button type="button" className="context-menu-item" role="menuitem" onClick={() => onEdit(contextMenuMessage)}>
+              <button
+                type="button"
+                className="context-menu-item"
+                role="menuitem"
+                onClick={() => onEdit(contextMenuMessage)}
+              >
                 <span className="context-menu-item-icon">✎</span>
                 <span className="context-menu-item-copy">
-                  <span className="context-menu-item-label">Редактировать</span>
-                  <span className="context-menu-item-hint">Изменить текст сообщения</span>
+                  <span className="context-menu-item-label">{MENU_COPY.editLabel}</span>
+                  <span className="context-menu-item-hint">{MENU_COPY.editHint}</span>
                 </span>
               </button>
             ) : null}
             {canForwardContextMenuMessage ? (
-              <button type="button" className="context-menu-item" role="menuitem" onClick={() => onForward(contextMenuMessage)}>
+              <button
+                type="button"
+                className="context-menu-item"
+                role="menuitem"
+                onClick={() => onForward(contextMenuMessage)}
+              >
                 <span className="context-menu-item-icon">⇢</span>
                 <span className="context-menu-item-copy">
-                  <span className="context-menu-item-label">Переслать</span>
-                  <span className="context-menu-item-hint">Отправить в другой чат или группу</span>
+                  <span className="context-menu-item-label">{MENU_COPY.forwardLabel}</span>
+                  <span className="context-menu-item-hint">{MENU_COPY.forwardHint}</span>
                 </span>
               </button>
             ) : null}
-            <button type="button" className="context-menu-item" role="menuitem" onClick={() => onSelect(contextMenuMessage)}>
+            <button
+              type="button"
+              className="context-menu-item"
+              role="menuitem"
+              onClick={() => onSelect(contextMenuMessage)}
+            >
               <span className="context-menu-item-icon">◉</span>
               <span className="context-menu-item-copy">
-                <span className="context-menu-item-label">Р’С‹Р±СЂР°С‚СЊ</span>
-                <span className="context-menu-item-hint">РћС‚РјРµС‚РёС‚СЊ СЌС‚Рѕ Рё РґСЂСѓРіРёРµ СЃРѕРѕР±С‰РµРЅРёСЏ</span>
+                <span className="context-menu-item-label">{MENU_COPY.selectLabel}</span>
+                <span className="context-menu-item-hint">{MENU_COPY.selectHint}</span>
               </span>
             </button>
             {canPinContextMenuMessage ? (
-              <button type="button" className="context-menu-item" role="menuitem" onClick={() => onTogglePinned(contextMenuMessage)}>
+              <button
+                type="button"
+                className="context-menu-item"
+                role="menuitem"
+                onClick={() => onTogglePinned(contextMenuMessage)}
+              >
                 <span className="context-menu-item-icon">📌</span>
                 <span className="context-menu-item-copy">
-                  <span className="context-menu-item-label">{isPinnedContextMenuMessage ? "Открепить" : "Закрепить"}</span>
+                  <span className="context-menu-item-label">
+                    {isPinnedContextMenuMessage ? MENU_COPY.unpinLabel : MENU_COPY.pinLabel}
+                  </span>
                   <span className="context-menu-item-hint">
-                    {isPinnedContextMenuMessage
-                      ? "Убрать сообщение из шапки чата"
-                      : "Показать сообщение сверху чата"}
+                    {isPinnedContextMenuMessage ? MENU_COPY.unpinHint : MENU_COPY.pinHint}
                   </span>
                 </span>
               </button>
             ) : null}
-            <button type="button" className="context-menu-item" role="menuitem" onClick={() => onCopy(contextMenuMessage)}>
+            <button
+              type="button"
+              className="context-menu-item"
+              role="menuitem"
+              onClick={() => onCopy(contextMenuMessage)}
+            >
               <span className="context-menu-item-icon">⧉</span>
               <span className="context-menu-item-copy">
-                <span className="context-menu-item-label">Копировать текст</span>
-                <span className="context-menu-item-hint">Скопировать сообщение в буфер</span>
+                <span className="context-menu-item-label">{MENU_COPY.copyLabel}</span>
+                <span className="context-menu-item-hint">{MENU_COPY.copyHint}</span>
               </span>
             </button>
             <button
@@ -160,8 +229,8 @@ export function MessageContextMenu({
             >
               <span className="context-menu-item-icon">🗑</span>
               <span className="context-menu-item-copy">
-                <span className="context-menu-item-label">Удалить у себя</span>
-                <span className="context-menu-item-hint">Сообщение исчезнет только у вас</span>
+                <span className="context-menu-item-label">{MENU_COPY.deleteForSelfLabel}</span>
+                <span className="context-menu-item-hint">{MENU_COPY.deleteForSelfHint}</span>
               </span>
             </button>
             <button
@@ -177,7 +246,7 @@ export function MessageContextMenu({
                 <span className="context-menu-item-hint">
                   {canDeleteContextMenuMessageForEveryone
                     ? deleteForEveryoneHint
-                    : "Удалить для всех можно только свои сообщения"}
+                    : MENU_COPY.deleteForEveryoneDisabled}
                 </span>
               </span>
             </button>
@@ -191,8 +260,8 @@ export function MessageContextMenu({
           >
             <span className="context-menu-item-icon">🗑</span>
             <span className="context-menu-item-copy">
-              <span className="context-menu-item-label">Удалить чат у себя</span>
-              <span className="context-menu-item-hint">Чат исчезнет только из вашего списка</span>
+              <span className="context-menu-item-label">{MENU_COPY.deleteChatForSelfLabel}</span>
+              <span className="context-menu-item-hint">{MENU_COPY.deleteChatForSelfHint}</span>
             </span>
           </button>
         )}

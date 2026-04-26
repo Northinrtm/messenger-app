@@ -38,6 +38,32 @@ type EncryptionIdentityWarning = {
   isPending: boolean;
 };
 
+const MESSAGE_SELECTION_COPY = {
+  toolbarForward: "\u041F\u0415\u0420\u0415\u0421\u041B\u0410\u0422\u042C",
+  toolbarDelete: "\u0423\u0414\u0410\u041B\u0418\u0422\u042C",
+  toolbarCancel: "\u041E\u0422\u041C\u0415\u041D\u0410",
+  dialogTitle:
+    "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F",
+  dialogPromptSingle:
+    "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435, \u0433\u0434\u0435 \u0443\u0434\u0430\u043B\u0438\u0442\u044C \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435.",
+  dialogPromptManyPrefix:
+    "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435, \u0433\u0434\u0435 \u0443\u0434\u0430\u043B\u0438\u0442\u044C \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F",
+  dialogDeleteForSelf:
+    "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0443 \u0441\u0435\u0431\u044F",
+  dialogDeleteForSelfHint:
+    "\u0421\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F \u0438\u0441\u0447\u0435\u0437\u043D\u0443\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u0443 \u0432\u0430\u0441.",
+  dialogDeleteForEveryone:
+    "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0434\u043B\u044F \u0432\u0441\u0435\u0445",
+  dialogDeleteForEveryoneHint:
+    "\u0421\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F \u0438\u0441\u0447\u0435\u0437\u043D\u0443\u0442 \u0443 \u0432\u0441\u0435\u0445 \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A\u043E\u0432 \u0447\u0430\u0442\u0430.",
+  dialogDeleteForEveryoneDisabled:
+    "\u0414\u043B\u044F \u0432\u0441\u0435\u0445 \u043C\u043E\u0436\u043D\u043E \u0443\u0434\u0430\u043B\u0438\u0442\u044C \u0442\u043E\u043B\u044C\u043A\u043E \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u044D\u0442\u043E \u043F\u043E\u0437\u0432\u043E\u043B\u044F\u044E\u0442.",
+  dialogCancel: "\u041E\u0442\u043C\u0435\u043D\u0430",
+  selectMessage: "\u0412\u044B\u0434\u0435\u043B\u0438\u0442\u044C \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435",
+  deselectMessage:
+    "\u0421\u043D\u044F\u0442\u044C \u0432\u044B\u0434\u0435\u043B\u0435\u043D\u0438\u0435",
+};
+
 type Props = {
   activeChat: ChatSummary;
   activeDirectParticipant: Participant | null;
@@ -278,14 +304,14 @@ export function ActiveChatConversation({
                 onClick={onForwardSelectedMessages}
                 disabled={!canForwardSelectedMessages}
               >
-                ПЕРЕСЛАТЬ {selectedMessageCount}
+                {MESSAGE_SELECTION_COPY.toolbarForward} {selectedMessageCount}
               </button>
               <button
                 type="button"
                 className="ghost-button compact message-selection-action"
                 onClick={onRequestDeleteSelectedMessages}
               >
-                УДАЛИТЬ {selectedMessageCount}
+                {MESSAGE_SELECTION_COPY.toolbarDelete} {selectedMessageCount}
               </button>
             </div>
             <button
@@ -293,7 +319,7 @@ export function ActiveChatConversation({
               className="ghost-button compact message-selection-cancel"
               onClick={onCancelMessageSelection}
             >
-              ОТМЕНА
+              {MESSAGE_SELECTION_COPY.toolbarCancel}
             </button>
           </div>
         ) : (
@@ -680,9 +706,11 @@ export function ActiveChatConversation({
             aria-labelledby="delete-selected-messages-title"
           >
             <div className="message-selection-dialog-copy">
-              <strong id="delete-selected-messages-title">Удалить сообщения</strong>
+              <strong id="delete-selected-messages-title">{MESSAGE_SELECTION_COPY.dialogTitle}</strong>
               <span>
-                Выберите, где удалить {selectedMessageCount === 1 ? "сообщение" : `сообщения (${selectedMessageCount})`}.
+                {selectedMessageCount === 1
+                  ? MESSAGE_SELECTION_COPY.dialogPromptSingle
+                  : `${MESSAGE_SELECTION_COPY.dialogPromptManyPrefix} (${selectedMessageCount}).`}
               </span>
             </div>
             <div className="message-selection-dialog-actions">
@@ -691,8 +719,8 @@ export function ActiveChatConversation({
                 className="message-selection-dialog-option"
                 onClick={onDeleteSelectedMessagesForSelf}
               >
-                <strong>Удалить у себя</strong>
-                <span>Сообщения исчезнут только у вас.</span>
+                <strong>{MESSAGE_SELECTION_COPY.dialogDeleteForSelf}</strong>
+                <span>{MESSAGE_SELECTION_COPY.dialogDeleteForSelfHint}</span>
               </button>
               <button
                 type="button"
@@ -700,11 +728,11 @@ export function ActiveChatConversation({
                 onClick={onDeleteSelectedMessagesForEveryone}
                 disabled={!canDeleteSelectedMessagesForEveryone}
               >
-                <strong>Удалить для всех</strong>
+                <strong>{MESSAGE_SELECTION_COPY.dialogDeleteForEveryone}</strong>
                 <span>
                   {canDeleteSelectedMessagesForEveryone
-                    ? "Сообщения исчезнут у всех участников чата."
-                    : "Для всех можно удалить только сообщения, которые это позволяют."}
+                    ? MESSAGE_SELECTION_COPY.dialogDeleteForEveryoneHint
+                    : MESSAGE_SELECTION_COPY.dialogDeleteForEveryoneDisabled}
                 </span>
               </button>
             </div>
@@ -713,7 +741,7 @@ export function ActiveChatConversation({
               className="ghost-button compact message-selection-dialog-cancel"
               onClick={onCloseDeleteSelectedMessagesDialog}
             >
-              Отмена
+              {MESSAGE_SELECTION_COPY.dialogCancel}
             </button>
           </div>
         </div>
