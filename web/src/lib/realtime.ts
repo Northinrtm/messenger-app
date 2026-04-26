@@ -82,6 +82,7 @@ const REALTIME_RECONNECT_COOLDOWN_MS = 60_000;
 const REALTIME_VISIBILITY_PAUSE_DELAY_MS = 15_000;
 const REALTIME_SEND_ACK_TIMEOUT_MS = 2_000;
 const REALTIME_SEND_ACK_TIMEOUT_GROUP_MS = 6_000;
+const RETRYABLE_REALTIME_FALLBACK_STATUSES = new Set([500, 502, 503, 504]);
 const WEB_SOCKET_OPEN_STATE = 1;
 const WEB_SOCKET_CLOSING_STATE = 2;
 const WEB_SOCKET_CLOSED_STATE = 3;
@@ -714,7 +715,10 @@ export function sendMessageRaw(
     attachmentIds: body.attachmentIds ?? [],
     timeoutMs: realtimeAckTimeoutMs,
   }).catch((error) => {
-    if (!(error instanceof ApiError) || ![503, 504].includes(error.status)) {
+    if (
+      !(error instanceof ApiError) ||
+      !RETRYABLE_REALTIME_FALLBACK_STATUSES.has(error.status)
+    ) {
       throw error;
     }
 

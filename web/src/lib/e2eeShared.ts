@@ -1,6 +1,8 @@
 import { ApiError } from "./api";
 
 export const ENCRYPTED_MESSAGE_UNAVAILABLE = "[Encrypted message unavailable]";
+export const ENCRYPTION_INITIALIZING_MESSAGE =
+  "Encrypted chat is still initializing on this device. Try again.";
 export const ENCRYPTION_IDENTITY_CHANGED_MESSAGE =
   "Encryption identity changed for this account in this browser. Re-establish trust before continuing";
 export const ENCRYPTION_RECOVERY_PASSWORD_RESTORE_FAILED_MESSAGE =
@@ -58,5 +60,13 @@ export function isResettableEncryptionRecoveryError(error: unknown) {
     error instanceof ApiError &&
     error.status === 409 &&
     RESETTABLE_ENCRYPTION_RECOVERY_MESSAGES.has(error.message)
+  );
+}
+
+export function isRetryableEncryptedSendError(error: unknown) {
+  return (
+    error instanceof ApiError &&
+    error.status === 409 &&
+    error.message === ENCRYPTION_INITIALIZING_MESSAGE
   );
 }

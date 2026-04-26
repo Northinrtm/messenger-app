@@ -54,8 +54,11 @@ import {
   isOwnMessage,
   toMessageSnippet,
 } from "../messagePresentation";
+import { isRetryableEncryptedSendError } from "../../../lib/e2eeShared";
 
 const MAX_ATTACHMENT_SIZE_BYTES = 25 * 1024 * 1024;
+const TRANSIENT_SEND_FAILURE_STATUSES = new Set([0, 502, 503, 504]);
+const RETRYABLE_SEND_FAILURE_MESSAGES = new Set(["Message send is already pending"]);
 
 export type SubmitDraftOptions = {
   signal?: AbortSignal;
@@ -1101,7 +1104,14 @@ export function useMessageActions({
 }
 
 function isTransientSendFailure(error: unknown) {
-  return error instanceof ApiError && [0, 503, 504].includes(error.status);
+  return (
+    (error instanceof ApiError &&
+      TRANSIENT_SEND_FAILURE_STATUSES.has(error.status)) ||
+    isRetryableEncryptedSendError(error) ||
+    (error instanceof ApiError &&
+      error.status === 409 &&
+      RETRYABLE_SEND_FAILURE_MESSAGES.has(error.message))
+  );
 }
 
 function withSendAttemptTimeout<T>(operation: Promise<T>, timeoutMs: number) {

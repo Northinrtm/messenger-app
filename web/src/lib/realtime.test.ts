@@ -440,14 +440,14 @@ describe("realtime reconnect protection", () => {
     emitFrame(client, "/user/queue/message-errors", {
       chatId: "chat-1",
       clientMessageId: "client-retry",
-      status: 500,
-      error: "Unexpected server error",
-      details: ["IllegalStateException"],
+      status: 409,
+      error: "Chat membership changed",
+      details: ["conflict"],
     });
 
     await expect(failedSend).rejects.toMatchObject({
-      status: 500,
-      message: "Unexpected server error",
+      status: 409,
+      message: "Chat membership changed",
     });
 
     const retriedSend = sendMessageRaw("ignored", "chat-1", {
@@ -489,6 +489,69 @@ describe("realtime reconnect protection", () => {
       serverOrder: 43,
     });
     expect(client.publishCalls).toHaveLength(2);
+    dispose();
+  });
+
+  it("falls back to HTTP when websocket sender error is a retryable backend failure", async () => {
+    const dispose = createSubscription();
+    const client = stompClients[0];
+    client.connected = true;
+    client.onConnect();
+    createMessageMock.mockResolvedValue({
+      id: "server-http-after-ws-error",
+      chatId: "chat-1",
+      sender: {
+        id: "user-1",
+        username: "north",
+        displayName: "North",
+        profession: null,
+        avatarUrl: null,
+        online: true,
+      },
+      content: null,
+      createdAt: "2026-04-13T12:01:30.000Z",
+      editedAt: null,
+      status: null,
+      clientMessageId: "client-ws-error-fallback",
+      serverOrder: 44,
+      replyTo: null,
+      reactions: [],
+      encryptedPayload: {
+        scheme: "X3DH-DEVICE-AES-GCM",
+        encryptedKeysByRecipientId: {},
+      },
+    });
+
+    const sendPromise = sendMessageRaw("test-token", "chat-1", {
+      clientMessageId: "client-ws-error-fallback",
+      encryptedPayload: {
+        scheme: "X3DH-DEVICE-AES-GCM",
+        encryptedKeysByRecipientId: {},
+      },
+    });
+
+    emitFrame(client, "/user/queue/message-errors", {
+      chatId: "chat-1",
+      clientMessageId: "client-ws-error-fallback",
+      status: 500,
+      error: "Unexpected server error",
+      details: ["IllegalStateException"],
+    });
+
+    await expect(sendPromise).resolves.toMatchObject({
+      id: "server-http-after-ws-error",
+      clientMessageId: "client-ws-error-fallback",
+      serverOrder: 44,
+    });
+    expect(createMessageMock).toHaveBeenCalledWith("test-token", "chat-1", {
+      clientMessageId: "client-ws-error-fallback",
+      replyToMessageId: null,
+      attachmentIds: [],
+      encryptedPayload: {
+        scheme: "X3DH-DEVICE-AES-GCM",
+        encryptedKeysByRecipientId: {},
+      },
+    });
     dispose();
   });
 

@@ -5,6 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEffect, useState } from "react";
 
 import { ApiError } from "../../../lib/api";
+import {
+  ENCRYPTION_IDENTITY_CHANGED_MESSAGE,
+  ENCRYPTION_INITIALIZING_MESSAGE,
+} from "../../../lib/e2eeShared";
 import { readLocalPendingMessages, upsertLocalPendingMessage } from "../../../lib/localPendingMessages";
 vi.mock("../../../lib/e2ee", () => ({
   sendEncryptedMessage: vi.fn(),
@@ -425,6 +429,147 @@ describe("useMessageActions send failure recovery", () => {
       expect.objectContaining({
         clientMessageId: expect.stringMatching(/^client-/),
         status: "SENDING",
+      }),
+    ]);
+  });
+
+  it("keeps retryable encrypted initialization errors in sending state", async () => {
+    vi.mocked(sendEncryptedMessage).mockRejectedValueOnce(
+      new ApiError(ENCRYPTION_INITIALIZING_MESSAGE, 409)
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    const latestStateRef: { current: HarnessState | null } = { current: null };
+
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(
+        <QueryClientProvider client={queryClient}>
+          <Harness
+            isRealtimeConnected
+            queryClient={queryClient}
+            onReady={(value) => {
+              latestStateRef.current = value;
+            }}
+          />
+        </QueryClientProvider>
+      );
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      latestStateRef.current?.submitActiveDraft("message waits for encryption init");
+      await flushMicrotasks();
+    });
+
+    const pendingMessages = queryClient.getQueryData([
+      "pending-outgoing-messages",
+      "user-1",
+    ]) as Array<{ clientMessageId: string; status: string }> | undefined;
+
+    expect(pendingMessages).toEqual([
+      expect.objectContaining({
+        clientMessageId: expect.stringMatching(/^client-/),
+        status: "SENDING",
+      }),
+    ]);
+  });
+
+  it("keeps gateway transport failures in sending state", async () => {
+    vi.mocked(sendEncryptedMessage).mockRejectedValueOnce(
+      new ApiError("Backend is unavailable", 502)
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    const latestStateRef: { current: HarnessState | null } = { current: null };
+
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(
+        <QueryClientProvider client={queryClient}>
+          <Harness
+            isRealtimeConnected
+            queryClient={queryClient}
+            onReady={(value) => {
+              latestStateRef.current = value;
+            }}
+          />
+        </QueryClientProvider>
+      );
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      latestStateRef.current?.submitActiveDraft("message waits for backend");
+      await flushMicrotasks();
+    });
+
+    const pendingMessages = queryClient.getQueryData([
+      "pending-outgoing-messages",
+      "user-1",
+    ]) as Array<{ clientMessageId: string; status: string }> | undefined;
+
+    expect(pendingMessages).toEqual([
+      expect.objectContaining({
+        clientMessageId: expect.stringMatching(/^client-/),
+        status: "SENDING",
+      }),
+    ]);
+  });
+
+  it("keeps hard encryption trust conflicts in failed state", async () => {
+    vi.mocked(sendEncryptedMessage).mockRejectedValueOnce(
+      new ApiError(ENCRYPTION_IDENTITY_CHANGED_MESSAGE, 409)
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    const latestStateRef: { current: HarnessState | null } = { current: null };
+
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(
+        <QueryClientProvider client={queryClient}>
+          <Harness
+            isRealtimeConnected
+            queryClient={queryClient}
+            onReady={(value) => {
+              latestStateRef.current = value;
+            }}
+          />
+        </QueryClientProvider>
+      );
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      latestStateRef.current?.submitActiveDraft("message requires manual trust fix");
+      await flushMicrotasks();
+    });
+
+    const pendingMessages = queryClient.getQueryData([
+      "pending-outgoing-messages",
+      "user-1",
+    ]) as Array<{ clientMessageId: string; status: string }> | undefined;
+
+    expect(pendingMessages).toEqual([
+      expect.objectContaining({
+        clientMessageId: expect.stringMatching(/^client-/),
+        status: "FAILED",
       }),
     ]);
   });
