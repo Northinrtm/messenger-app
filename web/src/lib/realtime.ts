@@ -81,6 +81,7 @@ const REALTIME_RECONNECT_FAILURE_THRESHOLD = 5;
 const REALTIME_RECONNECT_COOLDOWN_MS = 60_000;
 const REALTIME_VISIBILITY_PAUSE_DELAY_MS = 15_000;
 const REALTIME_SEND_ACK_TIMEOUT_MS = 2_000;
+const REALTIME_SEND_ACK_TIMEOUT_GROUP_MS = 6_000;
 const WEB_SOCKET_OPEN_STATE = 1;
 const WEB_SOCKET_CLOSING_STATE = 2;
 const WEB_SOCKET_CLOSED_STATE = 3;
@@ -681,6 +682,7 @@ export function sendMessageRaw(
 ) {
   const connection = activeConnection;
   const realtimeReady = Boolean(connection && isRealtimeClientReady(connection.client));
+  const realtimeAckTimeoutMs = resolveRealtimeAckTimeoutMs(body.encryptedPayload);
   if (!connection || !realtimeReady) {
     if (connection && shouldReportRealtimeClientFailure(connection)) {
       handleConnectionFailure(connection);
@@ -710,6 +712,7 @@ export function sendMessageRaw(
     replyToMessageId: body.replyToMessageId ?? null,
     encryptedPayload: body.encryptedPayload,
     attachmentIds: body.attachmentIds ?? [],
+    timeoutMs: realtimeAckTimeoutMs,
   }).catch((error) => {
     if (!(error instanceof ApiError) || ![503, 504].includes(error.status)) {
       throw error;
@@ -741,6 +744,19 @@ export function sendMessageRaw(
         throw fallbackError;
       });
   });
+}
+
+function resolveRealtimeAckTimeoutMs(input: {
+  scheme: string;
+  encryptedKeysByRecipientId: Record<string, string>;
+  sharedEnvelope?: string | null;
+  historyEnvelope?: string | null;
+}) {
+  const isGroupPayload =
+    input.scheme === "GROUP-SENDER-KEY-AES-GCM" ||
+    Boolean(input.sharedEnvelope) ||
+    Boolean(input.historyEnvelope);
+  return isGroupPayload ? REALTIME_SEND_ACK_TIMEOUT_GROUP_MS : REALTIME_SEND_ACK_TIMEOUT_MS;
 }
 
 function resolvePendingSendRequest(message: ApiChatMessage) {

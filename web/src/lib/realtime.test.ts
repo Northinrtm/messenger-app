@@ -818,6 +818,12 @@ describe("realtime reconnect protection", () => {
     await Promise.resolve();
     await Promise.resolve();
 
+    expect(createMessageMock).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(4_000);
+    await Promise.resolve();
+    await Promise.resolve();
+
     await expect(sendPromise).resolves.toMatchObject({
       id: "server-http-fallback",
       clientMessageId: "client-timeout-fallback",
