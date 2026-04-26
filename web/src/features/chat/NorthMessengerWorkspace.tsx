@@ -161,6 +161,7 @@ import {
   type ConferenceViewportMode,
   type MobilePane,
 } from "./workspaceNavigationPersistence";
+import { shouldAutoReloadForBuildUpdate } from "./buildUpdateGuard";
 
 type Props = {
   pendingInviteCode: string | null;
@@ -178,6 +179,7 @@ const SEARCH_QUERY_GC_TIME_MS = 30_000;
 const CONFERENCE_ACTIVATION_LEAD_MS = 5 * 60 * 1000;
 const CHAT_ENCRYPTION_WARNING_GRACE_MS = 500;
 const BUILD_META_POLL_MS = 60_000;
+const BUILD_UPDATE_AUTO_RELOAD_DELAY_MS = 1_500;
 
 const initialPushNotificationState = (): PushNotificationClientState => ({
   supported: isPushNotificationSupported(),
@@ -479,6 +481,49 @@ export function NorthMessengerWorkspace({
   const activePendingOutgoingCount = activeChatId
     ? pendingOutgoingCountByChatId[activeChatId] ?? 0
     : 0;
+  const shouldAutoReloadBuildUpdate = useMemo(
+    () =>
+      shouldAutoReloadForBuildUpdate({
+        hasAvailableBuildUpdate: availableBuildUpdate !== null,
+        activeConferenceId,
+        activeDraft,
+        draftsByChatId,
+        pendingOutgoingCountByChatId,
+        replyingToMessageId,
+        editingMessageId,
+        forwardingMessageIds,
+        selectedMessageIds,
+      }),
+    [
+      activeConferenceId,
+      activeDraft,
+      availableBuildUpdate,
+      draftsByChatId,
+      editingMessageId,
+      forwardingMessageIds,
+      pendingOutgoingCountByChatId,
+      replyingToMessageId,
+      selectedMessageIds,
+    ]
+  );
+  useEffect(() => {
+    if (
+      !availableBuildUpdate ||
+      !shouldAutoReloadBuildUpdate ||
+      typeof window === "undefined" ||
+      document.visibilityState !== "visible"
+    ) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      window.location.reload();
+    }, BUILD_UPDATE_AUTO_RELOAD_DELAY_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [availableBuildUpdate, shouldAutoReloadBuildUpdate]);
   const isActiveChatOpen = Boolean(activeChatId) && mobilePane === "conversation";
   const {
     activeTypingQuery,
