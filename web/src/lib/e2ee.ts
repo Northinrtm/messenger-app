@@ -107,6 +107,12 @@ const completedEncryptionDeviceRegistration = new Map<string, number>();
 const inFlightDevicePreparation = new Map<string, Promise<void>>();
 const completedDevicePreparation = new Map<string, number>();
 const preparedConversationDeviceStates = new Map<string, PreparedConversationDeviceState>();
+const inFlightOwnSiblingDevicePreparation = new Map<
+  string,
+  Promise<PreparedConversationDeviceState | null>
+>();
+const completedOwnSiblingDevicePreparation = new Map<string, number>();
+const preparedOwnSiblingDeviceStates = new Map<string, PreparedConversationDeviceState>();
 const completedDeviceManifestPreparation = new Map<string, number>();
 const preparedDeviceManifestStates = new Map<string, PreparedDeviceManifestState>();
 const restoredPersistentDeviceSessionKeysByUserId = new Map<string, Set<string>>();
@@ -158,6 +164,8 @@ function ensureE2eeTransportStorageSchema() {
     completedEncryptionDeviceRegistration.clear();
     completedDevicePreparation.clear();
     preparedConversationDeviceStates.clear();
+    completedOwnSiblingDevicePreparation.clear();
+    preparedOwnSiblingDeviceStates.clear();
     completedDeviceManifestPreparation.clear();
     preparedDeviceManifestStates.clear();
     window.localStorage.setItem(
@@ -481,6 +489,7 @@ type PinnedDeviceBundleRecord = {
   identitySignatureFingerprint: string;
   signedPrekeyFingerprint: string;
   signedPrekeyId: number;
+  deviceVersion?: string | null;
   updatedAt: string;
 };
 
@@ -931,6 +940,8 @@ export function clearUnlockedEncryptionState(userId?: string) {
   completedEncryptionDeviceRegistration.clear();
   completedDevicePreparation.clear();
   preparedConversationDeviceStates.clear();
+  completedOwnSiblingDevicePreparation.clear();
+  preparedOwnSiblingDeviceStates.clear();
   clearRecoverySnapshotSyncState();
   clearInFlightMessageHydration();
 }
@@ -967,6 +978,8 @@ export function lockUnlockedEncryptionState(userId?: string) {
   completedEncryptionDeviceRegistration.clear();
   completedDevicePreparation.clear();
   preparedConversationDeviceStates.clear();
+  completedOwnSiblingDevicePreparation.clear();
+  preparedOwnSiblingDeviceStates.clear();
   clearRecoverySnapshotSyncState();
   clearInFlightMessageHydration();
 }
@@ -1665,24 +1678,27 @@ async function prepareDeviceEncryptionState(
 
   const preparationPromise = (async () => {
     const ownMaterial = currentUserId ? await readEncryptionDeviceMaterial(currentUserId) : null;
-    const {
-      rawBundles: remoteRawBundles,
-      trustedBundles: remoteTrustedBundles,
-    } = await primeDeviceBundles(
-      token,
-      remoteParticipantIds,
-      ownMaterial?.deviceId ?? null,
-      currentUserId
-    );
+    const [
+      {
+        rawBundles: remoteRawBundles,
+        trustedBundles: remoteTrustedBundles,
+      },
+      preparedOwnDeviceBundles,
+    ] = await Promise.all([
+      primeDeviceBundles(token, remoteParticipantIds, ownMaterial?.deviceId ?? null, currentUserId),
+      currentUserId && ownMaterial?.deviceId
+        ? listPreparedOwnSiblingDeviceBundles(
+            token,
+            currentUserId,
+            ownMaterial.deviceId,
+            forceRefresh
+          )
+        : Promise.resolve(null),
+    ]);
     let rawBundles = remoteRawBundles;
     let trustedBundles = remoteTrustedBundles;
     let cachePreparedState = true;
     if (currentUserId && ownMaterial?.deviceId) {
-      const preparedOwnDeviceBundles = await listPreparedOwnSiblingDeviceBundles(
-        token,
-        currentUserId,
-        ownMaterial.deviceId
-      );
       if (preparedOwnDeviceBundles) {
         rawBundles = mergePreparedConversationDeviceBundles(
           rawBundles,
@@ -1758,34 +1774,64 @@ function readPreparedConversationDeviceState(preparationKey: string) {
 async function listPreparedOwnSiblingDeviceBundles(
   token: string,
   currentUserId: string,
-  currentDeviceId: string
+  currentDeviceId: string,
+  forceRefresh = false
 ) {
-  let ownDevices: UserEncryptionDevice[] = [];
-  try {
-    ownDevices = await listOwnEncryptionDevices(token);
-  } catch {
-    return null;
+  const preparationKey = buildOwnSiblingDevicePreparationKey(currentUserId, currentDeviceId);
+  if (!forceRefresh) {
+    const cachedPreparedState = readPreparedOwnSiblingDeviceState(preparationKey);
+    if (cachedPreparedState) {
+      return cachedPreparedState;
+    }
+
+    const inFlightPreparation = inFlightOwnSiblingDevicePreparation.get(preparationKey);
+    if (inFlightPreparation) {
+      return inFlightPreparation;
+    }
+  } else {
+    clearPreparedOwnSiblingDeviceState(preparationKey);
+    inFlightOwnSiblingDevicePreparation.delete(preparationKey);
   }
 
-  const rawBundles = ownDevices
-    .filter((device) => device.deviceId !== currentDeviceId)
-    .map((device) => buildOwnSiblingDeviceBundle(device, currentUserId));
-  const trustedBundles = await Promise.all(
-    rawBundles.map(async (bundle) => {
-      try {
-        return (await validateAndPinDeviceBundle(bundle)) ? bundle : null;
-      } catch {
-        return null;
-      }
-    })
-  );
+  const preparationPromise = (async () => {
+    let ownDevices: UserEncryptionDevice[] = [];
+    try {
+      ownDevices = await listOwnEncryptionDevices(token);
+    } catch {
+      return null;
+    }
 
-  return {
-    rawBundles,
-    trustedBundles: trustedBundles.filter(
-      (bundle): bundle is UserEncryptionDeviceBundle => bundle !== null
-    ),
-  };
+    const rawBundles = ownDevices
+      .filter((device) => device.deviceId !== currentDeviceId)
+      .map((device) => buildOwnSiblingDeviceBundle(device, currentUserId));
+    const trustedBundles = await Promise.all(
+      rawBundles.map(async (bundle) => {
+        try {
+          return (await validateAndPinDeviceBundle(bundle)) ? bundle : null;
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    const preparedState = {
+      rawBundles,
+      trustedBundles: trustedBundles.filter(
+        (bundle): bundle is UserEncryptionDeviceBundle => bundle !== null
+      ),
+    };
+    rememberPreparedOwnSiblingDeviceState(preparationKey, preparedState);
+    return preparedState;
+  })();
+  inFlightOwnSiblingDevicePreparation.set(preparationKey, preparationPromise);
+
+  try {
+    return await preparationPromise;
+  } finally {
+    if (inFlightOwnSiblingDevicePreparation.get(preparationKey) === preparationPromise) {
+      inFlightOwnSiblingDevicePreparation.delete(preparationKey);
+    }
+  }
 }
 
 function buildOwnSiblingDeviceBundle(
@@ -1804,11 +1850,44 @@ function buildOwnSiblingDeviceBundle(
     signedPrekeyPublicKey: device.signedPrekeyPublicKey,
     signedPrekeySignature: device.signedPrekeySignature,
     signedPrekeyAlgorithm: device.signedPrekeyAlgorithm,
-    deviceVersion: null,
+    deviceVersion: device.deviceVersion ?? null,
     oneTimePrekey: null,
     registeredAt: device.registeredAt,
     lastSeenAt: device.lastSeenAt,
   };
+}
+
+function buildOwnSiblingDevicePreparationKey(currentUserId: string, currentDeviceId: string) {
+  return `${currentUserId}:${currentDeviceId}`;
+}
+
+function readPreparedOwnSiblingDeviceState(preparationKey: string) {
+  const cachedPreparationTimestamp = completedOwnSiblingDevicePreparation.get(preparationKey);
+  const cachedPreparedState = preparedOwnSiblingDeviceStates.get(preparationKey);
+  if (!cachedPreparationTimestamp || !cachedPreparedState) {
+    clearPreparedOwnSiblingDeviceState(preparationKey);
+    return null;
+  }
+
+  if (Date.now() - cachedPreparationTimestamp >= DEVICE_PREPARATION_CACHE_TTL_MS) {
+    clearPreparedOwnSiblingDeviceState(preparationKey);
+    return null;
+  }
+
+  return cachedPreparedState;
+}
+
+function rememberPreparedOwnSiblingDeviceState(
+  preparationKey: string,
+  preparedState: PreparedConversationDeviceState
+) {
+  completedOwnSiblingDevicePreparation.set(preparationKey, Date.now());
+  preparedOwnSiblingDeviceStates.set(preparationKey, preparedState);
+}
+
+function clearPreparedOwnSiblingDeviceState(preparationKey: string) {
+  completedOwnSiblingDevicePreparation.delete(preparationKey);
+  preparedOwnSiblingDeviceStates.delete(preparationKey);
 }
 
 function mergePreparedConversationDeviceBundles(
@@ -1897,6 +1976,18 @@ function clearCompletedDevicePreparation(userId: string) {
   for (const cacheKey of Array.from(preparedConversationDeviceStates.keys())) {
     if (cacheKey.startsWith(`${userId}:`)) {
       preparedConversationDeviceStates.delete(cacheKey);
+    }
+  }
+
+  for (const cacheKey of Array.from(completedOwnSiblingDevicePreparation.keys())) {
+    if (cacheKey.startsWith(`${userId}:`)) {
+      clearPreparedOwnSiblingDeviceState(cacheKey);
+    }
+  }
+
+  for (const cacheKey of Array.from(preparedOwnSiblingDeviceStates.keys())) {
+    if (cacheKey.startsWith(`${userId}:`)) {
+      preparedOwnSiblingDeviceStates.delete(cacheKey);
     }
   }
 
@@ -2491,12 +2582,51 @@ async function prepareSendConversationDeviceBundles(
   }
 
   const ownMaterial = await readEncryptionDeviceMaterial(currentUserId);
-  const resolvedBundles = await resolveConversationDeviceBundles(
-    token,
-    participants,
-    ownMaterial?.deviceId ?? null,
-    currentUserId
-  );
+  let resolvedBundles: ConversationDeviceBundleResolution;
+  let cachePreparedState = true;
+  if (ownMaterial?.deviceId) {
+    const remoteParticipants = participants.filter(
+      (participant) => participant.id !== currentUserId
+    );
+    const [remoteResolvedBundles, preparedOwnDeviceBundles] = await Promise.all([
+      resolveConversationDeviceBundles(
+        token,
+        remoteParticipants,
+        ownMaterial.deviceId,
+        currentUserId
+      ),
+      listPreparedOwnSiblingDeviceBundles(token, currentUserId, ownMaterial.deviceId),
+    ]);
+    if (preparedOwnDeviceBundles) {
+      resolvedBundles = buildConversationDeviceBundleResolution(
+        participants,
+        mergePreparedConversationDeviceBundles(
+          remoteResolvedBundles.rawBundles,
+          preparedOwnDeviceBundles.rawBundles
+        ),
+        mergePreparedConversationDeviceBundles(
+          remoteResolvedBundles.trustedBundles,
+          preparedOwnDeviceBundles.trustedBundles
+        ),
+        currentUserId
+      );
+    } else {
+      cachePreparedState = false;
+      resolvedBundles = await resolveConversationDeviceBundles(
+        token,
+        participants,
+        ownMaterial.deviceId,
+        currentUserId
+      );
+    }
+  } else {
+    resolvedBundles = await resolveConversationDeviceBundles(
+      token,
+      participants,
+      ownMaterial?.deviceId ?? null,
+      currentUserId
+    );
+  }
   if (resolvedBundles.participantsWithUntrustedDevices.length > 0) {
     throw new ApiError(
       ENCRYPTION_IDENTITY_CHANGED_MESSAGE,
@@ -2510,7 +2640,7 @@ async function prepareSendConversationDeviceBundles(
     currentUserId,
     resolvedBundles.trustedBundles
   );
-  if (bootstrapped) {
+  if (bootstrapped && cachePreparedState) {
     rememberPreparedConversationDeviceState(preparationKey, resolvedBundles);
   }
 
@@ -2527,6 +2657,17 @@ async function validateAndPinDeviceBundle(bundle: UserEncryptionDeviceBundle) {
       return false;
     }
 
+    const currentRecord = readPinnedDeviceBundleRecord(bundle.userId, bundle.deviceId);
+    if (
+      currentRecord &&
+      typeof bundle.deviceVersion === "string" &&
+      bundle.deviceVersion.length > 0 &&
+      currentRecord.deviceVersion === bundle.deviceVersion &&
+      currentRecord.signedPrekeyId === bundle.signedPrekeyId
+    ) {
+      return true;
+    }
+
     const signatureValid = await verifySignedPrekeySignature(bundle);
     if (!signatureValid) {
       return false;
@@ -2535,7 +2676,6 @@ async function validateAndPinDeviceBundle(bundle: UserEncryptionDeviceBundle) {
     const identityFingerprint = await fingerprintPublicKey(bundle.identityKey);
     const identitySignatureFingerprint = await fingerprintPublicKey(bundle.identitySignatureKey);
     const signedPrekeyFingerprint = await fingerprintPublicKey(bundle.signedPrekeyPublicKey);
-    const currentRecord = readPinnedDeviceBundleRecord(bundle.userId, bundle.deviceId);
 
     if (
       currentRecord &&
@@ -2552,6 +2692,7 @@ async function validateAndPinDeviceBundle(bundle: UserEncryptionDeviceBundle) {
       identitySignatureFingerprint,
       signedPrekeyFingerprint,
       signedPrekeyId: bundle.signedPrekeyId,
+      deviceVersion: bundle.deviceVersion ?? null,
       updatedAt: new Date().toISOString(),
     });
     return true;
@@ -7795,7 +7936,11 @@ function readPinnedDeviceBundleRecord(userId: string, deviceId: string): PinnedD
       return null;
     }
 
-    return parsedRecord as PinnedDeviceBundleRecord;
+    return {
+      ...parsedRecord,
+      deviceVersion:
+        typeof parsedRecord.deviceVersion === "string" ? parsedRecord.deviceVersion : null,
+    } as PinnedDeviceBundleRecord;
   } catch {
     clearPinnedDeviceBundleRecord(userId, deviceId);
     return null;

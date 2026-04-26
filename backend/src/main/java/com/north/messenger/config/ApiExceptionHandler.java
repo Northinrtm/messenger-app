@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.context.support.DefaultMessageSourceResolvable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -107,6 +108,20 @@ public class ApiExceptionHandler {
                 exception.getDetails()
         );
         return ResponseEntity.badRequest().body(error);
+    }
+
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public ResponseEntity<Void> handleAsyncRequestNotUsable(
+            AsyncRequestNotUsableException exception,
+            HttpServletRequest request
+    ) {
+        log.debug(
+                "Client disconnected while processing {} {}",
+                request.getMethod(),
+                request.getRequestURI(),
+                exception
+        );
+        return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
     }
 
     @ExceptionHandler(Exception.class)

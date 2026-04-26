@@ -270,6 +270,7 @@ const currentRegisteredDevice = {
   signedPrekeyPublicKey: localDeviceMaterial.signedPrekeyPublicKey,
   signedPrekeySignature: localDeviceMaterial.signedPrekeySignature,
   signedPrekeyAlgorithm: localDeviceMaterial.signedPrekeyAlgorithm,
+  deviceVersion: "self-device-version-1",
   availableOneTimePrekeys: 8,
   registeredAt: localDeviceMaterial.createdAt,
   lastSeenAt: localDeviceMaterial.createdAt,
@@ -286,6 +287,7 @@ const siblingRegisteredDevice = {
   signedPrekeyPublicKey: publicOkpJwk("X25519", "self-signed-two"),
   signedPrekeySignature: "c2lnLXR3bw==",
   signedPrekeyAlgorithm: "X25519",
+  deviceVersion: "self-device-version-2",
   availableOneTimePrekeys: 8,
   registeredAt: localDeviceMaterial.createdAt,
   lastSeenAt: localDeviceMaterial.createdAt,
@@ -807,6 +809,76 @@ describe("e2ee hardening", () => {
     ).toEqual(["device-id", "self-device", "self-device-two"]);
   });
 
+  it("cold-send priming resolves remote manifests separately from own sibling devices", async () => {
+    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
+    vi.spyOn(window.crypto.subtle, "generateKey").mockResolvedValue({
+      publicKey: {} as CryptoKey,
+      privateKey: {} as CryptoKey,
+    } as CryptoKeyPair);
+    vi.spyOn(window.crypto.subtle, "exportKey").mockResolvedValue({
+      kty: "OKP",
+      crv: "X25519",
+      x: "generated",
+    } as JsonWebKey);
+    vi.spyOn(window.crypto.subtle, "deriveBits").mockResolvedValue(new Uint8Array(32).buffer);
+    vi.spyOn(window.crypto.subtle, "encrypt").mockImplementation(
+      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
+    );
+    vi.mocked(listOwnEncryptionDevices).mockResolvedValue([
+      currentRegisteredDevice,
+      siblingRegisteredDevice,
+    ]);
+    vi.mocked(resolveEncryptionDeviceManifest).mockResolvedValue({
+      version: "manifest-version-cold-send",
+      fullSync: true,
+      bundles: [deviceBundle],
+      removedDeviceIds: [],
+    });
+    vi.mocked(resolveEncryptionDeviceBundles).mockResolvedValue([
+      consumableDeviceBundle,
+      siblingConsumableOwnDeviceBundle,
+    ]);
+    vi.mocked(sendMessageRaw).mockImplementation(async (_token, chatId, request) => ({
+      id: "cold-send-message-id",
+      chatId,
+      sender: selfParticipant,
+      createdAt: "2026-04-09T10:30:00.000Z",
+      editedAt: null,
+      status: null,
+      clientMessageId: request.clientMessageId ?? null,
+      replyTo: null,
+      reactions: [],
+      encryptedPayload: request.encryptedPayload,
+    }));
+    window.sessionStorage.setItem(DEVICE_MATERIAL_KEY, JSON.stringify(localDeviceMaterial));
+
+    await sendEncryptedMessage(
+      "token",
+      "chat-id",
+      "cold send manifest split",
+      [selfParticipant, participant],
+      "client-cold-send-id",
+      null,
+      { currentUserId: USER_ID }
+    );
+
+    expect(resolveEncryptionDeviceManifest).toHaveBeenCalledWith("token", [REMOTE_USER_ID], {
+      knownVersion: undefined,
+      knownDevices: undefined,
+    });
+    expect(resolveEncryptionDeviceBundles).toHaveBeenCalledTimes(1);
+    expect(resolveEncryptionDeviceBundles).toHaveBeenCalledWith(
+      "token",
+      [REMOTE_USER_ID, USER_ID],
+      {
+        consumeOneTimePrekeys: true,
+        deviceIds: ["device-id", "self-device-two"],
+        requesterDeviceId: "self-device",
+      }
+    );
+  });
+
   it("reuses prepared device state across auth session rotations for the same device recipients", async () => {
     Object.defineProperty(window, "isSecureContext", {
       configurable: true,
@@ -856,6 +928,35 @@ describe("e2ee hardening", () => {
       deviceIds: ["device-id"],
       requesterDeviceId: "self-device",
     });
+  });
+
+  it("reuses pinned device versions during forced priming refreshes", async () => {
+    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
+    const verifySpy = vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
+    vi.mocked(listOwnEncryptionDevices).mockResolvedValue([
+      currentRegisteredDevice,
+      siblingRegisteredDevice,
+    ]);
+    vi.mocked(resolveEncryptionDeviceManifest).mockResolvedValue({
+      version: "manifest-version-fast-path",
+      fullSync: true,
+      bundles: [deviceBundle],
+      removedDeviceIds: [],
+    });
+    window.sessionStorage.setItem(DEVICE_MATERIAL_KEY, JSON.stringify(localDeviceMaterial));
+
+    await primeEncryptedMessageRecipients("token", [selfParticipant, participant], {
+      currentUserId: USER_ID,
+      forceRefresh: true,
+    });
+    await primeEncryptedMessageRecipients("token", [selfParticipant, participant], {
+      currentUserId: USER_ID,
+      forceRefresh: true,
+    });
+
+    expect(verifySpy).toHaveBeenCalledTimes(2);
+    expect(resolveEncryptionDeviceManifest).toHaveBeenCalledTimes(2);
+    expect(listOwnEncryptionDevices).toHaveBeenCalledTimes(2);
   });
 
   it("bypasses cached preparation when recipient trust is refreshed", async () => {
@@ -3990,7 +4091,7 @@ describe("e2ee hardening", () => {
     expect(resolveEncryptionDeviceBundles).toHaveBeenNthCalledWith(
       1,
       "token",
-      [USER_ID, REMOTE_USER_ID, REMOTE_USER_ID_TWO],
+      [REMOTE_USER_ID, REMOTE_USER_ID_TWO],
       {
         consumeOneTimePrekeys: false,
         requesterDeviceId: "self-device",

@@ -484,6 +484,7 @@ public class UserEncryptionDeviceService {
                 device.getSignedPrekeyPublicKey(),
                 device.getSignedPrekeySignature(),
                 device.getSignedPrekeyAlgorithm(),
+                computeDeviceVersion(device),
                 availableOneTimePrekeys,
                 device.getRegisteredAt(),
                 device.getLastSeenAt()

@@ -230,6 +230,7 @@ export type UserEncryptionDevice = {
   signedPrekeyPublicKey: string;
   signedPrekeySignature: string;
   signedPrekeyAlgorithm: string;
+  deviceVersion: string | null;
   availableOneTimePrekeys: number;
   registeredAt: string;
   lastSeenAt: string;

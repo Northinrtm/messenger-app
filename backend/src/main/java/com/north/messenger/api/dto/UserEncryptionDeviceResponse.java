@@ -14,6 +14,7 @@ public record UserEncryptionDeviceResponse(
         String signedPrekeyPublicKey,
         String signedPrekeySignature,
         String signedPrekeyAlgorithm,
+        String deviceVersion,
         long availableOneTimePrekeys,
         Instant registeredAt,
         Instant lastSeenAt
