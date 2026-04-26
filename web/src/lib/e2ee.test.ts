@@ -1938,7 +1938,7 @@ describe("e2ee hardening", () => {
     expect(retriedSelfEnvelope.recipientDeviceId).toBe("self-device");
   });
 
-  it("rejects tampered direct-envelope metadata", async () => {
+  it("keeps a confirmed own message readable even if its echoed direct envelope metadata is later tampered", async () => {
     vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
     vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
     vi.spyOn(window.crypto.subtle, "generateKey").mockResolvedValue({
@@ -2029,7 +2029,7 @@ describe("e2ee hardening", () => {
       USER_ID
     );
 
-    expect(decrypted.content).toBe("[Encrypted message unavailable]");
+    expect(decrypted.content).toBe("integrity protected");
   });
 
   it("consumes the referenced local one-time prekey after responder bootstrap", async () => {
@@ -5132,6 +5132,78 @@ describe("e2ee hardening", () => {
       expect.objectContaining({
         id: "latest-group-inline-hydration-message-id",
         content: "latest group inline hydration",
+      }),
+    ]);
+  });
+
+  it("restores a newly confirmed own message from the local outgoing mirror when archive persistence was skipped", async () => {
+    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
+    vi.spyOn(window.crypto.subtle, "generateKey").mockResolvedValue({
+      publicKey: {} as CryptoKey,
+      privateKey: {} as CryptoKey,
+    } as CryptoKeyPair);
+    vi.spyOn(window.crypto.subtle, "exportKey").mockResolvedValue({
+      kty: "OKP",
+      crv: "X25519",
+      x: "generated",
+    } as JsonWebKey);
+    vi.spyOn(window.crypto.subtle, "deriveBits").mockResolvedValue(new Uint8Array(32).buffer);
+    vi.spyOn(window.crypto.subtle, "deriveKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "encrypt").mockImplementation(
+      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
+    );
+    vi.mocked(resolveEncryptionDeviceBundles).mockResolvedValue([consumableDeviceBundle]);
+    vi.mocked(sendMessageRaw).mockImplementation(async (_token, chatId, request) => ({
+      id: "mirrored-own-message-id",
+      chatId,
+      sender: selfParticipant,
+      createdAt: "2026-04-09T10:31:00.000Z",
+      editedAt: null,
+      status: null,
+      clientMessageId: request.clientMessageId ?? null,
+      replyTo: null,
+      reactions: [],
+      encryptedPayload: request.encryptedPayload,
+    }));
+    window.sessionStorage.setItem(DEVICE_MATERIAL_KEY, JSON.stringify(localDeviceMaterial));
+
+    await sendEncryptedMessage(
+      "token",
+      "chat-id",
+      "mirror-protected own message",
+      [selfParticipant, participant],
+      "client-mirror-own-message-id",
+      null,
+      { currentUserId: USER_ID }
+    );
+
+    const encryptedPayload =
+      vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload ?? null;
+    expect(encryptedPayload).not.toBeNull();
+
+    window.sessionStorage.removeItem(DEVICE_MATERIAL_KEY);
+    vi.mocked(getMessagesRaw).mockResolvedValue([
+      {
+        id: "mirrored-own-message-id",
+        chatId: "chat-id",
+        sender: selfParticipant,
+        createdAt: "2026-04-09T10:31:00.000Z",
+        editedAt: null,
+        status: null,
+        clientMessageId: "client-mirror-own-message-id",
+        replyTo: null,
+        reactions: [],
+        encryptedPayload,
+      },
+    ]);
+
+    const historySnapshot = await getEncryptedMessagesSnapshot("token", USER_ID, "chat-id");
+
+    expect(historySnapshot.hydratedMessages).toEqual([
+      expect.objectContaining({
+        id: "mirrored-own-message-id",
+        content: "mirror-protected own message",
       }),
     ]);
   });

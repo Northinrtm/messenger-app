@@ -59,6 +59,7 @@ const REMEMBERED_ENCRYPTION_DEVICE_SESSION_STORAGE_PREFIX =
 const GROUP_SENDER_CHAIN_STORAGE_PREFIX = "north-messenger:group-sender-chain-e2ee:";
 const GROUP_HISTORY_KEY_STORAGE_PREFIX = "north-messenger:group-history-key-e2ee:";
 const DECRYPTED_MESSAGE_ARCHIVE_STORAGE_PREFIX = "north-messenger:decrypted-message-archive:";
+const OUTGOING_MESSAGE_MIRROR_STORAGE_PREFIX = "north-messenger:outgoing-message-mirror:";
 const E2EE_STORAGE_SCHEMA_VERSION_KEY = "north-messenger:e2ee-storage-schema-version";
 const E2EE_TRANSPORT_STORAGE_SCHEMA_VERSION = "5";
 const DECRYPTED_MESSAGE_ARCHIVE_DB_NAME = "north-messenger-decrypted-message-archive";
@@ -90,6 +91,8 @@ const RECOVERY_SYNC_SESSION_WAIT_POLL_MS = 25;
 const RECOVERY_SNAPSHOT_PAYLOAD_VERSION = 1;
 const REMOTE_RECOVERY_ARCHIVE_REFRESH_TTL_MS = 5_000;
 const FAST_HISTORY_INLINE_HYDRATION_SUFFIX_SIZE = 3;
+const OUTGOING_MESSAGE_MIRROR_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+const OUTGOING_MESSAGE_MIRROR_MAX_RECORDS = 200;
 const SIGNED_PREKEY_SIGNATURE_CONTEXT = "north-signed-prekey-v1";
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -334,6 +337,17 @@ type RememberedDecryptedMessageArchiveRecord = {
 type ArchivedDecryptedMessagePayload = {
   content: string;
   attachments?: ChatMessageAttachment[];
+};
+
+type OutgoingMessageMirrorRecord = {
+  messageId: string;
+  clientMessageId: string | null;
+  chatId: string;
+  content: string;
+  createdAt: string;
+  editedAt: string | null;
+  mirroredAt: string;
+  attachments: ChatMessageAttachment[];
 };
 
 type MessageContentEnvelope = {
@@ -1462,6 +1476,7 @@ export async function sendEncryptedMessage(
       reactions: response.reactions ?? [],
       attachments,
     } satisfies ChatMessage;
+    rememberOutgoingMessageMirror(currentUserId, sentMessage);
     void rememberArchivedDecryptedMessage(currentUserId, sentMessage);
     recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:archiveRemembered");
     return sentMessage;
@@ -1559,6 +1574,7 @@ export async function updateEncryptedMessage(
       content: normalizedContent,
       attachments,
     } satisfies ChatMessage;
+    rememberOutgoingMessageMirror(currentUserId, hydratedMessage);
     await rememberArchivedDecryptedMessage(currentUserId, hydratedMessage);
     return hydratedMessage;
   };
@@ -1842,11 +1858,13 @@ export async function hydrateChatMessageSnapshot(
   ensureE2eeTransportStorageSchema();
 
   const archivedMessage = await readArchivedDecryptedMessageRecord(userId, message.id);
+  const readableMessage =
+    archivedMessage ?? readOutgoingMessageMirror(userId, message, userId);
   return buildHydratedChatMessage(
     message,
-    archivedMessage?.content ?? ENCRYPTED_MESSAGE_UNAVAILABLE,
-    archivedMessage?.editedAt ?? message.editedAt,
-    archivedMessage?.attachments
+    readableMessage?.content ?? ENCRYPTED_MESSAGE_UNAVAILABLE,
+    readableMessage?.editedAt ?? message.editedAt,
+    readableMessage?.attachments
   );
 }
 
@@ -1859,6 +1877,8 @@ async function hydrateChatMessageInternal(
 
     if (!message.encryptedPayload) {
       const archivedMessage = await readArchivedDecryptedMessageRecord(userId, message.id);
+      const readableMessage =
+        archivedMessage ?? readOutgoingMessageMirror(userId, message, userId);
       return archivedMessage
         ? buildHydratedChatMessage(
             message,
@@ -1866,15 +1886,34 @@ async function hydrateChatMessageInternal(
             archivedMessage.editedAt,
             archivedMessage.attachments
           )
-        : buildHydratedChatMessage(message, ENCRYPTED_MESSAGE_UNAVAILABLE);
+        : readableMessage
+          ? buildHydratedChatMessage(
+              message,
+              readableMessage.content,
+              readableMessage.editedAt,
+              readableMessage.attachments
+            )
+          : buildHydratedChatMessage(message, ENCRYPTED_MESSAGE_UNAVAILABLE);
     }
 
     try {
       const content = await decryptMessage(message, userId);
       const hydratedMessage = buildHydratedChatMessage(message, content);
+      if (message.sender.id === userId) {
+        rememberOutgoingMessageMirror(userId, hydratedMessage);
+      }
       void rememberArchivedDecryptedMessage(userId, hydratedMessage);
       return hydratedMessage;
     } catch {
+      const mirroredOwnMessage = readOutgoingMessageMirror(userId, message, userId);
+      if (mirroredOwnMessage) {
+        return buildHydratedChatMessage(
+          message,
+          mirroredOwnMessage.content,
+          mirroredOwnMessage.editedAt,
+          mirroredOwnMessage.attachments
+        );
+      }
       let archivedMessage = await readArchivedDecryptedMessageRecord(userId, message.id);
       if (!archivedMessage && (await refreshArchivedMessagesFromRemoteRecoverySnapshot(userId))) {
         archivedMessage = await readArchivedDecryptedMessageRecord(userId, message.id);
@@ -6479,6 +6518,136 @@ async function rememberArchivedDecryptedMessage(
   } catch {
     return;
   }
+}
+
+function rememberOutgoingMessageMirror(
+  userId: string,
+  message: Pick<
+    ChatMessage,
+    "id" | "chatId" | "content" | "createdAt" | "editedAt" | "attachments" | "clientMessageId"
+  >
+) {
+  if (
+    typeof window === "undefined" ||
+    !message.content.trim() ||
+    isUnavailableEncryptedMessage(message.content)
+  ) {
+    return;
+  }
+
+  try {
+    const nextRecord: OutgoingMessageMirrorRecord = {
+      messageId: message.id,
+      clientMessageId: message.clientMessageId ?? null,
+      chatId: message.chatId,
+      content: message.content,
+      createdAt: message.createdAt,
+      editedAt: message.editedAt,
+      mirroredAt: new Date().toISOString(),
+      attachments: normalizeChatMessageAttachments(message.attachments ?? []),
+    };
+    const nextRecords = trimOutgoingMessageMirrorRecords([
+      nextRecord,
+      ...readOutgoingMessageMirrorRecords(userId).filter(
+        (record) =>
+          record.messageId !== nextRecord.messageId &&
+          (!nextRecord.clientMessageId || record.clientMessageId !== nextRecord.clientMessageId)
+      ),
+    ]);
+    writeOutgoingMessageMirrorRecords(userId, nextRecords);
+  } catch {
+    return;
+  }
+}
+
+function readOutgoingMessageMirror(
+  userId: string,
+  message: Pick<ApiChatMessage, "id" | "chatId" | "clientMessageId" | "sender">,
+  currentUserId: string
+) {
+  if (typeof window === "undefined" || message.sender.id !== currentUserId) {
+    return null;
+  }
+
+  const records = readOutgoingMessageMirrorRecords(userId);
+  return records.find((record) => record.messageId === message.id && record.chatId === message.chatId) ?? null;
+}
+
+function readOutgoingMessageMirrorRecords(userId: string): OutgoingMessageMirrorRecord[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    const raw = window.localStorage.getItem(outgoingMessageMirrorStorageKey(userId));
+    if (!raw) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return trimOutgoingMessageMirrorRecords(parsed.filter(isOutgoingMessageMirrorRecordCandidate));
+  } catch {
+    return [];
+  }
+}
+
+function writeOutgoingMessageMirrorRecords(userId: string, records: OutgoingMessageMirrorRecord[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    if (records.length === 0) {
+      window.localStorage.removeItem(outgoingMessageMirrorStorageKey(userId));
+      return;
+    }
+
+    window.localStorage.setItem(outgoingMessageMirrorStorageKey(userId), JSON.stringify(records));
+  } catch {
+    return;
+  }
+}
+
+function trimOutgoingMessageMirrorRecords(
+  records: OutgoingMessageMirrorRecord[]
+): OutgoingMessageMirrorRecord[] {
+  const cutoffMs = Date.now() - OUTGOING_MESSAGE_MIRROR_TTL_MS;
+  return [...records]
+    .filter((record) => {
+      const mirroredAtMs = Date.parse(record.mirroredAt);
+      return !Number.isNaN(mirroredAtMs) && mirroredAtMs >= cutoffMs;
+    })
+    .sort((left, right) => right.mirroredAt.localeCompare(left.mirroredAt))
+    .slice(0, OUTGOING_MESSAGE_MIRROR_MAX_RECORDS);
+}
+
+function isOutgoingMessageMirrorRecordCandidate(
+  candidate: unknown
+): candidate is OutgoingMessageMirrorRecord {
+  if (!candidate || typeof candidate !== "object") {
+    return false;
+  }
+
+  const record = candidate as Record<string, unknown>;
+
+  return (
+    typeof record.messageId === "string" &&
+    typeof record.chatId === "string" &&
+    typeof record.content === "string" &&
+    typeof record.createdAt === "string" &&
+    (record.editedAt === null || typeof record.editedAt === "string") &&
+    (record.clientMessageId === null || typeof record.clientMessageId === "string") &&
+    typeof record.mirroredAt === "string" &&
+    Array.isArray(record.attachments)
+  );
+}
+
+function outgoingMessageMirrorStorageKey(userId: string) {
+  return `${OUTGOING_MESSAGE_MIRROR_STORAGE_PREFIX}${userId}`;
 }
 
 async function readArchivedDecryptedMessageRecord(userId: string, messageId: string) {
