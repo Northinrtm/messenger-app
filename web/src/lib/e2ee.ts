@@ -77,10 +77,14 @@ import {
 import {
   buildGroupHistoryKeyAccessEnvelopes as buildGroupHistoryKeyAccessEnvelopesInternal,
   createLocalGroupHistoryKeyRecord as createLocalGroupHistoryKeyRecordInternal,
+  decryptGroupHistoryMessage as decryptGroupHistoryMessageInternal,
   ensureGroupHistoryKeyRecord as ensureGroupHistoryKeyRecordInternal,
+  isRecoverableGroupHistoryFallbackError,
   resolveGroupHistoryKeyRecordFromServer as resolveGroupHistoryKeyRecordFromServerInternal,
   upsertGroupHistoryKeyAccessForTargets as upsertGroupHistoryKeyAccessForTargetsInternal,
 } from "./e2eeGroupHistory";
+import { prepareGroupRecipientEncryptionContext as prepareGroupRecipientEncryptionContextInternal } from "./e2eeGroupRecipients";
+import { encryptGroupMessage as encryptGroupMessageInternal } from "./e2eeGroupMessaging";
 import {
   TRUSTED_DEVICE_STORAGE_PREFIX,
   hasTrustedDeviceUnlock,
@@ -2865,101 +2869,38 @@ async function encryptGroupMessage(
   participants: Participant[],
   conversationBundles?: ConversationDeviceBundleResolution
 ) {
-  const { ownMaterial, targetBundles, nextSessions } =
-    await prepareGroupRecipientEncryptionContext(
-      token,
-      currentUserId,
-      participants,
-      conversationBundles
-    );
-  const groupSenderChainState = await readGroupSenderChainState(currentUserId);
-  const senderChains = groupSenderChainState.outboundChains;
-  let senderChain = senderChains[chatId];
-  const shouldRefreshRestoredOutboundChain = wasOutboundGroupSenderChainRestoredFromPersistent(
-    currentUserId,
-    chatId
-  );
-  const recipientDeviceSetHash = buildRecipientDeviceSetHash(targetBundles);
-  if (
-    !senderChain ||
-    senderChain.ownMaterialId !== ownMaterial.materialId ||
-    senderChain.senderDeviceId !== ownMaterial.deviceId ||
-    senderChain.recipientDeviceSetHash !== recipientDeviceSetHash ||
-    isGroupSenderChainRotationDue(senderChain, GROUP_SENDER_KEY_MAX_AGE_MS) ||
-    shouldRefreshRestoredOutboundChain
-  ) {
-    senderChain = createGroupSenderChain(chatId, ownMaterial, recipientDeviceSetHash);
-  }
-
-  const currentChainKey = base64ToBytes(senderChain.chainKey);
-  const currentMessageCounter = senderChain.nextMessageCounter;
-  const ratchetStep = await deriveMessageRatchetStep(currentChainKey, currentMessageCounter);
-  const sharedEnvelope = await createGroupSharedEnvelope(
-    chatId,
-    currentUserId,
-    ownMaterial,
-    senderChain.senderKeyId,
-    currentMessageCounter,
-    ratchetStep.messageKey,
-    content
-  );
-  const historyKeyRecord = await ensureGroupHistoryKeyRecord(
+  return encryptGroupMessageInternal<RegisteredDeviceEncryptionMaterial, DeviceSessionRecord>({
     token,
     chatId,
     currentUserId,
-    ownMaterial,
-    targetBundles,
-    nextSessions
-  );
-  const historyEnvelope = await createGroupHistoryEnvelope(sharedEnvelope, historyKeyRecord, content);
-  const distributionPayload = JSON.stringify({
-    aadVersion: GROUP_SENDER_DISTRIBUTION_AAD_VERSION,
-    chatId,
-    senderUserId: currentUserId,
-    senderDeviceId: ownMaterial.deviceId,
-    senderKeyId: senderChain.senderKeyId,
-    messageCounter: currentMessageCounter,
-    chainKey: bytesToBase64(currentChainKey),
-  } satisfies GroupSenderKeyDistribution);
-
-  const distributionEnvelopes = await Promise.all(
-    targetBundles.map(async (bundle) => {
-      const sessionRecord =
-        nextSessions[getDeviceSessionMapKey(bundle.userId, bundle.deviceId)] ??
-        (await establishInitiatorDeviceSession(currentUserId, ownMaterial, bundle));
-      setCurrentDeviceSessionRecord(nextSessions, sessionRecord);
-      return [
-        bundle.deviceId,
-        await createDirectRecipientEnvelopeContent(
-          currentUserId,
-          ownMaterial,
-          sessionRecord,
-          distributionPayload
-        ),
-      ] as const;
-    })
-  );
-
-  senderChains[chatId] = {
-    ...senderChain,
-    chainKey: bytesToBase64(ratchetStep.nextChainKey),
-    nextMessageCounter: currentMessageCounter + 1,
-  };
-
-  writeDeviceSessions(currentUserId, nextSessions);
-  await rememberDeviceSessions(currentUserId, nextSessions);
-  writeGroupSenderChainState(currentUserId, groupSenderChainState);
-  await rememberGroupSenderChainState(currentUserId, groupSenderChainState);
-  markOutboundGroupSenderChainAsReactivated(currentUserId, chatId);
-
-  return {
-    scheme: MESSAGE_SCHEME_GROUP_SENDER_KEY,
-    sharedEnvelope: JSON.stringify(sharedEnvelope),
-    historyEnvelope: JSON.stringify(historyEnvelope),
-    encryptedKeysByRecipientId: Object.fromEntries(
-      distributionEnvelopes.map(([deviceId, envelope]) => [deviceId, JSON.stringify(envelope)])
-    ),
-  };
+    content,
+    participants,
+    conversationBundles,
+    prepareGroupRecipientEncryptionContext,
+    readGroupSenderChainState,
+    wasOutboundGroupSenderChainRestoredFromPersistent,
+    buildRecipientDeviceSetHash,
+    isGroupSenderChainRotationDue: (senderChain) =>
+      isGroupSenderChainRotationDue(senderChain, GROUP_SENDER_KEY_MAX_AGE_MS),
+    createGroupSenderChain,
+    base64ToBytes,
+    bytesToBase64,
+    deriveMessageRatchetStep,
+    createGroupSharedEnvelope,
+    ensureGroupHistoryKeyRecord,
+    createGroupHistoryEnvelope,
+    groupSenderDistributionAadVersion: GROUP_SENDER_DISTRIBUTION_AAD_VERSION,
+    getDeviceSessionMapKey,
+    establishInitiatorDeviceSession,
+    setCurrentDeviceSessionRecord,
+    createDirectRecipientEnvelopeContent,
+    writeDeviceSessions,
+    rememberDeviceSessions,
+    writeGroupSenderChainState,
+    rememberGroupSenderChainState,
+    markOutboundGroupSenderChainAsReactivated,
+    messageSchemeGroupSenderKey: MESSAGE_SCHEME_GROUP_SENDER_KEY,
+  });
 }
 
 async function prepareGroupRecipientEncryptionContext(
@@ -2972,104 +2913,30 @@ async function prepareGroupRecipientEncryptionContext(
   targetBundles: UserEncryptionDeviceBundle[];
   nextSessions: Record<string, DeviceSessionRecord>;
 }> {
-  const ownMaterial = await readEncryptionDeviceMaterial(currentUserId);
-  if (!isRegisteredEncryptionDeviceMaterialAvailable(ownMaterial)) {
-    throw new ApiError("Encrypted chat is still initializing on this device. Try again.", 409);
-  }
-
-  const {
-    trustedBundles: previewBundles,
-    missingParticipants,
-    participantsWithUntrustedDevices,
-  } = conversationBundles ?? await resolveConversationDeviceBundles(
+  return prepareGroupRecipientEncryptionContextInternal<
+    RegisteredDeviceEncryptionMaterial,
+    DeviceSessionRecord
+  >({
     token,
-    participants,
-    ownMaterial.deviceId,
-    currentUserId
-  );
-  const currentSelfBundle = buildSelfDeviceBundle(ownMaterial, currentUserId);
-  const currentSelfBundleKey = getDeviceBundleMapKey(currentUserId, ownMaterial.deviceId);
-  const participantsWithUntrustedBundles = participantsWithUntrustedDevices;
-  if (participantsWithUntrustedBundles.length > 0) {
-    throw new ApiError(
-      ENCRYPTION_IDENTITY_CHANGED_MESSAGE,
-      409,
-      participantsWithUntrustedBundles.map((participant) => participant.displayName)
-    );
-  }
-  if (missingParticipants.length > 0) {
-    throw new ApiError(
-      "Encrypted chat is unavailable because some participants do not have an available encryption device yet",
-      409,
-      missingParticipants.map((participant) => participant.displayName)
-    );
-  }
-
-  const existingSessions = await readCurrentDeviceSessions(currentUserId, ownMaterial.materialId);
-  const targetBundles = [
-    ...previewBundles.filter(
-      (bundle) => getDeviceBundleMapKey(bundle.userId, bundle.deviceId) !== currentSelfBundleKey
-    ),
-    currentSelfBundle,
-  ];
-  const shouldRefreshRestoredSelfSession = wasCurrentDeviceSessionRestoredFromPersistent(
     currentUserId,
-    currentSelfBundle.userId,
-    currentSelfBundle.deviceId
-  );
-  const unresolvedRemoteBundles = targetBundles
-    .filter((bundle) => getDeviceBundleMapKey(bundle.userId, bundle.deviceId) !== currentSelfBundleKey)
-    .filter((bundle) =>
-      shouldEstablishDeviceSession(existingSessions, bundle) ||
-      wasCurrentDeviceSessionRestoredFromPersistent(currentUserId, bundle.userId, bundle.deviceId)
-    );
-
-  const nextSessions = { ...existingSessions };
-  if (shouldEstablishDeviceSession(existingSessions, currentSelfBundle) || shouldRefreshRestoredSelfSession) {
-    const selfSession = await establishInitiatorDeviceSession(
-      currentUserId,
-      ownMaterial,
-      currentSelfBundle
-    );
-    setCurrentDeviceSessionRecord(nextSessions, selfSession);
-    markCurrentDeviceSessionAsReactivated(currentUserId, currentSelfBundle.userId, currentSelfBundle.deviceId);
-  }
-
-  if (unresolvedRemoteBundles.length > 0) {
-    let consumableBundles: UserEncryptionDeviceBundle[] = [];
-    try {
-      consumableBundles = await resolveEncryptionDeviceBundles(
-        token,
-        Array.from(new Set(unresolvedRemoteBundles.map((bundle) => bundle.userId))),
-        {
-          consumeOneTimePrekeys: true,
-          deviceIds: unresolvedRemoteBundles.map((bundle) => bundle.deviceId),
-          requesterDeviceId: ownMaterial.deviceId,
-        }
-      );
-    } catch {
-      throw new ApiError("Encrypted chat is still initializing on this device. Try again.", 409);
-    }
-
-    for (const bundle of consumableBundles) {
-      if (!(await validateAndPinDeviceBundle(bundle))) {
-        const affectedParticipant = participants.find((participant) => participant.id === bundle.userId);
-        throw new ApiError(
-          ENCRYPTION_IDENTITY_CHANGED_MESSAGE,
-          409,
-          affectedParticipant ? [affectedParticipant.displayName] : []
-        );
-      }
-      const nextSession = await establishInitiatorDeviceSession(currentUserId, ownMaterial, bundle);
-      setCurrentDeviceSessionRecord(nextSessions, nextSession);
-      markCurrentDeviceSessionAsReactivated(currentUserId, bundle.userId, bundle.deviceId);
-    }
-  }
-  return {
-    ownMaterial,
-    targetBundles,
-    nextSessions,
-  };
+    participants,
+    conversationBundles,
+    readOwnMaterial: async (userId) => {
+      const material = await readEncryptionDeviceMaterial(userId);
+      return isRegisteredEncryptionDeviceMaterialAvailable(material) ? material : null;
+    },
+    resolveConversationDeviceBundles,
+    buildSelfDeviceBundle,
+    getDeviceBundleMapKey,
+    readCurrentDeviceSessions,
+    shouldEstablishDeviceSession,
+    wasCurrentDeviceSessionRestoredFromPersistent,
+    establishInitiatorDeviceSession,
+    setCurrentDeviceSessionRecord,
+    markCurrentDeviceSessionAsReactivated,
+    resolveEncryptionDeviceBundles,
+    validateAndPinDeviceBundle,
+  });
 }
 
 export async function grantGroupHistoryAccessForParticipants(
@@ -3820,23 +3687,6 @@ async function decryptDirectMessage(payload: EncryptedMessagePayload, userId: st
   return decryptDirectRecipientEnvelopeContent(serializedEnvelope, userId, ownMaterial);
 }
 
-function isRecoverableGroupHistoryFallbackError(error: unknown) {
-  if (error instanceof ApiError) {
-    return false;
-  }
-
-  return (
-    error instanceof Error &&
-    [
-      "Encrypted device session is not available in this browser",
-      "Encrypted message chain is no longer available for this session",
-      "Encrypted message key is no longer available for this session",
-      "Encrypted message counter gap is too large for this session",
-      "Encrypted message key could not be derived for this session",
-    ].includes(error.message)
-  );
-}
-
 async function decryptGroupMessage(message: ApiChatMessage, userId: string) {
   const payload = message.encryptedPayload;
   if (!payload) {
@@ -3944,38 +3794,20 @@ async function decryptGroupHistoryMessage(
   ownMaterial: RegisteredDeviceEncryptionMaterial,
   sharedEnvelope: GroupSharedEnvelope
 ) {
-  if (!message.encryptedPayload?.historyEnvelope) {
-    throw new Error("Encrypted group history envelope is not available");
-  }
-
-  const historyEnvelope = parseGroupHistoryEnvelope(
-    message.encryptedPayload.historyEnvelope,
-    GROUP_HISTORY_ENVELOPE_AAD_VERSION
-  );
-  let historyKeyRecord = await resolveLocalGroupHistoryKeyRecord(
+  return decryptGroupHistoryMessageInternal({
+    message,
     userId,
-    sharedEnvelope.chatId,
-    historyEnvelope.historyKeyId
-  );
-  if (!historyKeyRecord) {
-    const session =
-      recoverySyncSessionByUserId.get(userId) ?? (await waitForRecoverySyncSession(userId));
-    if (!session) {
-      throw new Error("Encrypted group history key is not available for this device");
-    }
-
-    historyKeyRecord = await resolveGroupHistoryKeyRecordFromServer(
-      session.token,
-      userId,
-      sharedEnvelope.chatId,
-      ownMaterial
-    );
-  }
-  if (!historyKeyRecord || historyKeyRecord.historyKeyId !== historyEnvelope.historyKeyId) {
-    throw new Error("Encrypted group history key is not available for this message");
-  }
-
-  return decryptGroupHistoryEnvelopeContent(historyEnvelope, sharedEnvelope, historyKeyRecord);
+    ownMaterial,
+    sharedEnvelope,
+    parseGroupHistoryEnvelope: (value) =>
+      parseGroupHistoryEnvelope(value, GROUP_HISTORY_ENVELOPE_AAD_VERSION),
+    resolveLocalGroupHistoryKeyRecord,
+    getRecoverySyncSession: async (currentUserId) =>
+      recoverySyncSessionByUserId.get(currentUserId) ??
+      (await waitForRecoverySyncSession(currentUserId)),
+    resolveGroupHistoryKeyRecordFromServer,
+    decryptGroupHistoryEnvelopeContent,
+  });
 }
 
 async function decryptDirectRecipientEnvelopeContent(

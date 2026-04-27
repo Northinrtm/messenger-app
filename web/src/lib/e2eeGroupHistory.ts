@@ -1,6 +1,11 @@
 import { ApiError } from "./api";
-import type { GroupHistoryKeyAccess, UserEncryptionDeviceBundle } from "./types";
-import type { GroupHistoryKeyGrantPayload, GroupHistoryKeyRecord } from "./e2eeGroupEngine";
+import type { ApiChatMessage, GroupHistoryKeyAccess, UserEncryptionDeviceBundle } from "./types";
+import type {
+  GroupHistoryEnvelope,
+  GroupHistoryKeyGrantPayload,
+  GroupHistoryKeyRecord,
+  GroupSharedEnvelope,
+} from "./e2eeGroupEngine";
 
 export function createLocalGroupHistoryKeyRecord(
   chatId: string,
@@ -242,4 +247,84 @@ export async function ensureGroupHistoryKeyRecord<OwnMaterial, SessionRecord>(op
   );
   await options.persistGroupHistoryKeyRecord(options.currentUserId, createdRecord);
   return createdRecord;
+}
+
+export function isRecoverableGroupHistoryFallbackError(error: unknown) {
+  if (error instanceof ApiError) {
+    return false;
+  }
+
+  return (
+    error instanceof Error &&
+    [
+      "Encrypted device session is not available in this browser",
+      "Encrypted message chain is no longer available for this session",
+      "Encrypted message key is no longer available for this session",
+      "Encrypted message counter gap is too large for this session",
+      "Encrypted message key could not be derived for this session",
+    ].includes(error.message)
+  );
+}
+
+export async function decryptGroupHistoryMessage<
+  OwnMaterial extends { deviceId: string },
+  Session extends { token: string } | null,
+>(options: {
+  message: ApiChatMessage;
+  userId: string;
+  ownMaterial: OwnMaterial;
+  sharedEnvelope: GroupSharedEnvelope;
+  parseGroupHistoryEnvelope: (value: string) => GroupHistoryEnvelope;
+  resolveLocalGroupHistoryKeyRecord: (
+    userId: string,
+    chatId: string,
+    historyKeyId: string
+  ) => Promise<GroupHistoryKeyRecord | null>;
+  getRecoverySyncSession: (userId: string) => Promise<Session>;
+  resolveGroupHistoryKeyRecordFromServer: (
+    token: string,
+    userId: string,
+    chatId: string,
+    ownMaterial: OwnMaterial
+  ) => Promise<GroupHistoryKeyRecord | null>;
+  decryptGroupHistoryEnvelopeContent: (
+    historyEnvelope: GroupHistoryEnvelope,
+    sharedEnvelope: GroupSharedEnvelope,
+    historyKeyRecord: GroupHistoryKeyRecord
+  ) => Promise<string>;
+}) {
+  if (!options.message.encryptedPayload?.historyEnvelope) {
+    throw new Error("Encrypted group history envelope is not available");
+  }
+
+  const historyEnvelope = options.parseGroupHistoryEnvelope(
+    options.message.encryptedPayload.historyEnvelope
+  );
+  let historyKeyRecord = await options.resolveLocalGroupHistoryKeyRecord(
+    options.userId,
+    options.sharedEnvelope.chatId,
+    historyEnvelope.historyKeyId
+  );
+  if (!historyKeyRecord) {
+    const session = await options.getRecoverySyncSession(options.userId);
+    if (!session) {
+      throw new Error("Encrypted group history key is not available for this device");
+    }
+
+    historyKeyRecord = await options.resolveGroupHistoryKeyRecordFromServer(
+      session.token,
+      options.userId,
+      options.sharedEnvelope.chatId,
+      options.ownMaterial
+    );
+  }
+  if (!historyKeyRecord || historyKeyRecord.historyKeyId !== historyEnvelope.historyKeyId) {
+    throw new Error("Encrypted group history key is not available for this message");
+  }
+
+  return options.decryptGroupHistoryEnvelopeContent(
+    historyEnvelope,
+    options.sharedEnvelope,
+    historyKeyRecord
+  );
 }

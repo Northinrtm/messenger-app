@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { GroupHistoryKeyAccess, UserEncryptionDeviceBundle } from "./types";
-import type { GroupHistoryKeyRecord } from "./e2eeGroupEngine";
+import type { GroupHistoryKeyRecord, GroupSharedEnvelope } from "./e2eeGroupEngine";
 import {
   buildGroupHistoryKeyAccessEnvelopes,
   createLocalGroupHistoryKeyRecord,
+  decryptGroupHistoryMessage,
   ensureGroupHistoryKeyRecord,
+  isRecoverableGroupHistoryFallbackError,
   resolveGroupHistoryKeyRecordFromServer,
 } from "./e2eeGroupHistory";
 
@@ -181,5 +183,123 @@ describe("e2eeGroupHistory", () => {
     expect(record).toBe(createdRecord);
     expect(upsert).toHaveBeenCalledTimes(1);
     expect(persist).toHaveBeenCalledWith("self", createdRecord);
+  });
+
+  it("identifies recoverable fallback errors for group history decryption", () => {
+    expect(
+      isRecoverableGroupHistoryFallbackError(
+        new Error("Encrypted message key is no longer available for this session")
+      )
+    ).toBe(true);
+    expect(isRecoverableGroupHistoryFallbackError(new Error("other"))).toBe(false);
+  });
+
+  it("decrypts group history messages from a local or remotely recovered history key", async () => {
+    const sharedEnvelope: GroupSharedEnvelope = {
+      aadVersion: 1,
+      chatId: "chat",
+      senderUserId: "sender",
+      senderDeviceId: "device",
+      senderKeyId: "sender-key",
+      messageCounter: 5,
+      ciphertext: "ciphertext",
+      iv: "iv",
+      signature: "sig",
+    };
+    const parseGroupHistoryEnvelope = () => ({
+      aadVersion: 1,
+      historyKeyId: "history-id",
+      ciphertext: "ciphertext",
+      iv: "iv",
+    });
+    const decryptContent = vi.fn(async () => "plaintext");
+
+    await expect(
+      decryptGroupHistoryMessage({
+        message: {
+          id: "message-id",
+          chatId: "chat",
+          sender: {
+            id: "sender",
+            username: "sender",
+            displayName: "Sender",
+            profession: null,
+            avatarUrl: null,
+            online: true,
+          },
+          createdAt: "2026-01-01T00:00:00.000Z",
+          editedAt: null,
+          status: null,
+          clientMessageId: null,
+          replyTo: null,
+          reactions: [],
+          encryptedPayload: {
+            scheme: "GROUP-SENDER-KEY-AES-GCM",
+            encryptedKeysByRecipientId: {},
+            sharedEnvelope: "{}",
+            historyEnvelope: "{}",
+          },
+        },
+        userId: "self",
+        ownMaterial: { deviceId: "self-device" },
+        sharedEnvelope,
+        parseGroupHistoryEnvelope,
+        resolveLocalGroupHistoryKeyRecord: async () => ({
+          historyKeyId: "history-id",
+          chatId: "chat",
+          keyMaterial: "local-key",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        }),
+        getRecoverySyncSession: async () => null,
+        resolveGroupHistoryKeyRecordFromServer: async () => null,
+        decryptGroupHistoryEnvelopeContent: decryptContent,
+      })
+    ).resolves.toBe("plaintext");
+
+    expect(decryptContent).toHaveBeenCalledTimes(1);
+
+    await expect(
+      decryptGroupHistoryMessage({
+        message: {
+          id: "message-id",
+          chatId: "chat",
+          sender: {
+            id: "sender",
+            username: "sender",
+            displayName: "Sender",
+            profession: null,
+            avatarUrl: null,
+            online: true,
+          },
+          createdAt: "2026-01-01T00:00:00.000Z",
+          editedAt: null,
+          status: null,
+          clientMessageId: null,
+          replyTo: null,
+          reactions: [],
+          encryptedPayload: {
+            scheme: "GROUP-SENDER-KEY-AES-GCM",
+            encryptedKeysByRecipientId: {},
+            sharedEnvelope: "{}",
+            historyEnvelope: "{}",
+          },
+        },
+        userId: "self",
+        ownMaterial: { deviceId: "self-device" },
+        sharedEnvelope,
+        parseGroupHistoryEnvelope,
+        resolveLocalGroupHistoryKeyRecord: async () => null,
+        getRecoverySyncSession: async () => ({ token: "token" }),
+        resolveGroupHistoryKeyRecordFromServer: async () => ({
+          historyKeyId: "history-id",
+          chatId: "chat",
+          keyMaterial: "remote-key",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        }),
+        decryptGroupHistoryEnvelopeContent: decryptContent,
+      })
+    ).resolves.toBe("plaintext");
   });
 });
