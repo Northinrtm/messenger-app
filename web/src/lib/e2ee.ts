@@ -53,9 +53,85 @@ import {
   resolveConversationDeviceBundles as resolveConversationDeviceBundlesInternal,
 } from "./e2eeDevicePreparation";
 import {
+  clearCompletedDevicePreparation as clearCompletedDevicePreparationInternal,
+  clearPreparedConversationDeviceState as clearPreparedConversationDeviceStateInternal,
+  clearPreparedDeviceManifestState as clearPreparedDeviceManifestStateInternal,
+  clearPreparedOwnSiblingDeviceState as clearPreparedOwnSiblingDeviceStateInternal,
+  readPreparedConversationDeviceState as readPreparedConversationDeviceStateInternal,
+  readPreparedDeviceManifestState as readPreparedDeviceManifestStateInternal,
+  readPreparedOwnSiblingDeviceState as readPreparedOwnSiblingDeviceStateInternal,
+  rememberPreparedConversationDeviceState as rememberPreparedConversationDeviceStateInternal,
+  rememberPreparedDeviceManifestState as rememberPreparedDeviceManifestStateInternal,
+  rememberPreparedOwnSiblingDeviceState as rememberPreparedOwnSiblingDeviceStateInternal,
+} from "./e2eeDevicePreparationStore";
+import {
   buildOwnSiblingDevicePreparationKey as buildOwnSiblingDevicePreparationKeyInternal,
   listPreparedOwnSiblingDeviceBundles as listPreparedOwnSiblingDeviceBundlesInternal,
 } from "./e2eeOwnSiblingDevices";
+import {
+  discardUnusableRegisteredEncryptionDeviceMaterial as discardUnusableRegisteredEncryptionDeviceMaterialInternal,
+  ensureRegisteredEncryptionDeviceInternal as ensureRegisteredEncryptionDeviceInternalExternal,
+  findOwnEncryptionDevice as findOwnEncryptionDeviceInternal,
+  forceRegisterEncryptionDevice as forceRegisterEncryptionDeviceInternal,
+  isRegisteredEncryptionDeviceMaterialAvailable as isRegisteredEncryptionDeviceMaterialAvailableInternal,
+  isRegisteredEncryptionDeviceMaterialUsable as isRegisteredEncryptionDeviceMaterialUsableInternal,
+  isRegistrationSyncFresh as isRegistrationSyncFreshInternal,
+  isSignedPrekeyRotationDue as isSignedPrekeyRotationDueInternal,
+  recoverRegisteredEncryptionDeviceMaterial as recoverRegisteredEncryptionDeviceMaterialInternal,
+  waitForEncryptionDeviceRegistration as waitForEncryptionDeviceRegistrationInternal,
+} from "./e2eeOwnDeviceRegistration";
+import {
+  decryptRememberedEncryptionDeviceMaterial as decryptRememberedEncryptionDeviceMaterialInternal,
+  encryptRememberedEncryptionDeviceMaterial as encryptRememberedEncryptionDeviceMaterialInternal,
+  normalizeDeviceEncryptionMaterial as normalizeDeviceEncryptionMaterialInternal,
+  pruneRetiredOneTimePrekeys as pruneRetiredOneTimePrekeysInternal,
+  pruneRetiredSignedPrekeys as pruneRetiredSignedPrekeysInternal,
+  readEncryptionDeviceMaterial as readEncryptionDeviceMaterialInternal,
+  readRememberedEncryptionDeviceMaterial as readRememberedEncryptionDeviceMaterialInternal,
+  rememberEncryptionDeviceMaterial as rememberEncryptionDeviceMaterialInternal,
+  removeEncryptionDeviceMaterial as removeEncryptionDeviceMaterialInternal,
+  removeRememberedEncryptionDeviceMaterial as removeRememberedEncryptionDeviceMaterialInternal,
+  writeEncryptionDeviceMaterial as writeEncryptionDeviceMaterialInternal,
+} from "./e2eeOwnDeviceMaterialStore";
+import {
+  decryptRememberedUnlockedIdentityRecord as decryptRememberedUnlockedIdentityRecordInternal,
+  normalizeRememberedUnlockedIdentityRecord as normalizeRememberedUnlockedIdentityRecordInternal,
+  readRememberedUnlockedIdentity as readRememberedUnlockedIdentityInternal,
+  readRememberedUnlockedIdentityRecord as readRememberedUnlockedIdentityRecordInternal,
+  readUnlockedIdentity as readUnlockedIdentityInternal,
+  readUnlockedIdentityFromPersistentAutoStorage as readUnlockedIdentityFromPersistentAutoStorageInternal,
+  readUnlockedIdentityFromSession as readUnlockedIdentityFromSessionInternal,
+  rememberUnlockedIdentity as rememberUnlockedIdentityInternal,
+  removeUnlockedIdentityFromPersistentStorage as removeUnlockedIdentityFromPersistentStorageInternal,
+  removeUnlockedIdentityFromSession as removeUnlockedIdentityFromSessionInternal,
+  writeRememberedUnlockedIdentityRecord as writeRememberedUnlockedIdentityRecordInternal,
+  writeUnlockedIdentity as writeUnlockedIdentityInternal,
+  writeUnlockedIdentityToPersistentAutoStorage as writeUnlockedIdentityToPersistentAutoStorageInternal,
+  writeUnlockedIdentityToSession as writeUnlockedIdentityToSessionInternal,
+  type RememberedUnlockedIdentityRecord,
+} from "./e2eeIdentityStore";
+import {
+  clearUnlockedEncryptionState as clearUnlockedEncryptionStateInternal,
+  createLocalVaultIdentity as createLocalVaultIdentityInternal,
+  lockUnlockedEncryptionState as lockUnlockedEncryptionStateInternal,
+} from "./e2eeLocalStateLifecycle";
+import {
+  decryptRememberedGroupSenderChainState as decryptRememberedGroupSenderChainStateInternal,
+  encryptRememberedGroupSenderChainState as encryptRememberedGroupSenderChainStateInternal,
+  persistGroupHistoryKeyRecord as persistGroupHistoryKeyRecordInternal,
+  readCurrentGroupHistoryKeyRecord as readCurrentGroupHistoryKeyRecordInternal,
+  readGroupHistoryKeyState as readGroupHistoryKeyStateInternal,
+  readGroupSenderChainState as readGroupSenderChainStateInternal,
+  readRememberedGroupSenderChainState as readRememberedGroupSenderChainStateInternal,
+  rememberGroupSenderChainState as rememberGroupSenderChainStateInternal,
+  removeGroupHistoryKeys as removeGroupHistoryKeysInternal,
+  removeGroupSenderChains as removeGroupSenderChainsInternal,
+  removeRememberedGroupSenderChainState as removeRememberedGroupSenderChainStateInternal,
+  resolveLocalGroupHistoryKeyRecord as resolveLocalGroupHistoryKeyRecordInternal,
+  writeGroupHistoryKeyState as writeGroupHistoryKeyStateInternal,
+  writeGroupSenderChainState as writeGroupSenderChainStateInternal,
+  writeGroupSenderChains as writeGroupSenderChainsInternal,
+} from "./e2eeGroupStateStore";
 import {
   assertGroupDistributionSenderMatchesSharedEnvelope,
   buildGroupEnvelopeAdditionalData,
@@ -876,12 +952,6 @@ type TrustedDeviceUnlockRecord = {
   createdAt: string;
 };
 
-type AutoUnlockedIdentityRecord = {
-  publicKey: string;
-  privateKey: string;
-  createdAt: string;
-};
-
 type DeviceOneTimePrekeyMaterial = {
   keyId: number;
   publicKey: string;
@@ -927,13 +997,6 @@ type RegisteredDeviceEncryptionMaterial = DeviceEncryptionMaterial & {
   deviceId: string;
 };
 
-type RememberedDeviceEncryptionMaterialRecord = {
-  salt: string;
-  iv: string;
-  ciphertext: string;
-  createdAt: string;
-};
-
 type DeviceSessionRecord = {
   sessionId: string;
   peerUserId: string;
@@ -965,20 +1028,6 @@ type DeviceSessionRecord = {
   receivingCounter: number;
   cachedMessageKeys?: Record<string, string>;
   establishedAt: string;
-};
-
-type RememberedGroupSenderChainStateRecord = {
-  salt: string;
-  iv: string;
-  ciphertext: string;
-  createdAt: string;
-};
-
-type RememberedUnlockedIdentityRecord = {
-  salt: string;
-  iv: string;
-  ciphertext: string;
-  createdAt: string;
 };
 
 type MessageContentEnvelope = {
@@ -1386,86 +1435,51 @@ async function recoverLocalEncryptionStateForRetry(
 
 export function clearUnlockedEncryptionState(userId?: string) {
   ensureE2eeTransportStorageSchema();
-
-  if (userId) {
-    const identity = unlockedIdentityByUserId.get(userId);
-    if (identity) {
-      unlockedIdentityByUserId.delete(userId);
-    }
-    clearInFlightMessageHydration(userId);
-    removeUnlockedIdentityFromSession(userId);
-    removeUnlockedIdentityFromPersistentStorage(userId);
-    removeEncryptionDeviceMaterial(userId);
-    removeRememberedEncryptionDeviceMaterial(userId);
-    removeDeviceSessions(userId);
-    removeRememberedDeviceSessions(userId);
-    removeGroupSenderChains(userId);
-    removeGroupHistoryKeys(userId);
-    clearCompletedEncryptionDeviceRegistration(userId);
-    clearCompletedDevicePreparation(userId);
-    clearRecoverySnapshotSyncState(userId);
-    return;
-  }
-
-  unlockedIdentityByUserId.forEach((identity, currentUserId) => {
-    clearInFlightMessageHydration(currentUserId);
-    removeUnlockedIdentityFromSession(currentUserId);
-    removeUnlockedIdentityFromPersistentStorage(currentUserId);
-    removeEncryptionDeviceMaterial(currentUserId);
-    removeRememberedEncryptionDeviceMaterial(currentUserId);
-    removeDeviceSessions(currentUserId);
-    removeRememberedDeviceSessions(currentUserId);
-    removeGroupSenderChains(currentUserId);
-    removeGroupHistoryKeys(currentUserId);
-    clearCompletedEncryptionDeviceRegistration(currentUserId);
+  return clearUnlockedEncryptionStateInternal({
+    userId,
+    unlockedIdentityByUserId,
+    importedDevicePublicKeyCache,
+    completedEncryptionDeviceRegistration,
+    completedDevicePreparation,
+    preparedConversationDeviceStates,
+    completedOwnSiblingDevicePreparation,
+    preparedOwnSiblingDeviceStates,
+    clearInFlightMessageHydration,
+    removeUnlockedIdentityFromSession,
+    removeUnlockedIdentityFromPersistentStorage,
+    removeEncryptionDeviceMaterial,
+    removeRememberedEncryptionDeviceMaterial,
+    removeDeviceSessions,
+    removeRememberedDeviceSessions,
+    removeGroupSenderChains,
+    removeGroupHistoryKeys,
+    clearCompletedEncryptionDeviceRegistration,
+    clearCompletedDevicePreparation,
+    clearRecoverySnapshotSyncState,
   });
-  unlockedIdentityByUserId.clear();
-  importedDevicePublicKeyCache.clear();
-  completedEncryptionDeviceRegistration.clear();
-  completedDevicePreparation.clear();
-  preparedConversationDeviceStates.clear();
-  completedOwnSiblingDevicePreparation.clear();
-  preparedOwnSiblingDeviceStates.clear();
-  clearRecoverySnapshotSyncState();
-  clearInFlightMessageHydration();
 }
 
 export function lockUnlockedEncryptionState(userId?: string) {
   ensureE2eeTransportStorageSchema();
-
-  if (userId) {
-    unlockedIdentityByUserId.delete(userId);
-    clearInFlightMessageHydration(userId);
-    removeUnlockedIdentityFromSession(userId);
-    removeEncryptionDeviceMaterial(userId);
-    removeDeviceSessions(userId);
-    removeRememberedDeviceSessions(userId);
-    removeGroupSenderChains(userId);
-    removeGroupHistoryKeys(userId);
-    clearCompletedEncryptionDeviceRegistration(userId);
-    clearCompletedDevicePreparation(userId);
-    clearRecoverySnapshotSyncState(userId);
-    return;
-  }
-
-  unlockedIdentityByUserId.forEach((identity, currentUserId) => {
-    clearInFlightMessageHydration(currentUserId);
-    removeUnlockedIdentityFromSession(currentUserId);
-    removeEncryptionDeviceMaterial(currentUserId);
-    removeDeviceSessions(currentUserId);
-    removeRememberedDeviceSessions(currentUserId);
-    removeGroupSenderChains(currentUserId);
-    removeGroupHistoryKeys(currentUserId);
-    clearCompletedEncryptionDeviceRegistration(currentUserId);
+  return lockUnlockedEncryptionStateInternal({
+    userId,
+    unlockedIdentityByUserId,
+    completedEncryptionDeviceRegistration,
+    completedDevicePreparation,
+    preparedConversationDeviceStates,
+    completedOwnSiblingDevicePreparation,
+    preparedOwnSiblingDeviceStates,
+    clearInFlightMessageHydration,
+    removeUnlockedIdentityFromSession,
+    removeEncryptionDeviceMaterial,
+    removeDeviceSessions,
+    removeRememberedDeviceSessions,
+    removeGroupSenderChains,
+    removeGroupHistoryKeys,
+    clearCompletedEncryptionDeviceRegistration,
+    clearCompletedDevicePreparation,
+    clearRecoverySnapshotSyncState,
   });
-  unlockedIdentityByUserId.clear();
-  completedEncryptionDeviceRegistration.clear();
-  completedDevicePreparation.clear();
-  preparedConversationDeviceStates.clear();
-  completedOwnSiblingDevicePreparation.clear();
-  preparedOwnSiblingDeviceStates.clear();
-  clearRecoverySnapshotSyncState();
-  clearInFlightMessageHydration();
 }
 
 export async function ensureEncryptionReady(session: AuthResponse, password: string) {
@@ -2237,19 +2251,13 @@ async function prepareDeviceEncryptionState(
 }
 
 function readPreparedConversationDeviceState(preparationKey: string) {
-  const cachedPreparationTimestamp = completedDevicePreparation.get(preparationKey);
-  const cachedPreparedState = preparedConversationDeviceStates.get(preparationKey);
-  if (!cachedPreparationTimestamp || !cachedPreparedState) {
-    clearPreparedConversationDeviceState(preparationKey);
-    return null;
-  }
-
-  if (Date.now() - cachedPreparationTimestamp >= DEVICE_PREPARATION_CACHE_TTL_MS) {
-    clearPreparedConversationDeviceState(preparationKey);
-    return null;
-  }
-
-  return cachedPreparedState;
+  return readPreparedConversationDeviceStateInternal({
+    preparationKey,
+    completedDevicePreparation,
+    preparedConversationDeviceStates,
+    ttlMs: DEVICE_PREPARATION_CACHE_TTL_MS,
+    clearPreparedConversationDeviceState,
+  });
 }
 
 function buildOwnSiblingDevicePreparationKey(currentUserId: string, currentDeviceId: string) {
@@ -2277,121 +2285,98 @@ async function listPreparedOwnSiblingDeviceBundles(
 }
 
 function readPreparedOwnSiblingDeviceState(preparationKey: string) {
-  const cachedPreparationTimestamp = completedOwnSiblingDevicePreparation.get(preparationKey);
-  const cachedPreparedState = preparedOwnSiblingDeviceStates.get(preparationKey);
-  if (!cachedPreparationTimestamp || !cachedPreparedState) {
-    clearPreparedOwnSiblingDeviceState(preparationKey);
-    return null;
-  }
-
-  if (Date.now() - cachedPreparationTimestamp >= DEVICE_PREPARATION_CACHE_TTL_MS) {
-    clearPreparedOwnSiblingDeviceState(preparationKey);
-    return null;
-  }
-
-  return cachedPreparedState;
+  return readPreparedOwnSiblingDeviceStateInternal({
+    preparationKey,
+    completedOwnSiblingDevicePreparation,
+    preparedOwnSiblingDeviceStates,
+    ttlMs: DEVICE_PREPARATION_CACHE_TTL_MS,
+    clearPreparedOwnSiblingDeviceState,
+  });
 }
 
 function rememberPreparedOwnSiblingDeviceState(
   preparationKey: string,
   preparedState: PreparedConversationDeviceState
 ) {
-  completedOwnSiblingDevicePreparation.set(preparationKey, Date.now());
-  preparedOwnSiblingDeviceStates.set(preparationKey, preparedState);
+  rememberPreparedOwnSiblingDeviceStateInternal({
+    preparationKey,
+    preparedState,
+    completedOwnSiblingDevicePreparation,
+    preparedOwnSiblingDeviceStates,
+  });
 }
 
 function clearPreparedOwnSiblingDeviceState(preparationKey: string) {
-  completedOwnSiblingDevicePreparation.delete(preparationKey);
-  preparedOwnSiblingDeviceStates.delete(preparationKey);
+  clearPreparedOwnSiblingDeviceStateInternal({
+    preparationKey,
+    completedOwnSiblingDevicePreparation,
+    preparedOwnSiblingDeviceStates,
+  });
 }
 
 function rememberPreparedConversationDeviceState(
   preparationKey: string,
   preparedState: PreparedConversationDeviceState
 ) {
-  completedDevicePreparation.set(preparationKey, Date.now());
-  preparedConversationDeviceStates.set(preparationKey, {
-    rawBundles: [...preparedState.rawBundles],
-    trustedBundles: [...preparedState.trustedBundles],
+  rememberPreparedConversationDeviceStateInternal({
+    preparationKey,
+    preparedState,
+    completedDevicePreparation,
+    preparedConversationDeviceStates,
   });
 }
 
 function readPreparedDeviceManifestState(preparationKey: string) {
-  const preparedAt = completedDeviceManifestPreparation.get(preparationKey);
-  if (!preparedAt || Date.now() - preparedAt > DEVICE_PREPARATION_CACHE_TTL_MS) {
-    clearPreparedDeviceManifestState(preparationKey);
-    return null;
-  }
-
-  const cachedPreparedState = preparedDeviceManifestStates.get(preparationKey);
-  if (!cachedPreparedState) {
-    clearPreparedDeviceManifestState(preparationKey);
-    return null;
-  }
-
-  return {
-    version: cachedPreparedState.version,
-    rawBundles: [...cachedPreparedState.rawBundles],
-  } satisfies PreparedDeviceManifestState;
+  return readPreparedDeviceManifestStateInternal({
+    preparationKey,
+    completedDeviceManifestPreparation,
+    preparedDeviceManifestStates,
+    ttlMs: DEVICE_PREPARATION_CACHE_TTL_MS,
+    clearPreparedDeviceManifestState,
+  });
 }
 
 function rememberPreparedDeviceManifestState(
   preparationKey: string,
   preparedState: PreparedDeviceManifestState
 ) {
-  completedDeviceManifestPreparation.set(preparationKey, Date.now());
-  preparedDeviceManifestStates.set(preparationKey, {
-    version: preparedState.version,
-    rawBundles: [...preparedState.rawBundles],
+  rememberPreparedDeviceManifestStateInternal({
+    preparationKey,
+    preparedState,
+    completedDeviceManifestPreparation,
+    preparedDeviceManifestStates,
   });
 }
 
 function clearPreparedDeviceManifestState(preparationKey: string) {
-  completedDeviceManifestPreparation.delete(preparationKey);
-  preparedDeviceManifestStates.delete(preparationKey);
+  clearPreparedDeviceManifestStateInternal({
+    preparationKey,
+    completedDeviceManifestPreparation,
+    preparedDeviceManifestStates,
+  });
 }
 
 function clearPreparedConversationDeviceState(preparationKey: string) {
-  completedDevicePreparation.delete(preparationKey);
-  preparedConversationDeviceStates.delete(preparationKey);
+  clearPreparedConversationDeviceStateInternal({
+    preparationKey,
+    completedDevicePreparation,
+    preparedConversationDeviceStates,
+  });
 }
 
 function clearCompletedDevicePreparation(userId: string) {
-  for (const cacheKey of Array.from(completedDevicePreparation.keys())) {
-    if (cacheKey.startsWith(`${userId}:`)) {
-      clearPreparedConversationDeviceState(cacheKey);
-    }
-  }
-
-  for (const cacheKey of Array.from(preparedConversationDeviceStates.keys())) {
-    if (cacheKey.startsWith(`${userId}:`)) {
-      preparedConversationDeviceStates.delete(cacheKey);
-    }
-  }
-
-  for (const cacheKey of Array.from(completedOwnSiblingDevicePreparation.keys())) {
-    if (cacheKey.startsWith(`${userId}:`)) {
-      clearPreparedOwnSiblingDeviceState(cacheKey);
-    }
-  }
-
-  for (const cacheKey of Array.from(preparedOwnSiblingDeviceStates.keys())) {
-    if (cacheKey.startsWith(`${userId}:`)) {
-      preparedOwnSiblingDeviceStates.delete(cacheKey);
-    }
-  }
-
-  for (const cacheKey of Array.from(completedDeviceManifestPreparation.keys())) {
-    if (cacheKey.startsWith(`${userId}:`)) {
-      clearPreparedDeviceManifestState(cacheKey);
-    }
-  }
-
-  for (const cacheKey of Array.from(preparedDeviceManifestStates.keys())) {
-    if (cacheKey.startsWith(`${userId}:`)) {
-      preparedDeviceManifestStates.delete(cacheKey);
-    }
-  }
+  clearCompletedDevicePreparationInternal({
+    userId,
+    completedDevicePreparation,
+    preparedConversationDeviceStates,
+    completedOwnSiblingDevicePreparation,
+    preparedOwnSiblingDeviceStates,
+    completedDeviceManifestPreparation,
+    preparedDeviceManifestStates,
+    clearPreparedConversationDeviceState,
+    clearPreparedOwnSiblingDeviceState,
+    clearPreparedDeviceManifestState,
+  });
 }
 
 export async function hydrateChatMessage(
@@ -3408,38 +3393,33 @@ function concatByteArrays(chunks: Uint8Array[]) {
 }
 
 function readUnlockedIdentity(userId: string): LocalIdentity | null {
-  const inMemoryIdentity = unlockedIdentityByUserId.get(userId) ?? null;
-  if (inMemoryIdentity) {
-    return inMemoryIdentity;
-  }
-
-  const sessionIdentity = readUnlockedIdentityFromSession(userId);
-  if (!sessionIdentity) {
-    const persistentIdentity = readUnlockedIdentityFromPersistentAutoStorage(userId);
-    if (!persistentIdentity) {
-      return null;
-    }
-
-    unlockedIdentityByUserId.set(userId, persistentIdentity);
-    writeUnlockedIdentityToSession(userId, persistentIdentity);
-    return persistentIdentity;
-  }
-
-  unlockedIdentityByUserId.set(userId, sessionIdentity);
-  return sessionIdentity;
+  return readUnlockedIdentityInternal({
+    userId,
+    unlockedIdentityByUserId,
+    readUnlockedIdentityFromSession,
+    readUnlockedIdentityFromPersistentAutoStorage,
+    writeUnlockedIdentityToSession: (targetUserId, identity) =>
+      writeUnlockedIdentityToSession(targetUserId, identity),
+  });
 }
 
 function writeUnlockedIdentity(userId: string, identity: LocalIdentity) {
-  unlockedIdentityByUserId.set(userId, identity);
-  writeUnlockedIdentityToSession(userId, identity);
-  writeUnlockedIdentityToPersistentAutoStorage(userId, identity);
+  return writeUnlockedIdentityInternal({
+    userId,
+    identity,
+    unlockedIdentityByUserId,
+    writeUnlockedIdentityToSession: (targetUserId, targetIdentity) =>
+      writeUnlockedIdentityToSession(targetUserId, targetIdentity),
+    writeUnlockedIdentityToPersistentAutoStorage: (targetUserId, targetIdentity) =>
+      writeUnlockedIdentityToPersistentAutoStorage(targetUserId, targetIdentity),
+  });
 }
 
 function createLocalVaultIdentity(): LocalIdentity {
-  return {
-    publicKey: "local-device-vault",
-    privateKey: bytesToBase64(randomBytes(32)),
-  };
+  return createLocalVaultIdentityInternal({
+    bytesToBase64,
+    randomBytes,
+  });
 }
 
 function createGroupSenderChain(
@@ -3528,109 +3508,53 @@ async function createGroupSharedEnvelope(
 function normalizeRememberedUnlockedIdentityRecord(
   value: unknown
 ): RememberedUnlockedIdentityRecord | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-
-  const candidate = value as Partial<RememberedUnlockedIdentityRecord>;
-  if (
-    typeof candidate.salt !== "string" ||
-    typeof candidate.iv !== "string" ||
-    typeof candidate.ciphertext !== "string"
-  ) {
-    return null;
-  }
-
-  return {
-    salt: candidate.salt,
-    iv: candidate.iv,
-    ciphertext: candidate.ciphertext,
-    createdAt: typeof candidate.createdAt === "string" ? candidate.createdAt : "",
-  };
+  return normalizeRememberedUnlockedIdentityRecordInternal(value);
 }
 
 function readRememberedUnlockedIdentityRecord(userId: string): RememberedUnlockedIdentityRecord | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  try {
-    const rawValue = window.localStorage.getItem(getRememberedUnlockedIdentityStorageKey(userId));
-    if (!rawValue) {
-      return null;
-    }
-
-    const parsedRecord = normalizeRememberedUnlockedIdentityRecord(JSON.parse(rawValue) as unknown);
-    if (!parsedRecord) {
-      removeUnlockedIdentityFromPersistentStorage(userId);
-      return null;
-    }
-
-    return parsedRecord;
-  } catch {
-    removeUnlockedIdentityFromPersistentStorage(userId);
-    return null;
-  }
+  return readRememberedUnlockedIdentityRecordInternal({
+    userId,
+    getRememberedUnlockedIdentityStorageKey,
+    removeUnlockedIdentityFromPersistentStorage,
+  });
 }
 
 function writeRememberedUnlockedIdentityRecord(
   userId: string,
   record: RememberedUnlockedIdentityRecord
 ) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(getRememberedUnlockedIdentityStorageKey(userId), JSON.stringify(record));
-  } catch {
-    return;
-  }
+  return writeRememberedUnlockedIdentityRecordInternal({
+    userId,
+    record,
+    getRememberedUnlockedIdentityStorageKey,
+  });
 }
 
 async function decryptRememberedUnlockedIdentityRecord(
   record: RememberedUnlockedIdentityRecord,
   password: string
 ): Promise<LocalIdentity | null> {
-  try {
-    const wrappingKey = await deriveWrappingKey(password, base64ToBytes(record.salt), KDF_ITERATIONS);
-    const plaintext = await window.crypto.subtle.decrypt(
-      {
-        name: "AES-GCM",
-        iv: base64ToBytes(record.iv),
-      },
-      wrappingKey,
-      base64ToBytes(record.ciphertext)
-    );
-    const parsedIdentity = JSON.parse(textDecoder.decode(plaintext)) as Partial<LocalIdentity>;
-    if (
-      typeof parsedIdentity.publicKey !== "string" ||
-      parsedIdentity.publicKey.length === 0 ||
-      typeof parsedIdentity.privateKey !== "string" ||
-      parsedIdentity.privateKey.length === 0
-    ) {
-      return null;
-    }
-
-    return {
-      publicKey: parsedIdentity.publicKey,
-      privateKey: parsedIdentity.privateKey,
-    };
-  } catch {
-    return null;
-  }
+  return decryptRememberedUnlockedIdentityRecordInternal({
+    record,
+    password,
+    deriveWrappingKey,
+    base64ToBytes,
+    textDecoder,
+    kdfIterations: KDF_ITERATIONS,
+  });
 }
 
 async function readRememberedUnlockedIdentity(
   userId: string,
   password: string
 ): Promise<LocalIdentity | null> {
-  const parsedRecord = readRememberedUnlockedIdentityRecord(userId);
-  if (!parsedRecord) {
-    return null;
-  }
-
-  return decryptRememberedUnlockedIdentityRecord(parsedRecord, password);
+  return readRememberedUnlockedIdentityInternal({
+    userId,
+    password,
+    readRememberedUnlockedIdentityRecord,
+    decryptRememberedUnlockedIdentityRecord: (record, targetPassword) =>
+      decryptRememberedUnlockedIdentityRecord(record, targetPassword),
+  });
 }
 
 async function rememberUnlockedIdentity(
@@ -3638,28 +3562,18 @@ async function rememberUnlockedIdentity(
   identity: LocalIdentity,
   password: string
 ) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  const salt = randomBytes(16);
-  const iv = randomBytes(12);
-  const wrappingKey = await deriveWrappingKey(password, salt, KDF_ITERATIONS);
-  const ciphertext = await window.crypto.subtle.encrypt(
-    {
-      name: "AES-GCM",
-      iv,
-    },
-    wrappingKey,
-    textEncoder.encode(JSON.stringify(identity))
-  );
-
-  writeRememberedUnlockedIdentityRecord(userId, {
-      salt: bytesToBase64(salt),
-      iv: bytesToBase64(iv),
-      ciphertext: bytesToBase64(new Uint8Array(ciphertext)),
-      createdAt: new Date().toISOString(),
-    } satisfies RememberedUnlockedIdentityRecord);
+  return rememberUnlockedIdentityInternal({
+    userId,
+    identity,
+    password,
+    randomBytes,
+    deriveWrappingKey,
+    bytesToBase64,
+    textEncoder,
+    kdfIterations: KDF_ITERATIONS,
+    writeRememberedUnlockedIdentityRecord: (targetUserId, record) =>
+      writeRememberedUnlockedIdentityRecord(targetUserId, record),
+  });
 }
 
 async function restoreEncryptionRecoverySnapshot(
@@ -3751,337 +3665,137 @@ async function ensureRegisteredEncryptionDevice(session: AuthResponse) {
 }
 
 async function waitForEncryptionDeviceRegistration(session: AuthResponse) {
-  rememberRecoverySyncSession(session);
-  const registrationKey = session.user.id;
-  const inFlightRegistration = inFlightEncryptionDeviceRegistration.get(registrationKey);
-  if (inFlightRegistration) {
-    await inFlightRegistration;
-    return;
-  }
-
-  let material = await discardUnusableRegisteredEncryptionDeviceMaterial(
-    session.user.id,
-    await readEncryptionDeviceMaterial(session.user.id)
-  );
-  if (
-    hasFreshCompletedEncryptionDeviceRegistration(registrationKey) &&
-    (await isRegisteredEncryptionDeviceMaterialUsable(material))
-  ) {
-    return;
-  }
-
-  await ensureRegisteredEncryptionDevice(session);
-  material = await discardUnusableRegisteredEncryptionDeviceMaterial(
-    session.user.id,
-    await readEncryptionDeviceMaterial(session.user.id)
-  );
-  if (
-    hasFreshCompletedEncryptionDeviceRegistration(registrationKey) &&
-    (await isRegisteredEncryptionDeviceMaterialUsable(material))
-  ) {
-    return;
-  }
-
-  material = await recoverRegisteredEncryptionDeviceMaterial(session, material);
-  material = await discardUnusableRegisteredEncryptionDeviceMaterial(
-    session.user.id,
-    material
-  );
-  if (
-    hasFreshCompletedEncryptionDeviceRegistration(registrationKey) &&
-    (await isRegisteredEncryptionDeviceMaterialUsable(material))
-  ) {
-    return;
-  }
-
-  material = await forceRegisterEncryptionDevice(session);
-  material = await discardUnusableRegisteredEncryptionDeviceMaterial(
-    session.user.id,
-    material
-  );
-  if (
-    hasFreshCompletedEncryptionDeviceRegistration(registrationKey) &&
-    (await isRegisteredEncryptionDeviceMaterialUsable(material))
-  ) {
-    return;
-  }
-
-  throw new ApiError("Encrypted chat is still initializing on this device. Try again.", 409);
+  return waitForEncryptionDeviceRegistrationInternal({
+    session,
+    rememberRecoverySyncSession,
+    getInFlightRegistration: (registrationKey) =>
+      inFlightEncryptionDeviceRegistration.get(registrationKey),
+    readEncryptionDeviceMaterial,
+    discardUnusableRegisteredEncryptionDeviceMaterial: (userId, material) =>
+      discardUnusableRegisteredEncryptionDeviceMaterial(userId, material),
+    hasFreshCompletedEncryptionDeviceRegistration,
+    ensureRegisteredEncryptionDevice,
+    recoverRegisteredEncryptionDeviceMaterial: (session, material) =>
+      recoverRegisteredEncryptionDeviceMaterial(session, material),
+    forceRegisterEncryptionDevice,
+    initializationErrorMessage:
+      "Encrypted chat is still initializing on this device. Try again.",
+  });
 }
 
 async function ensureRegisteredEncryptionDeviceInternal(session: AuthResponse) {
-  if (typeof window === "undefined" || !window.isSecureContext) {
-    return;
-  }
-
-  let ownDevices: UserEncryptionDevice[] = [];
-  try {
-    ownDevices = await listOwnEncryptionDevices(session.token);
-  } catch {
-    return;
-  }
-
-  let material = await discardUnusableRegisteredEncryptionDeviceMaterial(
-    session.user.id,
-    await readEncryptionDeviceMaterial(session.user.id)
-  );
-  const existingDevice = findOwnEncryptionDevice(ownDevices, material);
-
-  const rotateSignedPrekey = isSignedPrekeyRotationDue(material, existingDevice);
-  const hasMatchingExistingDeviceMaterial = Boolean(
-    material &&
-      existingDevice &&
-      existingDevice.identityKey === material.identityKey &&
-      existingDevice.identitySignatureKey === material.identitySignatureKey &&
-      existingDevice.signedPrekeyPublicKey === material.signedPrekeyPublicKey
-  );
-
-  if (
-    material &&
-    existingDevice &&
-    hasMatchingExistingDeviceMaterial &&
-    material.deviceId !== existingDevice.deviceId
-  ) {
-    const hydratedMaterial = {
-      ...material,
-      deviceId: existingDevice.deviceId,
-    };
-    writeEncryptionDeviceMaterial(session.user.id, hydratedMaterial);
-    await rememberEncryptionDeviceMaterial(session.user.id, hydratedMaterial);
-    completedEncryptionDeviceRegistration.set(session.user.id, Date.now());
-    clearCompletedDevicePreparation(session.user.id);
-    material = hydratedMaterial;
-  }
-
-  if (
-    material &&
-    existingDevice &&
-    hasMatchingExistingDeviceMaterial &&
-    material.deviceId === existingDevice.deviceId &&
-    existingDevice.availableOneTimePrekeys >= DEVICE_MIN_ONE_TIME_PREKEYS &&
-    !rotateSignedPrekey
-  ) {
-    completedEncryptionDeviceRegistration.set(session.user.id, Date.now());
-    return;
-  }
-
-  const nextMaterial = material
-    ? await refreshEncryptionDeviceMaterial(material, { rotateSignedPrekey })
-    : await createEncryptionDeviceMaterial();
-
-  try {
-    const persistedDevice = await upsertOwnEncryptionDevice(session.token, {
-      deviceId: nextMaterial.deviceId ?? undefined,
-      identityKey: nextMaterial.identityKey,
-      identityKeyAlgorithm: nextMaterial.identityKeyAlgorithm,
-      identitySignatureKey: nextMaterial.identitySignatureKey,
-      identitySignatureKeyAlgorithm: nextMaterial.identitySignatureKeyAlgorithm,
-      signedPrekeyId: nextMaterial.signedPrekeyId,
-      signedPrekeyPublicKey: nextMaterial.signedPrekeyPublicKey,
-      signedPrekeySignature: nextMaterial.signedPrekeySignature,
-      signedPrekeyAlgorithm: nextMaterial.signedPrekeyAlgorithm,
-      oneTimePrekeys: nextMaterial.oneTimePrekeys.map((prekey) => ({
-        keyId: prekey.keyId,
-        publicKey: prekey.publicKey,
-      })),
-    });
-    const persistedMaterial = {
-      ...nextMaterial,
-      deviceId: persistedDevice.deviceId,
-    };
-    writeEncryptionDeviceMaterial(session.user.id, persistedMaterial);
-    await rememberEncryptionDeviceMaterial(session.user.id, persistedMaterial);
-    completedEncryptionDeviceRegistration.set(session.user.id, Date.now());
-    clearCompletedDevicePreparation(session.user.id);
-  } catch {
-    return;
-  }
+  return ensureRegisteredEncryptionDeviceInternalExternal({
+    session,
+    isSecureContextAvailable: () =>
+      typeof window !== "undefined" && window.isSecureContext,
+    listOwnEncryptionDevices,
+    readEncryptionDeviceMaterial,
+    discardUnusableRegisteredEncryptionDeviceMaterial: (userId, material) =>
+      discardUnusableRegisteredEncryptionDeviceMaterial(userId, material),
+    isSignedPrekeyRotationDue,
+    minOneTimePrekeys: DEVICE_MIN_ONE_TIME_PREKEYS,
+    refreshEncryptionDeviceMaterial,
+    createEncryptionDeviceMaterial,
+    upsertOwnEncryptionDevice,
+    writeEncryptionDeviceMaterial,
+    rememberEncryptionDeviceMaterial,
+    markRegistrationCompleted: (userId) =>
+      completedEncryptionDeviceRegistration.set(userId, Date.now()),
+    clearCompletedDevicePreparation,
+  });
 }
 
 async function recoverRegisteredEncryptionDeviceMaterial(
   session: AuthResponse,
   material?: DeviceEncryptionMaterial | null
 ) {
-  let currentMaterial = material ?? (await readEncryptionDeviceMaterial(session.user.id));
-  if (!currentMaterial) {
-    return currentMaterial;
-  }
-  if (currentMaterial.deviceId) {
-    return currentMaterial;
-  }
-
-  try {
-    const existingDevice = findOwnEncryptionDevice(
-      await listOwnEncryptionDevices(session.token),
-      currentMaterial
-    );
-    if (
-      !existingDevice ||
-      existingDevice.identityKey !== currentMaterial.identityKey ||
-      existingDevice.identitySignatureKey !== currentMaterial.identitySignatureKey ||
-      existingDevice.signedPrekeyPublicKey !== currentMaterial.signedPrekeyPublicKey
-    ) {
-      return currentMaterial;
-    }
-
-    const hydratedMaterial = {
-      ...currentMaterial,
-      deviceId: existingDevice.deviceId,
-    };
-    writeEncryptionDeviceMaterial(session.user.id, hydratedMaterial);
-    await rememberEncryptionDeviceMaterial(session.user.id, hydratedMaterial);
-    completedEncryptionDeviceRegistration.set(session.user.id, Date.now());
-    return hydratedMaterial;
-  } catch {
-    return currentMaterial;
-  }
+  return recoverRegisteredEncryptionDeviceMaterialInternal({
+    session,
+    material,
+    readEncryptionDeviceMaterial,
+    listOwnEncryptionDevices,
+    writeEncryptionDeviceMaterial,
+    rememberEncryptionDeviceMaterial,
+    markRegistrationCompleted: (userId) =>
+      completedEncryptionDeviceRegistration.set(userId, Date.now()),
+  });
 }
 
 async function forceRegisterEncryptionDevice(session: AuthResponse) {
-  if (typeof window === "undefined" || !window.isSecureContext) {
-    return await readEncryptionDeviceMaterial(session.user.id);
-  }
-
-  removeEncryptionDeviceMaterial(session.user.id);
-  removeRememberedEncryptionDeviceMaterial(session.user.id);
-  removeDeviceSessions(session.user.id);
-  removeRememberedDeviceSessions(session.user.id);
-  removeGroupSenderChains(session.user.id);
-  removeGroupHistoryKeys(session.user.id);
-  clearCompletedEncryptionDeviceRegistration(session.user.id);
-  clearCompletedDevicePreparation(session.user.id);
-
-  const nextMaterial = await createEncryptionDeviceMaterial();
-  const persistedDevice = await upsertOwnEncryptionDevice(session.token, {
-    deviceId: nextMaterial.deviceId ?? undefined,
-    identityKey: nextMaterial.identityKey,
-    identityKeyAlgorithm: nextMaterial.identityKeyAlgorithm,
-    identitySignatureKey: nextMaterial.identitySignatureKey,
-    identitySignatureKeyAlgorithm: nextMaterial.identitySignatureKeyAlgorithm,
-    signedPrekeyId: nextMaterial.signedPrekeyId,
-    signedPrekeyPublicKey: nextMaterial.signedPrekeyPublicKey,
-    signedPrekeySignature: nextMaterial.signedPrekeySignature,
-    signedPrekeyAlgorithm: nextMaterial.signedPrekeyAlgorithm,
-    oneTimePrekeys: nextMaterial.oneTimePrekeys.map((prekey) => ({
-      keyId: prekey.keyId,
-      publicKey: prekey.publicKey,
-    })),
+  return forceRegisterEncryptionDeviceInternal({
+    session,
+    isSecureContextAvailable: () =>
+      typeof window !== "undefined" && window.isSecureContext,
+    readEncryptionDeviceMaterial,
+    removeEncryptionDeviceMaterial,
+    removeRememberedEncryptionDeviceMaterial,
+    removeDeviceSessions,
+    removeRememberedDeviceSessions,
+    removeGroupSenderChains,
+    removeGroupHistoryKeys,
+    clearCompletedEncryptionDeviceRegistration,
+    clearCompletedDevicePreparation,
+    createEncryptionDeviceMaterial,
+    upsertOwnEncryptionDevice,
+    writeEncryptionDeviceMaterial,
+    rememberEncryptionDeviceMaterial,
+    markRegistrationCompleted: (userId) =>
+      completedEncryptionDeviceRegistration.set(userId, Date.now()),
   });
-  const persistedMaterial = {
-    ...nextMaterial,
-    deviceId: persistedDevice.deviceId,
-  };
-  writeEncryptionDeviceMaterial(session.user.id, persistedMaterial);
-  await rememberEncryptionDeviceMaterial(session.user.id, persistedMaterial);
-  completedEncryptionDeviceRegistration.set(session.user.id, Date.now());
-  return persistedMaterial;
 }
 
 function isSignedPrekeyRotationDue(
   material: DeviceEncryptionMaterial | null,
   existingDevice: UserEncryptionDevice | null
 ) {
-  const candidateTimestamp =
-    material?.signedPrekeyCreatedAt ??
-    existingDevice?.registeredAt ??
-    material?.createdAt ??
-    null;
-  if (!candidateTimestamp) {
-    return true;
-  }
-
-  const createdAt = Date.parse(candidateTimestamp);
-  if (!Number.isFinite(createdAt)) {
-    return true;
-  }
-
-  return Date.now() - createdAt >= DEVICE_SIGNED_PREKEY_MAX_AGE_MS;
+  return isSignedPrekeyRotationDueInternal(
+    material,
+    existingDevice,
+    DEVICE_SIGNED_PREKEY_MAX_AGE_MS
+  );
 }
 
 function findOwnEncryptionDevice(devices: UserEncryptionDevice[], material: DeviceEncryptionMaterial | null) {
-  if (material?.deviceId) {
-    const deviceById = devices.find((device) => device.deviceId === material.deviceId);
-    if (deviceById) {
-      return deviceById;
-    }
-  }
-
-  if (material) {
-    const deviceByKeys =
-      devices.find(
-        (device) =>
-          device.identityKey === material.identityKey &&
-          device.identitySignatureKey === material.identitySignatureKey &&
-          device.signedPrekeyPublicKey === material.signedPrekeyPublicKey
-      ) ?? null;
-    if (deviceByKeys) {
-      return deviceByKeys;
-    }
-  }
-
-  return null;
+  return findOwnEncryptionDeviceInternal(devices, material);
 }
 
 function isRegisteredEncryptionDeviceMaterialAvailable(
   material: DeviceEncryptionMaterial | null
 ): material is RegisteredDeviceEncryptionMaterial {
-  return typeof material?.deviceId === "string" && material.deviceId.length > 0;
+  return isRegisteredEncryptionDeviceMaterialAvailableInternal(material);
 }
 
 async function isRegisteredEncryptionDeviceMaterialUsable(material: DeviceEncryptionMaterial | null) {
-  if (!isRegisteredEncryptionDeviceMaterialAvailable(material)) {
-    return false;
-  }
-
-  try {
-    await importDevicePrivateKey(
-      material.identityPrivateKey,
-      material.identityKeyAlgorithm,
-      ["deriveBits"]
-    );
-    await importDevicePrivateKey(
-      material.signedPrekeyPrivateKey,
-      material.signedPrekeyAlgorithm,
-      ["deriveBits"]
-    );
-    await importDevicePrivateKey(
-      material.identitySignaturePrivateKey,
-      material.identitySignatureKeyAlgorithm,
-      ["sign"]
-    );
-    return true;
-  } catch {
-    return false;
-  }
+  return isRegisteredEncryptionDeviceMaterialUsableInternal({
+    material,
+    importDevicePrivateKey,
+  });
 }
 
 async function discardUnusableRegisteredEncryptionDeviceMaterial(
   userId: string,
   material: DeviceEncryptionMaterial | null
 ) {
-  if (!material || (await isRegisteredEncryptionDeviceMaterialUsable(material))) {
-    return material;
-  }
-
-  removeEncryptionDeviceMaterial(userId);
-  removeRememberedEncryptionDeviceMaterial(userId);
-  removeDeviceSessions(userId);
-  removeRememberedDeviceSessions(userId);
-  removeGroupSenderChains(userId);
-  removeGroupHistoryKeys(userId);
-  clearCompletedEncryptionDeviceRegistration(userId);
-  clearCompletedDevicePreparation(userId);
-  return null;
+  return discardUnusableRegisteredEncryptionDeviceMaterialInternal({
+    userId,
+    material,
+    isRegisteredEncryptionDeviceMaterialUsable,
+    removeEncryptionDeviceMaterial,
+    removeRememberedEncryptionDeviceMaterial,
+    removeDeviceSessions,
+    removeRememberedDeviceSessions,
+    removeGroupSenderChains,
+    removeGroupHistoryKeys,
+    clearCompletedEncryptionDeviceRegistration,
+    clearCompletedDevicePreparation,
+  });
 }
 
 function isRegistrationSyncFresh(material: DeviceEncryptionMaterial | null) {
-  if (!material || !isRegisteredEncryptionDeviceMaterialAvailable(material)) {
-    return false;
-  }
-
-  return (
-    material.oneTimePrekeys.length >= DEVICE_MIN_ONE_TIME_PREKEYS &&
-    !isSignedPrekeyRotationDue(material, null)
+  return isRegistrationSyncFreshInternal(
+    material,
+    DEVICE_MIN_ONE_TIME_PREKEYS,
+    (candidate) => isSignedPrekeyRotationDue(candidate, null)
   );
 }
 
@@ -4277,63 +3991,18 @@ function nextDeviceKeyId() {
   return Math.floor(Math.random() * DEVICE_KEY_ID_SPACE);
 }
 
-function normalizeRetiredSignedPrekey(value: unknown): RetiredSignedPrekeyMaterial | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-
-  const parsed = value as Partial<RetiredSignedPrekeyMaterial>;
-  if (
-    typeof parsed.signedPrekeyId !== "number" ||
-    typeof parsed.signedPrekeyPublicKey !== "string" ||
-    typeof parsed.signedPrekeyPrivateKey !== "string" ||
-    typeof parsed.signedPrekeyAlgorithm !== "string" ||
-    typeof parsed.retiredAt !== "string" ||
-    typeof parsed.expiresAt !== "string"
-  ) {
-    return null;
-  }
-
-  return parsed as RetiredSignedPrekeyMaterial;
-}
-
-function normalizeRetiredOneTimePrekey(value: unknown): RetiredDeviceOneTimePrekeyMaterial | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-
-  const parsed = value as Partial<RetiredDeviceOneTimePrekeyMaterial>;
-  if (
-    typeof parsed.keyId !== "number" ||
-    typeof parsed.publicKey !== "string" ||
-    typeof parsed.privateKey !== "string" ||
-    typeof parsed.retiredAt !== "string" ||
-    typeof parsed.expiresAt !== "string"
-  ) {
-    return null;
-  }
-
-  return parsed as RetiredDeviceOneTimePrekeyMaterial;
-}
-
 function pruneRetiredSignedPrekeys(
   prekeys: RetiredSignedPrekeyMaterial[] | undefined,
   now = Date.now()
 ) {
-  return (prekeys ?? []).filter((prekey) => {
-    const expiresAt = Date.parse(prekey.expiresAt);
-    return Number.isFinite(expiresAt) && expiresAt > now;
-  });
+  return pruneRetiredSignedPrekeysInternal(prekeys, now);
 }
 
 function pruneRetiredOneTimePrekeys(
   prekeys: RetiredDeviceOneTimePrekeyMaterial[] | undefined,
   now = Date.now()
 ) {
-  return (prekeys ?? []).filter((prekey) => {
-    const expiresAt = Date.parse(prekey.expiresAt);
-    return Number.isFinite(expiresAt) && expiresAt > now;
-  });
+  return pruneRetiredOneTimePrekeysInternal(prekeys, now);
 }
 
 function mergeRetiredSignedPrekeys(
@@ -4371,276 +4040,108 @@ function mergeRetiredOneTimePrekeys(
 }
 
 function normalizeDeviceEncryptionMaterial(value: unknown): DeviceEncryptionMaterial | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-
-  const parsedMaterial = value as Partial<DeviceEncryptionMaterial>;
-  if (
-    typeof parsedMaterial.materialId !== "string" ||
-    !(typeof parsedMaterial.deviceId === "string" || parsedMaterial.deviceId === null || parsedMaterial.deviceId === undefined) ||
-    typeof parsedMaterial.identityKey !== "string" ||
-    typeof parsedMaterial.identityPrivateKey !== "string" ||
-    typeof parsedMaterial.identitySignatureKey !== "string" ||
-    typeof parsedMaterial.identitySignaturePrivateKey !== "string" ||
-    typeof parsedMaterial.signedPrekeyPublicKey !== "string" ||
-    typeof parsedMaterial.signedPrekeyPrivateKey !== "string" ||
-    typeof parsedMaterial.signedPrekeySignature !== "string" ||
-    typeof parsedMaterial.signedPrekeyCreatedAt !== "string" ||
-    !Array.isArray(parsedMaterial.oneTimePrekeys)
-  ) {
-    return null;
-  }
-
-  const retiredSignedPrekeys = Array.isArray(parsedMaterial.retiredSignedPrekeys)
-    ? parsedMaterial.retiredSignedPrekeys
-        .map((prekey) => normalizeRetiredSignedPrekey(prekey))
-        .filter((prekey): prekey is RetiredSignedPrekeyMaterial => prekey !== null)
-    : [];
-  const retiredOneTimePrekeys = Array.isArray(parsedMaterial.retiredOneTimePrekeys)
-    ? parsedMaterial.retiredOneTimePrekeys
-        .map((prekey) => normalizeRetiredOneTimePrekey(prekey))
-        .filter((prekey): prekey is RetiredDeviceOneTimePrekeyMaterial => prekey !== null)
-    : [];
-
-  return {
-    ...(parsedMaterial as DeviceEncryptionMaterial),
-    retiredSignedPrekeys: pruneRetiredSignedPrekeys(retiredSignedPrekeys),
-    retiredOneTimePrekeys: pruneRetiredOneTimePrekeys(retiredOneTimePrekeys),
-  };
+  return normalizeDeviceEncryptionMaterialInternal(value) as DeviceEncryptionMaterial | null;
 }
 
 async function readEncryptionDeviceMaterial(userId: string): Promise<DeviceEncryptionMaterial | null> {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  try {
-    const rawValue = window.sessionStorage.getItem(getEncryptionDeviceStorageKey(userId));
-    if (rawValue) {
-      const parsedMaterial = normalizeDeviceEncryptionMaterial(JSON.parse(rawValue) as unknown);
-      if (!parsedMaterial) {
-        removeEncryptionDeviceMaterial(userId);
-        return null;
-      }
-
-      writeEncryptionDeviceMaterial(userId, parsedMaterial);
-      return parsedMaterial;
-    }
-
-      const rememberedMaterial = await readRememberedEncryptionDeviceMaterial(userId);
-      if (rememberedMaterial) {
-        writeEncryptionDeviceMaterial(userId, rememberedMaterial);
-        return rememberedMaterial;
-    }
-  } catch {
-    removeEncryptionDeviceMaterial(userId);
-    return null;
-  }
-
-  return null;
+  return readEncryptionDeviceMaterialInternal({
+    userId,
+    getEncryptionDeviceStorageKey,
+    normalizeDeviceEncryptionMaterial: (value) =>
+      normalizeDeviceEncryptionMaterial(value) as DeviceEncryptionMaterial | null,
+    removeEncryptionDeviceMaterial,
+    writeEncryptionDeviceMaterial: (targetUserId, material) =>
+      writeEncryptionDeviceMaterial(targetUserId, material),
+    readRememberedEncryptionDeviceMaterial: (targetUserId) =>
+      readRememberedEncryptionDeviceMaterial(targetUserId),
+  });
 }
 
 function writeEncryptionDeviceMaterial(userId: string, material: DeviceEncryptionMaterial) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.sessionStorage.setItem(
-      getEncryptionDeviceStorageKey(userId),
-      JSON.stringify({
-        ...material,
-        retiredSignedPrekeys: pruneRetiredSignedPrekeys(material.retiredSignedPrekeys),
-        retiredOneTimePrekeys: pruneRetiredOneTimePrekeys(material.retiredOneTimePrekeys),
-      })
-    );
-  } catch {
-    return;
-  }
+  return writeEncryptionDeviceMaterialInternal({
+    userId,
+    material,
+    getEncryptionDeviceStorageKey,
+  });
 }
 
 function removeEncryptionDeviceMaterial(userId: string) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.sessionStorage.removeItem(getEncryptionDeviceStorageKey(userId));
-  } catch {
-    return;
-  }
+  return removeEncryptionDeviceMaterialInternal({
+    userId,
+    getEncryptionDeviceStorageKey,
+  });
 }
 
 async function readRememberedEncryptionDeviceMaterial(userId: string): Promise<DeviceEncryptionMaterial | null> {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const identity = readUnlockedIdentity(userId);
-  if (!identity) {
-    return null;
-  }
-
-  try {
-    const rawValue = window.localStorage.getItem(getRememberedEncryptionDeviceStorageKey(userId));
-    if (!rawValue) {
-      return null;
-    }
-
-    const parsedRecord = JSON.parse(rawValue) as Partial<RememberedDeviceEncryptionMaterialRecord>;
-    if (
-      typeof parsedRecord.salt !== "string" ||
-      typeof parsedRecord.iv !== "string" ||
-      typeof parsedRecord.ciphertext !== "string"
-    ) {
-      removeRememberedEncryptionDeviceMaterial(userId);
-      return null;
-    }
-
-    const materialJson = await decryptRememberedEncryptionDeviceMaterial(
-      identity.privateKey,
-      parsedRecord as RememberedDeviceEncryptionMaterialRecord
-    );
-    if (!materialJson) {
-      removeRememberedEncryptionDeviceMaterial(userId);
-      return null;
-    }
-
-    const normalizedMaterial = normalizeDeviceEncryptionMaterial(JSON.parse(materialJson) as unknown);
-    if (!normalizedMaterial) {
-      removeRememberedEncryptionDeviceMaterial(userId);
-      return null;
-    }
-
-    return normalizedMaterial;
-  } catch {
-    removeRememberedEncryptionDeviceMaterial(userId);
-    return null;
-  }
+  return readRememberedEncryptionDeviceMaterialInternal({
+    userId,
+    readUnlockedIdentity,
+    getRememberedEncryptionDeviceStorageKey,
+    decryptRememberedEncryptionDeviceMaterial: (privateKey, record) =>
+      decryptRememberedEncryptionDeviceMaterial(privateKey, record),
+    normalizeDeviceEncryptionMaterial: (value) =>
+      normalizeDeviceEncryptionMaterial(value) as DeviceEncryptionMaterial | null,
+    removeRememberedEncryptionDeviceMaterial,
+  });
 }
 
 async function rememberEncryptionDeviceMaterial(userId: string, material: DeviceEncryptionMaterial) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  const identity = readUnlockedIdentity(userId);
-  if (!identity) {
-    return;
-  }
-
-  try {
-    const record = await encryptRememberedEncryptionDeviceMaterial(identity.privateKey, {
-      ...material,
-      retiredSignedPrekeys: pruneRetiredSignedPrekeys(material.retiredSignedPrekeys),
-      retiredOneTimePrekeys: pruneRetiredOneTimePrekeys(material.retiredOneTimePrekeys),
-    });
-    window.localStorage.setItem(getRememberedEncryptionDeviceStorageKey(userId), JSON.stringify(record));
-  } catch {
-    return;
-  }
+  return rememberEncryptionDeviceMaterialInternal({
+    userId,
+    material,
+    readUnlockedIdentity,
+    encryptRememberedEncryptionDeviceMaterial: (privateKey, targetMaterial) =>
+      encryptRememberedEncryptionDeviceMaterial(privateKey, targetMaterial),
+    getRememberedEncryptionDeviceStorageKey,
+  });
 }
 
 async function encryptRememberedEncryptionDeviceMaterial(
   privateKey: string,
   material: DeviceEncryptionMaterial
-): Promise<RememberedDeviceEncryptionMaterialRecord> {
-  const salt = randomBytes(16);
-  const iv = randomBytes(12);
-  const wrappingKey = await deriveWrappingKey(privateKey, salt, KDF_ITERATIONS);
-  const ciphertext = await window.crypto.subtle.encrypt(
-    {
-      name: "AES-GCM",
-      iv,
-    },
-    wrappingKey,
-    textEncoder.encode(JSON.stringify(material))
-  );
-
-  return {
-    salt: bytesToBase64(salt),
-    iv: bytesToBase64(iv),
-    ciphertext: bytesToBase64(new Uint8Array(ciphertext)),
-    createdAt: new Date().toISOString(),
-  };
+) {
+  return encryptRememberedEncryptionDeviceMaterialInternal({
+    privateKey,
+    material,
+    randomBytes,
+    deriveWrappingKey,
+    bytesToBase64,
+    textEncoder,
+    kdfIterations: KDF_ITERATIONS,
+  });
 }
 
 async function decryptRememberedEncryptionDeviceMaterial(
   privateKey: string,
-  record: RememberedDeviceEncryptionMaterialRecord
+  record: { salt: string; iv: string; ciphertext: string; createdAt: string }
 ) {
-  try {
-    const salt = base64ToBytes(record.salt);
-    const iv = base64ToBytes(record.iv);
-    const ciphertext = base64ToBytes(record.ciphertext);
-    const wrappingKey = await deriveWrappingKey(privateKey, salt, KDF_ITERATIONS);
-    const plaintext = await window.crypto.subtle.decrypt(
-      {
-        name: "AES-GCM",
-        iv,
-      },
-      wrappingKey,
-      ciphertext
-    );
-    return textDecoder.decode(plaintext);
-  } catch {
-    return null;
-  }
+  return decryptRememberedEncryptionDeviceMaterialInternal({
+    privateKey,
+    record,
+    base64ToBytes,
+    deriveWrappingKey,
+    textDecoder,
+    kdfIterations: KDF_ITERATIONS,
+  });
 }
 
 function removeRememberedEncryptionDeviceMaterial(userId: string) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.localStorage.removeItem(getRememberedEncryptionDeviceStorageKey(userId));
-  } catch {
-    return;
-  }
+  return removeRememberedEncryptionDeviceMaterialInternal({
+    userId,
+    getRememberedEncryptionDeviceStorageKey,
+  });
 }
 
 async function readGroupSenderChainState(userId: string): Promise<GroupSenderChainState> {
-  if (typeof window === "undefined") {
-    return {
-      outboundChains: {},
-      inboundChains: {},
-    };
-  }
-
-  try {
-    const rawValue = window.sessionStorage.getItem(getGroupSenderChainStorageKey(userId));
-    if (rawValue) {
-      const parsedState = normalizeGroupSenderChainState(JSON.parse(rawValue) as unknown);
-      if (parsedState) {
-        return parsedState;
-      }
-      removeGroupSenderChains(userId);
-      return {
-        outboundChains: {},
-        inboundChains: {},
-      };
-    }
-
-    const rememberedState = await readRememberedGroupSenderChainState(userId);
-    if (rememberedState) {
-      writeGroupSenderChainState(userId, rememberedState);
-      markPersistentRestoredOutboundGroupChats(userId, rememberedState);
-      return rememberedState;
-    }
-  } catch {
-    removeGroupSenderChains(userId);
-    return {
-      outboundChains: {},
-      inboundChains: {},
-    };
-  }
-
-  return {
-    outboundChains: {},
-    inboundChains: {},
-  };
+  return readGroupSenderChainStateInternal({
+    userId,
+    getGroupSenderChainStorageKey,
+    readRememberedGroupSenderChainState,
+    writeGroupSenderChainState: (targetUserId, state) =>
+      writeGroupSenderChainState(targetUserId, state),
+    markPersistentRestoredOutboundGroupChats,
+    removeGroupSenderChains,
+  });
 }
 
 async function readGroupSenderChains(userId: string): Promise<Record<string, GroupSenderChainRecord>> {
@@ -4648,359 +4149,121 @@ async function readGroupSenderChains(userId: string): Promise<Record<string, Gro
 }
 
 function writeGroupSenderChainState(userId: string, state: GroupSenderChainState) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.sessionStorage.setItem(getGroupSenderChainStorageKey(userId), JSON.stringify(state));
-  } catch {
-    return;
-  }
+  return writeGroupSenderChainStateInternal({
+    userId,
+    state,
+    getGroupSenderChainStorageKey,
+  });
 }
 
 function writeGroupSenderChains(userId: string, chains: Record<string, GroupSenderChainRecord>) {
-  void readGroupSenderChainState(userId).then((state) => {
-    writeGroupSenderChainState(userId, {
-      ...state,
-      outboundChains: chains,
-    });
-    void rememberGroupSenderChainState(userId, {
-      ...state,
-      outboundChains: chains,
-    });
+  void writeGroupSenderChainsInternal({
+    userId,
+    chains,
+    readGroupSenderChainState,
+    writeGroupSenderChainState: (targetUserId, state) =>
+      writeGroupSenderChainState(targetUserId, state),
+    rememberGroupSenderChainState: (targetUserId, state) =>
+      rememberGroupSenderChainState(targetUserId, state),
   });
 }
 
 function removeGroupSenderChains(userId: string) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    clearPersistentRestoredOutboundGroupChats(userId);
-    window.sessionStorage.removeItem(getGroupSenderChainStorageKey(userId));
-    window.localStorage.removeItem(getRememberedGroupSenderChainStorageKey(userId));
-  } catch {
-    return;
-  }
+  return removeGroupSenderChainsInternal({
+    userId,
+    clearPersistentRestoredOutboundGroupChats,
+    getGroupSenderChainStorageKey,
+    getRememberedGroupSenderChainStorageKey,
+  });
 }
 
 async function readRememberedGroupSenderChainState(
   userId: string
 ): Promise<GroupSenderChainState | null> {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const identity = readUnlockedIdentity(userId);
-  if (!identity) {
-    return null;
-  }
-
-  try {
-    const rawValue = window.localStorage.getItem(getRememberedGroupSenderChainStorageKey(userId));
-    if (!rawValue) {
-      return null;
-    }
-
-    const parsedRecord = JSON.parse(rawValue) as Partial<RememberedGroupSenderChainStateRecord>;
-    if (
-      typeof parsedRecord.salt !== "string" ||
-      typeof parsedRecord.iv !== "string" ||
-      typeof parsedRecord.ciphertext !== "string"
-    ) {
-      window.localStorage.removeItem(getRememberedGroupSenderChainStorageKey(userId));
-      return null;
-    }
-
-    const stateJson = await decryptRememberedGroupSenderChainState(
-      identity.privateKey,
-      parsedRecord as RememberedGroupSenderChainStateRecord
-    );
-    if (!stateJson) {
-      window.localStorage.removeItem(getRememberedGroupSenderChainStorageKey(userId));
-      return null;
-    }
-
-    return normalizeGroupSenderChainState(JSON.parse(stateJson) as unknown);
-  } catch {
-    window.localStorage.removeItem(getRememberedGroupSenderChainStorageKey(userId));
-    return null;
-  }
+  return readRememberedGroupSenderChainStateInternal({
+    userId,
+    readUnlockedIdentity,
+    getRememberedGroupSenderChainStorageKey,
+    decryptRememberedGroupSenderChainState: (privateKey, record) =>
+      decryptRememberedGroupSenderChainState(privateKey, record),
+    removeRememberedGroupSenderChainState: (targetUserId) =>
+      removeRememberedGroupSenderChainStateInternal({
+        userId: targetUserId,
+        getRememberedGroupSenderChainStorageKey,
+      }),
+  });
 }
 
 async function rememberGroupSenderChainState(userId: string, state: GroupSenderChainState) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  const identity = readUnlockedIdentity(userId);
-  if (!identity) {
-    return;
-  }
-
-  try {
-    const record = await encryptRememberedGroupSenderChainState(identity.privateKey, state);
-    window.localStorage.setItem(getRememberedGroupSenderChainStorageKey(userId), JSON.stringify(record));
-  } catch {
-    return;
-  }
+  return rememberGroupSenderChainStateInternal({
+    userId,
+    state,
+    readUnlockedIdentity,
+    encryptRememberedGroupSenderChainState: (privateKey, targetState) =>
+      encryptRememberedGroupSenderChainState(privateKey, targetState),
+    getRememberedGroupSenderChainStorageKey,
+  });
 }
 
 async function encryptRememberedGroupSenderChainState(
   privateKey: string,
   state: GroupSenderChainState
-): Promise<RememberedGroupSenderChainStateRecord> {
-  const salt = randomBytes(16);
-  const iv = randomBytes(12);
-  const wrappingKey = await deriveWrappingKey(privateKey, salt, KDF_ITERATIONS);
-  const ciphertext = await window.crypto.subtle.encrypt(
-    {
-      name: "AES-GCM",
-      iv,
-    },
-    wrappingKey,
-    textEncoder.encode(JSON.stringify(state))
-  );
-
-  return {
-    salt: bytesToBase64(salt),
-    iv: bytesToBase64(iv),
-    ciphertext: bytesToBase64(new Uint8Array(ciphertext)),
-    createdAt: new Date().toISOString(),
-  };
+) {
+  return encryptRememberedGroupSenderChainStateInternal({
+    privateKey,
+    state,
+    randomBytes,
+    deriveWrappingKey,
+    bytesToBase64,
+    textEncoder,
+    kdfIterations: KDF_ITERATIONS,
+  });
 }
 
 async function decryptRememberedGroupSenderChainState(
   privateKey: string,
-  record: RememberedGroupSenderChainStateRecord
+  record: { salt: string; iv: string; ciphertext: string; createdAt: string }
 ) {
-  try {
-    const salt = base64ToBytes(record.salt);
-    const iv = base64ToBytes(record.iv);
-    const ciphertext = base64ToBytes(record.ciphertext);
-    const wrappingKey = await deriveWrappingKey(privateKey, salt, KDF_ITERATIONS);
-    const plaintext = await window.crypto.subtle.decrypt(
-      {
-        name: "AES-GCM",
-        iv,
-      },
-      wrappingKey,
-      ciphertext
-    );
-    return textDecoder.decode(plaintext);
-  } catch {
-    return null;
-  }
-}
-
-function normalizeGroupSenderChainState(value: unknown): GroupSenderChainState | null {
-  if (isValidGroupSenderChainState(value)) {
-    return value;
-  }
-
-  if (isValidGroupSenderChainCollection(value)) {
-    return {
-      outboundChains: value,
-      inboundChains: {},
-    };
-  }
-
-  return null;
-}
-
-function isValidGroupSenderChainState(value: unknown): value is GroupSenderChainState {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-
-  const parsed = value as Partial<GroupSenderChainState>;
-  return (
-    isValidGroupSenderChainCollection(parsed.outboundChains ?? {}) &&
-    isValidGroupInboundSenderChainCollection(parsed.inboundChains ?? {})
-  );
-}
-
-function isValidGroupSenderChainCollection(value: unknown): value is Record<string, GroupSenderChainRecord> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-
-  return Object.values(value).every((entry) => isValidGroupSenderChainRecord(entry));
-}
-
-function isValidGroupInboundSenderChainCollection(
-  value: unknown
-): value is Record<string, GroupInboundSenderChainRecord> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-
-  return Object.values(value).every((entry) => isValidGroupInboundSenderChainRecord(entry));
-}
-
-function isValidGroupSenderChainRecord(value: unknown): value is GroupSenderChainRecord {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const parsed = value as Partial<GroupSenderChainRecord>;
-  return (
-    typeof parsed.chatId === "string" &&
-    typeof parsed.ownMaterialId === "string" &&
-    typeof parsed.senderDeviceId === "string" &&
-    typeof parsed.senderKeyId === "string" &&
-    typeof parsed.recipientDeviceSetHash === "string" &&
-    typeof parsed.chainKey === "string" &&
-    typeof parsed.nextMessageCounter === "number" &&
-    typeof parsed.createdAt === "string"
-  );
-}
-
-function isValidGroupInboundSenderChainRecord(value: unknown): value is GroupInboundSenderChainRecord {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const parsed = value as Partial<GroupInboundSenderChainRecord>;
-  return (
-    typeof parsed.chatId === "string" &&
-    typeof parsed.senderUserId === "string" &&
-    typeof parsed.senderDeviceId === "string" &&
-    typeof parsed.senderKeyId === "string" &&
-    typeof parsed.nextChainKey === "string" &&
-    typeof parsed.nextMessageCounter === "number" &&
-    typeof parsed.updatedAt === "string" &&
-    (typeof parsed.cachedMessageKeys === "undefined" ||
-      (parsed.cachedMessageKeys !== null &&
-        typeof parsed.cachedMessageKeys === "object" &&
-        Object.values(parsed.cachedMessageKeys).every((entry) => typeof entry === "string")))
-  );
+  return decryptRememberedGroupSenderChainStateInternal({
+    privateKey,
+    record,
+    base64ToBytes,
+    deriveWrappingKey,
+    textDecoder,
+    kdfIterations: KDF_ITERATIONS,
+  });
 }
 
 async function readGroupHistoryKeyState(userId: string): Promise<GroupHistoryKeyState> {
-  if (typeof window === "undefined") {
-    return {
-      currentKeyIdsByChatId: {},
-      keysById: {},
-    };
-  }
-
-  try {
-    const rawValue = window.sessionStorage.getItem(getGroupHistoryKeyStorageKey(userId));
-    if (!rawValue) {
-      return {
-        currentKeyIdsByChatId: {},
-        keysById: {},
-      };
-    }
-
-    const parsedState = normalizeGroupHistoryKeyState(JSON.parse(rawValue) as unknown);
-    if (parsedState) {
-      return parsedState;
-    }
-  } catch {
-    // Fall through to storage cleanup below.
-  }
-
-  removeGroupHistoryKeys(userId);
-  return {
-    currentKeyIdsByChatId: {},
-    keysById: {},
-  };
+  return readGroupHistoryKeyStateInternal({
+    userId,
+    getGroupHistoryKeyStorageKey,
+    removeGroupHistoryKeys,
+  });
 }
 
 function writeGroupHistoryKeyState(userId: string, state: GroupHistoryKeyState) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.sessionStorage.setItem(getGroupHistoryKeyStorageKey(userId), JSON.stringify(state));
-  } catch {
-    return;
-  }
+  return writeGroupHistoryKeyStateInternal({
+    userId,
+    state,
+    getGroupHistoryKeyStorageKey,
+  });
 }
 
 function removeGroupHistoryKeys(userId: string) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.sessionStorage.removeItem(getGroupHistoryKeyStorageKey(userId));
-  } catch {
-    return;
-  }
-}
-
-function normalizeGroupHistoryKeyState(value: unknown): GroupHistoryKeyState | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-
-  const parsed = value as Partial<GroupHistoryKeyState>;
-  if (
-    !parsed.currentKeyIdsByChatId ||
-    typeof parsed.currentKeyIdsByChatId !== "object" ||
-    Array.isArray(parsed.currentKeyIdsByChatId) ||
-    !parsed.keysById ||
-    typeof parsed.keysById !== "object" ||
-    Array.isArray(parsed.keysById)
-  ) {
-    return null;
-  }
-
-  const currentKeyIdsByChatId = Object.fromEntries(
-    Object.entries(parsed.currentKeyIdsByChatId).filter(
-      (entry): entry is [string, string] => typeof entry[0] === "string" && typeof entry[1] === "string"
-    )
-  );
-  const keysById = Object.fromEntries(
-    Object.entries(parsed.keysById)
-      .map(([keyId, entry]) => [keyId, normalizeGroupHistoryKeyRecord(entry)] as const)
-      .filter((entry): entry is [string, GroupHistoryKeyRecord] => entry[1] !== null)
-  );
-
-  return {
-    currentKeyIdsByChatId: Object.fromEntries(
-      Object.entries(currentKeyIdsByChatId).filter(([, keyId]) => Boolean(keysById[keyId]))
-    ),
-    keysById,
-  };
-}
-
-function normalizeGroupHistoryKeyRecord(value: unknown): GroupHistoryKeyRecord | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-
-  const parsed = value as Partial<GroupHistoryKeyRecord>;
-  if (
-    typeof parsed.historyKeyId !== "string" ||
-    typeof parsed.chatId !== "string" ||
-    typeof parsed.keyMaterial !== "string" ||
-    typeof parsed.createdAt !== "string" ||
-    typeof parsed.updatedAt !== "string"
-  ) {
-    return null;
-  }
-
-  return parsed as GroupHistoryKeyRecord;
+  return removeGroupHistoryKeysInternal({
+    userId,
+    getGroupHistoryKeyStorageKey,
+  });
 }
 
 async function persistGroupHistoryKeyRecord(userId: string, record: GroupHistoryKeyRecord) {
-  const state = await readGroupHistoryKeyState(userId);
-  writeGroupHistoryKeyState(userId, {
-    currentKeyIdsByChatId: {
-      ...state.currentKeyIdsByChatId,
-      [record.chatId]: record.historyKeyId,
-    },
-    keysById: {
-      ...state.keysById,
-      [record.historyKeyId]: record,
-    },
+  return persistGroupHistoryKeyRecordInternal({
+    userId,
+    record,
+    readGroupHistoryKeyState,
+    writeGroupHistoryKeyState: (targetUserId, state) =>
+      writeGroupHistoryKeyState(targetUserId, state),
   });
 }
 
@@ -5009,24 +4272,20 @@ async function resolveLocalGroupHistoryKeyRecord(
   chatId: string,
   historyKeyId: string
 ) {
-  const state = await readGroupHistoryKeyState(userId);
-  const record = state.keysById[historyKeyId] ?? null;
-  if (record && record.chatId === chatId) {
-    return record;
-  }
-
-  return null;
+  return resolveLocalGroupHistoryKeyRecordInternal({
+    userId,
+    chatId,
+    historyKeyId,
+    readGroupHistoryKeyState,
+  });
 }
 
 async function readCurrentGroupHistoryKeyRecord(userId: string, chatId: string) {
-  const state = await readGroupHistoryKeyState(userId);
-  const currentKeyId = state.currentKeyIdsByChatId[chatId];
-  if (!currentKeyId) {
-    return null;
-  }
-
-  const record = state.keysById[currentKeyId] ?? null;
-  return record?.chatId === chatId ? record : null;
+  return readCurrentGroupHistoryKeyRecordInternal({
+    userId,
+    chatId,
+    readGroupHistoryKeyState,
+  });
 }
 
 async function readDeviceSessions(userId: string): Promise<Record<string, DeviceSessionRecord>> {
@@ -5452,127 +4711,49 @@ function removeTrustedDeviceUnlockRecord(userId: string) {
 }
 
 function readUnlockedIdentityFromSession(userId: string): LocalIdentity | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  try {
-    const rawValue = window.sessionStorage.getItem(getUnlockedIdentityStorageKey(userId));
-    if (!rawValue) {
-      return null;
-    }
-
-    const parsedIdentity = JSON.parse(rawValue) as Partial<LocalIdentity>;
-    if (
-      typeof parsedIdentity.publicKey !== "string" ||
-      parsedIdentity.publicKey.length === 0 ||
-      typeof parsedIdentity.privateKey !== "string" ||
-      parsedIdentity.privateKey.length === 0
-    ) {
-      removeUnlockedIdentityFromSession(userId);
-      return null;
-    }
-
-    return {
-      publicKey: parsedIdentity.publicKey,
-      privateKey: parsedIdentity.privateKey,
-    };
-  } catch {
-    removeUnlockedIdentityFromSession(userId);
-    return null;
-  }
+  return readUnlockedIdentityFromSessionInternal({
+    userId,
+    getUnlockedIdentityStorageKey,
+    removeUnlockedIdentityFromSession,
+  });
 }
 
 function writeUnlockedIdentityToSession(userId: string, identity: LocalIdentity) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.sessionStorage.setItem(getUnlockedIdentityStorageKey(userId), JSON.stringify(identity));
-  } catch {
-    return;
-  }
+  return writeUnlockedIdentityToSessionInternal({
+    userId,
+    identity,
+    getUnlockedIdentityStorageKey,
+  });
 }
 
 function removeUnlockedIdentityFromSession(userId: string) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.sessionStorage.removeItem(getUnlockedIdentityStorageKey(userId));
-  } catch {
-    return;
-  }
+  return removeUnlockedIdentityFromSessionInternal({
+    userId,
+    getUnlockedIdentityStorageKey,
+  });
 }
 
 function removeUnlockedIdentityFromPersistentStorage(userId: string) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.localStorage.removeItem(getAutoUnlockedIdentityStorageKey(userId));
-    window.localStorage.removeItem(getRememberedUnlockedIdentityStorageKey(userId));
-  } catch {
-    return;
-  }
+  return removeUnlockedIdentityFromPersistentStorageInternal({
+    userId,
+    getAutoUnlockedIdentityStorageKey,
+    getRememberedUnlockedIdentityStorageKey,
+  });
 }
 
 function readUnlockedIdentityFromPersistentAutoStorage(userId: string): LocalIdentity | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  try {
-    const rawValue = window.localStorage.getItem(getAutoUnlockedIdentityStorageKey(userId));
-    if (!rawValue) {
-      return null;
-    }
-
-    const parsedIdentity = JSON.parse(rawValue) as Partial<AutoUnlockedIdentityRecord>;
-    if (
-      typeof parsedIdentity.publicKey !== "string" ||
-      parsedIdentity.publicKey.length === 0 ||
-      typeof parsedIdentity.privateKey !== "string" ||
-      parsedIdentity.privateKey.length === 0
-    ) {
-      window.localStorage.removeItem(getAutoUnlockedIdentityStorageKey(userId));
-      return null;
-    }
-
-    return {
-      publicKey: parsedIdentity.publicKey,
-      privateKey: parsedIdentity.privateKey,
-    };
-  } catch {
-    try {
-      window.localStorage.removeItem(getAutoUnlockedIdentityStorageKey(userId));
-    } catch {
-      return null;
-    }
-    return null;
-  }
+  return readUnlockedIdentityFromPersistentAutoStorageInternal({
+    userId,
+    getAutoUnlockedIdentityStorageKey,
+  });
 }
 
 function writeUnlockedIdentityToPersistentAutoStorage(userId: string, identity: LocalIdentity) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(
-      getAutoUnlockedIdentityStorageKey(userId),
-      JSON.stringify({
-        publicKey: identity.publicKey,
-        privateKey: identity.privateKey,
-        createdAt: new Date().toISOString(),
-      } satisfies AutoUnlockedIdentityRecord)
-    );
-  } catch {
-    return;
-  }
+  return writeUnlockedIdentityToPersistentAutoStorageInternal({
+    userId,
+    identity,
+    getAutoUnlockedIdentityStorageKey,
+  });
 }
 
 function getUnlockedIdentityStorageKey(userId: string) {
