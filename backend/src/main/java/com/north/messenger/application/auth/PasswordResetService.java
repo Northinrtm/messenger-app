@@ -105,6 +105,7 @@ public class PasswordResetService {
 
         passwordPolicyService.validatePassword(user.getUsername(), user.getDisplayName(), newPassword);
         user.updatePasswordHash(passwordEncoder.encode(newPassword));
+        user.advancePasswordVersion();
         userAccountRepository.save(user);
 
         invalidateActiveTokens(user.getId(), now);

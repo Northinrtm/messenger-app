@@ -212,7 +212,7 @@ export function UnlockCard({
             }}
           >
             <label className="field">
-              <span>Password</span>
+              <span>Encrypted chat password</span>
               <input
                 ref={passwordInputRef}
                 value={password}
@@ -226,6 +226,11 @@ export function UnlockCard({
                 required
               />
             </label>
+
+            <p className="auth-field-hint">
+              If your account password changed recently, encrypted chats on this device may still
+              require the previous password until recovery is reset or re-secured.
+            </p>
 
             {error ? <div className="form-error">{error}</div> : null}
 

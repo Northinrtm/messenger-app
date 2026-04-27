@@ -13,7 +13,8 @@ public record UserProfileResponse(
         boolean online,
         String email,
         boolean emailVerified,
-        boolean emailVerificationEnabled
+        boolean emailVerificationEnabled,
+        long passwordVersion
 ) {
     public UserProfileResponse(
             UUID id,
@@ -24,7 +25,7 @@ public record UserProfileResponse(
             String avatarUrl,
             boolean online
     ) {
-        this(id, username, displayName, profession, createdAt, avatarUrl, online, null, false, false);
+        this(id, username, displayName, profession, createdAt, avatarUrl, online, null, false, false, 1L);
     }
 
     public UserProfileResponse(
@@ -35,6 +36,6 @@ public record UserProfileResponse(
             String avatarUrl,
             boolean online
     ) {
-        this(id, username, displayName, null, createdAt, avatarUrl, online, null, false, false);
+        this(id, username, displayName, null, createdAt, avatarUrl, online, null, false, false, 1L);
     }
 }

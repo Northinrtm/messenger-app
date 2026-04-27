@@ -194,6 +194,13 @@ textarea::placeholder {
   line-height: 1.65;
 }
 
+.auth-field-hint {
+  margin: -0.15rem 0 0;
+  color: rgba(245, 239, 231, 0.58);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
 .auth-device-unlock,
 .auth-action-stack {
   display: grid;

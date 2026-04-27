@@ -10,11 +10,13 @@ import com.north.messenger.api.dto.UserProfileResponse;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.UserBlock;
 import com.north.messenger.domain.model.UserContact;
+import com.north.messenger.domain.model.UserEncryptionRecoverySnapshot;
 import com.north.messenger.domain.model.UserSession;
 import com.north.messenger.domain.repository.ChatRoomRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import com.north.messenger.domain.repository.UserBlockRepository;
 import com.north.messenger.domain.repository.UserContactRepository;
+import com.north.messenger.domain.repository.UserEncryptionRecoverySnapshotRepository;
 import com.north.messenger.domain.repository.UserSessionRepository;
 import com.north.messenger.security.JwtService;
 import java.nio.charset.StandardCharsets;
@@ -66,6 +68,7 @@ public class AuthService {
     private final UserContactRepository userContactRepository;
     private final UserBlockRepository userBlockRepository;
     private final UserSessionRepository userSessionRepository;
+    private final UserEncryptionRecoverySnapshotRepository userEncryptionRecoverySnapshotRepository;
     private final ChatRoomRepository chatRoomRepository;
     private final PasswordEncoder passwordEncoder;
     private final PasswordPolicyService passwordPolicyService;
@@ -80,6 +83,7 @@ public class AuthService {
             UserContactRepository userContactRepository,
             UserBlockRepository userBlockRepository,
             UserSessionRepository userSessionRepository,
+            UserEncryptionRecoverySnapshotRepository userEncryptionRecoverySnapshotRepository,
             ChatRoomRepository chatRoomRepository,
             PasswordEncoder passwordEncoder,
             PasswordPolicyService passwordPolicyService,
@@ -93,6 +97,7 @@ public class AuthService {
         this.userContactRepository = userContactRepository;
         this.userBlockRepository = userBlockRepository;
         this.userSessionRepository = userSessionRepository;
+        this.userEncryptionRecoverySnapshotRepository = userEncryptionRecoverySnapshotRepository;
         this.chatRoomRepository = chatRoomRepository;
         this.passwordEncoder = passwordEncoder;
         this.passwordPolicyService = passwordPolicyService;
@@ -224,8 +229,32 @@ public class AuthService {
 
         passwordPolicyService.validatePassword(currentUser.getUsername(), currentUser.getDisplayName(), request.newPassword());
 
+        String recoverySnapshotPayloadJson = normalizeOptionalRecoverySnapshotField(
+                request.recoverySnapshotPayloadJson(),
+                "recoverySnapshotPayloadJson"
+        );
+        String recoveryWrappedIdentityRecordJson = normalizeOptionalRecoverySnapshotField(
+                request.recoveryWrappedIdentityRecordJson(),
+                "recoveryWrappedIdentityRecordJson"
+        );
+        if ((recoverySnapshotPayloadJson == null) != (recoveryWrappedIdentityRecordJson == null)) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Encrypted chat recovery re-wrap is incomplete"
+            );
+        }
+
         currentUser.updatePasswordHash(passwordEncoder.encode(request.newPassword()));
+        long nextPasswordVersion = currentUser.advancePasswordVersion();
         userAccountRepository.save(currentUser);
+        if (recoverySnapshotPayloadJson != null && recoveryWrappedIdentityRecordJson != null) {
+            upsertRecoverySnapshotForPasswordVersion(
+                    currentUser.getId(),
+                    recoverySnapshotPayloadJson,
+                    recoveryWrappedIdentityRecordJson,
+                    nextPasswordVersion
+            );
+        }
 
         Instant now = Instant.now();
         userSessionRepository.findAllByUserIdAndRevokedAtIsNullOrderByLastUsedAtDesc(currentUser.getId())
@@ -598,7 +627,8 @@ public class AuthService {
                 isUserOnline(user.getId()),
                 user.getEmail(),
                 user.isEmailVerified(),
-                emailVerificationService.isEnabled()
+                emailVerificationService.isEnabled(),
+                user.getPasswordVersion()
         );
     }
 
@@ -613,8 +643,54 @@ public class AuthService {
                 online,
                 null,
                 false,
-                false
+                false,
+                user.getPasswordVersion()
         );
+    }
+
+    private void upsertRecoverySnapshotForPasswordVersion(
+            UUID userId,
+            String snapshotPayloadJson,
+            String wrappedIdentityRecordJson,
+            long wrappedPasswordVersion
+    ) {
+        Instant now = Instant.now();
+        UserEncryptionRecoverySnapshot snapshot = userEncryptionRecoverySnapshotRepository
+                .findByUserId(userId)
+                .map(existing -> {
+                    existing.update(
+                            snapshotPayloadJson,
+                            wrappedIdentityRecordJson,
+                            wrappedPasswordVersion,
+                            now
+                    );
+                    return existing;
+                })
+                .orElseGet(() -> new UserEncryptionRecoverySnapshot(
+                        UUID.randomUUID(),
+                        userId,
+                        snapshotPayloadJson,
+                        wrappedIdentityRecordJson,
+                        wrappedPasswordVersion,
+                        now,
+                        now
+                ));
+        userEncryptionRecoverySnapshotRepository.save(snapshot);
+    }
+
+    private String normalizeOptionalRecoverySnapshotField(String value, String fieldName) {
+        if (value == null) {
+            return null;
+        }
+
+        String normalized = value.trim();
+        if (normalized.isEmpty()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    fieldName + " must not be blank"
+            );
+        }
+        return normalized;
     }
 
     private UserSessionResponse toSessionResponse(UserSession session) {

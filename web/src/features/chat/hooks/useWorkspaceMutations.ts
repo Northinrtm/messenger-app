@@ -332,16 +332,25 @@ export function useWorkspaceMutations({
 
   const changePasswordMutation = useMutation({
     mutationFn: async (input: { currentPassword: string; newPassword: string }) => {
-      const { resecureLocalEncryptionStateForPasswordChange } = await import("../../../lib/e2ee");
+      const {
+        buildOwnEncryptionRecoverySnapshotUpload,
+        resecureLocalEncryptionStateForPasswordChange,
+      } = await import("../../../lib/e2ee");
       await resecureLocalEncryptionStateForPasswordChange(
         currentSession.user.id,
         input.currentPassword,
         input.newPassword
       );
+      const recoverySnapshotUpload = await buildOwnEncryptionRecoverySnapshotUpload(
+        currentSession.user.id
+      );
       try {
         return await changePasswordRequest(token, {
           currentPassword: input.currentPassword,
           newPassword: input.newPassword,
+          recoverySnapshotPayloadJson: recoverySnapshotUpload?.snapshotPayloadJson ?? null,
+          recoveryWrappedIdentityRecordJson:
+            recoverySnapshotUpload?.wrappedIdentityRecordJson ?? null,
         });
       } catch (error) {
         try {

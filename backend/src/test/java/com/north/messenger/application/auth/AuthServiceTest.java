@@ -11,6 +11,7 @@ import com.north.messenger.domain.repository.ChatRoomRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import com.north.messenger.domain.repository.UserBlockRepository;
 import com.north.messenger.domain.repository.UserContactRepository;
+import com.north.messenger.domain.repository.UserEncryptionRecoverySnapshotRepository;
 import com.north.messenger.domain.repository.UserSessionRepository;
 import com.north.messenger.security.JwtService;
 import java.nio.charset.StandardCharsets;
@@ -46,6 +47,7 @@ class AuthServiceTest {
     private UserContactRepository userContactRepository;
     private UserBlockRepository userBlockRepository;
     private UserSessionRepository userSessionRepository;
+    private UserEncryptionRecoverySnapshotRepository userEncryptionRecoverySnapshotRepository;
     private ChatRoomRepository chatRoomRepository;
     private PasswordEncoder passwordEncoder;
     private PasswordPolicyService passwordPolicyService;
@@ -61,6 +63,7 @@ class AuthServiceTest {
         userContactRepository = mock(UserContactRepository.class);
         userBlockRepository = mock(UserBlockRepository.class);
         userSessionRepository = mock(UserSessionRepository.class);
+        userEncryptionRecoverySnapshotRepository = mock(UserEncryptionRecoverySnapshotRepository.class);
         chatRoomRepository = mock(ChatRoomRepository.class);
         passwordEncoder = mock(PasswordEncoder.class);
         passwordPolicyService = mock(PasswordPolicyService.class);
@@ -73,6 +76,7 @@ class AuthServiceTest {
                 userContactRepository,
                 userBlockRepository,
                 userSessionRepository,
+                userEncryptionRecoverySnapshotRepository,
                 chatRoomRepository,
                 passwordEncoder,
                 passwordPolicyService,
@@ -530,7 +534,12 @@ class AuthServiceTest {
                 "Mobile",
                 null
         );
-        ChangePasswordRequest request = new ChangePasswordRequest("current-password", "betterpass");
+        ChangePasswordRequest request = new ChangePasswordRequest(
+                "current-password",
+                "betterpass",
+                null,
+                null
+        );
 
         when(userAccountRepository.findByUsernameIgnoreCase("north")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("current-password", user.getPasswordHash())).thenReturn(true);
@@ -542,6 +551,7 @@ class AuthServiceTest {
         authService.changePassword("north", request);
 
         assertThat(user.getPasswordHash()).isEqualTo("new-password-hash");
+        assertThat(user.getPasswordVersion()).isEqualTo(2L);
         assertThat(firstSession.getRevokedAt()).isNotNull();
         assertThat(secondSession.getRevokedAt()).isNotNull();
         verify(passwordPolicyService).validatePassword("north", "North", "betterpass");
@@ -551,7 +561,12 @@ class AuthServiceTest {
     @Test
     void changePasswordShouldRejectInvalidCurrentPassword() {
         UserAccount user = userAccount("north");
-        ChangePasswordRequest request = new ChangePasswordRequest("wrong-password", "betterpass");
+        ChangePasswordRequest request = new ChangePasswordRequest(
+                "wrong-password",
+                "betterpass",
+                null,
+                null
+        );
 
         when(userAccountRepository.findByUsernameIgnoreCase("north")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("wrong-password", user.getPasswordHash())).thenReturn(false);
@@ -568,7 +583,12 @@ class AuthServiceTest {
     @Test
     void changePasswordShouldSucceedWithoutLegacyEncryptionBundle() {
         UserAccount user = userAccount("north");
-        ChangePasswordRequest request = new ChangePasswordRequest("current-password", "betterpass");
+        ChangePasswordRequest request = new ChangePasswordRequest(
+                "current-password",
+                "betterpass",
+                null,
+                null
+        );
 
         when(userAccountRepository.findByUsernameIgnoreCase("north")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("current-password", user.getPasswordHash())).thenReturn(true);
@@ -580,6 +600,35 @@ class AuthServiceTest {
         authService.changePassword("north", request);
 
         assertThat(user.getPasswordHash()).isEqualTo("new-password-hash");
+        assertThat(user.getPasswordVersion()).isEqualTo(2L);
+    }
+
+    @Test
+    void changePasswordShouldAtomicallyRewrapRecoverySnapshot() {
+        UserAccount user = userAccount("north");
+        ChangePasswordRequest request = new ChangePasswordRequest(
+                "current-password",
+                "betterpass",
+                "{\"messages\":[1]}",
+                "{\"salt\":\"next\"}"
+        );
+
+        when(userAccountRepository.findByUsernameIgnoreCase("north")).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("current-password", user.getPasswordHash())).thenReturn(true);
+        when(passwordEncoder.matches("betterpass", user.getPasswordHash())).thenReturn(false);
+        when(passwordEncoder.encode("betterpass")).thenReturn("new-password-hash");
+        when(userSessionRepository.findAllByUserIdAndRevokedAtIsNullOrderByLastUsedAtDesc(user.getId()))
+                .thenReturn(java.util.List.of());
+        when(userEncryptionRecoverySnapshotRepository.findByUserId(user.getId())).thenReturn(Optional.empty());
+
+        authService.changePassword("north", request);
+
+        ArgumentCaptor<com.north.messenger.domain.model.UserEncryptionRecoverySnapshot> snapshotCaptor =
+                ArgumentCaptor.forClass(com.north.messenger.domain.model.UserEncryptionRecoverySnapshot.class);
+        verify(userEncryptionRecoverySnapshotRepository).save(snapshotCaptor.capture());
+        assertThat(snapshotCaptor.getValue().getSnapshotPayloadJson()).isEqualTo("{\"messages\":[1]}");
+        assertThat(snapshotCaptor.getValue().getWrappedIdentityRecordJson()).isEqualTo("{\"salt\":\"next\"}");
+        assertThat(snapshotCaptor.getValue().getWrappedPasswordVersion()).isEqualTo(2L);
     }
 
     private UserAccount userAccount(String username) {

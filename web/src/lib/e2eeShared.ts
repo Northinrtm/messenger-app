@@ -7,6 +7,8 @@ export const ENCRYPTION_IDENTITY_CHANGED_MESSAGE =
   "Encryption identity changed for this account in this browser. Re-establish trust before continuing";
 export const ENCRYPTION_RECOVERY_PASSWORD_RESTORE_FAILED_MESSAGE =
   "Current password could not restore encrypted chats on this device";
+export const ENCRYPTION_RECOVERY_PREVIOUS_PASSWORD_REQUIRED_MESSAGE =
+  "Encrypted chats are still protected by a previous account password. Try the password you used before changing it";
 export const ENCRYPTION_RECOVERY_EXISTING_CHATS_MESSAGE =
   "Encrypted chats already exist for this account, but this device could not restore their keys";
 export const ENCRYPTION_RECOVERY_SNAPSHOT_INVALID_MESSAGE = "Encryption recovery snapshot is invalid";
@@ -17,6 +19,7 @@ export const PINNED_DEVICE_BUNDLE_STORAGE_PREFIX = "north-messenger:pinned-devic
 const RESETTABLE_ENCRYPTION_RECOVERY_MESSAGES = new Set([
   ENCRYPTION_RECOVERY_EXISTING_CHATS_MESSAGE,
   ENCRYPTION_RECOVERY_PASSWORD_RESTORE_FAILED_MESSAGE,
+  ENCRYPTION_RECOVERY_PREVIOUS_PASSWORD_REQUIRED_MESSAGE,
   ENCRYPTION_RECOVERY_SNAPSHOT_INVALID_MESSAGE,
   ENCRYPTION_RECOVERY_SNAPSHOT_DECRYPT_FAILED_MESSAGE,
 ]);

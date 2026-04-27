@@ -70,6 +70,32 @@ public final class TestUserAccounts {
         return new UserAccount(id, username, email, displayName, profession, avatarUrl, passwordHash, createdAt, emailVerifiedAt);
     }
 
+    public static UserAccount testUserAccount(
+            UUID id,
+            String username,
+            String email,
+            String displayName,
+            String profession,
+            String avatarUrl,
+            String passwordHash,
+            long passwordVersion,
+            Instant createdAt,
+            Instant emailVerifiedAt
+    ) {
+        return new UserAccount(
+                id,
+                username,
+                email,
+                displayName,
+                profession,
+                avatarUrl,
+                passwordHash,
+                passwordVersion,
+                createdAt,
+                emailVerifiedAt
+        );
+    }
+
     private static String defaultEmail(String username) {
         return username.trim().toLowerCase(Locale.ROOT) + "@example.test";
     }

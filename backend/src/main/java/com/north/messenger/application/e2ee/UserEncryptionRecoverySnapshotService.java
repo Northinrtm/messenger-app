@@ -53,6 +53,7 @@ public class UserEncryptionRecoverySnapshotService {
                     existing.update(
                             request.snapshotPayloadJson(),
                             request.wrappedIdentityRecordJson(),
+                            authenticatedSession.user().getPasswordVersion(),
                             now
                     );
                     return existing;
@@ -62,6 +63,7 @@ public class UserEncryptionRecoverySnapshotService {
                         authenticatedSession.user().getId(),
                         request.snapshotPayloadJson(),
                         request.wrappedIdentityRecordJson(),
+                        authenticatedSession.user().getPasswordVersion(),
                         now,
                         now
                 ));
@@ -73,6 +75,7 @@ public class UserEncryptionRecoverySnapshotService {
         return new UserEncryptionRecoverySnapshotResponse(
                 snapshot.getSnapshotPayloadJson(),
                 snapshot.getWrappedIdentityRecordJson(),
+                snapshot.getWrappedPasswordVersion(),
                 snapshot.getCreatedAt(),
                 snapshot.getUpdatedAt()
         );

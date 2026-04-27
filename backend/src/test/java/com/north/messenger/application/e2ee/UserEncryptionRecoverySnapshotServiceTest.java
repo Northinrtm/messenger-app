@@ -53,6 +53,7 @@ class UserEncryptionRecoverySnapshotServiceTest {
                 userId,
                 "{\"messages\":[]}",
                 "{\"salt\":\"salt\"}",
+                1L,
                 Instant.parse("2026-04-10T10:00:00Z"),
                 Instant.parse("2026-04-10T10:05:00Z")
         );
@@ -65,6 +66,7 @@ class UserEncryptionRecoverySnapshotServiceTest {
 
         assertThat(response.snapshotPayloadJson()).isEqualTo("{\"messages\":[]}");
         assertThat(response.wrappedIdentityRecordJson()).isEqualTo("{\"salt\":\"salt\"}");
+        assertThat(response.wrappedPasswordVersion()).isEqualTo(1L);
         assertThat(response.updatedAt()).isEqualTo(Instant.parse("2026-04-10T10:05:00Z"));
     }
 
@@ -114,6 +116,7 @@ class UserEncryptionRecoverySnapshotServiceTest {
 
         assertThat(response.snapshotPayloadJson()).isEqualTo("{\"messages\":[1]}");
         assertThat(response.wrappedIdentityRecordJson()).isEqualTo("{\"salt\":\"next\"}");
+        assertThat(response.wrappedPasswordVersion()).isEqualTo(user.getPasswordVersion());
         verify(userEncryptionRecoverySnapshotRepository).save(any(UserEncryptionRecoverySnapshot.class));
     }
 
@@ -133,6 +136,7 @@ class UserEncryptionRecoverySnapshotServiceTest {
                 userId,
                 "{\"messages\":[]}",
                 "{\"salt\":\"old\"}",
+                1L,
                 Instant.parse("2026-04-10T10:00:00Z"),
                 Instant.parse("2026-04-10T10:05:00Z")
         );
@@ -154,8 +158,10 @@ class UserEncryptionRecoverySnapshotServiceTest {
 
         assertThat(response.snapshotPayloadJson()).isEqualTo("{\"messages\":[2]}");
         assertThat(response.wrappedIdentityRecordJson()).isEqualTo("{\"salt\":\"new\"}");
+        assertThat(response.wrappedPasswordVersion()).isEqualTo(user.getPasswordVersion());
         assertThat(existingSnapshot.getSnapshotPayloadJson()).isEqualTo("{\"messages\":[2]}");
         assertThat(existingSnapshot.getWrappedIdentityRecordJson()).isEqualTo("{\"salt\":\"new\"}");
+        assertThat(existingSnapshot.getWrappedPasswordVersion()).isEqualTo(user.getPasswordVersion());
         verify(userEncryptionRecoverySnapshotRepository).save(existingSnapshot);
     }
 }

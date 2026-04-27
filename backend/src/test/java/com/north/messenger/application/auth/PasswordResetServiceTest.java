@@ -114,6 +114,7 @@ class PasswordResetServiceTest {
 
         assertThat(passwordEncoder.matches("riverlantern", user.getPasswordHash())).isTrue();
         assertThat(passwordEncoder.matches("old-password", user.getPasswordHash())).isFalse();
+        assertThat(user.getPasswordVersion()).isEqualTo(2L);
         assertThat(matchingToken.getUsedAt()).isNotNull();
         assertThat(secondaryToken.getUsedAt()).isNotNull();
         assertThat(firstSession.getRevokedAt()).isNotNull();

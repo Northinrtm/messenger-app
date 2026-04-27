@@ -29,6 +29,7 @@ import {
   ENCRYPTION_IDENTITY_CHANGED_MESSAGE,
   ENCRYPTION_RECOVERY_EXISTING_CHATS_MESSAGE,
   ENCRYPTION_RECOVERY_PASSWORD_RESTORE_FAILED_MESSAGE,
+  ENCRYPTION_RECOVERY_PREVIOUS_PASSWORD_REQUIRED_MESSAGE,
   ENCRYPTION_RECOVERY_SNAPSHOT_DECRYPT_FAILED_MESSAGE,
   ENCRYPTION_RECOVERY_SNAPSHOT_INVALID_MESSAGE,
   PINNED_DEVICE_BUNDLE_STORAGE_PREFIX,
@@ -121,6 +122,7 @@ import {
   resecureLocalEncryptionStateForPasswordChange as resecureLocalEncryptionStateForPasswordChangeInternal,
 } from "./e2eeEncryptionLifecycle";
 import {
+  buildOwnRecoverySnapshotUpload as buildOwnRecoverySnapshotUploadInternal,
   mergeArchivedDecryptedMessageRecords as mergeArchivedDecryptedMessageRecordsInternal,
   restoreEncryptionRecoverySnapshot as restoreEncryptionRecoverySnapshotInternal,
   shouldReplaceArchivedDecryptedMessageRecord as shouldReplaceArchivedDecryptedMessageRecordInternal,
@@ -1514,6 +1516,16 @@ export async function resecureLocalEncryptionStateForPasswordChange(
     readRememberedUnlockedIdentity: (targetUserId, targetPassword) =>
       readRememberedUnlockedIdentity(targetUserId, targetPassword),
     writeUnlockedIdentity,
+  });
+}
+
+export async function buildOwnEncryptionRecoverySnapshotUpload(userId: string) {
+  return buildOwnRecoverySnapshotUploadInternal({
+    userId,
+    readUnlockedIdentity,
+    readRememberedUnlockedIdentityRecord,
+    readAllStoredArchivedDecryptedMessageRecords,
+    encryptRecoverySnapshotPayload,
   });
 }
 
@@ -3471,6 +3483,8 @@ async function restoreEncryptionRecoverySnapshot(
     encryptionRecoverySnapshotInvalidMessage: ENCRYPTION_RECOVERY_SNAPSHOT_INVALID_MESSAGE,
     encryptionRecoveryPasswordRestoreFailedMessage:
       ENCRYPTION_RECOVERY_PASSWORD_RESTORE_FAILED_MESSAGE,
+    encryptionRecoveryPreviousPasswordRequiredMessage:
+      ENCRYPTION_RECOVERY_PREVIOUS_PASSWORD_REQUIRED_MESSAGE,
     encryptionRecoverySnapshotDecryptFailedMessage:
       ENCRYPTION_RECOVERY_SNAPSHOT_DECRYPT_FAILED_MESSAGE,
   });

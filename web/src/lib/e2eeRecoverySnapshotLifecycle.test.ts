@@ -12,6 +12,7 @@ const session = {
   token: "token",
   user: {
     id: "self",
+    passwordVersion: 1,
   },
 } as const;
 
@@ -87,9 +88,51 @@ describe("e2eeRecoverySnapshotLifecycle", () => {
         writeArchivedDecryptedMessageRecords: vi.fn(async () => {}),
         encryptionRecoverySnapshotInvalidMessage: "invalid",
         encryptionRecoveryPasswordRestoreFailedMessage: "password failed",
+        encryptionRecoveryPreviousPasswordRequiredMessage: "previous password required",
         encryptionRecoverySnapshotDecryptFailedMessage: "decrypt failed",
       })
     ).resolves.toBeNull();
+  });
+
+  it("surfaces previous-password guidance when snapshot is wrapped by an older password version", async () => {
+    await expect(
+      restoreEncryptionRecoverySnapshot({
+        session: {
+          token: "token",
+          user: {
+            id: "self",
+            passwordVersion: 3,
+          },
+        } as never,
+        password: "password",
+        getOwnEncryptionRecoverySnapshot: vi.fn(async () => ({
+          snapshotPayloadJson: JSON.stringify({ salt: "payload-salt", iv: "payload-iv", ciphertext: "payload" }),
+          wrappedIdentityRecordJson: JSON.stringify({
+            salt: "salt",
+            iv: "iv",
+            ciphertext: "ciphertext",
+            createdAt: "2026-04-27T12:00:00.000Z",
+          }),
+          wrappedPasswordVersion: 2,
+          createdAt: "2026-04-27T12:00:00.000Z",
+          updatedAt: "2026-04-27T12:00:00.000Z",
+        })),
+        normalizeRememberedUnlockedIdentityRecord: vi.fn((value) => value),
+        normalizeEncryptedRecoverySnapshotPayloadRecord: vi.fn((value) => value),
+        decryptRememberedUnlockedIdentityRecord: vi.fn(async () => null),
+        decryptRecoverySnapshotPayload: vi.fn(),
+        writeUnlockedIdentity: vi.fn(),
+        writeRememberedUnlockedIdentityRecord: vi.fn(),
+        writeArchivedDecryptedMessageRecords: vi.fn(async () => {}),
+        encryptionRecoverySnapshotInvalidMessage: "invalid",
+        encryptionRecoveryPasswordRestoreFailedMessage: "password failed",
+        encryptionRecoveryPreviousPasswordRequiredMessage: "previous password required",
+        encryptionRecoverySnapshotDecryptFailedMessage: "decrypt failed",
+      })
+    ).rejects.toMatchObject({
+      message: "previous password required",
+      status: 409,
+    });
   });
 
   it("syncs merged archived messages into remote recovery snapshot", async () => {

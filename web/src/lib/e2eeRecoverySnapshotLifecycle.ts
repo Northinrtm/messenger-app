@@ -13,6 +13,11 @@ type RememberedUnlockedIdentityRecord = {
   createdAt: string;
 };
 
+type RecoverySnapshotUpload = {
+  snapshotPayloadJson: string;
+  wrappedIdentityRecordJson: string;
+};
+
 type ArchivedRecordLike = {
   messageId: string;
   archivedAt: string;
@@ -80,10 +85,7 @@ export async function syncEncryptionRecoverySnapshotInternal<T extends ArchivedR
       privateKey: string,
       archivedMessages: T[]
     ) => Promise<unknown>;
-    upsertOwnEncryptionRecoverySnapshot: (
-      token: string,
-      payload: { snapshotPayloadJson: string; wrappedIdentityRecordJson: string }
-    ) => Promise<unknown>;
+    upsertOwnEncryptionRecoverySnapshot: (token: string, payload: RecoverySnapshotUpload) => Promise<unknown>;
   }
 ) {
   const userId = options.session.user.id;
@@ -131,9 +133,56 @@ export async function syncEncryptionRecoverySnapshotInternal<T extends ArchivedR
     identity.privateKey,
     archivedMessages
   );
-  await options.upsertOwnEncryptionRecoverySnapshot(options.session.token, {
-    snapshotPayloadJson: JSON.stringify(snapshotPayloadRecord),
-    wrappedIdentityRecordJson: JSON.stringify(rememberedIdentityRecord),
+  await options.upsertOwnEncryptionRecoverySnapshot(
+    options.session.token,
+    buildRecoverySnapshotUploadPayload({
+      snapshotPayloadRecord,
+      wrappedIdentityRecord: rememberedIdentityRecord,
+    })
+  );
+}
+
+export function buildRecoverySnapshotUploadPayload<SnapshotRecord>(options: {
+  snapshotPayloadRecord: SnapshotRecord;
+  wrappedIdentityRecord: RememberedUnlockedIdentityRecord;
+}): RecoverySnapshotUpload {
+  return {
+    snapshotPayloadJson: JSON.stringify(options.snapshotPayloadRecord),
+    wrappedIdentityRecordJson: JSON.stringify(options.wrappedIdentityRecord),
+  };
+}
+
+export async function buildOwnRecoverySnapshotUpload<
+  T extends ArchivedRecordLike,
+  SnapshotRecord
+>(options: {
+  userId: string;
+  readUnlockedIdentity: (userId: string) => StoredLocalIdentity | null;
+  readRememberedUnlockedIdentityRecord: (
+    userId: string
+  ) => RememberedUnlockedIdentityRecord | null;
+  readAllStoredArchivedDecryptedMessageRecords: (userId: string) => Promise<T[]>;
+  encryptRecoverySnapshotPayload: (
+    privateKey: string,
+    archivedMessages: T[]
+  ) => Promise<SnapshotRecord>;
+}) {
+  const identity = options.readUnlockedIdentity(options.userId);
+  const rememberedIdentityRecord = options.readRememberedUnlockedIdentityRecord(options.userId);
+  if (!identity || !rememberedIdentityRecord) {
+    return null;
+  }
+
+  const archivedMessages = await options.readAllStoredArchivedDecryptedMessageRecords(
+    options.userId
+  );
+  const snapshotPayloadRecord = await options.encryptRecoverySnapshotPayload(
+    identity.privateKey,
+    archivedMessages
+  );
+  return buildRecoverySnapshotUploadPayload({
+    snapshotPayloadRecord,
+    wrappedIdentityRecord: rememberedIdentityRecord,
   });
 }
 
@@ -166,6 +215,7 @@ export async function restoreEncryptionRecoverySnapshot<
   writeArchivedDecryptedMessageRecords: (userId: string, records: T[]) => Promise<void>;
   encryptionRecoverySnapshotInvalidMessage: string;
   encryptionRecoveryPasswordRestoreFailedMessage: string;
+  encryptionRecoveryPreviousPasswordRequiredMessage: string;
   encryptionRecoverySnapshotDecryptFailedMessage: string;
 }) {
   let remoteSnapshot: UserEncryptionRecoverySnapshot;
@@ -201,7 +251,14 @@ export async function restoreEncryptionRecoverySnapshot<
     options.password
   );
   if (!restoredIdentity) {
-    throw new ApiError(options.encryptionRecoveryPasswordRestoreFailedMessage, 409);
+    const passwordVersion = Math.max(1, options.session.user.passwordVersion ?? 1);
+    const wrappedPasswordVersion = Math.max(1, remoteSnapshot.wrappedPasswordVersion ?? 1);
+    throw new ApiError(
+      wrappedPasswordVersion < passwordVersion
+        ? options.encryptionRecoveryPreviousPasswordRequiredMessage
+        : options.encryptionRecoveryPasswordRestoreFailedMessage,
+      409
+    );
   }
 
   const snapshotPayload = await options.decryptRecoverySnapshotPayload(

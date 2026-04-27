@@ -33,6 +33,9 @@ public class UserAccount {
     @Column(name = "password_hash", nullable = false, length = 255)
     private String passwordHash;
 
+    @Column(name = "password_version", nullable = false)
+    private long passwordVersion;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -52,7 +55,7 @@ public class UserAccount {
             String passwordHash,
             Instant createdAt
     ) {
-        this(id, username, email, displayName, profession, avatarUrl, passwordHash, createdAt, createdAt);
+        this(id, username, email, displayName, profession, avatarUrl, passwordHash, 1L, createdAt, createdAt);
     }
 
     public UserAccount(
@@ -66,6 +69,21 @@ public class UserAccount {
             Instant createdAt,
             Instant emailVerifiedAt
     ) {
+        this(id, username, email, displayName, profession, avatarUrl, passwordHash, 1L, createdAt, emailVerifiedAt);
+    }
+
+    public UserAccount(
+            UUID id,
+            String username,
+            String email,
+            String displayName,
+            String profession,
+            String avatarUrl,
+            String passwordHash,
+            long passwordVersion,
+            Instant createdAt,
+            Instant emailVerifiedAt
+    ) {
         this.id = id;
         this.username = username;
         this.email = normalizeRequiredEmail(email);
@@ -73,6 +91,7 @@ public class UserAccount {
         this.profession = profession;
         this.avatarUrl = avatarUrl;
         this.passwordHash = passwordHash;
+        this.passwordVersion = Math.max(1L, passwordVersion);
         this.createdAt = createdAt;
         this.emailVerifiedAt = emailVerifiedAt;
     }
@@ -105,6 +124,10 @@ public class UserAccount {
         return passwordHash;
     }
 
+    public long getPasswordVersion() {
+        return passwordVersion;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
@@ -135,6 +158,11 @@ public class UserAccount {
 
     public void updatePasswordHash(String passwordHash) {
         this.passwordHash = passwordHash;
+    }
+
+    public long advancePasswordVersion() {
+        this.passwordVersion = Math.max(1L, this.passwordVersion + 1L);
+        return this.passwordVersion;
     }
 
     public void markEmailVerified(Instant emailVerifiedAt) {

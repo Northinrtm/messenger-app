@@ -6,6 +6,7 @@ export type UserProfile = {
   createdAt: string;
   avatarUrl: string | null;
   online: boolean;
+  passwordVersion?: number;
   email?: string | null;
   emailVerified?: boolean;
   emailVerificationEnabled?: boolean;
@@ -269,6 +270,7 @@ export type UserEncryptionDeviceManifest = {
 export type UserEncryptionRecoverySnapshot = {
   snapshotPayloadJson: string;
   wrappedIdentityRecordJson: string;
+  wrappedPasswordVersion?: number;
   createdAt: string;
   updatedAt: string;
 };

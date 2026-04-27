@@ -311,6 +311,8 @@ export function changePassword(
   input: {
     currentPassword: string;
     newPassword: string;
+    recoverySnapshotPayloadJson?: string | null;
+    recoveryWrappedIdentityRecordJson?: string | null;
   }
 ) {
   return request<void>("/api/auth/password", {

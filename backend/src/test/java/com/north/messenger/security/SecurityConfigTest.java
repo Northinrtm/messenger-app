@@ -121,7 +121,8 @@ class SecurityConfigTest {
                                 true,
                                 "north@example.com",
                                 false,
-                                true
+                                true,
+                                1L
                         )
                 ),
                 "session.secret"
@@ -158,7 +159,8 @@ class SecurityConfigTest {
                                 true,
                                 "north@example.com",
                                 false,
-                                true
+                                true,
+                                1L
                         )
                 ),
                 "session.secret"
