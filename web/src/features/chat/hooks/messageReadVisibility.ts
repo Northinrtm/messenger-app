@@ -1,3 +1,6 @@
+import { isUnavailableEncryptedMessage } from "../../../lib/e2eeShared";
+import type { ChatMessage } from "../../../lib/types";
+
 type OpenChatReadOptions = {
   isActiveChatOpen: boolean;
   isDocumentVisible: boolean;
@@ -18,4 +21,18 @@ export function shouldAcknowledgeIncomingMessageAsRead(options: IncomingMessageR
     options.messageChatId === options.activeChatId &&
     canAcknowledgeVisibleMessagesAsRead(options)
   );
+}
+
+export function buildReadableIncomingMessageIdsKey(
+  messages: ChatMessage[],
+  currentUserId: string
+) {
+  return messages
+    .filter(
+      (message) =>
+        message.sender.id !== currentUserId &&
+        !isUnavailableEncryptedMessage(message.content)
+    )
+    .map((message) => message.id)
+    .join(",");
 }

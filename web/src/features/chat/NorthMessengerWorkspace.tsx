@@ -73,6 +73,7 @@ import {
   upsertChat,
 } from "./chatState";
 import { formatTypingParticipants } from "./typingState";
+import { buildReadableIncomingMessageIdsKey } from "./hooks/messageReadVisibility";
 import {
   createInitialConferenceDateTime,
   createMinimumConferenceDateTime,
@@ -966,6 +967,10 @@ export function NorthMessengerWorkspace({
     : "";
   const showTypingIndicator = activeTypingParticipants.length > 0;
   const timelineItems = useMemo(() => buildTimeline(messages), [messages]);
+  const readableIncomingMessageIdsKey = useMemo(
+    () => buildReadableIncomingMessageIdsKey(messages, session.user.id),
+    [messages, session.user.id]
+  );
   const messagesLoading =
     Boolean(activeChat?.id) && messagesQuery.data === undefined && messagesQuery.isFetching;
   const lastMessageId = messages[messages.length - 1]?.id ?? null;
@@ -2048,6 +2053,7 @@ export function NorthMessengerWorkspace({
     lastMessage,
     lastMessageId,
     messageCount: messages.length,
+    readableIncomingMessageIdsKey,
     profileDisplayName: profile.displayName,
     profileProfession: profile.profession,
     queryClient,

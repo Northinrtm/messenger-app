@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildReadableIncomingMessageIdsKey,
   canAcknowledgeVisibleMessagesAsRead,
   shouldAcknowledgeIncomingMessageAsRead,
 } from "./messageReadVisibility";
@@ -56,5 +57,59 @@ describe("messageReadVisibility", () => {
         hasDocumentFocus: true,
       })
     ).toBe(true);
+  });
+
+  it("tracks readable incoming messages so read-ack can rerun after hydration", () => {
+    expect(
+      buildReadableIncomingMessageIdsKey(
+        [
+          {
+            id: "message-1",
+            chatId: "chat-1",
+            serverOrder: 1,
+            sender: {
+              id: "user-2",
+              username: "alice",
+              displayName: "Alice",
+              profession: null,
+              avatarUrl: null,
+              online: true,
+            },
+            content: "[Encrypted message unavailable]",
+            createdAt: "2026-04-27T09:00:00.000Z",
+            editedAt: null,
+            status: null,
+            clientMessageId: null,
+            localOrder: null,
+            replyTo: null,
+            reactions: [],
+            attachments: [],
+          },
+          {
+            id: "message-2",
+            chatId: "chat-1",
+            serverOrder: 2,
+            sender: {
+              id: "user-2",
+              username: "alice",
+              displayName: "Alice",
+              profession: null,
+              avatarUrl: null,
+              online: true,
+            },
+            content: "hello",
+            createdAt: "2026-04-27T09:00:01.000Z",
+            editedAt: null,
+            status: null,
+            clientMessageId: null,
+            localOrder: null,
+            replyTo: null,
+            reactions: [],
+            attachments: [],
+          },
+        ],
+        "user-1"
+      )
+    ).toBe("message-2");
   });
 });

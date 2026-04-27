@@ -30,6 +30,7 @@ type UseWorkspaceEffectsOptions = {
   lastMessage: ChatMessage | null;
   lastMessageId: string | null;
   messageCount: number;
+  readableIncomingMessageIdsKey: string;
   profileDisplayName: string;
   profileProfession: string | null;
   queryClient: QueryClient;
@@ -79,6 +80,7 @@ export function useWorkspaceEffects({
   lastMessage,
   lastMessageId,
   messageCount,
+  readableIncomingMessageIdsKey,
   profileDisplayName,
   profileProfession,
   queryClient,
@@ -259,7 +261,14 @@ export function useWorkspaceEffects({
 
   useEffect(() => {
     acknowledgeVisibleMessagesAsRead();
-  }, [acknowledgeVisibleMessagesAsRead, activeChatId, isActiveChatOpen, lastMessageId, messageCount]);
+  }, [
+    acknowledgeVisibleMessagesAsRead,
+    activeChatId,
+    isActiveChatOpen,
+    lastMessageId,
+    messageCount,
+    readableIncomingMessageIdsKey,
+  ]);
 
   useEffect(() => {
     if (!activeChatId || !lastMessage) {
