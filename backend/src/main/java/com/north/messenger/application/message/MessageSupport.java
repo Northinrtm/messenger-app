@@ -14,6 +14,7 @@ import com.north.messenger.api.dto.MessageSnippetResponse;
 import com.north.messenger.api.dto.MessageStatusResponse;
 import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.application.auth.AuthService;
+import com.north.messenger.application.e2ee.DeviceEnvelopeCounterService;
 import com.north.messenger.application.e2ee.DeviceKeyValidationService;
 import com.north.messenger.domain.model.ChatGroupSenderKeyCounter;
 import com.north.messenger.domain.model.ChatMessage;
@@ -23,12 +24,10 @@ import com.north.messenger.domain.model.MessageReaction;
 import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.UserEncryptionDevice;
-import com.north.messenger.domain.model.UserEncryptionEnvelopeCounter;
 import com.north.messenger.domain.model.UserEncryptionOneTimePrekey;
 import com.north.messenger.domain.model.UserEncryptionSignedPrekey;
 import com.north.messenger.domain.repository.ChatGroupSenderKeyCounterRepository;
 import com.north.messenger.domain.repository.UserEncryptionDeviceRepository;
-import com.north.messenger.domain.repository.UserEncryptionEnvelopeCounterRepository;
 import com.north.messenger.domain.repository.UserEncryptionOneTimePrekeyRepository;
 import com.north.messenger.domain.repository.UserEncryptionSignedPrekeyRepository;
 import com.north.messenger.domain.repository.ChatMessageRepository;
@@ -71,10 +70,10 @@ class MessageSupport {
     private final MessageReactionRepository messageReactionRepository;
     private final UserAccountRepository userAccountRepository;
     private final UserEncryptionDeviceRepository userEncryptionDeviceRepository;
-    private final UserEncryptionEnvelopeCounterRepository userEncryptionEnvelopeCounterRepository;
     private final UserEncryptionOneTimePrekeyRepository userEncryptionOneTimePrekeyRepository;
     private final UserEncryptionSignedPrekeyRepository userEncryptionSignedPrekeyRepository;
     private final ChatGroupSenderKeyCounterRepository chatGroupSenderKeyCounterRepository;
+    private final DeviceEnvelopeCounterService deviceEnvelopeCounterService;
     private final DeviceKeyValidationService deviceKeyValidationService;
     private final MessengerTelemetry telemetry;
     private final ObjectMapper objectMapper;
@@ -87,10 +86,10 @@ class MessageSupport {
             MessageReactionRepository messageReactionRepository,
             UserAccountRepository userAccountRepository,
             UserEncryptionDeviceRepository userEncryptionDeviceRepository,
-            UserEncryptionEnvelopeCounterRepository userEncryptionEnvelopeCounterRepository,
             UserEncryptionOneTimePrekeyRepository userEncryptionOneTimePrekeyRepository,
             UserEncryptionSignedPrekeyRepository userEncryptionSignedPrekeyRepository,
             ChatGroupSenderKeyCounterRepository chatGroupSenderKeyCounterRepository,
+            DeviceEnvelopeCounterService deviceEnvelopeCounterService,
             DeviceKeyValidationService deviceKeyValidationService,
             MessengerTelemetry telemetry,
             ObjectMapper objectMapper
@@ -102,10 +101,10 @@ class MessageSupport {
         this.messageReactionRepository = messageReactionRepository;
         this.userAccountRepository = userAccountRepository;
         this.userEncryptionDeviceRepository = userEncryptionDeviceRepository;
-        this.userEncryptionEnvelopeCounterRepository = userEncryptionEnvelopeCounterRepository;
         this.userEncryptionOneTimePrekeyRepository = userEncryptionOneTimePrekeyRepository;
         this.userEncryptionSignedPrekeyRepository = userEncryptionSignedPrekeyRepository;
         this.chatGroupSenderKeyCounterRepository = chatGroupSenderKeyCounterRepository;
+        this.deviceEnvelopeCounterService = deviceEnvelopeCounterService;
         this.deviceKeyValidationService = deviceKeyValidationService;
         this.telemetry = telemetry;
         this.objectMapper = objectMapper;
@@ -615,7 +614,20 @@ class MessageSupport {
             if (groupSharedEnvelope != null) {
                 validateAndAdvanceGroupEnvelopeCounter(room, senderDevice, groupSharedEnvelope);
             }
-            validateAndAdvanceEnvelopeCounters(senderDevice, validatedEnvelopesByRecipientDeviceId);
+            deviceEnvelopeCounterService.validateAndAdvanceCounters(
+                    senderDevice.getId(),
+                    validatedEnvelopesByRecipientDeviceId.entrySet().stream()
+                            .collect(Collectors.toMap(
+                                    Map.Entry::getKey,
+                                    entry -> new DeviceEnvelopeCounterService.EnvelopeCounterInput(
+                                            entry.getValue().ratchetPublicKey(),
+                                            entry.getValue().initiatorEphemeralPublicKey(),
+                                            entry.getValue().messageCounter()
+                                    ),
+                                    (left, right) -> right,
+                                    LinkedHashMap::new
+                            ))
+            );
             acceptBootstrapPrekeys(bootstrapPrekeyBindingsByRecipientDeviceId, Instant.now());
         }
         List<StoredRecipientPayload> storedRecipientPayloads = validatedEncryptedKeysByRecipientId.entrySet().stream()
@@ -632,87 +644,6 @@ class MessageSupport {
                 })
                 .toList();
         return new ValidatedEncryptedPayload(validatedEncryptedKeysByRecipientId, storedRecipientPayloads);
-    }
-
-    private void validateAndAdvanceEnvelopeCounters(
-            UserEncryptionDevice senderDevice,
-            Map<UUID, DeviceEnvelope> envelopesByRecipientDeviceId
-    ) {
-        Instant now = Instant.now();
-        for (Map.Entry<UUID, DeviceEnvelope> entry : envelopesByRecipientDeviceId.entrySet()) {
-            UUID recipientDeviceId = entry.getKey();
-            DeviceEnvelope envelope = entry.getValue();
-            UserEncryptionEnvelopeCounter counter = userEncryptionEnvelopeCounterRepository
-                    .findBySenderDeviceIdAndRecipientDeviceIdAndRatchetPublicKey(
-                            senderDevice.getId(),
-                            recipientDeviceId,
-                            envelope.ratchetPublicKey()
-                    )
-                    .orElse(null);
-            if (counter == null) {
-                validateInitialEnvelopeCounter(envelope);
-                if (userEncryptionEnvelopeCounterRepository.insertIfAbsent(
-                        UUID.randomUUID(),
-                        senderDevice.getId(),
-                        recipientDeviceId,
-                        envelope.ratchetPublicKey(),
-                        envelope.initiatorEphemeralPublicKey(),
-                        envelope.messageCounter(),
-                        now
-                ) == 1) {
-                    continue;
-                }
-                counter = userEncryptionEnvelopeCounterRepository
-                        .findBySenderDeviceIdAndRecipientDeviceIdAndRatchetPublicKey(
-                                senderDevice.getId(),
-                                recipientDeviceId,
-                                envelope.ratchetPublicKey()
-                        )
-                        .orElseThrow(() -> new IllegalStateException(
-                                "Encrypted device envelope counter was not persisted after concurrent insert"
-                        ));
-            }
-
-            validateExistingEnvelopeCounter(counter, envelope);
-            counter.bindInitiatorEphemeralPublicKeyIfMissing(envelope.initiatorEphemeralPublicKey());
-            counter.advanceTo(envelope.messageCounter(), now);
-            userEncryptionEnvelopeCounterRepository.save(counter);
-        }
-    }
-
-    private void validateInitialEnvelopeCounter(DeviceEnvelope envelope) {
-        if (envelope.messageCounter() != 0) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Encrypted device envelope must start at counter zero"
-            );
-        }
-    }
-
-    private void validateExistingEnvelopeCounter(
-            UserEncryptionEnvelopeCounter counter,
-            DeviceEnvelope envelope
-    ) {
-        if (envelope.messageCounter() <= counter.getLastMessageCounter()) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Encrypted device envelope message counter is stale"
-            );
-        }
-        if (counter.getInitiatorEphemeralPublicKey() != null
-                && !counter.getInitiatorEphemeralPublicKey().isBlank()
-                && !counter.getInitiatorEphemeralPublicKey().equals(envelope.initiatorEphemeralPublicKey())) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Encrypted device envelope chain metadata is invalid"
-            );
-        }
-        if (envelope.messageCounter() - counter.getLastMessageCounter() > MAX_DEVICE_COUNTER_ADVANCE) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Encrypted device envelope message counter advanced too far"
-            );
-        }
     }
 
     private void validateAndAdvanceGroupEnvelopeCounter(

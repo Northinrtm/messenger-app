@@ -47,6 +47,7 @@ public class ChatGroupHistoryKeyService {
     private final UserEncryptionDeviceRepository userEncryptionDeviceRepository;
     private final UserEncryptionSignedPrekeyRepository userEncryptionSignedPrekeyRepository;
     private final DeviceKeyValidationService deviceKeyValidationService;
+    private final DeviceEnvelopeCounterService deviceEnvelopeCounterService;
     private final ObjectMapper objectMapper;
 
     public ChatGroupHistoryKeyService(
@@ -57,6 +58,7 @@ public class ChatGroupHistoryKeyService {
             UserEncryptionDeviceRepository userEncryptionDeviceRepository,
             UserEncryptionSignedPrekeyRepository userEncryptionSignedPrekeyRepository,
             DeviceKeyValidationService deviceKeyValidationService,
+            DeviceEnvelopeCounterService deviceEnvelopeCounterService,
             ObjectMapper objectMapper
     ) {
         this.authService = authService;
@@ -66,6 +68,7 @@ public class ChatGroupHistoryKeyService {
         this.userEncryptionDeviceRepository = userEncryptionDeviceRepository;
         this.userEncryptionSignedPrekeyRepository = userEncryptionSignedPrekeyRepository;
         this.deviceKeyValidationService = deviceKeyValidationService;
+        this.deviceEnvelopeCounterService = deviceEnvelopeCounterService;
         this.objectMapper = objectMapper;
     }
 
@@ -150,6 +153,8 @@ public class ChatGroupHistoryKeyService {
                 });
 
         UserEncryptionDevice senderDevice = null;
+        Map<UUID, DeviceEnvelopeCounterService.EnvelopeCounterInput> envelopesByRecipientDeviceId = new LinkedHashMap<>();
+        List<ChatHistoryKeyAccess> accessesToSave = new java.util.ArrayList<>();
         for (Map.Entry<String, String> entry : new LinkedHashMap<>(request.wrappedKeysByRecipientDeviceId()).entrySet()) {
             UserEncryptionDevice recipientDevice = knownDevicesById.get(entry.getKey());
             if (recipientDevice == null) {
@@ -209,6 +214,15 @@ public class ChatGroupHistoryKeyService {
                 );
             }
 
+            envelopesByRecipientDeviceId.put(
+                    recipientDevice.getId(),
+                    new DeviceEnvelopeCounterService.EnvelopeCounterInput(
+                            envelope.ratchetPublicKey(),
+                            envelope.initiatorEphemeralPublicKey(),
+                            envelope.messageCounter()
+                    )
+            );
+
             ChatHistoryKeyAccess access = chatHistoryKeyAccessRepository
                     .findByHistoryKeyIdAndRecipientDeviceId(historyKey.getId(), recipientDevice.getId())
                     .map(existing -> {
@@ -229,6 +243,16 @@ public class ChatGroupHistoryKeyService {
                             now,
                             now
                     ));
+            accessesToSave.add(access);
+        }
+
+        if (senderDevice != null && !envelopesByRecipientDeviceId.isEmpty()) {
+            deviceEnvelopeCounterService.validateAndAdvanceCounters(
+                    senderDevice.getId(),
+                    envelopesByRecipientDeviceId
+            );
+        }
+        for (ChatHistoryKeyAccess access : accessesToSave) {
             chatHistoryKeyAccessRepository.save(access);
         }
 
@@ -397,6 +421,8 @@ public class ChatGroupHistoryKeyService {
                     UUID.fromString(recipientDeviceId),
                     senderIdentityKey,
                     senderIdentitySignatureKey,
+                    initiatorEphemeralPublicKey,
+                    ratchetPublicKey,
                     recipientSignedPrekeyId,
                     messageCounter
             );
@@ -433,6 +459,8 @@ public class ChatGroupHistoryKeyService {
             UUID recipientDeviceId,
             String senderIdentityKey,
             String senderIdentitySignatureKey,
+            String initiatorEphemeralPublicKey,
+            String ratchetPublicKey,
             int recipientSignedPrekeyId,
             int messageCounter
     ) {
