@@ -213,6 +213,12 @@ class MessageCommandService {
                     clientMessageId,
                     MessageDispatchMode.FULL
             ));
+            eventPublisher.publishEvent(new MessageStoredDeferredEvent(
+                    chatId,
+                    persistedMessage.getId(),
+                    clientMessageId,
+                    currentUser.getId()
+            ));
             telemetry.recordMessageSend(
                     telemetrySample,
                     room,
@@ -326,6 +332,7 @@ class MessageCommandService {
             if (!tombstonesToCreate.isEmpty()) {
                 userDeletedMessageRepository.saveAll(tombstonesToCreate);
             }
+            MessageLifecycleAuditListener.logDeleteForSelf(currentUser.getId(), chatId, orderedMessageIds);
             orderedMessageIds.forEach(messageId -> eventPublisher.publishEvent(new MessageDeletionBroadcastEvent(
                     chatId,
                     messageId,
@@ -348,6 +355,7 @@ class MessageCommandService {
         List<UserAccount> participants = chatService.findParticipants(chatId);
         orderedMessages.forEach(message -> chatAttachmentService.deleteAttachmentsForMessage(message.getId()));
         chatMessageRepository.deleteAll(orderedMessages);
+        MessageLifecycleAuditListener.logDeleteForEveryone(currentUser.getId(), chatId, orderedMessageIds);
         List<String> usernames = participants.stream().map(UserAccount::getUsername).toList();
         orderedMessageIds.forEach(messageId -> eventPublisher.publishEvent(new MessageDeletionBroadcastEvent(
                 chatId,

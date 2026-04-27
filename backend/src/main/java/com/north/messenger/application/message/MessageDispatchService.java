@@ -24,6 +24,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,6 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 class MessageDispatchService {
 
+    private static final Logger log = LoggerFactory.getLogger(MessageDispatchService.class);
     private static final String MESSAGE_ACK_DESTINATION = "/queue/message-acks";
     private static final String MESSAGE_DELIVERY_DESTINATION = "/queue/messages";
 
@@ -73,6 +76,13 @@ class MessageDispatchService {
     void dispatchMessage(MessageDispatchEvent event, String source) {
         ChatMessage message = chatMessageRepository.findById(event.messageId()).orElse(null);
         if (message == null) {
+            log.error(
+                    "Message dispatch missing committed payload chatId={} messageId={} clientMessageId={} source={}",
+                    event.chatId(),
+                    event.messageId(),
+                    event.clientMessageId(),
+                    source
+            );
             telemetry.recordMessageDispatchMissing(event.chatId(), event.messageId(), source);
             return;
         }
