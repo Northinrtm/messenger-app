@@ -121,6 +121,12 @@ import {
   resecureLocalEncryptionStateForPasswordChange as resecureLocalEncryptionStateForPasswordChangeInternal,
 } from "./e2eeEncryptionLifecycle";
 import {
+  mergeArchivedDecryptedMessageRecords as mergeArchivedDecryptedMessageRecordsInternal,
+  restoreEncryptionRecoverySnapshot as restoreEncryptionRecoverySnapshotInternal,
+  shouldReplaceArchivedDecryptedMessageRecord as shouldReplaceArchivedDecryptedMessageRecordInternal,
+  syncEncryptionRecoverySnapshotInternal as syncEncryptionRecoverySnapshotInternalExternal,
+} from "./e2eeRecoverySnapshotLifecycle";
+import {
   decryptRememberedGroupSenderChainState as decryptRememberedGroupSenderChainStateInternal,
   encryptRememberedGroupSenderChainState as encryptRememberedGroupSenderChainStateInternal,
   persistGroupHistoryKeyRecord as persistGroupHistoryKeyRecordInternal,
@@ -250,9 +256,19 @@ import {
 } from "./e2eeRecoveryArchive";
 import {
   TRUSTED_DEVICE_STORAGE_PREFIX,
+  readTrustedDeviceUnlockRecord as readTrustedDeviceUnlockRecordInternal,
+  removeTrustedDeviceUnlockRecord as removeTrustedDeviceUnlockRecordInternal,
+  writeTrustedDeviceUnlockRecord as writeTrustedDeviceUnlockRecordInternal,
   hasTrustedDeviceUnlock,
   isTrustedDeviceUnlockSupported,
+  type TrustedDeviceUnlockRecord,
 } from "./e2eeTrustedDevice";
+import {
+  createTrustedDeviceCredential as createTrustedDeviceCredentialInternal,
+  deriveTrustedDeviceKey as deriveTrustedDeviceKeyInternal,
+  trustCurrentDeviceUnlock as trustCurrentDeviceUnlockInternal,
+  unlockWithTrustedDevice as unlockWithTrustedDeviceInternal,
+} from "./e2eeTrustedDeviceUnlock";
 import { recordSendDiagnosticStep } from "./sendDiagnostics";
 import { recordMessageHydrationDiagnostic } from "./messageHydrationDiagnostics";
 
@@ -949,14 +965,6 @@ type LocalIdentity = {
   privateKey: string;
 };
 
-type TrustedDeviceUnlockRecord = {
-  credentialId: string;
-  prfSalt: string;
-  iv: string;
-  ciphertext: string;
-  createdAt: string;
-};
-
 type DeviceOneTimePrekeyMaterial = {
   keyId: number;
   publicKey: string;
@@ -1214,41 +1222,17 @@ async function syncEncryptionRecoverySnapshot(session: AuthResponse) {
 }
 
 async function syncEncryptionRecoverySnapshotInternal(session: AuthResponse) {
-  const userId = session.user.id;
-  if (typeof window === "undefined" || !hasUnlockedPrivateEncryptionKey(userId)) {
-    return;
-  }
-
-  const identity = readUnlockedIdentity(userId);
-  const rememberedIdentityRecord = readRememberedUnlockedIdentityRecord(userId);
-  if (!identity || !rememberedIdentityRecord) {
-    return;
-  }
-
-  let archivedMessages = await readAllStoredArchivedDecryptedMessageRecords(userId);
-  const remoteArchivedMessages = await readRemoteRecoverySnapshotArchivedMessages(
-    session.token,
-    identity.privateKey
-  );
-  if (remoteArchivedMessages.length > 0) {
-    const localArchivedMessagesById = new Map(
-      archivedMessages.map((record) => [record.messageId, record])
-    );
-    const remoteUpdatesForLocalArchive = remoteArchivedMessages.filter((record) =>
-      shouldReplaceArchivedDecryptedMessageRecord(localArchivedMessagesById.get(record.messageId), record)
-    );
-    if (remoteUpdatesForLocalArchive.length > 0) {
-      await writeArchivedDecryptedMessageRecords(userId, remoteUpdatesForLocalArchive);
-    }
-    archivedMessages = mergeArchivedDecryptedMessageRecords(remoteArchivedMessages, archivedMessages);
-  }
-  const snapshotPayloadRecord = await encryptRecoverySnapshotPayload(
-    identity.privateKey,
-    archivedMessages
-  );
-  await upsertOwnEncryptionRecoverySnapshot(session.token, {
-    snapshotPayloadJson: JSON.stringify(snapshotPayloadRecord),
-    wrappedIdentityRecordJson: JSON.stringify(rememberedIdentityRecord),
+  return syncEncryptionRecoverySnapshotInternalExternal({
+    session,
+    isBrowserEnvironment: () => typeof window !== "undefined",
+    hasUnlockedPrivateEncryptionKey,
+    readUnlockedIdentity,
+    readRememberedUnlockedIdentityRecord,
+    readAllStoredArchivedDecryptedMessageRecords,
+    readRemoteRecoverySnapshotArchivedMessages,
+    writeArchivedDecryptedMessageRecords,
+    encryptRecoverySnapshotPayload,
+    upsertOwnEncryptionRecoverySnapshot,
   });
 }
 
@@ -1256,30 +1240,16 @@ function shouldReplaceArchivedDecryptedMessageRecord(
   currentRecord: RememberedDecryptedMessageArchiveRecord | null | undefined,
   nextRecord: RememberedDecryptedMessageArchiveRecord
 ) {
-  if (!currentRecord) {
-    return true;
-  }
-
-  if (nextRecord.archivedAt !== currentRecord.archivedAt) {
-    return nextRecord.archivedAt > currentRecord.archivedAt;
-  }
-
-  return (nextRecord.editedAt ?? "") > (currentRecord.editedAt ?? "");
+  return shouldReplaceArchivedDecryptedMessageRecordInternal(currentRecord, nextRecord);
 }
 
 function mergeArchivedDecryptedMessageRecords(
   baseRecords: RememberedDecryptedMessageArchiveRecord[],
   nextRecords: RememberedDecryptedMessageArchiveRecord[]
 ) {
-  const mergedRecordsByMessageId = new Map(
-    baseRecords.map((record) => [record.messageId, record])
+  return sortArchivedDecryptedMessageRecords(
+    mergeArchivedDecryptedMessageRecordsInternal(baseRecords, nextRecords)
   );
-  nextRecords.forEach((record) => {
-    if (shouldReplaceArchivedDecryptedMessageRecord(mergedRecordsByMessageId.get(record.messageId), record)) {
-      mergedRecordsByMessageId.set(record.messageId, record);
-    }
-  });
-  return sortArchivedDecryptedMessageRecords(Array.from(mergedRecordsByMessageId.values()));
 }
 
 async function readRemoteRecoverySnapshotArchivedMessages(token: string, privateKey: string) {
@@ -1548,98 +1518,36 @@ export async function resecureLocalEncryptionStateForPasswordChange(
 }
 
 export async function trustCurrentDeviceUnlock(session: AuthResponse) {
-  ensureE2eeTransportStorageSchema();
-  rememberRecoverySyncSession(session);
-
-  if (!isTrustedDeviceUnlockSupported()) {
-    throw new ApiError("This browser does not support secure device unlock for encrypted chats yet", 400);
-  }
-
-  const identity = readUnlockedIdentity(session.user.id);
-  if (!identity) {
-    throw new ApiError("Unlock encrypted chats with your password first", 409);
-  }
-
-  const credentialId = await createTrustedDeviceCredential(session);
-  const prfSalt = randomBytes(32);
-  const wrappingKey = await deriveTrustedDeviceKey(credentialId, prfSalt);
-  const iv = randomBytes(12);
-  const payload = textEncoder.encode(JSON.stringify(identity));
-  const ciphertext = new Uint8Array(
-    await window.crypto.subtle.encrypt(
-      {
-        name: "AES-GCM",
-        iv,
-      },
-      wrappingKey,
-      payload
-    )
-  );
-
-  writeTrustedDeviceUnlockRecord(session.user.id, {
-    credentialId: bytesToBase64(credentialId),
-    prfSalt: bytesToBase64(prfSalt),
-    iv: bytesToBase64(iv),
-    ciphertext: bytesToBase64(ciphertext),
-    createdAt: new Date().toISOString(),
+  return trustCurrentDeviceUnlockInternal({
+    session,
+    ensureE2eeTransportStorageSchema,
+    rememberRecoverySyncSession,
+    isTrustedDeviceUnlockSupported,
+    readUnlockedIdentity,
+    createTrustedDeviceCredential: (targetSession) =>
+      createTrustedDeviceCredential(targetSession),
+    randomBytes,
+    deriveTrustedDeviceKey,
+    textEncoder,
+    bytesToBase64,
+    writeTrustedDeviceUnlockRecord,
   });
 }
 
 export async function unlockWithTrustedDevice(session: AuthResponse) {
-  ensureE2eeTransportStorageSchema();
-  rememberRecoverySyncSession(session);
-
-  if (!isTrustedDeviceUnlockSupported()) {
-    throw new ApiError("This browser does not support secure device unlock for encrypted chats yet", 400);
-  }
-
-  const record = readTrustedDeviceUnlockRecord(session.user.id);
-  if (!record) {
-    throw new ApiError("Secure device unlock is not configured in this browser yet", 404);
-  }
-
-  try {
-    const wrappingKey = await deriveTrustedDeviceKey(
-      base64ToBytes(record.credentialId),
-      base64ToBytes(record.prfSalt)
-    );
-    const plaintext = await window.crypto.subtle.decrypt(
-      {
-        name: "AES-GCM",
-        iv: base64ToBytes(record.iv),
-      },
-      wrappingKey,
-      base64ToBytes(record.ciphertext)
-    );
-
-    const parsedIdentity = JSON.parse(textDecoder.decode(plaintext)) as Partial<LocalIdentity>;
-    if (
-      typeof parsedIdentity.publicKey !== "string" ||
-      parsedIdentity.publicKey.length === 0 ||
-      typeof parsedIdentity.privateKey !== "string" ||
-      parsedIdentity.privateKey.length === 0
-    ) {
-      throw new Error("Invalid trusted identity");
-    }
-
-    const identity = {
-      publicKey: parsedIdentity.publicKey,
-      privateKey: parsedIdentity.privateKey,
-    };
-    writeUnlockedIdentity(session.user.id, identity);
-    await ensureRegisteredEncryptionDevice(session);
-    try {
-      await syncEncryptionRecoverySnapshot(session);
-    } catch {
-      // Recovery snapshot upload is best-effort after a successful local unlock.
-    }
-  } catch (error) {
-    if (error instanceof ApiError) {
-      throw error;
-    }
-
-    throw new ApiError("Device unlock failed. Re-enter your password and trust this device again", 400);
-  }
+  return unlockWithTrustedDeviceInternal({
+    session,
+    ensureE2eeTransportStorageSchema,
+    rememberRecoverySyncSession,
+    isTrustedDeviceUnlockSupported,
+    readTrustedDeviceUnlockRecord,
+    deriveTrustedDeviceKey,
+    base64ToBytes,
+    textDecoder,
+    writeUnlockedIdentity,
+    ensureRegisteredEncryptionDevice,
+    syncEncryptionRecoverySnapshot,
+  });
 }
 
 export async function getEncryptedMessages(
@@ -3547,54 +3455,25 @@ async function restoreEncryptionRecoverySnapshot(
   session: AuthResponse,
   password: string
 ): Promise<LocalIdentity | null> {
-  let remoteSnapshot: UserEncryptionRecoverySnapshot;
-  try {
-    remoteSnapshot = await getOwnEncryptionRecoverySnapshot(session.token);
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 404) {
-      return null;
-    }
-    throw error;
-  }
-
-  let wrappedIdentityRecord: RememberedUnlockedIdentityRecord | null = null;
-  let snapshotPayloadRecord: EncryptedRecoverySnapshotPayloadRecord | null = null;
-  try {
-    wrappedIdentityRecord = normalizeRememberedUnlockedIdentityRecord(
-      JSON.parse(remoteSnapshot.wrappedIdentityRecordJson) as unknown
-    );
-    snapshotPayloadRecord = normalizeEncryptedRecoverySnapshotPayloadRecord(
-      JSON.parse(remoteSnapshot.snapshotPayloadJson) as unknown
-    );
-  } catch {
-    wrappedIdentityRecord = null;
-    snapshotPayloadRecord = null;
-  }
-
-  if (!wrappedIdentityRecord || !snapshotPayloadRecord) {
-    throw new ApiError(ENCRYPTION_RECOVERY_SNAPSHOT_INVALID_MESSAGE, 409);
-  }
-
-  const restoredIdentity = await decryptRememberedUnlockedIdentityRecord(
-    wrappedIdentityRecord,
-    password
-  );
-  if (!restoredIdentity) {
-    throw new ApiError(ENCRYPTION_RECOVERY_PASSWORD_RESTORE_FAILED_MESSAGE, 409);
-  }
-
-  const snapshotPayload = await decryptRecoverySnapshotPayload(
-    restoredIdentity.privateKey,
-    snapshotPayloadRecord
-  );
-  if (!snapshotPayload) {
-    throw new ApiError(ENCRYPTION_RECOVERY_SNAPSHOT_DECRYPT_FAILED_MESSAGE, 409);
-  }
-
-  writeUnlockedIdentity(session.user.id, restoredIdentity);
-  writeRememberedUnlockedIdentityRecord(session.user.id, wrappedIdentityRecord);
-  await writeArchivedDecryptedMessageRecords(session.user.id, snapshotPayload.archivedMessages);
-  return restoredIdentity;
+  return restoreEncryptionRecoverySnapshotInternal({
+    session,
+    password,
+    getOwnEncryptionRecoverySnapshot,
+    normalizeRememberedUnlockedIdentityRecord,
+    normalizeEncryptedRecoverySnapshotPayloadRecord,
+    decryptRememberedUnlockedIdentityRecord: (record, targetPassword) =>
+      decryptRememberedUnlockedIdentityRecord(record, targetPassword),
+    decryptRecoverySnapshotPayload,
+    writeUnlockedIdentity,
+    writeRememberedUnlockedIdentityRecord: (userId, record) =>
+      writeRememberedUnlockedIdentityRecord(userId, record),
+    writeArchivedDecryptedMessageRecords,
+    encryptionRecoverySnapshotInvalidMessage: ENCRYPTION_RECOVERY_SNAPSHOT_INVALID_MESSAGE,
+    encryptionRecoveryPasswordRestoreFailedMessage:
+      ENCRYPTION_RECOVERY_PASSWORD_RESTORE_FAILED_MESSAGE,
+    encryptionRecoverySnapshotDecryptFailedMessage:
+      ENCRYPTION_RECOVERY_SNAPSHOT_DECRYPT_FAILED_MESSAGE,
+  });
 }
 
 async function ensureRegisteredEncryptionDevice(session: AuthResponse) {
@@ -4619,62 +4498,15 @@ async function decryptRecoverySnapshotPayload(
 }
 
 function readTrustedDeviceUnlockRecord(userId: string): TrustedDeviceUnlockRecord | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  try {
-    const rawValue = window.localStorage.getItem(getTrustedDeviceStorageKey(userId));
-    if (!rawValue) {
-      return null;
-    }
-
-    const parsedRecord = JSON.parse(rawValue) as Partial<TrustedDeviceUnlockRecord>;
-    if (
-      typeof parsedRecord.credentialId !== "string" ||
-      typeof parsedRecord.prfSalt !== "string" ||
-      typeof parsedRecord.iv !== "string" ||
-      typeof parsedRecord.ciphertext !== "string"
-    ) {
-      removeTrustedDeviceUnlockRecord(userId);
-      return null;
-    }
-
-    return {
-      credentialId: parsedRecord.credentialId,
-      prfSalt: parsedRecord.prfSalt,
-      iv: parsedRecord.iv,
-      ciphertext: parsedRecord.ciphertext,
-      createdAt: typeof parsedRecord.createdAt === "string" ? parsedRecord.createdAt : "",
-    };
-  } catch {
-    removeTrustedDeviceUnlockRecord(userId);
-    return null;
-  }
+  return readTrustedDeviceUnlockRecordInternal(userId);
 }
 
 function writeTrustedDeviceUnlockRecord(userId: string, record: TrustedDeviceUnlockRecord) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(getTrustedDeviceStorageKey(userId), JSON.stringify(record));
-  } catch {
-    return;
-  }
+  return writeTrustedDeviceUnlockRecordInternal(userId, record);
 }
 
 function removeTrustedDeviceUnlockRecord(userId: string) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.localStorage.removeItem(getTrustedDeviceStorageKey(userId));
-  } catch {
-    return;
-  }
+  return removeTrustedDeviceUnlockRecordInternal(userId);
 }
 
 function readUnlockedIdentityFromSession(userId: string): LocalIdentity | null {
@@ -4737,10 +4569,6 @@ function getAutoUnlockedIdentityStorageKey(userId: string) {
 
 function getDecryptedMessageArchiveStorageKey(userId: string) {
   return `${DECRYPTED_MESSAGE_ARCHIVE_STORAGE_PREFIX}${userId}`;
-}
-
-function getTrustedDeviceStorageKey(userId: string) {
-  return `${TRUSTED_DEVICE_STORAGE_PREFIX}${userId}`;
 }
 
 function getPinnedDeviceBundleStorageKey(userId: string, deviceId: string) {
@@ -4888,99 +4716,25 @@ async function fingerprintPublicKey(publicKey: string) {
 }
 
 async function createTrustedDeviceCredential(session: AuthResponse) {
-  const userIdBytes = textEncoder.encode(session.user.id);
-  const credential = (await navigator.credentials.create({
-    publicKey: {
-      challenge: toArrayBuffer(randomBytes(32)),
-      rp: {
-        id: getTrustedDeviceRpId(),
-        name: TRUSTED_DEVICE_RP_NAME,
-      },
-      user: {
-        id: toArrayBuffer(userIdBytes),
-        name: session.user.username,
-        displayName: session.user.displayName,
-      },
-      pubKeyCredParams: [
-        { type: "public-key", alg: -7 },
-        { type: "public-key", alg: -257 },
-      ],
-      authenticatorSelection: {
-        authenticatorAttachment: "platform",
-        residentKey: "preferred",
-        userVerification: "required",
-      },
-      extensions: {
-        prf: {
-          eval: {
-            first: toArrayBuffer(randomBytes(32)),
-          },
-        },
-      } as Record<string, unknown>,
-      timeout: 60_000,
-      attestation: "none",
-    },
-  })) as PublicKeyCredential | null;
-
-  if (!credential) {
-    throw new ApiError("Device unlock setup was cancelled", 400);
-  }
-
-  return new Uint8Array(credential.rawId);
+  return createTrustedDeviceCredentialInternal({
+    session,
+    randomBytes,
+    toArrayBuffer,
+    rpId: getTrustedDeviceRpId(),
+    rpName: TRUSTED_DEVICE_RP_NAME,
+    textEncoder,
+  });
 }
 
 async function deriveTrustedDeviceKey(credentialId: Uint8Array, prfSalt: Uint8Array) {
-  const credentialIdBase64Url = bytesToBase64Url(credentialId);
-  const assertion = (await navigator.credentials.get({
-    publicKey: {
-      challenge: toArrayBuffer(randomBytes(32)),
-      rpId: getTrustedDeviceRpId(),
-      allowCredentials: [
-        {
-          id: toArrayBuffer(credentialId),
-          type: "public-key",
-        },
-      ],
-      userVerification: "required",
-      timeout: 60_000,
-      extensions: {
-        prf: {
-          evalByCredential: {
-            [credentialIdBase64Url]: {
-              first: toArrayBuffer(prfSalt),
-            },
-          },
-        },
-      } as Record<string, unknown>,
-    },
-  })) as PublicKeyCredential | null;
-
-  if (!assertion) {
-    throw new ApiError("Device unlock was cancelled", 400);
-  }
-
-  const extensionResults = assertion.getClientExtensionResults() as {
-    prf?: {
-      enabled?: boolean;
-      results?: {
-        first?: ArrayBuffer;
-      };
-    };
-  };
-  const prfOutput = extensionResults.prf?.results?.first;
-  if (!(prfOutput instanceof ArrayBuffer) || prfOutput.byteLength === 0) {
-    throw new ApiError("This authenticator does not expose the secure PRF output required for device unlock", 400);
-  }
-
-  return window.crypto.subtle.importKey(
-    "raw",
-    prfOutput,
-    {
-      name: "AES-GCM",
-    },
-    false,
-    ["encrypt", "decrypt"]
-  );
+  return deriveTrustedDeviceKeyInternal({
+    credentialId,
+    prfSalt,
+    rpId: getTrustedDeviceRpId(),
+    randomBytes,
+    toArrayBuffer,
+    bytesToBase64Url,
+  });
 }
 
 function getTrustedDeviceRpId() {

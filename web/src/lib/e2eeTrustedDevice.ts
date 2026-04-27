@@ -1,17 +1,18 @@
 export const TRUSTED_DEVICE_STORAGE_PREFIX = "north-messenger:trusted-device-e2ee:";
 
-type TrustedDeviceUnlockRecord = {
+export type TrustedDeviceUnlockRecord = {
   credentialId: string;
   prfSalt: string;
   iv: string;
   ciphertext: string;
+  createdAt: string;
 };
 
-function getTrustedDeviceStorageKey(userId: string) {
+export function getTrustedDeviceStorageKey(userId: string) {
   return `${TRUSTED_DEVICE_STORAGE_PREFIX}${userId}`;
 }
 
-function readTrustedDeviceUnlockRecord(userId: string): TrustedDeviceUnlockRecord | null {
+export function readTrustedDeviceUnlockRecord(userId: string): TrustedDeviceUnlockRecord | null {
   if (typeof window === "undefined") {
     return null;
   }
@@ -38,6 +39,7 @@ function readTrustedDeviceUnlockRecord(userId: string): TrustedDeviceUnlockRecor
       prfSalt: parsedRecord.prfSalt,
       iv: parsedRecord.iv,
       ciphertext: parsedRecord.ciphertext,
+      createdAt: typeof parsedRecord.createdAt === "string" ? parsedRecord.createdAt : "",
     };
   } catch {
     try {
@@ -46,6 +48,33 @@ function readTrustedDeviceUnlockRecord(userId: string): TrustedDeviceUnlockRecor
       return null;
     }
     return null;
+  }
+}
+
+export function writeTrustedDeviceUnlockRecord(
+  userId: string,
+  record: TrustedDeviceUnlockRecord
+) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(getTrustedDeviceStorageKey(userId), JSON.stringify(record));
+  } catch {
+    return;
+  }
+}
+
+export function removeTrustedDeviceUnlockRecord(userId: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.removeItem(getTrustedDeviceStorageKey(userId));
+  } catch {
+    return;
   }
 }
 
