@@ -24,7 +24,6 @@ import type {
   Participant,
   UserEncryptionDevice,
   UserEncryptionDeviceBundle,
-  UserEncryptionDeviceManifest,
   UserEncryptionRecoverySnapshot,
 } from "./types";
 import {
@@ -40,6 +39,18 @@ import {
   isResettableEncryptionRecoveryError,
   isUnavailableEncryptedMessage,
 } from "./e2eeShared";
+import { getRecoverableEncryptedEnvelopeErrorMode } from "./e2eeRecoveryPolicy";
+import {
+  buildConversationDeviceBundleResolution,
+  buildDeviceManifestPreparationKey,
+  getDeviceBundleMapKey,
+  isResolvedDeviceManifestResponse,
+  mergePreparedConversationDeviceBundles,
+  mergeResolvedDeviceManifestBundles,
+  type ConversationDeviceBundleResolution,
+  type PreparedConversationDeviceState,
+  type PreparedDeviceManifestState,
+} from "./e2eeDeviceDirectory";
 import {
   TRUSTED_DEVICE_STORAGE_PREFIX,
   hasTrustedDeviceUnlock,
@@ -219,23 +230,6 @@ type AutoUnlockedIdentityRecord = {
   publicKey: string;
   privateKey: string;
   createdAt: string;
-};
-
-type ConversationDeviceBundleResolution = {
-  rawBundles: UserEncryptionDeviceBundle[];
-  trustedBundles: UserEncryptionDeviceBundle[];
-  missingParticipants: Participant[];
-  participantsWithUntrustedDevices: Participant[];
-};
-
-type PreparedConversationDeviceState = Pick<
-  ConversationDeviceBundleResolution,
-  "rawBundles" | "trustedBundles"
->;
-
-type PreparedDeviceManifestState = {
-  version: string;
-  rawBundles: UserEncryptionDeviceBundle[];
 };
 
 type DeviceOneTimePrekeyMaterial = {
@@ -827,44 +821,6 @@ export async function readLatestArchivedDecryptedChatMessage(userId: string, cha
     replyTo: null,
     attachments: archivedMessage.attachments,
   };
-}
-
-function getRecoverableEncryptedEnvelopeErrorMode(error: unknown): "session" | "device" | null {
-  if (!(error instanceof ApiError) || error.status !== 400) {
-    return null;
-  }
-
-  if (
-    [
-      "Encrypted device envelope recipient one-time prekey is invalid",
-      "Encrypted device envelope recipient one-time prekey sender is invalid",
-      "Encrypted device envelope recipient one-time prekey was already used",
-      "Encrypted device envelope recipient prekey is stale",
-      "Encrypted device envelope message counter is stale",
-      "Encrypted device envelope chain metadata is invalid",
-      "Encrypted device envelope must start at counter zero",
-      "Encrypted device envelope message counter advanced too far",
-      "Encrypted group envelope message counter is stale",
-      "Encrypted group envelope must start at counter zero",
-      "Encrypted group envelope message counter advanced too far",
-      "Group history key recipient prekey is stale",
-      "Group history key access contains unknown recipient devices",
-      "Encrypted payload contains unknown recipient devices",
-      "Encrypted payload must include every active participant device",
-      "Encrypted device envelope recipient device is invalid",
-    ].includes(error.message)
-  ) {
-    return "session";
-  }
-
-  return (
-    [
-      "Encrypted device envelope sender device is invalid",
-      "Encrypted device envelope sender identity does not match the registered device",
-    ].includes(error.message)
-      ? "device"
-      : null
-  );
 }
 
 function resetLocalEncryptionSessionsForRetry(userId: string, clearGroupSenderChainsToo: boolean) {
@@ -1911,23 +1867,6 @@ function clearPreparedOwnSiblingDeviceState(preparationKey: string) {
   preparedOwnSiblingDeviceStates.delete(preparationKey);
 }
 
-function mergePreparedConversationDeviceBundles(
-  currentBundles: UserEncryptionDeviceBundle[],
-  additionalBundles: UserEncryptionDeviceBundle[]
-) {
-  const mergedBundles = new Map(
-    currentBundles.map((bundle) => [getDeviceBundleMapKey(bundle.userId, bundle.deviceId), bundle])
-  );
-  for (const bundle of additionalBundles) {
-    const bundleKey = getDeviceBundleMapKey(bundle.userId, bundle.deviceId);
-    if (!mergedBundles.has(bundleKey)) {
-      mergedBundles.set(bundleKey, bundle);
-    }
-  }
-
-  return Array.from(mergedBundles.values());
-}
-
 function rememberPreparedConversationDeviceState(
   preparationKey: string,
   preparedState: PreparedConversationDeviceState
@@ -1937,14 +1876,6 @@ function rememberPreparedConversationDeviceState(
     rawBundles: [...preparedState.rawBundles],
     trustedBundles: [...preparedState.trustedBundles],
   });
-}
-
-function buildDeviceManifestPreparationKey(
-  currentUserId: string | null | undefined,
-  userIds: string[]
-) {
-  const normalizedUserIds = Array.from(new Set(userIds.filter(Boolean))).sort();
-  return `${currentUserId ?? "anonymous"}:${normalizedUserIds.join(",")}`;
 }
 
 function readPreparedDeviceManifestState(preparationKey: string) {
@@ -2390,45 +2321,6 @@ export function clearInFlightMessageHydration(userId?: string) {
   inFlightMessageHydrationByUserId.clear();
 }
 
-function mergeResolvedDeviceManifestBundles(
-  currentBundles: UserEncryptionDeviceBundle[],
-  nextBundles: UserEncryptionDeviceBundle[],
-  removedDeviceIds: string[]
-) {
-  const bundlesByKey = new Map(
-    currentBundles.map((bundle) => [getDeviceBundleMapKey(bundle.userId, bundle.deviceId), bundle])
-  );
-  const removedDeviceIdSet = new Set(removedDeviceIds);
-
-  for (const bundle of nextBundles) {
-    bundlesByKey.set(getDeviceBundleMapKey(bundle.userId, bundle.deviceId), bundle);
-  }
-
-  for (const [bundleKey, bundle] of Array.from(bundlesByKey.entries())) {
-    if (removedDeviceIdSet.has(bundle.deviceId)) {
-      bundlesByKey.delete(bundleKey);
-    }
-  }
-
-  return Array.from(bundlesByKey.values());
-}
-
-function isResolvedDeviceManifestResponse(
-  value: unknown
-): value is UserEncryptionDeviceManifest {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const candidate = value as Partial<UserEncryptionDeviceManifest>;
-  return (
-    typeof candidate.version === "string" &&
-    typeof candidate.fullSync === "boolean" &&
-    Array.isArray(candidate.bundles) &&
-    Array.isArray(candidate.removedDeviceIds)
-  );
-}
-
 async function primeDeviceBundles(
   token: string,
   userIds: string[],
@@ -2509,43 +2401,6 @@ async function primeDeviceBundles(
     trustedBundles: trustedBundles.filter(
       (bundle): bundle is UserEncryptionDeviceBundle => bundle !== null
     ),
-  };
-}
-
-function getDeviceBundleMapKey(userId: string, deviceId: string) {
-  return `${userId}:${deviceId}`;
-}
-
-function buildConversationDeviceBundleResolution(
-  participants: Participant[],
-  rawBundles: UserEncryptionDeviceBundle[],
-  trustedBundles: UserEncryptionDeviceBundle[],
-  currentUserId?: string | null
-): ConversationDeviceBundleResolution {
-  const participantById = new Map(participants.map((participant) => [participant.id, participant]));
-  const trustedBundleKeys = new Set(
-    trustedBundles.map((bundle) => getDeviceBundleMapKey(bundle.userId, bundle.deviceId))
-  );
-  const missingParticipants = participants.filter(
-    (participant) =>
-      participant.id !== currentUserId &&
-      !rawBundles.some((bundle) => bundle.userId === participant.id)
-  );
-  const participantsWithUntrustedDevices = Array.from(
-    new Set(
-      rawBundles
-        .filter((bundle) => !trustedBundleKeys.has(getDeviceBundleMapKey(bundle.userId, bundle.deviceId)))
-        .map((bundle) => bundle.userId)
-    )
-  )
-    .map((participantId) => participantById.get(participantId))
-    .filter((participant): participant is Participant => Boolean(participant));
-
-  return {
-    rawBundles,
-    trustedBundles,
-    missingParticipants,
-    participantsWithUntrustedDevices,
   };
 }
 
