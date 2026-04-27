@@ -27,7 +27,6 @@ import type {
   UserEncryptionRecoverySnapshot,
 } from "./types";
 import {
-  ENCRYPTED_MESSAGE_UNAVAILABLE,
   ENCRYPTION_IDENTITY_CHANGED_MESSAGE,
   ENCRYPTION_RECOVERY_EXISTING_CHATS_MESSAGE,
   ENCRYPTION_RECOVERY_PASSWORD_RESTORE_FAILED_MESSAGE,
@@ -85,6 +84,25 @@ import {
 } from "./e2eeGroupHistory";
 import { prepareGroupRecipientEncryptionContext as prepareGroupRecipientEncryptionContextInternal } from "./e2eeGroupRecipients";
 import { encryptGroupMessage as encryptGroupMessageInternal } from "./e2eeGroupMessaging";
+import { decryptGroupMessage as decryptGroupMessageInternal } from "./e2eeGroupDecryption";
+import {
+  hydrateChatMessage as hydrateChatMessageInternal,
+  hydrateChatMessageSnapshot as hydrateChatMessageSnapshotInternal,
+  hydrateLatestUnavailableMessageSnapshots,
+} from "./e2eeMessageHydration";
+import {
+  createE2eeMessageReadbackStore,
+  type RememberedDecryptedMessageArchiveRecord,
+} from "./e2eeMessageReadbackStore";
+import {
+  decryptArchivedDecryptedMessage as decryptArchivedDecryptedMessageInternal,
+  decryptRecoverySnapshotPayload as decryptRecoverySnapshotPayloadInternal,
+  encryptArchivedDecryptedMessage as encryptArchivedDecryptedMessageInternal,
+  encryptRecoverySnapshotPayload as encryptRecoverySnapshotPayloadInternal,
+  normalizeEncryptedRecoverySnapshotPayloadRecord,
+  type EncryptedRecoverySnapshotPayloadRecord,
+  type RecoverySnapshotPayload,
+} from "./e2eeRecoveryArchive";
 import {
   TRUSTED_DEVICE_STORAGE_PREFIX,
   hasTrustedDeviceUnlock,
@@ -190,7 +208,32 @@ export {
   isUnavailableEncryptedMessage,
 } from "./e2eeShared";
 export { hasTrustedDeviceUnlock, isTrustedDeviceUnlockSupported } from "./e2eeTrustedDevice";
-let decryptedMessageArchiveDbPromise: Promise<IDBDatabase> | null = null;
+
+const e2eeMessageReadbackStore = createE2eeMessageReadbackStore({
+  outgoingMessageMirrorStoragePrefix: OUTGOING_MESSAGE_MIRROR_STORAGE_PREFIX,
+  decryptedMessageArchiveStoragePrefix: DECRYPTED_MESSAGE_ARCHIVE_STORAGE_PREFIX,
+  decryptedMessageArchiveDbName: DECRYPTED_MESSAGE_ARCHIVE_DB_NAME,
+  decryptedMessageArchiveDbVersion: DECRYPTED_MESSAGE_ARCHIVE_DB_VERSION,
+  decryptedMessageArchiveStoreName: DECRYPTED_MESSAGE_ARCHIVE_STORE_NAME,
+  decryptedMessageArchiveChatIndexName: DECRYPTED_MESSAGE_ARCHIVE_CHAT_INDEX_NAME,
+  outgoingMessageMirrorTtlMs: OUTGOING_MESSAGE_MIRROR_TTL_MS,
+  outgoingMessageMirrorMaxRecords: OUTGOING_MESSAGE_MIRROR_MAX_RECORDS,
+  normalizeAttachments: normalizeChatMessageAttachments,
+  isUnavailableEncryptedMessage,
+});
+
+const {
+  rememberOutgoingMessageMirror,
+  readOutgoingMessageMirror,
+  writeArchivedDecryptedMessageRecord,
+  writeArchivedDecryptedMessageRecords,
+  readStoredArchivedDecryptedMessageRecord,
+  readAllStoredArchivedDecryptedMessageRecords,
+  clearStoredArchivedDecryptedMessageRecords,
+  readLatestStoredArchivedDecryptedMessageRecord,
+  normalizeArchivedDecryptedMessageRecord,
+  sortArchivedDecryptedMessageRecords,
+} = e2eeMessageReadbackStore;
 
 function ensureE2eeTransportStorageSchema() {
   if (typeof window === "undefined") {
@@ -372,49 +415,10 @@ type RememberedUnlockedIdentityRecord = {
   createdAt: string;
 };
 
-type RememberedDecryptedMessageArchiveRecord = {
-  messageId: string;
-  chatId: string;
-  createdAt: string;
-  editedAt: string | null;
-  salt: string;
-  iv: string;
-  ciphertext: string;
-  archivedAt: string;
-};
-
-type ArchivedDecryptedMessagePayload = {
-  content: string;
-  attachments?: ChatMessageAttachment[];
-};
-
-type OutgoingMessageMirrorRecord = {
-  messageId: string;
-  clientMessageId: string | null;
-  chatId: string;
-  content: string;
-  createdAt: string;
-  editedAt: string | null;
-  mirroredAt: string;
-  attachments: ChatMessageAttachment[];
-};
-
 type MessageContentEnvelope = {
   type: typeof MESSAGE_CONTENT_ENVELOPE_TYPE;
   text: string;
   attachments?: ChatMessageAttachment[];
-};
-
-type EncryptedRecoverySnapshotPayloadRecord = {
-  salt: string;
-  iv: string;
-  ciphertext: string;
-  createdAt: string;
-};
-
-type RecoverySnapshotPayload = {
-  version: number;
-  archivedMessages: RememberedDecryptedMessageArchiveRecord[];
 };
 
 type DirectDeviceEnvelope = {
@@ -1110,7 +1114,7 @@ export async function getEncryptedMessages(
     });
     const hydratedMessages: ChatMessage[] = [];
     for (const message of messages) {
-      hydratedMessages.push(await hydrateChatMessageInternal(message, userId));
+      hydratedMessages.push(await hydrateChatMessageWithoutBatchWait(message, userId));
     }
     return hydratedMessages;
   });
@@ -1135,34 +1139,20 @@ export async function getEncryptedMessagesSnapshot(
   const hydratedMessages = await Promise.all(
     rawMessages.map((message) => hydrateChatMessageSnapshot(message, userId))
   );
-
-  if ((options.beforeServerOrder ?? null) === null && rawMessages.length > 0) {
-    const inlineHydrationStartIndex = Math.max(
-      0,
-      rawMessages.length - FAST_HISTORY_INLINE_HYDRATION_SUFFIX_SIZE
-    );
-    const inlineHydrationIndexes: number[] = [];
-    for (let index = rawMessages.length - 1; index >= inlineHydrationStartIndex; index -= 1) {
-      if (
-        rawMessages[index]?.encryptedPayload &&
-        isUnavailableEncryptedMessage(hydratedMessages[index]?.content ?? "")
-      ) {
-        inlineHydrationIndexes.push(index);
-      }
-    }
-
-    if (inlineHydrationIndexes.length > 0) {
-      await withSerializedMessageHydrationBatch(userId, async () => {
-        for (const index of inlineHydrationIndexes) {
-          hydratedMessages[index] = await hydrateChatMessageInternal(rawMessages[index], userId);
-        }
-      });
-    }
-  }
+  const nextHydratedMessages = await hydrateLatestUnavailableMessageSnapshots({
+    rawMessages,
+    hydratedMessages,
+    userId,
+    beforeServerOrder: options.beforeServerOrder ?? null,
+    suffixSize: FAST_HISTORY_INLINE_HYDRATION_SUFFIX_SIZE,
+    isUnavailableEncryptedMessage,
+    withSerializedMessageHydrationBatch,
+    hydrateChatMessage: hydrateChatMessageWithoutBatchWait,
+  });
 
   return {
     rawMessages,
-    hydratedMessages,
+    hydratedMessages: nextHydratedMessages,
   };
 }
 
@@ -1918,142 +1908,41 @@ export async function hydrateChatMessage(
   userId: string
 ): Promise<ChatMessage> {
   await waitForPendingMessageHydrationBatch(userId);
-  return hydrateChatMessageInternal(message, userId);
+  return hydrateChatMessageWithoutBatchWait(message, userId);
+}
+
+async function hydrateChatMessageWithoutBatchWait(
+  message: ApiChatMessage,
+  userId: string
+): Promise<ChatMessage> {
+  return hydrateChatMessageInternal({
+    message,
+    userId,
+    serializeMessageHydration,
+    ensureE2eeTransportStorageSchema,
+    readArchivedDecryptedMessageRecord,
+    readOutgoingMessageMirror,
+    buildHydratedChatMessage,
+    recordMessageHydrationDiagnostic,
+    decryptMessage,
+    rememberOutgoingMessageMirror,
+    rememberArchivedDecryptedMessage,
+    refreshArchivedMessagesFromRemoteRecoverySnapshot,
+  });
 }
 
 export async function hydrateChatMessageSnapshot(
   message: ApiChatMessage,
   userId: string
 ): Promise<ChatMessage> {
-  ensureE2eeTransportStorageSchema();
-
-  const archivedMessage = await readArchivedDecryptedMessageRecord(userId, message.id);
-  const readableMessage =
-    archivedMessage ?? readOutgoingMessageMirror(userId, message, userId);
-  recordMessageHydrationDiagnostic({
+  return hydrateChatMessageSnapshotInternal({
     message,
-    currentUserId: userId,
-    phase: "snapshot",
-    outcome: archivedMessage
-      ? "snapshot-archive-hit"
-      : readableMessage
-        ? "snapshot-mirror-hit"
-        : "snapshot-unavailable",
-    mirrorHit: Boolean(!archivedMessage && readableMessage),
-    archiveHit: Boolean(archivedMessage),
-  });
-  return buildHydratedChatMessage(
-    message,
-    readableMessage?.content ?? ENCRYPTED_MESSAGE_UNAVAILABLE,
-    readableMessage?.editedAt ?? message.editedAt,
-    readableMessage?.attachments
-  );
-}
-
-async function hydrateChatMessageInternal(
-  message: ApiChatMessage,
-  userId: string
-): Promise<ChatMessage> {
-  return serializeMessageHydration(userId, async () => {
-    ensureE2eeTransportStorageSchema();
-
-    if (!message.encryptedPayload) {
-      const archivedMessage = await readArchivedDecryptedMessageRecord(userId, message.id);
-      const readableMessage =
-        archivedMessage ?? readOutgoingMessageMirror(userId, message, userId);
-      recordMessageHydrationDiagnostic({
-        message,
-        currentUserId: userId,
-        phase: "hydrate",
-        outcome: archivedMessage
-          ? "plain-archive-hit"
-          : readableMessage
-            ? "plain-mirror-hit"
-            : "plain-unavailable",
-        mirrorHit: Boolean(!archivedMessage && readableMessage),
-        archiveHit: Boolean(archivedMessage),
-      });
-      return archivedMessage
-        ? buildHydratedChatMessage(
-            message,
-            archivedMessage.content,
-            archivedMessage.editedAt,
-            archivedMessage.attachments
-          )
-        : readableMessage
-          ? buildHydratedChatMessage(
-              message,
-              readableMessage.content,
-              readableMessage.editedAt,
-              readableMessage.attachments
-            )
-          : buildHydratedChatMessage(message, ENCRYPTED_MESSAGE_UNAVAILABLE);
-    }
-
-    try {
-      const content = await decryptMessage(message, userId);
-      const hydratedMessage = buildHydratedChatMessage(message, content);
-      recordMessageHydrationDiagnostic({
-        message,
-        currentUserId: userId,
-        phase: "hydrate",
-        outcome: "decrypt-success",
-        mirrorHit: false,
-        archiveHit: false,
-      });
-      if (message.sender.id === userId) {
-        rememberOutgoingMessageMirror(userId, hydratedMessage);
-      }
-      void rememberArchivedDecryptedMessage(userId, hydratedMessage);
-      return hydratedMessage;
-    } catch {
-      const mirroredOwnMessage = readOutgoingMessageMirror(userId, message, userId);
-      if (mirroredOwnMessage) {
-        recordMessageHydrationDiagnostic({
-          message,
-          currentUserId: userId,
-          phase: "hydrate",
-          outcome: "decrypt-failed-mirror-hit",
-          mirrorHit: true,
-          archiveHit: false,
-        });
-        return buildHydratedChatMessage(
-          message,
-          mirroredOwnMessage.content,
-          mirroredOwnMessage.editedAt,
-          mirroredOwnMessage.attachments
-        );
-      }
-      let archivedMessage = await readArchivedDecryptedMessageRecord(userId, message.id);
-      const remoteArchiveRefreshAttempted = !archivedMessage;
-      let remoteArchiveRefreshHit = false;
-      if (!archivedMessage && (await refreshArchivedMessagesFromRemoteRecoverySnapshot(userId))) {
-        archivedMessage = await readArchivedDecryptedMessageRecord(userId, message.id);
-        remoteArchiveRefreshHit = Boolean(archivedMessage);
-      }
-      recordMessageHydrationDiagnostic({
-        message,
-        currentUserId: userId,
-        phase: "hydrate",
-        outcome: archivedMessage
-          ? remoteArchiveRefreshHit
-            ? "decrypt-failed-archive-refresh-hit"
-            : "decrypt-failed-archive-hit"
-          : "decrypt-failed-unavailable",
-        mirrorHit: false,
-        archiveHit: Boolean(archivedMessage),
-        remoteArchiveRefreshAttempted,
-        remoteArchiveRefreshHit,
-      });
-      return archivedMessage
-        ? buildHydratedChatMessage(
-            message,
-            archivedMessage.content,
-            archivedMessage.editedAt,
-            archivedMessage.attachments
-          )
-        : buildHydratedChatMessage(message, ENCRYPTED_MESSAGE_UNAVAILABLE);
-    }
+    userId,
+    ensureE2eeTransportStorageSchema,
+    readArchivedDecryptedMessageRecord,
+    readOutgoingMessageMirror,
+    buildHydratedChatMessage,
+    recordMessageHydrationDiagnostic,
   });
 }
 
@@ -3688,104 +3577,37 @@ async function decryptDirectMessage(payload: EncryptedMessagePayload, userId: st
 }
 
 async function decryptGroupMessage(message: ApiChatMessage, userId: string) {
-  const payload = message.encryptedPayload;
-  if (!payload) {
-    throw new Error("Encrypted group payload is not available");
-  }
-  const ownMaterial = await readEncryptionDeviceMaterial(userId);
-  if (!isRegisteredEncryptionDeviceMaterialAvailable(ownMaterial)) {
-    throw new Error("Encrypted device session is not available in this browser");
-  }
-
-  if (!payload.sharedEnvelope) {
-    throw new Error("Encrypted group envelope is not available");
-  }
-
-  const sharedEnvelope = parseGroupSharedEnvelope(
-    payload.sharedEnvelope,
-    GROUP_SHARED_ENVELOPE_AAD_VERSION
-  );
-  const serializedDistributionEnvelope = payload.encryptedKeysByRecipientId[ownMaterial.deviceId];
-  if (!serializedDistributionEnvelope) {
-    if (payload.historyEnvelope) {
-      return decryptGroupHistoryMessage(message, userId, ownMaterial, sharedEnvelope);
-    }
-    throw new Error("Encrypted group sender key distribution is not available for this device");
-  }
-
-  const distributionEnvelopeMetadata = parseDirectDeviceEnvelope(serializedDistributionEnvelope);
-  if (distributionEnvelopeMetadata.recipientDeviceId !== ownMaterial.deviceId) {
-    throw new Error("Encrypted device envelope is not addressed to this device");
-  }
-  assertGroupDistributionSenderMatchesSharedEnvelope(distributionEnvelopeMetadata, sharedEnvelope);
-  const senderChainState = await readGroupSenderChainState(userId);
-  const cachedInboundSenderChain = resolveInboundGroupSenderChainRecord(senderChainState, sharedEnvelope);
-  if (cachedInboundSenderChain) {
-    await assertValidGroupEnvelopeSignature(
-      sharedEnvelope,
-      distributionEnvelopeMetadata.senderIdentitySignatureKey
-    );
-    try {
-      const cachedMessageKey = await resolveInboundGroupMessageKey(
-        cachedInboundSenderChain,
-        sharedEnvelope.messageCounter
-      );
-      writeGroupSenderChainState(userId, senderChainState);
-      await rememberGroupSenderChainState(userId, senderChainState);
-      return decryptGroupSharedEnvelopeContent(sharedEnvelope, cachedMessageKey);
-    } catch {
-      if (payload.historyEnvelope) {
-        return decryptGroupHistoryMessage(message, userId, ownMaterial, sharedEnvelope);
-      }
-      // Fall through to the direct distribution envelope path when the cached inbound
-      // sender-chain state no longer covers this exact message.
-    }
-  }
-
-  let distributionContent: string;
-  let distributionEnvelope: DirectDeviceEnvelope;
-  try {
-    ({ content: distributionContent, envelope: distributionEnvelope } =
-      await decryptDirectRecipientEnvelope(serializedDistributionEnvelope, userId, ownMaterial));
-  } catch (error) {
-    if (payload.historyEnvelope && isRecoverableGroupHistoryFallbackError(error)) {
-      return decryptGroupHistoryMessage(message, userId, ownMaterial, sharedEnvelope);
-    }
-    throw error;
-  }
-  assertGroupDistributionSenderMatchesSharedEnvelope(distributionEnvelope, sharedEnvelope);
-
-  const distribution = parseGroupSenderKeyDistribution(
-    distributionContent,
-    GROUP_SENDER_DISTRIBUTION_AAD_VERSION
-  );
-  if (
-    distribution.chatId !== sharedEnvelope.chatId ||
-    distribution.senderUserId !== sharedEnvelope.senderUserId ||
-    distribution.senderDeviceId !== sharedEnvelope.senderDeviceId ||
-    distribution.senderKeyId !== sharedEnvelope.senderKeyId ||
-    distribution.messageCounter !== sharedEnvelope.messageCounter
-  ) {
-    throw new Error("Encrypted group sender key distribution does not match the message");
-  }
-
-  await assertValidGroupEnvelopeSignature(
-    sharedEnvelope,
-    distributionEnvelope.senderIdentitySignatureKey
-  );
-
-  const groupRatchetStep = await deriveMessageRatchetStep(
-    base64ToBytes(distribution.chainKey),
-    distribution.messageCounter
-  );
-  const plaintext = await decryptGroupSharedEnvelopeContent(
-    sharedEnvelope,
-    groupRatchetStep.messageKey
-  );
-  upsertInboundGroupSenderChainRecord(senderChainState, distribution, groupRatchetStep);
-  writeGroupSenderChainState(userId, senderChainState);
-  await rememberGroupSenderChainState(userId, senderChainState);
-  return plaintext;
+  return decryptGroupMessageInternal<
+    RegisteredDeviceEncryptionMaterial,
+    GroupInboundSenderChainRecord,
+    DirectDeviceEnvelope
+  >({
+    message,
+    userId,
+    readOwnMaterial: async (currentUserId) => {
+      const material = await readEncryptionDeviceMaterial(currentUserId);
+      return isRegisteredEncryptionDeviceMaterialAvailable(material) ? material : null;
+    },
+    parseGroupSharedEnvelope: (value) =>
+      parseGroupSharedEnvelope(value, GROUP_SHARED_ENVELOPE_AAD_VERSION),
+    decryptGroupHistoryMessage,
+    parseDirectDeviceEnvelope,
+    assertGroupDistributionSenderMatchesSharedEnvelope,
+    readGroupSenderChainState,
+    resolveInboundGroupSenderChainRecord,
+    assertValidGroupEnvelopeSignature,
+    resolveInboundGroupMessageKey,
+    writeGroupSenderChainState,
+    rememberGroupSenderChainState,
+    decryptGroupSharedEnvelopeContent,
+    decryptDirectRecipientEnvelope,
+    isRecoverableGroupHistoryFallbackError,
+    parseGroupSenderKeyDistribution: (value) =>
+      parseGroupSenderKeyDistribution(value, GROUP_SENDER_DISTRIBUTION_AAD_VERSION),
+    base64ToBytes,
+    deriveMessageRatchetStep,
+    upsertInboundGroupSenderChainRecord,
+  });
 }
 
 async function decryptGroupHistoryMessage(
@@ -6316,145 +6138,6 @@ async function rememberArchivedDecryptedMessage(
   }
 }
 
-function rememberOutgoingMessageMirror(
-  userId: string,
-  message: Pick<
-    ChatMessage,
-    "id" | "chatId" | "content" | "createdAt" | "editedAt" | "attachments" | "clientMessageId"
-  >
-) {
-  if (
-    typeof window === "undefined" ||
-    !message.content.trim() ||
-    isUnavailableEncryptedMessage(message.content)
-  ) {
-    return;
-  }
-
-  try {
-    const nextRecord: OutgoingMessageMirrorRecord = {
-      messageId: message.id,
-      clientMessageId: message.clientMessageId ?? null,
-      chatId: message.chatId,
-      content: message.content,
-      createdAt: message.createdAt,
-      editedAt: message.editedAt,
-      mirroredAt: new Date().toISOString(),
-      attachments: normalizeChatMessageAttachments(message.attachments ?? []),
-    };
-    const nextRecords = trimOutgoingMessageMirrorRecords([
-      nextRecord,
-      ...readOutgoingMessageMirrorRecords(userId).filter(
-        (record) =>
-          record.messageId !== nextRecord.messageId &&
-          (!nextRecord.clientMessageId || record.clientMessageId !== nextRecord.clientMessageId)
-      ),
-    ]);
-    writeOutgoingMessageMirrorRecords(userId, nextRecords);
-  } catch {
-    return;
-  }
-}
-
-function readOutgoingMessageMirror(
-  userId: string,
-  message: Pick<ApiChatMessage, "id" | "chatId" | "clientMessageId" | "sender">,
-  currentUserId: string
-) {
-  if (typeof window === "undefined" || message.sender.id !== currentUserId) {
-    return null;
-  }
-
-  const records = readOutgoingMessageMirrorRecords(userId);
-  return (
-    records.find((record) => record.messageId === message.id && record.chatId === message.chatId) ??
-    records.find(
-      (record) =>
-        Boolean(message.clientMessageId) &&
-        record.clientMessageId === message.clientMessageId &&
-        record.chatId === message.chatId
-    ) ??
-    null
-  );
-}
-
-function readOutgoingMessageMirrorRecords(userId: string): OutgoingMessageMirrorRecord[] {
-  if (typeof window === "undefined") {
-    return [];
-  }
-
-  try {
-    const raw = window.localStorage.getItem(outgoingMessageMirrorStorageKey(userId));
-    if (!raw) {
-      return [];
-    }
-
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return trimOutgoingMessageMirrorRecords(parsed.filter(isOutgoingMessageMirrorRecordCandidate));
-  } catch {
-    return [];
-  }
-}
-
-function writeOutgoingMessageMirrorRecords(userId: string, records: OutgoingMessageMirrorRecord[]) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    if (records.length === 0) {
-      window.localStorage.removeItem(outgoingMessageMirrorStorageKey(userId));
-      return;
-    }
-
-    window.localStorage.setItem(outgoingMessageMirrorStorageKey(userId), JSON.stringify(records));
-  } catch {
-    return;
-  }
-}
-
-function trimOutgoingMessageMirrorRecords(
-  records: OutgoingMessageMirrorRecord[]
-): OutgoingMessageMirrorRecord[] {
-  const cutoffMs = Date.now() - OUTGOING_MESSAGE_MIRROR_TTL_MS;
-  return [...records]
-    .filter((record) => {
-      const mirroredAtMs = Date.parse(record.mirroredAt);
-      return !Number.isNaN(mirroredAtMs) && mirroredAtMs >= cutoffMs;
-    })
-    .sort((left, right) => right.mirroredAt.localeCompare(left.mirroredAt))
-    .slice(0, OUTGOING_MESSAGE_MIRROR_MAX_RECORDS);
-}
-
-function isOutgoingMessageMirrorRecordCandidate(
-  candidate: unknown
-): candidate is OutgoingMessageMirrorRecord {
-  if (!candidate || typeof candidate !== "object") {
-    return false;
-  }
-
-  const record = candidate as Record<string, unknown>;
-
-  return (
-    typeof record.messageId === "string" &&
-    typeof record.chatId === "string" &&
-    typeof record.content === "string" &&
-    typeof record.createdAt === "string" &&
-    (record.editedAt === null || typeof record.editedAt === "string") &&
-    (record.clientMessageId === null || typeof record.clientMessageId === "string") &&
-    typeof record.mirroredAt === "string" &&
-    Array.isArray(record.attachments)
-  );
-}
-
-function outgoingMessageMirrorStorageKey(userId: string) {
-  return `${OUTGOING_MESSAGE_MIRROR_STORAGE_PREFIX}${userId}`;
-}
-
 async function readArchivedDecryptedMessageRecord(userId: string, messageId: string) {
   if (typeof window === "undefined") {
     return null;
@@ -6527,497 +6210,64 @@ async function encryptArchivedDecryptedMessage(
   privateKey: string,
   message: Pick<ChatMessage, "id" | "chatId" | "content" | "createdAt" | "editedAt" | "attachments">
 ): Promise<RememberedDecryptedMessageArchiveRecord> {
-  const salt = randomBytes(16);
-  const iv = randomBytes(12);
-  const wrappingKey = await deriveWrappingKey(privateKey, salt, KDF_ITERATIONS);
-  const ciphertext = await window.crypto.subtle.encrypt(
-    {
-      name: "AES-GCM",
-      iv,
-    },
-    wrappingKey,
-    textEncoder.encode(
-      JSON.stringify({
-        content: message.content,
-        attachments: normalizeChatMessageAttachments(message.attachments ?? []),
-      } satisfies ArchivedDecryptedMessagePayload)
-    )
-  );
-
-  return {
-    messageId: message.id,
-    chatId: message.chatId,
-    createdAt: message.createdAt,
-    editedAt: message.editedAt,
-    salt: bytesToBase64(salt),
-    iv: bytesToBase64(iv),
-    ciphertext: bytesToBase64(new Uint8Array(ciphertext)),
-    archivedAt: new Date().toISOString(),
-  };
+  return encryptArchivedDecryptedMessageInternal({
+    privateKey,
+    message,
+    kdfIterations: KDF_ITERATIONS,
+    randomBytes,
+    deriveWrappingKey,
+    bytesToBase64,
+    normalizeAttachments: normalizeChatMessageAttachments,
+    textEncoder,
+  });
 }
 
 async function decryptArchivedDecryptedMessage(
   privateKey: string,
   record: RememberedDecryptedMessageArchiveRecord
 ) {
-  try {
-    const wrappingKey = await deriveWrappingKey(privateKey, base64ToBytes(record.salt), KDF_ITERATIONS);
-    const plaintext = await window.crypto.subtle.decrypt(
-      {
-        name: "AES-GCM",
-        iv: base64ToBytes(record.iv),
-      },
-      wrappingKey,
-      base64ToBytes(record.ciphertext)
-    );
-    const payload = JSON.parse(textDecoder.decode(plaintext)) as Partial<ArchivedDecryptedMessagePayload>;
-    if (typeof payload.content !== "string" || payload.content.length === 0) {
-      return null;
-    }
-
-    return {
-      content: payload.content,
-      attachments: normalizeChatMessageAttachments(payload.attachments ?? []),
-    };
-  } catch {
-    return null;
-  }
-}
-
-function normalizeEncryptedRecoverySnapshotPayloadRecord(
-  value: unknown
-): EncryptedRecoverySnapshotPayloadRecord | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-
-  const candidate = value as Partial<EncryptedRecoverySnapshotPayloadRecord>;
-  if (
-    typeof candidate.salt !== "string" ||
-    typeof candidate.iv !== "string" ||
-    typeof candidate.ciphertext !== "string"
-  ) {
-    return null;
-  }
-
-  return {
-    salt: candidate.salt,
-    iv: candidate.iv,
-    ciphertext: candidate.ciphertext,
-    createdAt: typeof candidate.createdAt === "string" ? candidate.createdAt : "",
-  };
-}
-
-function normalizeRecoverySnapshotPayload(value: unknown): RecoverySnapshotPayload | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-
-  const candidate = value as Partial<RecoverySnapshotPayload>;
-  if (
-    typeof candidate.version !== "number" ||
-    !Array.isArray(candidate.archivedMessages)
-  ) {
-    return null;
-  }
-
-  const archivedMessages = candidate.archivedMessages
-    .map((record) => normalizeArchivedDecryptedMessageRecord(record))
-    .filter((record): record is RememberedDecryptedMessageArchiveRecord => record !== null);
-  if (archivedMessages.length !== candidate.archivedMessages.length) {
-    return null;
-  }
-
-  return {
-    version: candidate.version,
-    archivedMessages,
-  };
+  return decryptArchivedDecryptedMessageInternal({
+    privateKey,
+    record,
+    kdfIterations: KDF_ITERATIONS,
+    deriveWrappingKey,
+    base64ToBytes,
+    normalizeAttachments: normalizeChatMessageAttachments,
+    textDecoder,
+  });
 }
 
 async function encryptRecoverySnapshotPayload(
   privateKey: string,
   archivedMessages: RememberedDecryptedMessageArchiveRecord[]
 ): Promise<EncryptedRecoverySnapshotPayloadRecord> {
-  const salt = randomBytes(16);
-  const iv = randomBytes(12);
-  const wrappingKey = await deriveWrappingKey(privateKey, salt, KDF_ITERATIONS);
-  const ciphertext = await window.crypto.subtle.encrypt(
-    {
-      name: "AES-GCM",
-      iv,
-    },
-    wrappingKey,
-    textEncoder.encode(
-      JSON.stringify({
-        version: RECOVERY_SNAPSHOT_PAYLOAD_VERSION,
-        archivedMessages: sortArchivedDecryptedMessageRecords(archivedMessages),
-      } satisfies RecoverySnapshotPayload)
-    )
-  );
-
-  return {
-    salt: bytesToBase64(salt),
-    iv: bytesToBase64(iv),
-    ciphertext: bytesToBase64(new Uint8Array(ciphertext)),
-    createdAt: new Date().toISOString(),
-  };
+  return encryptRecoverySnapshotPayloadInternal({
+    privateKey,
+    archivedMessages,
+    recoverySnapshotPayloadVersion: RECOVERY_SNAPSHOT_PAYLOAD_VERSION,
+    kdfIterations: KDF_ITERATIONS,
+    randomBytes,
+    deriveWrappingKey,
+    bytesToBase64,
+    sortArchivedDecryptedMessageRecords,
+    textEncoder,
+  });
 }
 
 async function decryptRecoverySnapshotPayload(
   privateKey: string,
   record: EncryptedRecoverySnapshotPayloadRecord
 ): Promise<RecoverySnapshotPayload | null> {
-  try {
-    const wrappingKey = await deriveWrappingKey(privateKey, base64ToBytes(record.salt), KDF_ITERATIONS);
-    const plaintext = await window.crypto.subtle.decrypt(
-      {
-        name: "AES-GCM",
-        iv: base64ToBytes(record.iv),
-      },
-      wrappingKey,
-      base64ToBytes(record.ciphertext)
-    );
-    const payload = normalizeRecoverySnapshotPayload(
-      JSON.parse(textDecoder.decode(plaintext)) as unknown
-    );
-    if (!payload || payload.version !== RECOVERY_SNAPSHOT_PAYLOAD_VERSION) {
-      return null;
-    }
-
-    return payload;
-  } catch {
-    return null;
-  }
-}
-
-async function writeArchivedDecryptedMessageRecord(
-  userId: string,
-  record: RememberedDecryptedMessageArchiveRecord
-) {
-  await writeArchivedDecryptedMessageRecords(userId, [record]);
-}
-
-async function writeArchivedDecryptedMessageRecords(
-  userId: string,
-  records: RememberedDecryptedMessageArchiveRecord[]
-) {
-  if (records.length === 0) {
-    return;
-  }
-
-  if (supportsIndexedDbDecryptedMessageArchive()) {
-    try {
-      const db = await openDecryptedMessageArchiveDb();
-      await new Promise<void>((resolve, reject) => {
-        const transaction = db.transaction(DECRYPTED_MESSAGE_ARCHIVE_STORE_NAME, "readwrite");
-        transaction.oncomplete = () => resolve();
-        transaction.onerror = () =>
-          reject(transaction.error ?? new Error("Failed to write decrypted message archive entry"));
-        const store = transaction.objectStore(DECRYPTED_MESSAGE_ARCHIVE_STORE_NAME);
-        records.forEach((record) => {
-          store.put({
-            userId,
-            ...record,
-          });
-        });
-      });
-      return;
-    } catch {
-      // Fall back to localStorage below when IndexedDB is unavailable or blocked.
-    }
-  }
-
-  writeLocalArchivedDecryptedMessageRecords(userId, records);
-}
-
-async function readStoredArchivedDecryptedMessageRecord(userId: string, messageId: string) {
-  if (supportsIndexedDbDecryptedMessageArchive()) {
-    try {
-      const db = await openDecryptedMessageArchiveDb();
-      const record = await new Promise<RememberedDecryptedMessageArchiveRecord | null>((resolve, reject) => {
-        const transaction = db.transaction(DECRYPTED_MESSAGE_ARCHIVE_STORE_NAME, "readonly");
-        transaction.onerror = () =>
-          reject(transaction.error ?? new Error("Failed to read decrypted message archive entry"));
-        const request = transaction
-          .objectStore(DECRYPTED_MESSAGE_ARCHIVE_STORE_NAME)
-          .get([userId, messageId]);
-        request.onsuccess = () =>
-          resolve(normalizeArchivedDecryptedMessageRecord(request.result));
-        request.onerror = () =>
-          reject(request.error ?? new Error("Failed to read decrypted message archive entry"));
-      });
-      if (record) {
-        return record;
-      }
-    } catch {
-      // Fall back to localStorage below when IndexedDB is unavailable or blocked.
-    }
-  }
-
-  return readLocalArchivedDecryptedMessageRecord(userId, messageId);
-}
-
-async function readAllStoredArchivedDecryptedMessageRecords(userId: string) {
-  if (supportsIndexedDbDecryptedMessageArchive()) {
-    try {
-      const db = await openDecryptedMessageArchiveDb();
-      return await new Promise<RememberedDecryptedMessageArchiveRecord[]>((resolve, reject) => {
-        const transaction = db.transaction(DECRYPTED_MESSAGE_ARCHIVE_STORE_NAME, "readonly");
-        transaction.onerror = () =>
-          reject(transaction.error ?? new Error("Failed to read decrypted message archive snapshot"));
-        const store = transaction.objectStore(DECRYPTED_MESSAGE_ARCHIVE_STORE_NAME);
-        const range = IDBKeyRange.bound([userId, ""], [userId, "\uffff"]);
-        const request = store.openCursor(range);
-        const records: RememberedDecryptedMessageArchiveRecord[] = [];
-        request.onsuccess = () => {
-          const cursor = request.result;
-          if (!cursor) {
-            resolve(sortArchivedDecryptedMessageRecords(records));
-            return;
-          }
-
-          const normalizedRecord = normalizeArchivedDecryptedMessageRecord(cursor.value);
-          if (normalizedRecord) {
-            records.push(normalizedRecord);
-          }
-          cursor.continue();
-        };
-        request.onerror = () =>
-          reject(request.error ?? new Error("Failed to read decrypted message archive snapshot"));
-      });
-    } catch {
-      // Fall back to localStorage below when IndexedDB is unavailable or blocked.
-    }
-  }
-
-  return readLocalArchivedDecryptedMessageRecords(userId);
-}
-
-async function clearStoredArchivedDecryptedMessageRecords(userId: string) {
-  if (supportsIndexedDbDecryptedMessageArchive()) {
-    try {
-      const db = await openDecryptedMessageArchiveDb();
-      await new Promise<void>((resolve, reject) => {
-        const transaction = db.transaction(DECRYPTED_MESSAGE_ARCHIVE_STORE_NAME, "readwrite");
-        transaction.oncomplete = () => resolve();
-        transaction.onerror = () =>
-          reject(transaction.error ?? new Error("Failed to clear decrypted message archive"));
-        const store = transaction.objectStore(DECRYPTED_MESSAGE_ARCHIVE_STORE_NAME);
-        const range = IDBKeyRange.bound([userId, ""], [userId, "\uffff"]);
-        const request = store.openCursor(range);
-        request.onsuccess = () => {
-          const cursor = request.result;
-          if (!cursor) {
-            return;
-          }
-
-          cursor.delete();
-          cursor.continue();
-        };
-        request.onerror = () =>
-          reject(request.error ?? new Error("Failed to clear decrypted message archive"));
-      });
-    } catch {
-      // Fall back to clearing the localStorage mirror below.
-    }
-  }
-
-  clearLocalArchivedDecryptedMessageRecords(userId);
-}
-
-async function readLatestStoredArchivedDecryptedMessageRecord(userId: string, chatId: string) {
-  if (supportsIndexedDbDecryptedMessageArchive()) {
-    try {
-      const db = await openDecryptedMessageArchiveDb();
-      const record = await new Promise<RememberedDecryptedMessageArchiveRecord | null>((resolve, reject) => {
-        const transaction = db.transaction(DECRYPTED_MESSAGE_ARCHIVE_STORE_NAME, "readonly");
-        transaction.onerror = () =>
-          reject(transaction.error ?? new Error("Failed to read decrypted message archive preview"));
-        const index = transaction
-          .objectStore(DECRYPTED_MESSAGE_ARCHIVE_STORE_NAME)
-          .index(DECRYPTED_MESSAGE_ARCHIVE_CHAT_INDEX_NAME);
-        const range = IDBKeyRange.bound(
-          [userId, chatId, ""],
-          [userId, chatId, "\uffff"]
-        );
-        const request = index.openCursor(range, "prev");
-        request.onsuccess = () =>
-          resolve(normalizeArchivedDecryptedMessageRecord(request.result?.value));
-        request.onerror = () =>
-          reject(request.error ?? new Error("Failed to read decrypted message archive preview"));
-      });
-      if (record) {
-        return record;
-      }
-    } catch {
-      // Fall back to localStorage below when IndexedDB is unavailable or blocked.
-    }
-  }
-
-  return readLatestLocalArchivedDecryptedMessageRecord(userId, chatId);
-}
-
-function normalizeArchivedDecryptedMessageRecord(value: unknown): RememberedDecryptedMessageArchiveRecord | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-
-  const candidate = value as Partial<RememberedDecryptedMessageArchiveRecord>;
-  if (
-    typeof candidate.messageId !== "string" ||
-    typeof candidate.chatId !== "string" ||
-    typeof candidate.createdAt !== "string" ||
-    !(typeof candidate.editedAt === "string" || candidate.editedAt === null) ||
-    typeof candidate.salt !== "string" ||
-    typeof candidate.iv !== "string" ||
-    typeof candidate.ciphertext !== "string"
-  ) {
-    return null;
-  }
-
-  return {
-    messageId: candidate.messageId,
-    chatId: candidate.chatId,
-    createdAt: candidate.createdAt,
-    editedAt: candidate.editedAt ?? null,
-    salt: candidate.salt,
-    iv: candidate.iv,
-    ciphertext: candidate.ciphertext,
-    archivedAt: typeof candidate.archivedAt === "string" ? candidate.archivedAt : candidate.createdAt,
-  };
-}
-
-function sortArchivedDecryptedMessageRecords(records: RememberedDecryptedMessageArchiveRecord[]) {
-  return [...records].sort(
-    (left, right) =>
-      left.createdAt.localeCompare(right.createdAt) ||
-      left.messageId.localeCompare(right.messageId)
-  );
-}
-
-function supportsIndexedDbDecryptedMessageArchive() {
-  return typeof window !== "undefined" && typeof window.indexedDB?.open === "function";
-}
-
-async function openDecryptedMessageArchiveDb() {
-  if (decryptedMessageArchiveDbPromise) {
-    return decryptedMessageArchiveDbPromise;
-  }
-
-  decryptedMessageArchiveDbPromise = new Promise<IDBDatabase>((resolve, reject) => {
-    const request = window.indexedDB.open(
-      DECRYPTED_MESSAGE_ARCHIVE_DB_NAME,
-      DECRYPTED_MESSAGE_ARCHIVE_DB_VERSION
-    );
-
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      const store = db.objectStoreNames.contains(DECRYPTED_MESSAGE_ARCHIVE_STORE_NAME)
-        ? request.transaction?.objectStore(DECRYPTED_MESSAGE_ARCHIVE_STORE_NAME) ?? null
-        : db.createObjectStore(DECRYPTED_MESSAGE_ARCHIVE_STORE_NAME, {
-            keyPath: ["userId", "messageId"],
-          });
-      if (store && !store.indexNames.contains(DECRYPTED_MESSAGE_ARCHIVE_CHAT_INDEX_NAME)) {
-        store.createIndex(
-          DECRYPTED_MESSAGE_ARCHIVE_CHAT_INDEX_NAME,
-          ["userId", "chatId", "createdAt"]
-        );
-      }
-    };
-
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () =>
-      reject(request.error ?? new Error("Failed to open decrypted message archive"));
-    request.onblocked = () => reject(new Error("Decrypted message archive is blocked"));
-  }).catch((error) => {
-    decryptedMessageArchiveDbPromise = null;
-    throw error;
+  return decryptRecoverySnapshotPayloadInternal({
+    privateKey,
+    record,
+    recoverySnapshotPayloadVersion: RECOVERY_SNAPSHOT_PAYLOAD_VERSION,
+    kdfIterations: KDF_ITERATIONS,
+    deriveWrappingKey,
+    base64ToBytes,
+    normalizeArchivedDecryptedMessageRecord,
+    textDecoder,
   });
-
-  return decryptedMessageArchiveDbPromise;
-}
-
-function readLocalArchivedDecryptedMessageRecord(userId: string, messageId: string) {
-  return readLocalArchivedDecryptedMessageMap(userId)[messageId] ?? null;
-}
-
-function readLocalArchivedDecryptedMessageRecords(userId: string) {
-  return sortArchivedDecryptedMessageRecords(
-    Object.values(readLocalArchivedDecryptedMessageMap(userId))
-  );
-}
-
-function readLatestLocalArchivedDecryptedMessageRecord(userId: string, chatId: string) {
-  const records = Object.values(readLocalArchivedDecryptedMessageMap(userId))
-    .filter((record) => record.chatId === chatId)
-    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-  return records[0] ?? null;
-}
-
-function writeLocalArchivedDecryptedMessageRecord(
-  userId: string,
-  record: RememberedDecryptedMessageArchiveRecord
-) {
-  writeLocalArchivedDecryptedMessageRecords(userId, [record]);
-}
-
-function writeLocalArchivedDecryptedMessageRecords(
-  userId: string,
-  records: RememberedDecryptedMessageArchiveRecord[]
-) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    const nextRecords = {
-      ...readLocalArchivedDecryptedMessageMap(userId),
-      ...Object.fromEntries(records.map((record) => [record.messageId, record])),
-    };
-    window.localStorage.setItem(
-      getDecryptedMessageArchiveStorageKey(userId),
-      JSON.stringify(nextRecords)
-    );
-  } catch {
-    return;
-  }
-}
-
-function clearLocalArchivedDecryptedMessageRecords(userId: string) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.localStorage.removeItem(getDecryptedMessageArchiveStorageKey(userId));
-  } catch {
-    return;
-  }
-}
-
-function readLocalArchivedDecryptedMessageMap(userId: string) {
-  if (typeof window === "undefined") {
-    return {} as Record<string, RememberedDecryptedMessageArchiveRecord>;
-  }
-
-  try {
-    const rawValue = window.localStorage.getItem(getDecryptedMessageArchiveStorageKey(userId));
-    if (!rawValue) {
-      return {} as Record<string, RememberedDecryptedMessageArchiveRecord>;
-    }
-
-    const parsedRecords = JSON.parse(rawValue) as Record<string, unknown>;
-    return Object.fromEntries(
-      Object.entries(parsedRecords)
-        .map(([messageId, value]) => {
-          const normalizedRecord = normalizeArchivedDecryptedMessageRecord(value);
-          return normalizedRecord ? [messageId, normalizedRecord] : null;
-        })
-        .filter((entry): entry is [string, RememberedDecryptedMessageArchiveRecord] => entry !== null)
-    );
-  } catch {
-    return {} as Record<string, RememberedDecryptedMessageArchiveRecord>;
-  }
 }
 
 function readTrustedDeviceUnlockRecord(userId: string): TrustedDeviceUnlockRecord | null {
