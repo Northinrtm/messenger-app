@@ -4468,6 +4468,87 @@ describe("e2ee hardening", () => {
     );
   });
 
+  it("retries group sends after stale history-key access references unknown recipient devices", async () => {
+    const retriedConsumableDeviceBundle = {
+      ...consumableDeviceBundle,
+      oneTimePrekey: {
+        keyId: 14,
+        publicKey: publicOkpJwk("X25519", "otp-history-device-refresh"),
+      },
+    };
+    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
+    vi.spyOn(window.crypto.subtle, "generateKey").mockResolvedValue({
+      publicKey: {} as CryptoKey,
+      privateKey: {} as CryptoKey,
+    } as CryptoKeyPair);
+    vi.spyOn(window.crypto.subtle, "exportKey").mockResolvedValue({
+      kty: "OKP",
+      crv: "X25519",
+      x: "generated",
+    } as JsonWebKey);
+    vi.spyOn(window.crypto.subtle, "deriveBits").mockResolvedValue(new Uint8Array(32).buffer);
+    vi.spyOn(window.crypto.subtle, "sign").mockResolvedValue(new Uint8Array([1, 2, 3]).buffer);
+    vi.spyOn(window.crypto.subtle, "encrypt").mockImplementation(
+      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
+    );
+    vi.mocked(resolveEncryptionDeviceBundles)
+      .mockResolvedValueOnce([deviceBundle])
+      .mockResolvedValueOnce([consumableDeviceBundle])
+      .mockResolvedValueOnce([deviceBundle])
+      .mockResolvedValueOnce([deviceBundle])
+      .mockResolvedValueOnce([retriedConsumableDeviceBundle]);
+    vi.mocked(upsertGroupHistoryKey)
+      .mockRejectedValueOnce(
+        new ApiError("Group history key access contains unknown recipient devices", 400)
+      )
+      .mockResolvedValueOnce({
+        historyKeyId: "history-key-id",
+        createdAt: "2026-04-20T10:00:00.000Z",
+      });
+    vi.mocked(sendMessageRaw).mockImplementationOnce(async (_token, chatId, request) => ({
+      id: "group-message-id",
+      chatId,
+      sender: selfParticipant,
+      createdAt: "2026-04-09T10:35:00.000Z",
+      editedAt: null,
+      status: null,
+      clientMessageId: request.clientMessageId ?? null,
+      replyTo: null,
+      reactions: [],
+      encryptedPayload: request.encryptedPayload,
+    }));
+    window.sessionStorage.setItem(DEVICE_MATERIAL_KEY, JSON.stringify(localDeviceMaterial));
+
+    await expect(
+      sendEncryptedMessage(
+        "token",
+        "group-chat-id",
+        "group secret retry after stale access",
+        [selfParticipant, participant],
+        "group-client-message-id",
+        null,
+        { currentUserId: USER_ID, isDirectChat: false }
+      )
+    ).resolves.toMatchObject({
+      id: "group-message-id",
+      clientMessageId: "group-client-message-id",
+    });
+
+    expect(upsertGroupHistoryKey).toHaveBeenCalledTimes(2);
+    expect(sendMessageRaw).toHaveBeenCalledTimes(1);
+    expect(resolveEncryptionDeviceBundles).toHaveBeenCalledTimes(4);
+
+    const retriedWrappedKeys = vi.mocked(upsertGroupHistoryKey).mock.calls[1]?.[2]
+      .wrappedKeysByRecipientDeviceId;
+    expect(retriedWrappedKeys).toEqual(
+      expect.objectContaining({
+        "device-id": expect.any(String),
+        "self-device": expect.any(String),
+      })
+    );
+  });
+
   it("restores incoming group message history from persisted inbound sender-chain state after reload", async () => {
     vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
     vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);

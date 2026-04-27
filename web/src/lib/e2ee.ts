@@ -848,6 +848,7 @@ function getRecoverableEncryptedEnvelopeErrorMode(error: unknown): "session" | "
       "Encrypted group envelope must start at counter zero",
       "Encrypted group envelope message counter advanced too far",
       "Group history key recipient prekey is stale",
+      "Group history key access contains unknown recipient devices",
       "Encrypted payload contains unknown recipient devices",
       "Encrypted payload must include every active participant device",
       "Encrypted device envelope recipient device is invalid",
