@@ -1443,6 +1443,17 @@ export async function sendEncryptedMessage(
   }
 
   const currentUserId = options.currentUserId;
+  if (resolvedClientMessageId) {
+    rememberOutgoingMessageMirror(currentUserId, {
+      id: resolvedClientMessageId,
+      chatId,
+      content: normalizedContent,
+      createdAt: new Date().toISOString(),
+      editedAt: null,
+      attachments,
+      clientMessageId: resolvedClientMessageId,
+    });
+  }
   recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:primeRecipients:start");
   const primedConversationBundles = await prepareSendConversationDeviceBundles(
     token,
@@ -1568,6 +1579,15 @@ export async function updateEncryptedMessage(
   }
 
   const currentUserId = options?.currentUserId ?? userId;
+  rememberOutgoingMessageMirror(currentUserId, {
+    id: messageId,
+    chatId,
+    content: normalizedContent,
+    createdAt: new Date().toISOString(),
+    editedAt: null,
+    attachments,
+    clientMessageId: null,
+  });
   const primedConversationBundles = await prepareSendConversationDeviceBundles(
     token,
     currentUserId,
@@ -6922,7 +6942,16 @@ function readOutgoingMessageMirror(
   }
 
   const records = readOutgoingMessageMirrorRecords(userId);
-  return records.find((record) => record.messageId === message.id && record.chatId === message.chatId) ?? null;
+  return (
+    records.find((record) => record.messageId === message.id && record.chatId === message.chatId) ??
+    records.find(
+      (record) =>
+        Boolean(message.clientMessageId) &&
+        record.clientMessageId === message.clientMessageId &&
+        record.chatId === message.chatId
+    ) ??
+    null
+  );
 }
 
 function readOutgoingMessageMirrorRecords(userId: string): OutgoingMessageMirrorRecord[] {

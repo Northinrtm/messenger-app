@@ -5423,6 +5423,87 @@ describe("e2ee hardening", () => {
     ]);
   });
 
+  it("keeps a freshly echoed own message readable before the send ack resolves", async () => {
+    const deferredSend = createDeferred<ApiChatMessage>();
+    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
+    vi.spyOn(window.crypto.subtle, "generateKey").mockResolvedValue({
+      publicKey: {} as CryptoKey,
+      privateKey: {} as CryptoKey,
+    } as CryptoKeyPair);
+    vi.spyOn(window.crypto.subtle, "exportKey").mockResolvedValue({
+      kty: "OKP",
+      crv: "X25519",
+      x: "generated",
+    } as JsonWebKey);
+    vi.spyOn(window.crypto.subtle, "deriveBits").mockResolvedValue(new Uint8Array(32).buffer);
+    vi.spyOn(window.crypto.subtle, "deriveKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "encrypt").mockImplementation(
+      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
+    );
+    vi.mocked(resolveEncryptionDeviceBundles).mockResolvedValue([consumableDeviceBundle]);
+    vi.mocked(sendMessageRaw).mockImplementation(() => deferredSend.promise);
+    window.sessionStorage.setItem(DEVICE_MATERIAL_KEY, JSON.stringify(localDeviceMaterial));
+
+    const sendPromise = sendEncryptedMessage(
+      "token",
+      "chat-id",
+      "pre-ack mirror own message",
+      [selfParticipant, participant],
+      "client-preack-mirror-message-id",
+      null,
+      { currentUserId: USER_ID }
+    );
+
+    for (let attempt = 0; attempt < 20 && vi.mocked(sendMessageRaw).mock.calls.length === 0; attempt += 1) {
+      await Promise.resolve();
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    }
+
+    const encryptedPayload =
+      vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload ?? null;
+    expect(encryptedPayload).not.toBeNull();
+
+    window.sessionStorage.removeItem(DEVICE_MATERIAL_KEY);
+
+    const hydratedBeforeAck = await hydrateChatMessage(
+      {
+        id: "preack-own-message-id",
+        chatId: "chat-id",
+        sender: selfParticipant,
+        createdAt: "2026-04-09T10:31:00.000Z",
+        editedAt: null,
+        status: null,
+        clientMessageId: "client-preack-mirror-message-id",
+        replyTo: null,
+        reactions: [],
+        encryptedPayload,
+      },
+      USER_ID
+    );
+
+    expect(hydratedBeforeAck.content).toBe("pre-ack mirror own message");
+
+    deferredSend.resolve({
+      id: "preack-own-message-id",
+      chatId: "chat-id",
+      sender: selfParticipant,
+      createdAt: "2026-04-09T10:31:00.000Z",
+      editedAt: null,
+      status: null,
+      clientMessageId: "client-preack-mirror-message-id",
+      replyTo: null,
+      reactions: [],
+      encryptedPayload,
+    });
+
+    await expect(sendPromise).resolves.toMatchObject({
+      id: "preack-own-message-id",
+      clientMessageId: "client-preack-mirror-message-id",
+      content: "pre-ack mirror own message",
+    });
+  });
+
   it("records decrypt-failed mirror diagnostics when an own encrypted message falls back to the local mirror", async () => {
     vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
     vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
