@@ -52,6 +52,29 @@ import {
   type PreparedDeviceManifestState,
 } from "./e2eeDeviceDirectory";
 import {
+  assertGroupDistributionSenderMatchesSharedEnvelope,
+  buildGroupEnvelopeAdditionalData,
+  buildGroupEnvelopeSignatureData,
+  buildGroupHistoryEnvelopeAdditionalData,
+  buildRecipientDeviceSetHash,
+  getGroupInboundSenderChainMapKey,
+  isGroupSenderChainRotationDue,
+  parseGroupHistoryEnvelope,
+  parseGroupHistoryKeyGrantPayload,
+  parseGroupSenderKeyDistribution,
+  parseGroupSharedEnvelope,
+  resolveInboundGroupSenderChainRecord,
+  type GroupHistoryEnvelope,
+  type GroupHistoryKeyGrantPayload,
+  type GroupHistoryKeyRecord,
+  type GroupHistoryKeyState,
+  type GroupInboundSenderChainRecord,
+  type GroupSenderChainRecord,
+  type GroupSenderChainState,
+  type GroupSenderKeyDistribution,
+  type GroupSharedEnvelope,
+} from "./e2eeGroupEngine";
+import {
   TRUSTED_DEVICE_STORAGE_PREFIX,
   hasTrustedDeviceUnlock,
   isTrustedDeviceUnlockSupported,
@@ -397,83 +420,6 @@ type DirectDeviceEnvelope = {
   messageCounter: number;
   ciphertext: string;
   iv: string;
-};
-
-type GroupSharedEnvelope = {
-  aadVersion: number;
-  chatId: string;
-  senderUserId: string;
-  senderDeviceId: string;
-  senderKeyId: string;
-  messageCounter: number;
-  ciphertext: string;
-  iv: string;
-  signature: string;
-};
-
-type GroupHistoryEnvelope = {
-  aadVersion: number;
-  historyKeyId: string;
-  ciphertext: string;
-  iv: string;
-};
-
-type GroupSenderKeyDistribution = {
-  aadVersion: number;
-  chatId: string;
-  senderUserId: string;
-  senderDeviceId: string;
-  senderKeyId: string;
-  messageCounter: number;
-  chainKey: string;
-};
-
-type GroupSenderChainRecord = {
-  chatId: string;
-  ownMaterialId: string;
-  senderDeviceId: string;
-  senderKeyId: string;
-  recipientDeviceSetHash: string;
-  chainKey: string;
-  nextMessageCounter: number;
-  createdAt: string;
-};
-
-type GroupInboundSenderChainRecord = {
-  chatId: string;
-  senderUserId: string;
-  senderDeviceId: string;
-  senderKeyId: string;
-  nextChainKey: string;
-  nextMessageCounter: number;
-  cachedMessageKeys?: Record<string, string>;
-  updatedAt: string;
-};
-
-type GroupSenderChainState = {
-  outboundChains: Record<string, GroupSenderChainRecord>;
-  inboundChains: Record<string, GroupInboundSenderChainRecord>;
-};
-
-type GroupHistoryKeyGrantPayload = {
-  aadVersion: number;
-  chatId: string;
-  historyKeyId: string;
-  historyKey: string;
-  createdAt: string;
-};
-
-type GroupHistoryKeyRecord = {
-  historyKeyId: string;
-  chatId: string;
-  keyMaterial: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-type GroupHistoryKeyState = {
-  currentKeyIdsByChatId: Record<string, string>;
-  keysById: Record<string, GroupHistoryKeyRecord>;
 };
 
 type PinnedDeviceBundleRecord = {
@@ -2932,7 +2878,7 @@ async function encryptGroupMessage(
     senderChain.ownMaterialId !== ownMaterial.materialId ||
     senderChain.senderDeviceId !== ownMaterial.deviceId ||
     senderChain.recipientDeviceSetHash !== recipientDeviceSetHash ||
-    isGroupSenderChainRotationDue(senderChain) ||
+    isGroupSenderChainRotationDue(senderChain, GROUP_SENDER_KEY_MAX_AGE_MS) ||
     shouldRefreshRestoredOutboundChain
   ) {
     senderChain = createGroupSenderChain(chatId, ownMaterial, recipientDeviceSetHash);
@@ -3221,7 +3167,10 @@ async function resolveGroupHistoryKeyRecordFromServer(
         userId,
         ownMaterial
       );
-      const grantPayload = parseGroupHistoryKeyGrantPayload(decryptedPayload);
+      const grantPayload = parseGroupHistoryKeyGrantPayload(
+        decryptedPayload,
+        GROUP_HISTORY_KEY_GRANT_AAD_VERSION
+      );
       if (
         grantPayload.chatId !== chatId ||
         grantPayload.historyKeyId !== access.historyKeyId
@@ -3353,27 +3302,6 @@ async function createGroupHistoryEnvelope(
     ...historyEnvelopeMetadata,
     ciphertext: bytesToBase64(new Uint8Array(ciphertext)),
   };
-}
-
-function buildGroupHistoryEnvelopeAdditionalData(
-  historyEnvelope: Omit<GroupHistoryEnvelope, "ciphertext">,
-  sharedEnvelope: Pick<
-    GroupSharedEnvelope,
-    "chatId" | "senderUserId" | "senderDeviceId" | "senderKeyId" | "messageCounter"
-  >
-) {
-  return textEncoder.encode(
-    JSON.stringify({
-      aadVersion: historyEnvelope.aadVersion,
-      historyKeyId: historyEnvelope.historyKeyId,
-      chatId: sharedEnvelope.chatId,
-      senderUserId: sharedEnvelope.senderUserId,
-      senderDeviceId: sharedEnvelope.senderDeviceId,
-      senderKeyId: sharedEnvelope.senderKeyId,
-      messageCounter: sharedEnvelope.messageCounter,
-      iv: historyEnvelope.iv,
-    })
-  );
 }
 
 function buildSelfDeviceBundle(
@@ -3763,22 +3691,6 @@ function buildDirectEnvelopeAdditionalData(
   );
 }
 
-function buildGroupEnvelopeAdditionalData(
-  envelope: Omit<GroupSharedEnvelope, "ciphertext" | "signature">
-) {
-  return textEncoder.encode(
-    JSON.stringify({
-      aadVersion: envelope.aadVersion,
-      chatId: envelope.chatId,
-      senderUserId: envelope.senderUserId,
-      senderDeviceId: envelope.senderDeviceId,
-      senderKeyId: envelope.senderKeyId,
-      messageCounter: envelope.messageCounter,
-      iv: envelope.iv,
-    })
-  );
-}
-
 async function decryptGroupHistoryEnvelopeContent(
   historyEnvelope: GroupHistoryEnvelope,
   sharedEnvelope: GroupSharedEnvelope,
@@ -3802,23 +3714,6 @@ async function decryptGroupHistoryEnvelopeContent(
   );
 
   return textDecoder.decode(plaintext);
-}
-
-function buildGroupEnvelopeSignatureData(
-  envelope: GroupSharedEnvelope | (Omit<GroupSharedEnvelope, "signature"> & { signature?: string })
-) {
-  return textEncoder.encode(
-    JSON.stringify({
-      aadVersion: envelope.aadVersion,
-      chatId: envelope.chatId,
-      senderUserId: envelope.senderUserId,
-      senderDeviceId: envelope.senderDeviceId,
-      senderKeyId: envelope.senderKeyId,
-      messageCounter: envelope.messageCounter,
-      iv: envelope.iv,
-      ciphertext: envelope.ciphertext,
-    })
-  );
 }
 
 async function decryptGroupSharedEnvelopeContent(
@@ -3847,21 +3742,6 @@ async function decryptGroupSharedEnvelopeContent(
   return textDecoder.decode(plaintext);
 }
 
-function assertGroupDistributionSenderMatchesSharedEnvelope(
-  distributionEnvelope: Pick<
-    DirectDeviceEnvelope,
-    "senderUserId" | "senderDeviceId" | "senderIdentitySignatureKey"
-  >,
-  sharedEnvelope: GroupSharedEnvelope
-) {
-  if (
-    distributionEnvelope.senderUserId !== sharedEnvelope.senderUserId ||
-    distributionEnvelope.senderDeviceId !== sharedEnvelope.senderDeviceId
-  ) {
-    throw new Error("Encrypted group sender key distribution sender is invalid");
-  }
-}
-
 async function assertValidGroupEnvelopeSignature(
   sharedEnvelope: GroupSharedEnvelope,
   senderIdentitySignatureKey: string
@@ -3880,31 +3760,6 @@ async function assertValidGroupEnvelopeSignature(
   if (!validSignature) {
     throw new Error("Encrypted group message signature is invalid");
   }
-}
-
-function getGroupInboundSenderChainMapKey(
-  chatId: string,
-  senderUserId: string,
-  senderDeviceId: string,
-  senderKeyId: string
-) {
-  return `${chatId}|${senderUserId}|${senderDeviceId}|${senderKeyId}`;
-}
-
-function resolveInboundGroupSenderChainRecord(
-  state: GroupSenderChainState,
-  sharedEnvelope: GroupSharedEnvelope
-) {
-  return (
-    state.inboundChains[
-      getGroupInboundSenderChainMapKey(
-        sharedEnvelope.chatId,
-        sharedEnvelope.senderUserId,
-        sharedEnvelope.senderDeviceId,
-        sharedEnvelope.senderKeyId
-      )
-    ] ?? null
-  );
 }
 
 function cacheGroupInboundMessageKey(
@@ -4043,7 +3898,10 @@ async function decryptGroupMessage(message: ApiChatMessage, userId: string) {
     throw new Error("Encrypted group envelope is not available");
   }
 
-  const sharedEnvelope = parseGroupSharedEnvelope(payload.sharedEnvelope);
+  const sharedEnvelope = parseGroupSharedEnvelope(
+    payload.sharedEnvelope,
+    GROUP_SHARED_ENVELOPE_AAD_VERSION
+  );
   const serializedDistributionEnvelope = payload.encryptedKeysByRecipientId[ownMaterial.deviceId];
   if (!serializedDistributionEnvelope) {
     if (payload.historyEnvelope) {
@@ -4094,7 +3952,10 @@ async function decryptGroupMessage(message: ApiChatMessage, userId: string) {
   }
   assertGroupDistributionSenderMatchesSharedEnvelope(distributionEnvelope, sharedEnvelope);
 
-  const distribution = parseGroupSenderKeyDistribution(distributionContent);
+  const distribution = parseGroupSenderKeyDistribution(
+    distributionContent,
+    GROUP_SENDER_DISTRIBUTION_AAD_VERSION
+  );
   if (
     distribution.chatId !== sharedEnvelope.chatId ||
     distribution.senderUserId !== sharedEnvelope.senderUserId ||
@@ -4134,7 +3995,10 @@ async function decryptGroupHistoryMessage(
     throw new Error("Encrypted group history envelope is not available");
   }
 
-  const historyEnvelope = parseGroupHistoryEnvelope(message.encryptedPayload.historyEnvelope);
+  const historyEnvelope = parseGroupHistoryEnvelope(
+    message.encryptedPayload.historyEnvelope,
+    GROUP_HISTORY_ENVELOPE_AAD_VERSION
+  );
   let historyKeyRecord = await resolveLocalGroupHistoryKeyRecord(
     userId,
     sharedEnvelope.chatId,
@@ -4262,71 +4126,6 @@ function parseDirectDeviceEnvelope(value: string): DirectDeviceEnvelope {
   }
 
   return parsed as DirectDeviceEnvelope;
-}
-
-function parseGroupSharedEnvelope(value: string): GroupSharedEnvelope {
-  const parsed = JSON.parse(value) as Partial<GroupSharedEnvelope>;
-  if (
-    parsed.aadVersion !== GROUP_SHARED_ENVELOPE_AAD_VERSION ||
-    typeof parsed.chatId !== "string" ||
-    typeof parsed.senderUserId !== "string" ||
-    typeof parsed.senderDeviceId !== "string" ||
-    typeof parsed.senderKeyId !== "string" ||
-    typeof parsed.messageCounter !== "number" ||
-    typeof parsed.ciphertext !== "string" ||
-    typeof parsed.iv !== "string" ||
-    typeof parsed.signature !== "string"
-  ) {
-    throw new Error("Malformed group shared envelope");
-  }
-
-  return parsed as GroupSharedEnvelope;
-}
-
-function parseGroupHistoryEnvelope(value: string): GroupHistoryEnvelope {
-  const parsed = JSON.parse(value) as Partial<GroupHistoryEnvelope>;
-  if (
-    parsed.aadVersion !== GROUP_HISTORY_ENVELOPE_AAD_VERSION ||
-    typeof parsed.historyKeyId !== "string" ||
-    typeof parsed.ciphertext !== "string" ||
-    typeof parsed.iv !== "string"
-  ) {
-    throw new Error("Malformed group history envelope");
-  }
-
-  return parsed as GroupHistoryEnvelope;
-}
-
-function parseGroupSenderKeyDistribution(value: string): GroupSenderKeyDistribution {
-  const parsed = JSON.parse(value) as Partial<GroupSenderKeyDistribution>;
-  if (
-    parsed.aadVersion !== GROUP_SENDER_DISTRIBUTION_AAD_VERSION ||
-    typeof parsed.chatId !== "string" ||
-    typeof parsed.senderUserId !== "string" ||
-    typeof parsed.senderDeviceId !== "string" ||
-    typeof parsed.senderKeyId !== "string" ||
-    typeof parsed.messageCounter !== "number" ||
-    typeof parsed.chainKey !== "string"
-  ) {
-    throw new Error("Malformed group sender key distribution");
-  }
-
-  return parsed as GroupSenderKeyDistribution;
-}
-
-function parseGroupHistoryKeyGrantPayload(value: string): GroupHistoryKeyGrantPayload {
-  const parsed = JSON.parse(value) as Partial<GroupHistoryKeyGrantPayload>;
-  if (
-    parsed.aadVersion !== GROUP_HISTORY_KEY_GRANT_AAD_VERSION ||
-    typeof parsed.chatId !== "string" ||
-    typeof parsed.historyKeyId !== "string" ||
-    typeof parsed.historyKey !== "string" ||
-    typeof parsed.createdAt !== "string"
-  ) {
-    throw new Error("Malformed group history key grant");
-  }
-
-  return parsed as GroupHistoryKeyGrantPayload;
 }
 
 function shouldReestablishResponderDeviceSession(
@@ -4712,13 +4511,6 @@ function createLocalVaultIdentity(): LocalIdentity {
     publicKey: "local-device-vault",
     privateKey: bytesToBase64(randomBytes(32)),
   };
-}
-
-function buildRecipientDeviceSetHash(bundles: UserEncryptionDeviceBundle[]) {
-  return bundles
-    .map((bundle) => getDeviceBundleMapKey(bundle.userId, bundle.deviceId))
-    .sort()
-    .join("|");
 }
 
 function createGroupSenderChain(
@@ -5275,15 +5067,6 @@ function isSignedPrekeyRotationDue(
   }
 
   return Date.now() - createdAt >= DEVICE_SIGNED_PREKEY_MAX_AGE_MS;
-}
-
-function isGroupSenderChainRotationDue(senderChain: GroupSenderChainRecord) {
-  const createdAt = Date.parse(senderChain.createdAt);
-  if (!Number.isFinite(createdAt)) {
-    return true;
-  }
-
-  return Date.now() - createdAt >= GROUP_SENDER_KEY_MAX_AGE_MS;
 }
 
 function findOwnEncryptionDevice(devices: UserEncryptionDevice[], material: DeviceEncryptionMaterial | null) {
