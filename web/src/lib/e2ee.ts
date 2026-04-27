@@ -116,6 +116,11 @@ import {
   lockUnlockedEncryptionState as lockUnlockedEncryptionStateInternal,
 } from "./e2eeLocalStateLifecycle";
 import {
+  ensureEncryptionReady as ensureEncryptionReadyInternal,
+  resetEncryptionAfterPasswordReset as resetEncryptionAfterPasswordResetInternal,
+  resecureLocalEncryptionStateForPasswordChange as resecureLocalEncryptionStateForPasswordChangeInternal,
+} from "./e2eeEncryptionLifecycle";
+import {
   decryptRememberedGroupSenderChainState as decryptRememberedGroupSenderChainStateInternal,
   encryptRememberedGroupSenderChainState as encryptRememberedGroupSenderChainStateInternal,
   persistGroupHistoryKeyRecord as persistGroupHistoryKeyRecordInternal,
@@ -1483,80 +1488,44 @@ export function lockUnlockedEncryptionState(userId?: string) {
 }
 
 export async function ensureEncryptionReady(session: AuthResponse, password: string) {
-  ensureE2eeTransportStorageSchema();
-  rememberRecoverySyncSession(session);
-
-  const unlockedIdentity = readUnlockedIdentity(session.user.id);
-  if (unlockedIdentity) {
-    await rememberUnlockedIdentity(session.user.id, unlockedIdentity, password);
-    await ensureRegisteredEncryptionDevice(session);
-    try {
-      await syncEncryptionRecoverySnapshot(session);
-    } catch {
-      // Recovery snapshot upload is best-effort after a successful local unlock.
-    }
-    return;
-  }
-
-  const rememberedIdentity = await readRememberedUnlockedIdentity(session.user.id, password);
-  if (rememberedIdentity) {
-    writeUnlockedIdentity(session.user.id, rememberedIdentity);
-    await rememberUnlockedIdentity(session.user.id, rememberedIdentity, password);
-    await ensureRegisteredEncryptionDevice(session);
-    try {
-      await syncEncryptionRecoverySnapshot(session);
-    } catch {
-      // Recovery snapshot upload is best-effort after a successful local unlock.
-    }
-    return;
-  }
-
-  const restoredIdentity = await restoreEncryptionRecoverySnapshot(session, password);
-  if (restoredIdentity) {
-    await ensureRegisteredEncryptionDevice(session);
-    try {
-      await syncEncryptionRecoverySnapshot(session);
-    } catch {
-      // Recovery snapshot upload is best-effort after a successful local unlock.
-    }
-    return;
-  }
-
-  const existingDevices = await listOwnEncryptionDevices(session.token);
-  if (existingDevices.length > 0) {
-    throw new ApiError(ENCRYPTION_RECOVERY_EXISTING_CHATS_MESSAGE, 409);
-  }
-
-  const localVaultIdentity = createLocalVaultIdentity();
-  writeUnlockedIdentity(session.user.id, localVaultIdentity);
-  await rememberUnlockedIdentity(session.user.id, localVaultIdentity, password);
-  await ensureRegisteredEncryptionDevice(session);
-  try {
-    await syncEncryptionRecoverySnapshot(session);
-  } catch {
-    // Recovery snapshot upload is best-effort after a successful local unlock.
-  }
+  return ensureEncryptionReadyInternal({
+    session,
+    password,
+    ensureE2eeTransportStorageSchema,
+    rememberRecoverySyncSession,
+    readUnlockedIdentity,
+    rememberUnlockedIdentity: (userId, identity, targetPassword) =>
+      rememberUnlockedIdentity(userId, identity, targetPassword),
+    ensureRegisteredEncryptionDevice,
+    syncEncryptionRecoverySnapshot,
+    readRememberedUnlockedIdentity: (userId, targetPassword) =>
+      readRememberedUnlockedIdentity(userId, targetPassword),
+    writeUnlockedIdentity,
+    restoreEncryptionRecoverySnapshot: (targetSession, targetPassword) =>
+      restoreEncryptionRecoverySnapshot(targetSession, targetPassword),
+    listOwnEncryptionDevices,
+    createLocalVaultIdentity,
+    encryptionRecoveryExistingChatsMessage: ENCRYPTION_RECOVERY_EXISTING_CHATS_MESSAGE,
+  });
 }
 
 export async function resetEncryptionAfterPasswordReset(session: AuthResponse, password: string) {
-  if (!password.trim()) {
-    throw new ApiError("Enter your account password before resetting encrypted chats", 400);
-  }
-
-  ensureE2eeTransportStorageSchema();
-  const userId = session.user.id;
-
-  clearUnlockedEncryptionState(userId);
-  removeTrustedDeviceUnlockRecord(userId);
-  clearPinnedDeviceBundleRecords(userId);
-  await clearStoredArchivedDecryptedMessageRecords(userId);
-  rememberRecoverySyncSession(session);
-
-  const localVaultIdentity = createLocalVaultIdentity();
-  writeUnlockedIdentity(userId, localVaultIdentity);
-  await rememberUnlockedIdentity(userId, localVaultIdentity, password);
-  await ensureRegisteredEncryptionDevice(session);
-  await syncEncryptionRecoverySnapshot(session);
+  return resetEncryptionAfterPasswordResetInternal({
+    session,
+    password,
+    ensureE2eeTransportStorageSchema,
+    clearUnlockedEncryptionState,
+    removeTrustedDeviceUnlockRecord,
+    clearPinnedDeviceBundleRecords,
+    clearStoredArchivedDecryptedMessageRecords,
+    rememberRecoverySyncSession,
+    createLocalVaultIdentity,
+    writeUnlockedIdentity,
+    rememberUnlockedIdentity: (userId, identity, targetPassword) =>
+      rememberUnlockedIdentity(userId, identity, targetPassword),
+    ensureRegisteredEncryptionDevice,
+    syncEncryptionRecoverySnapshot,
+  });
 }
 
 export async function resecureLocalEncryptionStateForPasswordChange(
@@ -1564,20 +1533,18 @@ export async function resecureLocalEncryptionStateForPasswordChange(
   currentPassword: string,
   newPassword: string
 ) {
-  ensureE2eeTransportStorageSchema();
-
-  const unlockedIdentity = readUnlockedIdentity(userId);
-  if (unlockedIdentity) {
-    await rememberUnlockedIdentity(userId, unlockedIdentity, newPassword);
-    return;
-  }
-
-  const rememberedIdentity = await readRememberedUnlockedIdentity(userId, currentPassword);
-  if (!rememberedIdentity) {
-    throw new ApiError("Current password could not unlock encrypted chats", 400);
-  }
-  writeUnlockedIdentity(userId, rememberedIdentity);
-  await rememberUnlockedIdentity(userId, rememberedIdentity, newPassword);
+  return resecureLocalEncryptionStateForPasswordChangeInternal({
+    userId,
+    currentPassword,
+    newPassword,
+    ensureE2eeTransportStorageSchema,
+    readUnlockedIdentity,
+    rememberUnlockedIdentity: (targetUserId, identity, targetPassword) =>
+      rememberUnlockedIdentity(targetUserId, identity, targetPassword),
+    readRememberedUnlockedIdentity: (targetUserId, targetPassword) =>
+      readRememberedUnlockedIdentity(targetUserId, targetPassword),
+    writeUnlockedIdentity,
+  });
 }
 
 export async function trustCurrentDeviceUnlock(session: AuthResponse) {
