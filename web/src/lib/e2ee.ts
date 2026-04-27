@@ -75,6 +75,13 @@ import {
   type GroupSharedEnvelope,
 } from "./e2eeGroupEngine";
 import {
+  buildGroupHistoryKeyAccessEnvelopes as buildGroupHistoryKeyAccessEnvelopesInternal,
+  createLocalGroupHistoryKeyRecord as createLocalGroupHistoryKeyRecordInternal,
+  ensureGroupHistoryKeyRecord as ensureGroupHistoryKeyRecordInternal,
+  resolveGroupHistoryKeyRecordFromServer as resolveGroupHistoryKeyRecordFromServerInternal,
+  upsertGroupHistoryKeyAccessForTargets as upsertGroupHistoryKeyAccessForTargetsInternal,
+} from "./e2eeGroupHistory";
+import {
   TRUSTED_DEVICE_STORAGE_PREFIX,
   hasTrustedDeviceUnlock,
   isTrustedDeviceUnlockSupported,
@@ -3113,43 +3120,27 @@ async function ensureGroupHistoryKeyRecord(
   targetBundles: UserEncryptionDeviceBundle[],
   nextSessions: Record<string, DeviceSessionRecord>
 ) {
-  const localRecord = await readCurrentGroupHistoryKeyRecord(currentUserId, chatId);
-  if (localRecord) {
-    return localRecord;
-  }
-
-  const remoteRecord = await resolveGroupHistoryKeyRecordFromServer(
-    token,
-    currentUserId,
-    chatId,
-    ownMaterial
-  );
-  if (remoteRecord) {
-    return remoteRecord;
-  }
-
-  const createdRecord = createLocalGroupHistoryKeyRecord(chatId);
-  await upsertGroupHistoryKeyAccessForTargets(
+  return ensureGroupHistoryKeyRecordInternal({
     token,
     chatId,
     currentUserId,
     ownMaterial,
     targetBundles,
     nextSessions,
-    createdRecord
-  );
-  await persistGroupHistoryKeyRecord(currentUserId, createdRecord);
-  return createdRecord;
+    readCurrentGroupHistoryKeyRecord,
+    resolveGroupHistoryKeyRecordFromServer,
+    createLocalGroupHistoryKeyRecord,
+    upsertGroupHistoryKeyAccessForTargets,
+    persistGroupHistoryKeyRecord,
+  });
 }
 
 function createLocalGroupHistoryKeyRecord(chatId: string): GroupHistoryKeyRecord {
-  return {
-    historyKeyId: window.crypto.randomUUID(),
-    chatId,
-    keyMaterial: bytesToBase64(randomBytes(32)),
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
+  return createLocalGroupHistoryKeyRecordInternal(chatId, {
+    createHistoryKeyId: () => window.crypto.randomUUID(),
+    createKeyMaterial: () => bytesToBase64(randomBytes(32)),
+    now: () => new Date().toISOString(),
+  });
 }
 
 async function resolveGroupHistoryKeyRecordFromServer(
@@ -3158,46 +3149,17 @@ async function resolveGroupHistoryKeyRecordFromServer(
   chatId: string,
   ownMaterial: RegisteredDeviceEncryptionMaterial
 ) {
-  let latestRecord: GroupHistoryKeyRecord | null = null;
-  const accesses = await getOwnGroupHistoryKeys(token, chatId, ownMaterial.deviceId);
-  for (const access of accesses) {
-    try {
-      const decryptedPayload = await decryptDirectRecipientEnvelopeContent(
-        access.wrappedKeyPayloadJson,
-        userId,
-        ownMaterial
-      );
-      const grantPayload = parseGroupHistoryKeyGrantPayload(
-        decryptedPayload,
-        GROUP_HISTORY_KEY_GRANT_AAD_VERSION
-      );
-      if (
-        grantPayload.chatId !== chatId ||
-        grantPayload.historyKeyId !== access.historyKeyId
-      ) {
-        continue;
-      }
-
-      const record: GroupHistoryKeyRecord = {
-        historyKeyId: grantPayload.historyKeyId,
-        chatId: grantPayload.chatId,
-        keyMaterial: grantPayload.historyKey,
-        createdAt: access.createdAt,
-        updatedAt: access.updatedAt,
-      };
-      await persistGroupHistoryKeyRecord(userId, record);
-      if (
-        !latestRecord ||
-        Date.parse(record.updatedAt) >= Date.parse(latestRecord.updatedAt)
-      ) {
-        latestRecord = record;
-      }
-    } catch {
-      // Ignore malformed or undecryptable grants and keep checking other records.
-    }
-  }
-
-  return latestRecord;
+  return resolveGroupHistoryKeyRecordFromServerInternal({
+    token,
+    userId,
+    chatId,
+    ownMaterial,
+    getOwnGroupHistoryKeys,
+    decryptDirectRecipientEnvelopeContent,
+    parseGroupHistoryKeyGrantPayload: (value) =>
+      parseGroupHistoryKeyGrantPayload(value, GROUP_HISTORY_KEY_GRANT_AAD_VERSION),
+    persistGroupHistoryKeyRecord,
+  });
 }
 
 async function upsertGroupHistoryKeyAccessForTargets(
@@ -3209,26 +3171,27 @@ async function upsertGroupHistoryKeyAccessForTargets(
   nextSessions: Record<string, DeviceSessionRecord>,
   historyKeyRecord: GroupHistoryKeyRecord
 ) {
-  const wrappedKeysByRecipientDeviceId = await buildGroupHistoryKeyAccessEnvelopes(
+  await upsertGroupHistoryKeyAccessForTargetsInternal({
+    token,
+    chatId,
     currentUserId,
     ownMaterial,
     targetBundles,
     nextSessions,
-    historyKeyRecord
-  );
-  if (Object.keys(wrappedKeysByRecipientDeviceId).length === 0) {
-    throw new ApiError("Encrypted chat is unavailable", 409);
-  }
-
-  writeDeviceSessions(currentUserId, nextSessions);
-  await rememberDeviceSessions(currentUserId, nextSessions);
-  await upsertGroupHistoryKey(token, chatId, {
-    historyKeyId: historyKeyRecord.historyKeyId,
-    wrappedKeysByRecipientDeviceId,
-  });
-  await persistGroupHistoryKeyRecord(currentUserId, {
-    ...historyKeyRecord,
-    updatedAt: new Date().toISOString(),
+    historyKeyRecord,
+    buildGroupHistoryKeyAccessEnvelopes: (args) =>
+      buildGroupHistoryKeyAccessEnvelopes(
+        args.currentUserId,
+        args.ownMaterial,
+        args.targetBundles,
+        args.nextSessions,
+        args.historyKeyRecord
+      ),
+    writeDeviceSessions,
+    rememberDeviceSessions,
+    upsertGroupHistoryKey,
+    persistGroupHistoryKeyRecord,
+    now: () => new Date().toISOString(),
   });
 }
 
@@ -3239,35 +3202,25 @@ async function buildGroupHistoryKeyAccessEnvelopes(
   nextSessions: Record<string, DeviceSessionRecord>,
   historyKeyRecord: GroupHistoryKeyRecord
 ) {
-  const serializedGrantPayload = JSON.stringify({
-    aadVersion: GROUP_HISTORY_KEY_GRANT_AAD_VERSION,
-    chatId: historyKeyRecord.chatId,
-    historyKeyId: historyKeyRecord.historyKeyId,
-    historyKey: historyKeyRecord.keyMaterial,
-    createdAt: historyKeyRecord.createdAt,
-  } satisfies GroupHistoryKeyGrantPayload);
-
-  const wrappedEnvelopes = await Promise.all(
-    targetBundles.map(async (bundle) => {
-      const sessionRecord =
-        nextSessions[getDeviceSessionMapKey(bundle.userId, bundle.deviceId)] ??
-        (await establishInitiatorDeviceSession(currentUserId, ownMaterial, bundle));
-      setCurrentDeviceSessionRecord(nextSessions, sessionRecord);
-      return [
-        bundle.deviceId,
-        JSON.stringify(
-          await createDirectRecipientEnvelopeContent(
-            currentUserId,
-            ownMaterial,
-            sessionRecord,
-            serializedGrantPayload
-          )
-        ),
-      ] as const;
-    })
-  );
-
-  return Object.fromEntries(wrappedEnvelopes);
+  return buildGroupHistoryKeyAccessEnvelopesInternal({
+    currentUserId,
+    ownMaterial,
+    targetBundles,
+    nextSessions,
+    historyKeyRecord,
+    serializeGrantPayload: (record) =>
+      JSON.stringify({
+        aadVersion: GROUP_HISTORY_KEY_GRANT_AAD_VERSION,
+        chatId: record.chatId,
+        historyKeyId: record.historyKeyId,
+        historyKey: record.keyMaterial,
+        createdAt: record.createdAt,
+      } satisfies GroupHistoryKeyGrantPayload),
+    getDeviceSessionMapKey,
+    establishInitiatorDeviceSession,
+    setCurrentDeviceSessionRecord,
+    createDirectRecipientEnvelopeContent,
+  });
 }
 
 async function createGroupHistoryEnvelope(
