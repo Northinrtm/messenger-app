@@ -4,6 +4,7 @@ import com.north.messenger.api.dto.CreateMessageRequest;
 import com.north.messenger.api.dto.MessageResponse;
 import com.north.messenger.api.dto.MessageSendErrorResponse;
 import com.north.messenger.application.auth.PasswordPolicyViolationException;
+import com.north.messenger.application.message.MessageSendDiagnostics;
 import com.north.messenger.application.message.MessageService;
 import com.north.messenger.application.message.RealtimeMessagingGateway;
 import jakarta.validation.ConstraintViolation;
@@ -13,8 +14,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageMapping;
@@ -25,7 +24,6 @@ import org.springframework.web.server.ResponseStatusException;
 @Controller
 public class MessageWebSocketController {
 
-    private static final Logger log = LoggerFactory.getLogger(MessageWebSocketController.class);
     private static final String MESSAGE_ACK_DESTINATION = "/queue/message-acks";
     private static final String MESSAGE_ERROR_DESTINATION = "/queue/message-errors";
 
@@ -53,14 +51,33 @@ public class MessageWebSocketController {
             return;
         }
 
+        String clientMessageId = request != null ? request.clientMessageId() : null;
+        MessageSendDiagnostics.logIngress("websocket", chatId, principal.getName(), clientMessageId);
+
         List<String> validationErrors = validate(request);
         if (!validationErrors.isEmpty()) {
-            sendError(principal.getName(), new MessageSendErrorResponse(
+            List<String> diagnosticDetails = MessageSendDiagnostics.withServerStage(
+                    "controller.validation",
+                    validationErrors
+            );
+            MessageSendDiagnostics.logFailure(
+                    "websocket",
+                    "controller.validation",
                     chatId,
-                    request != null ? request.clientMessageId() : null,
+                    null,
+                    principal.getName(),
+                    clientMessageId,
                     HttpStatus.BAD_REQUEST.value(),
                     "Validation failed",
-                    validationErrors
+                    diagnosticDetails,
+                    null
+            );
+            sendError(principal.getName(), new MessageSendErrorResponse(
+                    chatId,
+                    clientMessageId,
+                    HttpStatus.BAD_REQUEST.value(),
+                    "Validation failed",
+                    diagnosticDetails
             ));
             return;
         }
@@ -69,45 +86,104 @@ public class MessageWebSocketController {
             MessageResponse response = messageService.sendMessage(chatId, principal.getName(), request);
             realtimeMessagingGateway.sendToUser(principal.getName(), MESSAGE_ACK_DESTINATION, response);
         } catch (ResponseStatusException exception) {
-            sendError(principal.getName(), new MessageSendErrorResponse(
+            List<String> diagnosticDetails = MessageSendDiagnostics.withServerStage(
+                    "service.rejected",
+                    List.of()
+            );
+            MessageSendDiagnostics.logFailure(
+                    "websocket",
+                    "service.rejected",
                     chatId,
-                    request.clientMessageId(),
+                    null,
+                    principal.getName(),
+                    clientMessageId,
                     exception.getStatusCode().value(),
                     exception.getReason() != null
                             ? exception.getReason()
                             : HttpStatus.valueOf(exception.getStatusCode().value()).getReasonPhrase(),
-                    List.of()
-            ));
-        } catch (PasswordPolicyViolationException exception) {
-            sendError(principal.getName(), new MessageSendErrorResponse(
-                    chatId,
-                    request.clientMessageId(),
-                    HttpStatus.BAD_REQUEST.value(),
-                    exception.getMessage(),
-                    exception.getDetails()
-            ));
-        } catch (IllegalArgumentException exception) {
-            sendError(principal.getName(), new MessageSendErrorResponse(
-                    chatId,
-                    request.clientMessageId(),
-                    HttpStatus.BAD_REQUEST.value(),
-                    exception.getMessage(),
-                    List.of()
-            ));
-        } catch (RuntimeException exception) {
-            log.error(
-                    "Unhandled websocket message send error user={} chatId={} clientMessageId={}",
-                    principal.getName(),
-                    chatId,
-                    request.clientMessageId(),
+                    diagnosticDetails,
                     exception
             );
             sendError(principal.getName(), new MessageSendErrorResponse(
                     chatId,
-                    request.clientMessageId(),
+                    clientMessageId,
+                    exception.getStatusCode().value(),
+                    exception.getReason() != null
+                            ? exception.getReason()
+                            : HttpStatus.valueOf(exception.getStatusCode().value()).getReasonPhrase(),
+                    diagnosticDetails
+            ));
+        } catch (PasswordPolicyViolationException exception) {
+            List<String> diagnosticDetails = MessageSendDiagnostics.withServerStage(
+                    "service.password_policy",
+                    exception.getDetails()
+            );
+            MessageSendDiagnostics.logFailure(
+                    "websocket",
+                    "service.password_policy",
+                    chatId,
+                    null,
+                    principal.getName(),
+                    clientMessageId,
+                    HttpStatus.BAD_REQUEST.value(),
+                    exception.getMessage(),
+                    diagnosticDetails,
+                    exception
+            );
+            sendError(principal.getName(), new MessageSendErrorResponse(
+                    chatId,
+                    clientMessageId,
+                    HttpStatus.BAD_REQUEST.value(),
+                    exception.getMessage(),
+                    diagnosticDetails
+            ));
+        } catch (IllegalArgumentException exception) {
+            List<String> diagnosticDetails = MessageSendDiagnostics.withServerStage(
+                    "service.bad_request",
+                    List.of()
+            );
+            MessageSendDiagnostics.logFailure(
+                    "websocket",
+                    "service.bad_request",
+                    chatId,
+                    null,
+                    principal.getName(),
+                    clientMessageId,
+                    HttpStatus.BAD_REQUEST.value(),
+                    exception.getMessage(),
+                    diagnosticDetails,
+                    exception
+            );
+            sendError(principal.getName(), new MessageSendErrorResponse(
+                    chatId,
+                    clientMessageId,
+                    HttpStatus.BAD_REQUEST.value(),
+                    exception.getMessage(),
+                    diagnosticDetails
+            ));
+        } catch (RuntimeException exception) {
+            List<String> diagnosticDetails = MessageSendDiagnostics.withServerStage(
+                    "service.unhandled",
+                    List.of(exception.getClass().getSimpleName())
+            );
+            MessageSendDiagnostics.logFailure(
+                    "websocket",
+                    "service.unhandled",
+                    chatId,
+                    null,
+                    principal.getName(),
+                    clientMessageId,
                     HttpStatus.INTERNAL_SERVER_ERROR.value(),
                     "Unexpected server error",
-                    List.of(exception.getClass().getSimpleName())
+                    diagnosticDetails,
+                    exception
+            );
+            sendError(principal.getName(), new MessageSendErrorResponse(
+                    chatId,
+                    clientMessageId,
+                    HttpStatus.INTERNAL_SERVER_ERROR.value(),
+                    "Unexpected server error",
+                    diagnosticDetails
             ));
         }
     }

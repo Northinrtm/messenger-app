@@ -84,6 +84,18 @@ class MessageDispatchService {
                     source
             );
             telemetry.recordMessageDispatchMissing(event.chatId(), event.messageId(), source);
+            MessageSendDiagnostics.logFailure(
+                    "outbox",
+                    "dispatch.missing_payload",
+                    event.chatId(),
+                    event.messageId(),
+                    null,
+                    event.clientMessageId(),
+                    null,
+                    "Committed message payload was missing during dispatch",
+                    List.of("source=" + source),
+                    null
+            );
             return;
         }
         if (event.mode() == MessageDispatchMode.ACK_ONLY) {
@@ -111,6 +123,18 @@ class MessageDispatchService {
             } else {
                 telemetry.recordMessageDispatchMissing(message.getChatId(), message.getId(), source);
             }
+            MessageSendDiagnostics.logFailure(
+                    "outbox",
+                    "dispatch.missing_sender_or_room",
+                    message.getChatId(),
+                    message.getId(),
+                    sender != null ? sender.getUsername() : null,
+                    senderClientMessageId,
+                    null,
+                    "Sender or chat room was unavailable during dispatch",
+                    List.of("source=" + source),
+                    null
+            );
             return;
         }
 
@@ -175,6 +199,18 @@ class MessageDispatchService {
             chatService.notifyChatUpdated(message.getChatId());
         } catch (RuntimeException exception) {
             telemetry.recordMessageDispatch(telemetrySample, room, participantCount, source, "error", message.getChatId(), message.getId());
+            MessageSendDiagnostics.logFailure(
+                    "outbox",
+                    "dispatch.broadcast",
+                    message.getChatId(),
+                    message.getId(),
+                    sender.getUsername(),
+                    senderClientMessageId,
+                    null,
+                    exception.getMessage(),
+                    List.of("source=" + source, exception.getClass().getSimpleName()),
+                    exception
+            );
             throw exception;
         }
     }
@@ -197,6 +233,18 @@ class MessageDispatchService {
             } else {
                 telemetry.recordMessageDispatchMissing(message.getChatId(), message.getId(), source);
             }
+            MessageSendDiagnostics.logFailure(
+                    "outbox",
+                    "dispatch.ack_only_missing_sender_or_room",
+                    message.getChatId(),
+                    message.getId(),
+                    sender != null ? sender.getUsername() : null,
+                    senderClientMessageId,
+                    null,
+                    "Sender or chat room was unavailable during ack-only dispatch",
+                    List.of("source=" + source),
+                    null
+            );
             return;
         }
 
@@ -236,8 +284,29 @@ class MessageDispatchService {
             );
             realtimeMessagingGateway.sendToUser(sender.getUsername(), MESSAGE_ACK_DESTINATION, response);
             telemetry.recordMessageDispatch(telemetrySample, room, participantCount, source, "acked", message.getChatId(), message.getId());
+            MessageSendDiagnostics.logOutcome(
+                    "outbox",
+                    "dispatch.ack_only_sent",
+                    "acked",
+                    message.getChatId(),
+                    message.getId(),
+                    sender.getUsername(),
+                    senderClientMessageId
+            );
         } catch (RuntimeException exception) {
             telemetry.recordMessageDispatch(telemetrySample, room, participantCount, source, "error", message.getChatId(), message.getId());
+            MessageSendDiagnostics.logFailure(
+                    "outbox",
+                    "dispatch.ack_only",
+                    message.getChatId(),
+                    message.getId(),
+                    sender.getUsername(),
+                    senderClientMessageId,
+                    null,
+                    exception.getMessage(),
+                    List.of("source=" + source, exception.getClass().getSimpleName()),
+                    exception
+            );
             throw exception;
         }
     }

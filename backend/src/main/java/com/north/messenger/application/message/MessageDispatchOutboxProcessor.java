@@ -87,6 +87,23 @@ class MessageDispatchOutboxProcessor {
                     entry.getMessageId(),
                     exception
             );
+            MessageSendDiagnostics.logFailure(
+                    "outbox",
+                    "dispatch.retry_scheduled",
+                    entry.getChatId(),
+                    entry.getMessageId(),
+                    null,
+                    entry.getClientMessageId(),
+                    null,
+                    exception.getMessage(),
+                    List.of(
+                            "entryId=" + entry.getId(),
+                            "dispatchMode=" + entry.getDispatchMode(),
+                            "attempt=" + entry.getAttemptCount(),
+                            "nextAvailableAt=" + nextAttemptAt
+                    ),
+                    exception
+            );
         }
         messageDispatchOutboxRepository.save(entry);
     }

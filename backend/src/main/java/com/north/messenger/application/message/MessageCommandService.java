@@ -116,6 +116,15 @@ class MessageCommandService {
                     chatId,
                     clientMessageId
             );
+            MessageSendDiagnostics.logOutcome(
+                    "server",
+                    "command.deduplicated",
+                    "existing_message",
+                    chatId,
+                    existingMessage != null ? existingMessage.getId() : existingResponse.id(),
+                    username,
+                    clientMessageId
+            );
             return existingResponse;
         }
 
@@ -250,6 +259,15 @@ class MessageCommandService {
                         chatId,
                         clientMessageId
                 );
+                MessageSendDiagnostics.logOutcome(
+                        "server",
+                        "command.deduplicated_race",
+                        "existing_message",
+                        chatId,
+                        existingMessage != null ? existingMessage.getId() : deduplicatedResponse.id(),
+                        username,
+                        clientMessageId
+                );
                 return deduplicatedResponse;
             }
 
@@ -261,6 +279,18 @@ class MessageCommandService {
                     chatId,
                     clientMessageId
             );
+            MessageSendDiagnostics.logFailure(
+                    "server",
+                    "command.persist",
+                    chatId,
+                    null,
+                    username,
+                    clientMessageId,
+                    null,
+                    exception.getMessage(),
+                    List.of(exception.getClass().getSimpleName()),
+                    exception
+            );
             throw exception;
         } catch (RuntimeException exception) {
             telemetry.recordMessageSend(
@@ -271,6 +301,35 @@ class MessageCommandService {
                     chatId,
                     clientMessageId
             );
+            if (exception instanceof ResponseStatusException responseStatusException) {
+                MessageSendDiagnostics.logFailure(
+                        "server",
+                        "command.rejected",
+                        chatId,
+                        null,
+                        username,
+                        clientMessageId,
+                        responseStatusException.getStatusCode().value(),
+                        responseStatusException.getReason() != null
+                                ? responseStatusException.getReason()
+                                : HttpStatus.valueOf(responseStatusException.getStatusCode().value()).getReasonPhrase(),
+                        List.of(exception.getClass().getSimpleName()),
+                        responseStatusException
+                );
+            } else {
+                MessageSendDiagnostics.logFailure(
+                        "server",
+                        "command.unhandled",
+                        chatId,
+                        null,
+                        username,
+                        clientMessageId,
+                        null,
+                        exception.getMessage(),
+                        List.of(exception.getClass().getSimpleName()),
+                        exception
+                );
+            }
             throw exception;
         }
     }

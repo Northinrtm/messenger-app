@@ -15,6 +15,8 @@ import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -100,7 +102,39 @@ class MessageWebSocketControllerTest {
                         error instanceof com.north.messenger.api.dto.MessageSendErrorResponse response &&
                                 response.chatId().equals(chatId) &&
                                 response.clientMessageId().equals(" ") &&
-                                response.status() == 400
+                                response.status() == 400 &&
+                                response.details().contains("serverStage=controller.validation")
+                )
+        );
+    }
+
+    @Test
+    void shouldIncludeServerStageWhenServiceRejectsWebsocketSend() {
+        UUID chatId = UUID.randomUUID();
+        CreateMessageRequest request = new CreateMessageRequest(
+                "client-message-id",
+                null,
+                new EncryptedMessagePayloadRequest(
+                        "X3DH-DEVICE-AES-GCM",
+                        Map.of("device-id", "{\"ciphertext\":\"payload\"}")
+                )
+        );
+        Principal principal = () -> "north";
+
+        when(messageService.sendMessage(chatId, "north", request))
+                .thenThrow(new ResponseStatusException(HttpStatus.CONFLICT, "Encrypted chat is still initializing on this device. Try again."));
+
+        controller.sendMessage(principal, chatId, request);
+
+        verify(realtimeMessagingGateway).sendToUser(
+                eq("north"),
+                eq("/queue/message-errors"),
+                argThat(error ->
+                        error instanceof com.north.messenger.api.dto.MessageSendErrorResponse response &&
+                                response.chatId().equals(chatId) &&
+                                response.clientMessageId().equals("client-message-id") &&
+                                response.status() == 409 &&
+                                response.details().contains("serverStage=service.rejected")
                 )
         );
     }
