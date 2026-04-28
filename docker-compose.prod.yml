@@ -239,10 +239,10 @@ services:
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.75
-    mem_limit: 512m
+    mem_limit: 768m
     environment:
       SPRING_PROFILES_ACTIVE: prod,json-logs
-      JAVA_TOOL_OPTIONS: "${JAVA_TOOL_OPTIONS:--XX:InitialRAMPercentage=15 -XX:MaxRAMPercentage=42 -XX:MaxMetaspaceSize=160m -XX:ReservedCodeCacheSize=32m -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError}"
+      JAVA_TOOL_OPTIONS: "${JAVA_TOOL_OPTIONS:--XX:InitialRAMPercentage=15 -XX:MaxRAMPercentage=52 -XX:MaxMetaspaceSize=160m -XX:ReservedCodeCacheSize=32m -XX:+UseSerialGC -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/messenger-backend-oom.hprof -Xlog:gc*:file=/tmp/messenger-backend-gc.log:time,level,tags:filecount=5,filesize=10M -XX:+ExitOnOutOfMemoryError}"
       SERVER_PORT: 8080
       DB_URL: ${DB_URL:-jdbc:postgresql://postgres:5432/messenger}
       DB_USERNAME: ${DB_USERNAME:-messenger}
