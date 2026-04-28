@@ -48,14 +48,14 @@ public class WebSocketOutboundSecurityInterceptor implements ChannelInterceptor 
 
         String webSocketSessionId = accessor.getSessionId();
         if (webSocketSessionId == null || webSocketSessionId.isBlank()) {
-            log.warn("Dropping websocket outbound topic event without session destination={}", destination);
+            log.debug("Dropping websocket outbound topic event without session destination={}", destination);
             return null;
         }
 
         Optional<AuthenticatedWebSocketSessionRegistry.RegisteredWebSocketSession> registeredSession =
                 webSocketSessionRegistry.findByWebSocketSessionId(webSocketSessionId);
         if (registeredSession.isEmpty()) {
-            log.warn(
+            log.debug(
                     "Dropping websocket outbound topic event without registered session destination={} webSocketSessionId={}",
                     destination,
                     webSocketSessionId

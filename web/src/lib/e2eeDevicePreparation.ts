@@ -50,11 +50,13 @@ type DeviceBundlePreparationDependencies = {
 
 export type PrimeDeviceBundlesOptions = DeviceBundlePreparationDependencies & {
   userIds: string[];
+  forceRefresh?: boolean;
 };
 
 export type ResolveConversationDeviceBundlesOptions =
   DeviceBundlePreparationDependencies & {
   participants: Participant[];
+  forceRefresh?: boolean;
 };
 
 export type PrepareSendConversationDeviceBundlesOptions<
@@ -71,7 +73,8 @@ export type PrepareSendConversationDeviceBundlesOptions<
   listPreparedOwnSiblingDeviceBundles: (
     token: string,
     currentUserId: string,
-    currentDeviceId: string
+    currentDeviceId: string,
+    forceRefresh?: boolean
   ) => Promise<PreparedConversationDeviceState | null>;
   bootstrapDeviceSessions: (
     token: string,
@@ -83,6 +86,7 @@ export type PrepareSendConversationDeviceBundlesOptions<
     preparedState: PreparedConversationDeviceState
   ) => void;
   encryptionIdentityChangedMessage: string;
+  forceRefresh?: boolean;
 };
 
 export function buildDevicePreparationKey(
@@ -127,8 +131,9 @@ export async function primeDeviceBundles(
       options.currentUserId,
       uniqueUserIds
     );
-    const cachedManifestState =
-      options.readPreparedDeviceManifestState(manifestPreparationKey);
+    const cachedManifestState = options.forceRefresh
+      ? null
+      : options.readPreparedDeviceManifestState(manifestPreparationKey);
     const knownDevices: KnownEncryptionDeviceManifestEntry[] | undefined =
       cachedManifestState
         ? cachedManifestState.rawBundles
@@ -218,6 +223,7 @@ export async function resolveConversationDeviceBundles(
     resolveEncryptionDeviceManifest: options.resolveEncryptionDeviceManifest,
     resolveEncryptionDeviceBundles: options.resolveEncryptionDeviceBundles,
     validateAndPinDeviceBundle: options.validateAndPinDeviceBundle,
+    forceRefresh: options.forceRefresh,
   });
   return buildConversationDeviceBundleResolution(
     options.participants,
@@ -232,6 +238,7 @@ export async function prepareSendConversationDeviceBundles<
 >(
   options: PrepareSendConversationDeviceBundlesOptions<OwnMaterial>
 ): Promise<ConversationDeviceBundleResolution> {
+  const forceRefresh = options.forceRefresh === true;
   const remoteParticipantIds = options.participants
     .map((participant) => participant.id)
     .filter((participantId) => participantId !== options.currentUserId);
@@ -239,9 +246,53 @@ export async function prepareSendConversationDeviceBundles<
     options.currentUserId,
     remoteParticipantIds
   );
-  const cachedPreparedState =
-    options.readPreparedConversationDeviceState(preparationKey);
+  const cachedPreparedState = forceRefresh
+    ? null
+    : options.readPreparedConversationDeviceState(preparationKey);
   if (cachedPreparedState) {
+    const ownMaterial = await options.readEncryptionDeviceMaterial(
+      options.currentUserId
+    );
+    if (
+      ownMaterial?.deviceId &&
+      cachedPreparedState.rawBundles.some(
+        (bundle) => bundle.userId === options.currentUserId
+      )
+    ) {
+      const preparedOwnDeviceBundles =
+        await options.listPreparedOwnSiblingDeviceBundles(
+          options.token,
+          options.currentUserId,
+          ownMaterial.deviceId,
+          true
+        );
+      if (preparedOwnDeviceBundles) {
+        const refreshedPreparedState = {
+          rawBundles: mergePreparedConversationDeviceBundles(
+            cachedPreparedState.rawBundles.filter(
+              (bundle) => bundle.userId !== options.currentUserId
+            ),
+            preparedOwnDeviceBundles.rawBundles
+          ),
+          trustedBundles: mergePreparedConversationDeviceBundles(
+            cachedPreparedState.trustedBundles.filter(
+              (bundle) => bundle.userId !== options.currentUserId
+            ),
+            preparedOwnDeviceBundles.trustedBundles
+          ),
+        } satisfies PreparedConversationDeviceState;
+        options.rememberPreparedConversationDeviceState(
+          preparationKey,
+          refreshedPreparedState
+        );
+        return buildConversationDeviceBundleResolution(
+          options.participants,
+          refreshedPreparedState.rawBundles,
+          refreshedPreparedState.trustedBundles,
+          options.currentUserId
+        );
+      }
+    }
     return buildConversationDeviceBundleResolution(
       options.participants,
       cachedPreparedState.rawBundles,
@@ -250,8 +301,9 @@ export async function prepareSendConversationDeviceBundles<
     );
   }
 
-  const inFlightPreparation =
-    options.inFlightDevicePreparation.get(preparationKey);
+  const inFlightPreparation = forceRefresh
+    ? null
+    : options.inFlightDevicePreparation.get(preparationKey);
   if (inFlightPreparation) {
     await inFlightPreparation.catch(() => undefined);
     const preparedStateAfterWait =
@@ -288,16 +340,18 @@ export async function prepareSendConversationDeviceBundles<
               options.readPreparedDeviceManifestState,
             rememberPreparedDeviceManifestState:
               options.rememberPreparedDeviceManifestState,
-            resolveEncryptionDeviceManifest:
+          resolveEncryptionDeviceManifest:
               options.resolveEncryptionDeviceManifest,
             resolveEncryptionDeviceBundles:
               options.resolveEncryptionDeviceBundles,
             validateAndPinDeviceBundle: options.validateAndPinDeviceBundle,
+            forceRefresh,
           }),
           options.listPreparedOwnSiblingDeviceBundles(
             options.token,
             options.currentUserId,
-            ownMaterial.deviceId
+            ownMaterial.deviceId,
+            forceRefresh
           ),
         ]);
 
@@ -330,6 +384,7 @@ export async function prepareSendConversationDeviceBundles<
           resolveEncryptionDeviceBundles:
             options.resolveEncryptionDeviceBundles,
           validateAndPinDeviceBundle: options.validateAndPinDeviceBundle,
+          forceRefresh,
         });
       }
     } else {
@@ -344,6 +399,7 @@ export async function prepareSendConversationDeviceBundles<
         resolveEncryptionDeviceManifest: options.resolveEncryptionDeviceManifest,
         resolveEncryptionDeviceBundles: options.resolveEncryptionDeviceBundles,
         validateAndPinDeviceBundle: options.validateAndPinDeviceBundle,
+        forceRefresh,
       });
     }
 

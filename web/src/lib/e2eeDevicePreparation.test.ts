@@ -164,4 +164,109 @@ describe("e2eeDevicePreparation", () => {
       })
     ).rejects.toBeInstanceOf(ApiError);
   });
+
+  it("refreshes own sibling bundles before reusing cached prepared state", async () => {
+    const participants: Participant[] = [
+      {
+        id: "self",
+        username: "self",
+        displayName: "Self",
+        profession: null,
+        avatarUrl: null,
+        online: true,
+      },
+      {
+        id: "peer",
+        username: "peer",
+        displayName: "Peer",
+        profession: null,
+        avatarUrl: null,
+        online: true,
+      },
+    ];
+    const peerBundle = bundle("peer", "peer-device");
+    const staleSiblingBundle = bundle("self", "self-stale");
+    const freshSiblingBundle = bundle("self", "self-fresh");
+    const listPreparedOwnSiblingDeviceBundles = vi.fn(async () => ({
+      rawBundles: [freshSiblingBundle],
+      trustedBundles: [freshSiblingBundle],
+    }));
+    const rememberPreparedConversationDeviceState = vi.fn();
+
+    const result = await prepareSendConversationDeviceBundles({
+      token: "token",
+      currentUserId: "self",
+      participants,
+      inFlightDevicePreparation: new Map<string, Promise<void>>(),
+      readPreparedConversationDeviceState: vi.fn(() => ({
+        rawBundles: [peerBundle, staleSiblingBundle],
+        trustedBundles: [peerBundle, staleSiblingBundle],
+      })),
+      readPreparedDeviceManifestState: vi.fn(() => null),
+      rememberPreparedConversationDeviceState,
+      rememberPreparedDeviceManifestState: vi.fn(),
+      readEncryptionDeviceMaterial: vi.fn(async () => ({
+        deviceId: "self-phone",
+      })),
+      listPreparedOwnSiblingDeviceBundles,
+      bootstrapDeviceSessions: vi.fn(async () => true),
+      resolveEncryptionDeviceManifest: vi.fn(async () => ({
+        version: "manifest-v1",
+        fullSync: true,
+        bundles: [peerBundle],
+        removedDeviceIds: [],
+      })),
+      resolveEncryptionDeviceBundles: vi.fn(async () => []),
+      validateAndPinDeviceBundle: vi.fn(async () => true),
+      encryptionIdentityChangedMessage: "identity changed",
+    });
+
+    expect(listPreparedOwnSiblingDeviceBundles).toHaveBeenCalledWith(
+      "token",
+      "self",
+      "self-phone",
+      true
+    );
+    expect(result.rawBundles.map((candidate) => candidate.deviceId)).toEqual([
+      "peer-device",
+      "self-fresh",
+    ]);
+    expect(rememberPreparedConversationDeviceState).toHaveBeenCalled();
+  });
+
+  it("bypasses cached manifest state when forceRefresh is requested", async () => {
+    const peerBundle = bundle("peer", "peer-device");
+    const resolveEncryptionDeviceManifest = vi.fn(async () => ({
+      version: "manifest-v2",
+      fullSync: true,
+      bundles: [peerBundle],
+      removedDeviceIds: [],
+    }));
+
+    const result = await primeDeviceBundles({
+      token: "token",
+      userIds: ["peer"],
+      requesterDeviceId: "self-device",
+      currentUserId: "self",
+      forceRefresh: true,
+      readPreparedDeviceManifestState: vi.fn(() => ({
+        version: "manifest-v1",
+        rawBundles: [bundle("peer", "stale-device", "stale")],
+      })),
+      rememberPreparedDeviceManifestState: vi.fn(),
+      resolveEncryptionDeviceManifest,
+      resolveEncryptionDeviceBundles: vi.fn(async () => []),
+      validateAndPinDeviceBundle: vi.fn(async () => true),
+    });
+
+    expect(resolveEncryptionDeviceManifest).toHaveBeenCalledWith(
+      "token",
+      ["peer"],
+      {
+        knownVersion: undefined,
+        knownDevices: undefined,
+      }
+    );
+    expect(result.rawBundles).toEqual([peerBundle]);
+  });
 });

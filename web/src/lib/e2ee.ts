@@ -38,7 +38,10 @@ import {
   isResettableEncryptionRecoveryError,
   isUnavailableEncryptedMessage,
 } from "./e2eeShared";
-import { getRecoverableEncryptedEnvelopeErrorMode } from "./e2eeRecoveryPolicy";
+import {
+  getRecoverableEncryptedEnvelopeErrorMode,
+  shouldForceRefreshPreparedRecipientsForError,
+} from "./e2eeRecoveryPolicy";
 import {
   buildConversationDeviceBundleResolution,
   getDeviceBundleMapKey,
@@ -886,7 +889,8 @@ async function resolveConversationDeviceBundles(
 async function prepareSendConversationDeviceBundles(
   token: string,
   currentUserId: string,
-  participants: Participant[]
+  participants: Participant[],
+  forceRefresh = false
 ) {
   return prepareSendConversationDeviceBundlesInternal({
     token,
@@ -904,6 +908,7 @@ async function prepareSendConversationDeviceBundles(
     resolveEncryptionDeviceBundles,
     validateAndPinDeviceBundle,
     encryptionIdentityChangedMessage: ENCRYPTION_IDENTITY_CHANGED_MESSAGE,
+    forceRefresh,
   });
 }
 
@@ -1910,10 +1915,12 @@ export async function sendEncryptedMessage(
     recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:recoverableRetryRecovered", {
       mode: recoverableRetryMode,
     });
+    const forceRefresh = shouldForceRefreshPreparedRecipientsForError(error);
     const retriedConversationBundles = await prepareSendConversationDeviceBundles(
       token,
       currentUserId,
-      participants
+      participants,
+      forceRefresh
     );
     return dispatchMessage(retriedConversationBundles);
   }
@@ -2010,10 +2017,12 @@ export async function updateEncryptedMessage(
       options?.session,
       recoverableRetryMode
     );
+    const forceRefresh = shouldForceRefreshPreparedRecipientsForError(error);
     const retriedConversationBundles = await prepareSendConversationDeviceBundles(
       token,
       currentUserId,
-      participants
+      participants,
+      forceRefresh
     );
     return dispatchUpdate(retriedConversationBundles);
   }

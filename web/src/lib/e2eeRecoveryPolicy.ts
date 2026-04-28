@@ -26,6 +26,11 @@ const RECOVERABLE_DEVICE_ERROR_MESSAGES = new Set([
   "Encrypted device envelope sender identity does not match the registered device",
 ]);
 
+const FORCE_REFRESH_PREPARED_RECIPIENT_MESSAGES = new Set([
+  "Encrypted payload contains unknown recipient devices",
+  "Group history key access contains unknown recipient devices",
+]);
+
 export function getRecoverableEncryptedEnvelopeErrorMode(
   error: unknown
 ): EncryptedEnvelopeRecoveryMode | null {
@@ -38,4 +43,12 @@ export function getRecoverableEncryptedEnvelopeErrorMode(
   }
 
   return RECOVERABLE_DEVICE_ERROR_MESSAGES.has(error.message) ? "device" : null;
+}
+
+export function shouldForceRefreshPreparedRecipientsForError(error: unknown) {
+  return (
+    error instanceof ApiError &&
+    error.status === 400 &&
+    FORCE_REFRESH_PREPARED_RECIPIENT_MESSAGES.has(error.message)
+  );
 }
