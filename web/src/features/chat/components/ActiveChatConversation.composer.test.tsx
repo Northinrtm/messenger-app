@@ -388,4 +388,43 @@ describe("ActiveChatConversation composer", () => {
     expect(forwardSpy).not.toHaveBeenCalled();
     expect(deleteForEveryoneSpy).not.toHaveBeenCalled();
   });
+
+  it("shows only delete-for-everyone action for selected messages in group chats", async () => {
+    const deleteForSelfSpy = vi.fn();
+    const deleteForEveryoneSpy = vi.fn();
+
+    await act(async () => {
+      root!.render(
+        <ActiveChatConversation
+          {...conversationProps({
+            activeChat: chatSummary({ direct: false, title: "Group" }),
+            isSelectingMessages: true,
+            selectedMessageCount: 1,
+            selectedMessageIdSet: new Set(["message-1"]),
+            canDeleteSelectedMessagesForEveryone: true,
+            isDeleteSelectedMessagesDialogOpen: true,
+            onDeleteSelectedMessagesForSelf: deleteForSelfSpy,
+            onDeleteSelectedMessagesForEveryone: deleteForEveryoneSpy,
+          })}
+        />
+      );
+      await Promise.resolve();
+    });
+
+    const deleteOptions = Array.from(
+      container.querySelectorAll(".message-selection-dialog-option")
+    ) as HTMLButtonElement[];
+
+    expect(deleteOptions).toHaveLength(1);
+    expect(deleteOptions[0]?.textContent).toContain("Удалить для всех");
+    expect(container.textContent).not.toContain("Удалить у себя");
+
+    await act(async () => {
+      deleteOptions[0]?.click();
+      await Promise.resolve();
+    });
+
+    expect(deleteForEveryoneSpy).toHaveBeenCalledTimes(1);
+    expect(deleteForSelfSpy).not.toHaveBeenCalled();
+  });
 });

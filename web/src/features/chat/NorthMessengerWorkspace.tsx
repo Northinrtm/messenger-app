@@ -1057,7 +1057,7 @@ export function NorthMessengerWorkspace({
       : null;
   const activePinnedMessage = hydratedPinnedMessage ?? activeChat?.pinnedMessage ?? null;
   const forwardableChats = visibleChats.filter((chat) => chat.id !== activeChat?.id);
-  const canDeleteContextMenuMessageForSelf = Boolean(contextMenuMessage);
+  const canDeleteContextMenuMessageForSelf = Boolean(contextMenuMessage && activeChat?.direct);
   const canDeleteContextMenuMessageForEveryone = Boolean(
     contextMenuMessage &&
       contextMenuMessage.id !== contextMenuMessage.clientMessageId &&
@@ -1494,7 +1494,7 @@ export function NorthMessengerWorkspace({
   });
 
   const confirmDeleteSelectedMessagesForSelf = useEffectEvent(() => {
-    if (!activeChat || selectedMessages.length === 0) {
+    if (!activeChat || !activeChat.direct || selectedMessages.length === 0) {
       return;
     }
 

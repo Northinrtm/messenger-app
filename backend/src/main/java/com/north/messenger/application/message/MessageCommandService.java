@@ -315,6 +315,12 @@ class MessageCommandService {
 
         MessageSupport.DeleteScope scope = messageSupport.parseDeleteScope(rawScope);
         if (scope == MessageSupport.DeleteScope.SELF) {
+            if (!room.isDirect()) {
+                throw new ResponseStatusException(
+                        HttpStatus.FORBIDDEN,
+                        "Delete for self is not available in group chats"
+                );
+            }
             Set<UUID> existingDeletedMessageIds = userDeletedMessageRepository
                     .findAllByUserIdAndMessageIdIn(currentUser.getId(), orderedMessageIds)
                     .stream()

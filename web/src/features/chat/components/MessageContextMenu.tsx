@@ -144,7 +144,7 @@ export function MessageContextMenu({
               role="menuitem"
               onClick={() => onReply(contextMenuMessage)}
             >
-              <span className="context-menu-item-icon">↩</span>
+              <span className="context-menu-item-icon">в†©</span>
               <span className="context-menu-item-copy">
                 <span className="context-menu-item-label">{MENU_COPY.replyLabel}</span>
                 <span className="context-menu-item-hint">{MENU_COPY.replyHint}</span>
@@ -157,7 +157,7 @@ export function MessageContextMenu({
                 role="menuitem"
                 onClick={() => onEdit(contextMenuMessage)}
               >
-                <span className="context-menu-item-icon">✎</span>
+                <span className="context-menu-item-icon">вњЋ</span>
                 <span className="context-menu-item-copy">
                   <span className="context-menu-item-label">{MENU_COPY.editLabel}</span>
                   <span className="context-menu-item-hint">{MENU_COPY.editHint}</span>
@@ -171,7 +171,7 @@ export function MessageContextMenu({
                 role="menuitem"
                 onClick={() => onForward(contextMenuMessage)}
               >
-                <span className="context-menu-item-icon">⇢</span>
+                <span className="context-menu-item-icon">в‡ў</span>
                 <span className="context-menu-item-copy">
                   <span className="context-menu-item-label">{MENU_COPY.forwardLabel}</span>
                   <span className="context-menu-item-hint">{MENU_COPY.forwardHint}</span>
@@ -184,7 +184,7 @@ export function MessageContextMenu({
               role="menuitem"
               onClick={() => onSelect(contextMenuMessage)}
             >
-              <span className="context-menu-item-icon">◉</span>
+              <span className="context-menu-item-icon">в—‰</span>
               <span className="context-menu-item-copy">
                 <span className="context-menu-item-label">{MENU_COPY.selectLabel}</span>
                 <span className="context-menu-item-hint">{MENU_COPY.selectHint}</span>
@@ -197,7 +197,7 @@ export function MessageContextMenu({
                 role="menuitem"
                 onClick={() => onTogglePinned(contextMenuMessage)}
               >
-                <span className="context-menu-item-icon">📌</span>
+                <span className="context-menu-item-icon">рџ“Њ</span>
                 <span className="context-menu-item-copy">
                   <span className="context-menu-item-label">
                     {isPinnedContextMenuMessage ? MENU_COPY.unpinLabel : MENU_COPY.pinLabel}
@@ -214,25 +214,26 @@ export function MessageContextMenu({
               role="menuitem"
               onClick={() => onCopy(contextMenuMessage)}
             >
-              <span className="context-menu-item-icon">⧉</span>
+              <span className="context-menu-item-icon">в§‰</span>
               <span className="context-menu-item-copy">
                 <span className="context-menu-item-label">{MENU_COPY.copyLabel}</span>
                 <span className="context-menu-item-hint">{MENU_COPY.copyHint}</span>
               </span>
             </button>
-            <button
-              type="button"
-              className="context-menu-item is-danger"
-              role="menuitem"
-              onClick={() => onDeleteForSelf(contextMenu.chatId, contextMenu.messageId)}
-              disabled={!canDeleteContextMenuMessageForSelf}
-            >
-              <span className="context-menu-item-icon">🗑</span>
-              <span className="context-menu-item-copy">
-                <span className="context-menu-item-label">{MENU_COPY.deleteForSelfLabel}</span>
-                <span className="context-menu-item-hint">{MENU_COPY.deleteForSelfHint}</span>
-              </span>
-            </button>
+            {canDeleteContextMenuMessageForSelf ? (
+              <button
+                type="button"
+                className="context-menu-item is-danger"
+                role="menuitem"
+                onClick={() => onDeleteForSelf(contextMenu.chatId, contextMenu.messageId)}
+              >
+                <span className="context-menu-item-icon">рџ—‘</span>
+                <span className="context-menu-item-copy">
+                  <span className="context-menu-item-label">{MENU_COPY.deleteForSelfLabel}</span>
+                  <span className="context-menu-item-hint">{MENU_COPY.deleteForSelfHint}</span>
+                </span>
+              </button>
+            ) : null}
             <button
               type="button"
               className="context-menu-item is-danger"
@@ -240,7 +241,7 @@ export function MessageContextMenu({
               onClick={() => onDeleteForEveryone(contextMenu.chatId, contextMenu.messageId)}
               disabled={!canDeleteContextMenuMessageForEveryone}
             >
-              <span className="context-menu-item-icon">🗑</span>
+              <span className="context-menu-item-icon">рџ—‘</span>
               <span className="context-menu-item-copy">
                 <span className="context-menu-item-label">{deleteForEveryoneLabel}</span>
                 <span className="context-menu-item-hint">
@@ -258,7 +259,7 @@ export function MessageContextMenu({
             role="menuitem"
             onClick={() => onDeleteChatForSelf(contextMenu.chatId)}
           >
-            <span className="context-menu-item-icon">🗑</span>
+            <span className="context-menu-item-icon">рџ—‘</span>
             <span className="context-menu-item-copy">
               <span className="context-menu-item-label">{MENU_COPY.deleteChatForSelfLabel}</span>
               <span className="context-menu-item-hint">{MENU_COPY.deleteChatForSelfHint}</span>

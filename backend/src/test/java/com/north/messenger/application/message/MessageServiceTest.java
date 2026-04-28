@@ -2207,6 +2207,30 @@ class MessageServiceTest {
                 .allSatisfy(usernames -> assertThat(usernames).containsExactly("north"));
     }
 
+    @Test
+    void deleteMessagesShouldRejectDeleteForSelfInGroupChats() {
+        UUID chatId = UUID.randomUUID();
+        UUID messageId = UUID.randomUUID();
+        UserAccount currentUser = user("north");
+        ChatRoom room = new ChatRoom(chatId, "Group", false, Instant.parse("2026-03-24T11:00:00Z"));
+        ChatMessage message = new ChatMessage(
+                messageId,
+                chatId,
+                currentUser.getId(),
+                "ciphertext-1",
+                Instant.parse("2026-03-24T12:00:00Z")
+        );
+        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
+        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(room);
+        when(chatMessageRepository.findAllById(List.of(messageId))).thenReturn(List.of(message));
+
+        assertThatThrownBy(() -> messageService.deleteMessages(chatId, List.of(messageId), "north", "SELF"))
+                .hasMessageContaining("Delete for self is not available in group chats");
+
+        verify(userDeletedMessageRepository, never()).saveAll(any());
+        verify(chatMessageRepository, never()).deleteAll(any());
+    }
+
     private UserAccount user(String username) {
         return testUserAccount(
                 UUID.randomUUID(),

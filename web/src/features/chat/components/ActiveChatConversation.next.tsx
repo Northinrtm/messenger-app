@@ -58,6 +58,10 @@ const MESSAGE_SELECTION_COPY = {
     "\u0421\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F \u0438\u0441\u0447\u0435\u0437\u043D\u0443\u0442 \u0443 \u0432\u0441\u0435\u0445 \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A\u043E\u0432 \u0447\u0430\u0442\u0430.",
   dialogDeleteForEveryoneDisabled:
     "\u0414\u043B\u044F \u0432\u0441\u0435\u0445 \u043C\u043E\u0436\u043D\u043E \u0443\u0434\u0430\u043B\u0438\u0442\u044C \u0442\u043E\u043B\u044C\u043A\u043E \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u044D\u0442\u043E \u043F\u043E\u0437\u0432\u043E\u043B\u044F\u044E\u0442.",
+  dialogDeleteForEveryoneOnlySingle:
+    "\u041F\u043E\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u0435 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F \u0434\u043B\u044F \u0432\u0441\u0435\u0445 \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A\u043E\u0432.",
+  dialogDeleteForEveryoneOnlyManyPrefix:
+    "\u041F\u043E\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u0435 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0439 \u0434\u043B\u044F \u0432\u0441\u0435\u0445 \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A\u043E\u0432",
   dialogCancel: "\u041E\u0442\u043C\u0435\u043D\u0430",
   selectMessage: "\u0412\u044B\u0434\u0435\u043B\u0438\u0442\u044C \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435",
   deselectMessage:
@@ -200,6 +204,7 @@ export function ActiveChatConversation({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const uploadAbortControllerRef = useRef<AbortController | null>(null);
   const composerUnavailable = isDirectChatBlocked || Boolean(encryptionIdentityWarning);
+  const allowDeleteSelectedMessagesForSelf = activeChat.direct;
 
   useEffect(() => {
     setComposerValue(activeDraft);
@@ -708,20 +713,26 @@ export function ActiveChatConversation({
             <div className="message-selection-dialog-copy">
               <strong id="delete-selected-messages-title">{MESSAGE_SELECTION_COPY.dialogTitle}</strong>
               <span>
-                {selectedMessageCount === 1
-                  ? MESSAGE_SELECTION_COPY.dialogPromptSingle
-                  : `${MESSAGE_SELECTION_COPY.dialogPromptManyPrefix} (${selectedMessageCount}).`}
+                {allowDeleteSelectedMessagesForSelf
+                  ? selectedMessageCount === 1
+                    ? MESSAGE_SELECTION_COPY.dialogPromptSingle
+                    : `${MESSAGE_SELECTION_COPY.dialogPromptManyPrefix} (${selectedMessageCount}).`
+                  : selectedMessageCount === 1
+                    ? MESSAGE_SELECTION_COPY.dialogDeleteForEveryoneOnlySingle
+                    : `${MESSAGE_SELECTION_COPY.dialogDeleteForEveryoneOnlyManyPrefix} (${selectedMessageCount}).`}
               </span>
             </div>
             <div className="message-selection-dialog-actions">
-              <button
-                type="button"
-                className="message-selection-dialog-option"
-                onClick={onDeleteSelectedMessagesForSelf}
-              >
-                <strong>{MESSAGE_SELECTION_COPY.dialogDeleteForSelf}</strong>
-                <span>{MESSAGE_SELECTION_COPY.dialogDeleteForSelfHint}</span>
-              </button>
+              {allowDeleteSelectedMessagesForSelf ? (
+                <button
+                  type="button"
+                  className="message-selection-dialog-option"
+                  onClick={onDeleteSelectedMessagesForSelf}
+                >
+                  <strong>{MESSAGE_SELECTION_COPY.dialogDeleteForSelf}</strong>
+                  <span>{MESSAGE_SELECTION_COPY.dialogDeleteForSelfHint}</span>
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="message-selection-dialog-option is-danger"
