@@ -541,6 +541,7 @@ export function NorthMessengerWorkspace({
     conferencesQuery,
     contactsQuery,
     contactsSearchQuery,
+    encryptionDevicesQuery,
     messages,
     messagesQuery,
     pendingOutgoingMessagesQuery,
@@ -619,6 +620,7 @@ export function NorthMessengerWorkspace({
     () => applyChatPreviewOverrides(serverChats, chatPreviewOverrides),
     [chatPreviewOverrides, serverChats]
   );
+  const encryptionDevices = encryptionDevicesQuery.data ?? [];
   const sessions = sessionsQuery.data ?? [];
   const profile = profileQuery.data ?? session.user;
   const deleteAccountRequiresMatch =
@@ -631,6 +633,8 @@ export function NorthMessengerWorkspace({
   const userSearchResults = userSearchQuery.data ?? [];
   const contactSearchResults = contactsSearchQuery.data ?? [];
   const chatsLoading = chatsQuery.data === undefined && chatsQuery.isFetching;
+  const encryptionDevicesLoading =
+    encryptionDevicesQuery.data === undefined && encryptionDevicesQuery.isFetching;
   const sessionsLoading = sessionsQuery.data === undefined && sessionsQuery.isFetching;
   const archivedChatsLoading = archivedChatsQuery.data === undefined && archivedChatsQuery.isFetching;
   const contactsLoading = contactsQuery.data === undefined && contactsQuery.isFetching;
@@ -2182,6 +2186,7 @@ export function NorthMessengerWorkspace({
       blockUserMutation.error,
       unblockUserMutation.error,
       chatsQuery.error,
+      encryptionDevicesQuery.error,
       sessionsQuery.error,
       profileQuery.error,
       archivedChatsQuery.error,
@@ -2370,6 +2375,8 @@ export function NorthMessengerWorkspace({
     contactSearchResults,
     contacts,
     contactsLoading,
+    encryptionDevices,
+    encryptionDevicesLoading,
     sessions,
     sessionsLoading,
     activeChat,

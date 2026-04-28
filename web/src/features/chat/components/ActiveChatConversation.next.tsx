@@ -9,6 +9,12 @@ import type {
   UserProfile,
 } from "../../../lib/types";
 import type { AttachmentUploadProgress } from "../../../lib/e2ee";
+import { readSendDiagnosticRecord } from "../../../lib/sendDiagnostics";
+import {
+  getSendFailureDisplayLabel,
+  getSendFailureDisplayTitle,
+  parseStoredSendFailure,
+} from "../../../lib/sendFailureDiagnostics";
 import {
   memo,
   useEffect,
@@ -891,6 +897,14 @@ const MessageRow = memo(function MessageRow({
   getReactionOption,
 }: MessageRowProps) {
   const ownMessage = message.sender.id === sessionUser.id;
+  const failedSendSummary =
+    ownMessage &&
+    message.status?.state === "FAILED" &&
+    message.clientMessageId
+      ? parseStoredSendFailure(readSendDiagnosticRecord(message.clientMessageId)?.result)
+      : null;
+  const failedSendLabel = getSendFailureDisplayLabel(failedSendSummary);
+  const failedSendTitle = getSendFailureDisplayTitle(failedSendSummary);
   const showSenderAvatar = !ownMessage && !directChat;
   const messageMetaTrailing = (
     <div className="message-meta-trailing">
@@ -1003,13 +1017,19 @@ const MessageRow = memo(function MessageRow({
           </div>
         ) : null}
         {ownMessage && message.status?.state === "FAILED" ? (
-          <button
-            type="button"
-            className="message-retry-button"
-            onClick={() => onRetryMessage(message)}
-          >
-            Retry
-          </button>
+          <div className="message-failure-actions">
+            <span className="message-failure-label" title={failedSendTitle}>
+              {failedSendLabel}
+            </span>
+            <button
+              type="button"
+              className="message-retry-button"
+              title={failedSendTitle}
+              onClick={() => onRetryMessage(message)}
+            >
+              Retry
+            </button>
+          </div>
         ) : null}
         {directChat ? (
           <div className="message-meta-clone message-meta is-compact is-bottom">{messageMetaTrailing}</div>

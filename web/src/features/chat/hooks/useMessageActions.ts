@@ -18,8 +18,10 @@ import {
 import {
   finishSendDiagnostic,
   recordSendDiagnosticStep,
+  readSendDiagnosticRecord,
   startSendDiagnostic,
 } from "../../../lib/sendDiagnostics";
+import { buildNormalizedSendFailure } from "../../../lib/sendFailureDiagnostics";
 import type { AttachmentUploadProgress } from "../../../lib/e2ee";
 import {
   type LocalPendingMessage,
@@ -265,10 +267,20 @@ export function useMessageActions({
         return;
       }
       const transientFailure = isTransientSendFailure(error);
+      const normalizedFailure = buildNormalizedSendFailure(
+        error,
+        readSendDiagnosticRecord(input.clientMessageId),
+        transientFailure
+      );
       recordSendDiagnosticStep(input.clientMessageId, "onError", {
         transientFailure,
         message: describeError(error),
         status: error instanceof ApiError ? error.status : null,
+        failureCode: normalizedFailure.code,
+        failureCategory: normalizedFailure.category,
+        transport: normalizedFailure.transport,
+        stage: normalizedFailure.stage,
+        details: error instanceof ApiError ? error.details : [],
       });
       const nextPendingStatus = transientFailure ? "SENDING" : "FAILED";
       if (!transientFailure) {
@@ -333,9 +345,9 @@ export function useMessageActions({
       }
       void queryClient.invalidateQueries({ queryKey: ["chats", sessionToken] });
       finishSendDiagnostic(input.clientMessageId, "ERROR", {
+        ...normalizedFailure,
         transientFailure,
-        message: describeError(error),
-        status: error instanceof ApiError ? error.status : null,
+        describedMessage: describeError(error),
         pendingStatus: nextPendingStatus,
       });
     },

@@ -722,6 +722,7 @@ export function createMessage(
     recordSendDiagnosticStep(clientMessageId, "http:createMessage:error", {
       message: describeError(error),
       status: error instanceof ApiError ? error.status : null,
+      details: error instanceof ApiError ? error.details : [],
     });
     throw error;
   });

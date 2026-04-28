@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import type { PushNotificationPermission } from "../../../lib/pushNotifications";
-import type { UserProfile, UserSessionInfo, ChatSummary, VideoConference } from "../../../lib/types";
+import type {
+  UserEncryptionDevice,
+  UserProfile,
+  UserSessionInfo,
+  ChatSummary,
+  VideoConference,
+} from "../../../lib/types";
 import { AvatarCircle } from "./AvatarCircle";
 import { ProfileSettingsCard } from "./ProfileSettingsCard";
 
@@ -37,6 +43,8 @@ type Props = {
   contactSearchResults: UserProfile[];
   contacts: UserProfile[];
   contactsLoading: boolean;
+  encryptionDevices: UserEncryptionDevice[];
+  encryptionDevicesLoading: boolean;
   sessions: UserSessionInfo[];
   sessionsLoading: boolean;
   currentSessionId: string;
@@ -116,6 +124,14 @@ type Props = {
   formatSessionTime: (value: string) => string;
 };
 
+function formatEncryptionDeviceCountLabel(count: number) {
+  if (count === 1) {
+    return "1 E2EE-\u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u043E";
+  }
+
+  return `${count} E2EE-\u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432`;
+}
+
 export function SidebarManagementSheets({
   sheet,
   profile,
@@ -135,6 +151,8 @@ export function SidebarManagementSheets({
   contactSearchResults,
   contacts,
   contactsLoading,
+  encryptionDevices,
+  encryptionDevicesLoading,
   sessions,
   sessionsLoading,
   currentSessionId,
@@ -1252,6 +1270,132 @@ export function SidebarManagementSheets({
   }
 
   if (sheet === "sessions") {
+    const encryptionDeviceSummary =
+      encryptionDevices.length > 0
+        ? `\u041D\u0430 \u0430\u043A\u043A\u0430\u0443\u043D\u0442\u0435 ${formatEncryptionDeviceCountLabel(
+            encryptionDevices.length
+          )}. \u0418\u043C\u0435\u043D\u043D\u043E \u044D\u0442\u0438 \u043A\u043B\u044E\u0447\u0438 \u043D\u0443\u0436\u043D\u044B \u0434\u043B\u044F \u0432\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F encrypted chats \u043D\u0430 \u0434\u0440\u0443\u0433\u0438\u0445 \u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u0430\u0445.`
+        : "\u041F\u043E\u043A\u0430 \u043D\u0435\u0442 \u0437\u0430\u0440\u0435\u0433\u0438\u0441\u0442\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0445 E2EE-\u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432. \u041F\u043E\u0441\u043B\u0435 \u0443\u0441\u043F\u0435\u0448\u043D\u043E\u0439 \u0440\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u043A\u0438 encrypted chats \u043D\u043E\u0432\u043E\u0435 \u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u043E \u043F\u043E\u044F\u0432\u0438\u0442\u0441\u044F \u0437\u0434\u0435\u0441\u044C.";
+
+    return (
+      <div className="sheet-card">
+        <div className="sheet-head">
+          <div>
+            <div className="section-title">
+              {"\u0410\u043A\u0442\u0438\u0432\u043D\u044B\u0435 \u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u0430"}
+            </div>
+            <p className="sheet-copy">
+              {
+                "\u041E\u0431\u044B\u0447\u043D\u044B\u0435 \u0441\u0435\u0441\u0441\u0438\u0438 \u0432\u0445\u043E\u0434\u0430 \u0438 E2EE-\u043A\u043B\u044E\u0447\u0438 \u0434\u043B\u044F \u0437\u0430\u0448\u0438\u0444\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0445 \u0447\u0430\u0442\u043E\u0432."
+              }
+            </p>
+          </div>
+          <button type="button" className="ghost-button compact" onClick={onClose}>
+            {"\u0417\u0430\u043A\u0440\u044B\u0442\u044C"}
+          </button>
+        </div>
+
+        <div className="session-sheet-grid">
+          <section className="sheet-section session-sheet-section">
+            <div className="session-section-head">
+              <strong>{"\u0421\u0435\u0441\u0441\u0438\u0438 \u0432\u0445\u043E\u0434\u0430"}</strong>
+              <span>
+                {
+                  "\u042D\u0442\u043E \u043E\u0431\u044B\u0447\u043D\u044B\u0435 auth-\u0441\u0435\u0441\u0441\u0438\u0438. \u0418\u0445 \u043C\u043E\u0436\u043D\u043E \u043E\u0442\u043A\u043B\u044E\u0447\u0430\u0442\u044C \u0431\u0435\u0437 \u0441\u0431\u0440\u043E\u0441\u0430 E2EE-\u043A\u043B\u044E\u0447\u0435\u0439."
+                }
+              </span>
+            </div>
+            <div className="session-list menu-session-list">
+              {sessionsLoading ? (
+                <div className="empty-list">
+                  {"\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043C \u0441\u0435\u0441\u0441\u0438\u0438..."}
+                </div>
+              ) : sessions.length === 0 ? (
+                <div className="empty-list">
+                  {"\u0410\u043A\u0442\u0438\u0432\u043D\u0430 \u0442\u043E\u043B\u044C\u043A\u043E \u0442\u0435\u043A\u0443\u0449\u0430\u044F \u0441\u0435\u0441\u0441\u0438\u044F."}
+                </div>
+              ) : (
+                sessions.map((item) => {
+                  const current = item.id === currentSessionId;
+                  return (
+                    <div key={item.id} className="session-row">
+                      <div className="session-copy">
+                        <strong>{item.deviceName}</strong>
+                        <span>
+                          {
+                            "\u041F\u043E\u0441\u043B\u0435\u0434\u043D\u044F\u044F \u0430\u043A\u0442\u0438\u0432\u043D\u043E\u0441\u0442\u044C:"
+                          }{" "}
+                          {formatSessionTime(item.lastUsedAt)}
+                        </span>
+                        <span>
+                          {"\u0418\u0441\u0442\u0435\u043A\u0430\u0435\u0442:"} {formatSessionTime(item.expiresAt)}
+                        </span>
+                      </div>
+                      {current ? (
+                        <span className="member-pill">{"\u0422\u0435\u043A\u0443\u0449\u0430\u044F"}</span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="ghost-button compact"
+                          disabled={revokeSessionPending}
+                          onClick={() => onRevokeSession(item.id)}
+                        >
+                          {"\u041E\u0442\u043A\u043B\u044E\u0447\u0438\u0442\u044C"}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </section>
+
+          <section className="sheet-section session-sheet-section">
+            <div className="session-section-head">
+              <strong>{"E2EE-\u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u0430"}</strong>
+              <span>{encryptionDeviceSummary}</span>
+            </div>
+            <div className="session-list menu-session-list">
+              {encryptionDevicesLoading ? (
+                <div className="empty-list">
+                  {"\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043C E2EE-\u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u0430..."}
+                </div>
+              ) : encryptionDevices.length === 0 ? (
+                <div className="empty-list">
+                  {
+                    "\u0423 \u044D\u0442\u043E\u0433\u043E \u0430\u043A\u043A\u0430\u0443\u043D\u0442\u0430 \u043F\u043E\u043A\u0430 \u043D\u0435\u0442 \u0437\u0430\u0440\u0435\u0433\u0438\u0441\u0442\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0445 E2EE-\u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432."
+                  }
+                </div>
+              ) : (
+                encryptionDevices.map((device) => (
+                  <div key={device.deviceId} className="session-row">
+                    <div className="session-copy">
+                      <strong>{device.deviceName}</strong>
+                      <span>
+                        {"\u041F\u043E\u0441\u043B\u0435\u0434\u043D\u0438\u0439 seen:"}{" "}
+                        {formatSessionTime(device.lastSeenAt)}
+                      </span>
+                      <span>
+                        {"\u0417\u0430\u0440\u0435\u0433\u0438\u0441\u0442\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043E:"}{" "}
+                        {formatSessionTime(device.registeredAt)}
+                      </span>
+                      <span>
+                        {"OTP prekeys:"} {device.availableOneTimePrekeys}
+                        {device.deviceVersion ? ` · v${device.deviceVersion}` : ""}
+                      </span>
+                    </div>
+                    <span className="member-pill">{"E2EE"}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+        </div>
+      </div>
+    );
+  }
+
+  if (false && sheet === "sessions") {
     return (
       <div className="sheet-card">
         <div className="sheet-head">

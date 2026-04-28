@@ -1,13 +1,13 @@
-type SendDiagnosticStatus = "STARTED" | "SUCCESS" | "ERROR";
+export type SendDiagnosticStatus = "STARTED" | "SUCCESS" | "ERROR";
 
-type SendDiagnosticStep = {
+export type SendDiagnosticStep = {
   name: string;
   at: string;
   elapsedMs: number;
   detail: Record<string, unknown> | null;
 };
 
-type SendDiagnosticRecord = {
+export type SendDiagnosticRecord = {
   clientMessageId: string;
   chatId: string;
   contentLength: number;
@@ -111,6 +111,16 @@ export function finishSendDiagnostic(
         result,
       };
     })
+  );
+}
+
+export function readSendDiagnosticRecord(clientMessageId: string) {
+  if (!clientMessageId.trim()) {
+    return null;
+  }
+
+  return (
+    readSendDiagnostics().find((record) => record.clientMessageId === clientMessageId) ?? null
   );
 }
 

@@ -1,9 +1,10 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { describeError, logout } from "../../lib/api";
+import { listOwnEncryptionDevices, logout } from "../../lib/api";
 import { isResettableEncryptionRecoveryError } from "../../lib/e2eeShared";
 import { hasTrustedDeviceUnlock, isTrustedDeviceUnlockSupported } from "../../lib/e2eeTrustedDevice";
 import type { AuthResponse } from "../../lib/types";
+import { buildUnlockErrorPresentation } from "./unlockErrorPresentation";
 
 type Props = {
   session: AuthResponse;
@@ -26,6 +27,12 @@ export function UnlockCard({
   const queryClient = useQueryClient();
   const canTrustThisDevice = isTrustedDeviceUnlockSupported();
   const hasTrustedUnlock = canTrustThisDevice && hasTrustedDeviceUnlock(session.user.id);
+  const encryptionDevicesQuery = useQuery({
+    queryKey: ["unlock-encryption-devices", session.token],
+    queryFn: () => listOwnEncryptionDevices(session.token),
+    staleTime: 60_000,
+    retry: false,
+  });
 
   const finalizeUnlock = async (nextSession: AuthResponse) => {
     await Promise.all([
@@ -110,14 +117,17 @@ export function UnlockCard({
   const resettableRecoveryError = unlockErrors.find((item) =>
     isResettableEncryptionRecoveryError(item)
   );
-  const error = [...unlockErrors, resetRecoveryMutation.error]
-    .filter(Boolean)
-    .map((item) => describeError(item))
-    .find(Boolean);
+  const visibleError = [resetRecoveryMutation.error, ...unlockErrors].find(Boolean);
+  const encryptionDeviceCount = encryptionDevicesQuery.data?.length ?? 0;
+  const unlockErrorPresentation = buildUnlockErrorPresentation(visibleError, {
+    encryptionDeviceCount,
+  });
   const isOverlay = variant === "overlay";
   const shouldShowDeviceFirst = hasTrustedUnlock;
   const shouldShowPasswordForm = !shouldShowDeviceFirst || showPasswordFallback;
-  const canResetRecovery = Boolean(resettableRecoveryError) && shouldShowPasswordForm;
+  const canResetRecovery =
+    (Boolean(resettableRecoveryError) || Boolean(unlockErrorPresentation?.canReset)) &&
+    shouldShowPasswordForm;
   const shouldRenderCompactTrustedUnlock = shouldShowDeviceFirst && !showPasswordFallback;
   const containerClassName = isOverlay ? "unlock-overlay" : "auth-shell";
   const cardClassName = [
@@ -131,6 +141,19 @@ export function UnlockCard({
   const description = isOverlay
     ? "Your session is active, but this browser tab does not have the private key for message decryption unlocked yet."
     : "Your session was restored, but the private key for message decryption is locked in this browser tab.";
+  const encryptionDeviceSummary = encryptionDevicesQuery.isLoading
+    ? "Checking registered encryption devices for this account..."
+    : encryptionDeviceCount > 0
+      ? `This account currently has ${encryptionDeviceCount} registered encryption device${
+          encryptionDeviceCount === 1 ? "" : "s"
+        }. If another device still opens encrypted chats, keep it signed in until recovery is finished.`
+      : "No registered encryption devices are currently visible for this account yet.";
+  const resetConsequencesCopy =
+    "Reset starts a new encrypted-chat key for future recovery on this account. Messages that only the previous key could decrypt will stay unavailable on this device.";
+  const resetGuidanceCopy =
+    encryptionDeviceCount > 0
+      ? "If any other device can still unlock the previous key, stop here and recover from that device instead of resetting."
+      : "Use reset only if you are sure no device can still unlock the previous encrypted-chat key.";
 
   useEffect(() => {
     if (!hasTrustedUnlock || autoTrustedUnlockAttemptedRef.current) {
@@ -232,7 +255,21 @@ export function UnlockCard({
               require the previous password until recovery is reset or re-secured.
             </p>
 
-            {error ? <div className="form-error">{error}</div> : null}
+            <div className="form-note auth-unlock-summary">{encryptionDeviceSummary}</div>
+
+            {unlockErrorPresentation ? (
+              <div className="form-error auth-error-panel">
+                <strong className="auth-error-title">{unlockErrorPresentation.title}</strong>
+                <p className="auth-error-copy">{unlockErrorPresentation.description}</p>
+                {unlockErrorPresentation.detailLines.length > 0 ? (
+                  <ul className="auth-error-detail-list">
+                    {unlockErrorPresentation.detailLines.map((detailLine) => (
+                      <li key={detailLine}>{detailLine}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            ) : null}
 
             <div className="auth-action-stack">
               <button
@@ -280,9 +317,10 @@ export function UnlockCard({
                   </button>
                   {confirmingRecoveryReset ? (
                     <>
-                      <div className="form-note">
-                        This starts a new encrypted-chat key. Messages that only the previous key could decrypt
-                        will stay unavailable.
+                      <div className="form-note auth-recovery-warning">
+                        <strong>Reset consequences</strong>
+                        <p>{resetConsequencesCopy}</p>
+                        <p>{resetGuidanceCopy}</p>
                       </div>
                       <button
                         type="button"
@@ -330,7 +368,19 @@ export function UnlockCard({
           </form>
         ) : (
           <>
-            {error ? <div className="form-error">{error}</div> : null}
+            {unlockErrorPresentation ? (
+              <div className="form-error auth-error-panel">
+                <strong className="auth-error-title">{unlockErrorPresentation.title}</strong>
+                <p className="auth-error-copy">{unlockErrorPresentation.description}</p>
+                {unlockErrorPresentation.detailLines.length > 0 ? (
+                  <ul className="auth-error-detail-list">
+                    {unlockErrorPresentation.detailLines.map((detailLine) => (
+                      <li key={detailLine}>{detailLine}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            ) : null}
             {!shouldRenderCompactTrustedUnlock ? (
               <button
                 type="button"

@@ -5585,6 +5585,112 @@ describe("e2ee hardening", () => {
     });
   });
 
+  it("serializes encrypted sends per conversation so the second send waits for the first", async () => {
+    const firstSend = createDeferred<ApiChatMessage>();
+    const secondSend = createDeferred<ApiChatMessage>();
+    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
+    vi.spyOn(window.crypto.subtle, "generateKey").mockResolvedValue({
+      publicKey: {} as CryptoKey,
+      privateKey: {} as CryptoKey,
+    } as CryptoKeyPair);
+    vi.spyOn(window.crypto.subtle, "exportKey").mockResolvedValue({
+      kty: "OKP",
+      crv: "X25519",
+      x: "generated",
+    } as JsonWebKey);
+    vi.spyOn(window.crypto.subtle, "deriveBits").mockResolvedValue(new Uint8Array(32).buffer);
+    vi.spyOn(window.crypto.subtle, "deriveKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "encrypt").mockImplementation(
+      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
+    );
+    vi.mocked(resolveEncryptionDeviceBundles).mockResolvedValue([consumableDeviceBundle]);
+    vi.mocked(sendMessageRaw).mockImplementation(async (_token, chatId, request) => {
+      if (request.clientMessageId === "client-first-queued-send") {
+        return firstSend.promise;
+      }
+
+      return secondSend.promise;
+    });
+    window.sessionStorage.setItem(DEVICE_MATERIAL_KEY, JSON.stringify(localDeviceMaterial));
+
+    const firstPromise = sendEncryptedMessage(
+      "token",
+      "chat-id",
+      "first queued send",
+      [selfParticipant, participant],
+      "client-first-queued-send",
+      null,
+      { currentUserId: USER_ID }
+    );
+    const secondPromise = sendEncryptedMessage(
+      "token",
+      "chat-id",
+      "second queued send",
+      [selfParticipant, participant],
+      "client-second-queued-send",
+      null,
+      { currentUserId: USER_ID }
+    );
+
+    for (let attempt = 0; attempt < 20 && vi.mocked(sendMessageRaw).mock.calls.length === 0; attempt += 1) {
+      await Promise.resolve();
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    }
+
+    expect(vi.mocked(sendMessageRaw).mock.calls).toHaveLength(1);
+    expect(vi.mocked(sendMessageRaw).mock.calls[0]?.[2].clientMessageId).toBe(
+      "client-first-queued-send"
+    );
+
+    firstSend.resolve({
+      id: "queued-first-message-id",
+      chatId: "chat-id",
+      sender: selfParticipant,
+      createdAt: "2026-04-09T10:31:00.000Z",
+      editedAt: null,
+      status: null,
+      clientMessageId: "client-first-queued-send",
+      replyTo: null,
+      reactions: [],
+      encryptedPayload: vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload,
+    });
+
+    for (let attempt = 0; attempt < 20 && vi.mocked(sendMessageRaw).mock.calls.length < 2; attempt += 1) {
+      await Promise.resolve();
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    }
+
+    expect(vi.mocked(sendMessageRaw).mock.calls).toHaveLength(2);
+    expect(vi.mocked(sendMessageRaw).mock.calls[1]?.[2].clientMessageId).toBe(
+      "client-second-queued-send"
+    );
+
+    secondSend.resolve({
+      id: "queued-second-message-id",
+      chatId: "chat-id",
+      sender: selfParticipant,
+      createdAt: "2026-04-09T10:31:01.000Z",
+      editedAt: null,
+      status: null,
+      clientMessageId: "client-second-queued-send",
+      replyTo: null,
+      reactions: [],
+      encryptedPayload: vi.mocked(sendMessageRaw).mock.calls[1]?.[2].encryptedPayload,
+    });
+
+    await expect(Promise.all([firstPromise, secondPromise])).resolves.toMatchObject([
+      {
+        id: "queued-first-message-id",
+        clientMessageId: "client-first-queued-send",
+      },
+      {
+        id: "queued-second-message-id",
+        clientMessageId: "client-second-queued-send",
+      },
+    ]);
+  });
+
   it("records decrypt-failed mirror diagnostics when an own encrypted message falls back to the local mirror", async () => {
     vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
     vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);

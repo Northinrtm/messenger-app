@@ -11,6 +11,7 @@ import {
   getSessions,
   getTypingParticipants,
   getVideoConferences,
+  listOwnEncryptionDevices,
   searchUsers,
 } from "../../../lib/api";
 import {
@@ -225,6 +226,7 @@ export function useWorkspaceQueries({
   const messageHydrationRetryCountRef = useRef(new Map<string, number>());
   const messageHydrationRetryTimeoutIdRef = useRef(new Map<string, number>());
   const shouldFetchSessions = sidebarSheet === "sessions";
+  const shouldFetchEncryptionDevices = sidebarSheet === "sessions";
   const shouldAggressivelyRefreshConferences =
     activeListTab === "conferences" || Boolean(activeConferenceId);
   const shouldFetchArchivedConferences = sidebarSheet === "archive" || Boolean(activeConferenceId);
@@ -240,6 +242,15 @@ export function useWorkspaceQueries({
     queryFn: () => getSessions(sessionToken),
     enabled: shouldFetchSessions,
     refetchInterval: shouldFetchSessions ? 60_000 : false,
+    refetchIntervalInBackground: false,
+    staleTime: 60_000,
+  });
+
+  const encryptionDevicesQuery = useQuery({
+    queryKey: ["encryption-devices", sessionToken],
+    queryFn: () => listOwnEncryptionDevices(sessionToken),
+    enabled: shouldFetchEncryptionDevices,
+    refetchInterval: shouldFetchEncryptionDevices ? 60_000 : false,
     refetchIntervalInBackground: false,
     staleTime: 60_000,
   });
@@ -542,6 +553,7 @@ export function useWorkspaceQueries({
     messagesQuery,
     pendingOutgoingMessagesQuery,
     profileQuery,
+    encryptionDevicesQuery,
     sessionsQuery,
     userSearchQuery,
   };

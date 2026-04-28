@@ -348,6 +348,7 @@ const restoredPersistentDeviceSessionKeysByUserId = new Map<string, Set<string>>
 const hydratedRuntimeDeviceSessionsByUserId = new Set<string>();
 const runtimeWrittenDeviceSessionsByUserId = new Set<string>();
 const restoredPersistentOutboundGroupChatsByUserId = new Map<string, Set<string>>();
+const inFlightEncryptedConversationSendByKey = new Map<string, Promise<void>>();
 const inFlightMessageHydrationBatchByUserId = new Map<string, Promise<void>>();
 const inFlightMessageHydrationByUserId = new Map<string, Promise<void>>();
 const recoverySyncSessionByUserId = new Map<string, AuthResponse>();
@@ -1812,118 +1813,125 @@ export async function sendEncryptedMessage(
     throw new ApiError("Encrypted chat is still initializing on this device. Try again.", 409);
   }
 
-  if (options.session && options.session.user.id === options.currentUserId) {
-    recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:waitDeviceRegistration:start");
-    await waitForEncryptionDeviceRegistration(options.session);
-    recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:waitDeviceRegistration:end");
-  }
-
   const currentUserId = options.currentUserId;
-  if (resolvedClientMessageId) {
-    rememberOutgoingMessageMirror(currentUserId, {
-      id: resolvedClientMessageId,
-      chatId,
-      content: normalizedContent,
-      createdAt: new Date().toISOString(),
-      editedAt: null,
-      attachments,
-      clientMessageId: resolvedClientMessageId,
-    });
-  }
-  recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:primeRecipients:start");
-  const primedConversationBundles = await prepareSendConversationDeviceBundles(
-    token,
+  return serializeEncryptedConversationSend(
     currentUserId,
-    participants
-  );
-  recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:primeRecipients:end");
-  const dispatchMessage = async (conversationBundles: ConversationDeviceBundleResolution) => {
-    const encryptedContent = serializeMessageContent(normalizedContent, attachments);
-    recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:encrypt:start");
-    const encryptedPayload = options.isDirectChat === false
-      ? await encryptGroupMessage(
-          token,
+    chatId,
+    resolvedClientMessageId,
+    async () => {
+      if (options.session && options.session.user.id === options.currentUserId) {
+        recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:waitDeviceRegistration:start");
+        await waitForEncryptionDeviceRegistration(options.session);
+        recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:waitDeviceRegistration:end");
+      }
+
+      if (resolvedClientMessageId) {
+        rememberOutgoingMessageMirror(currentUserId, {
+          id: resolvedClientMessageId,
           chatId,
+          content: normalizedContent,
+          createdAt: new Date().toISOString(),
+          editedAt: null,
+          attachments,
+          clientMessageId: resolvedClientMessageId,
+        });
+      }
+      recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:primeRecipients:start");
+      const primedConversationBundles = await prepareSendConversationDeviceBundles(
+        token,
+        currentUserId,
+        participants
+      );
+      recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:primeRecipients:end");
+      const dispatchMessage = async (conversationBundles: ConversationDeviceBundleResolution) => {
+        const encryptedContent = serializeMessageContent(normalizedContent, attachments);
+        recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:encrypt:start");
+        const encryptedPayload = options.isDirectChat === false
+          ? await encryptGroupMessage(
+              token,
+              chatId,
+              currentUserId,
+              encryptedContent,
+              participants,
+              conversationBundles
+            )
+          : await encryptDirectDeviceMessage(
+              token,
+              currentUserId,
+              encryptedContent,
+              participants,
+              conversationBundles
+            );
+        if (!resolvedClientMessageId) {
+          throw new ApiError("Client message id is required", 400);
+        }
+        recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:encrypt:end", {
+          scheme: encryptedPayload.scheme,
+        });
+
+        recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:transportDispatch:start");
+        const response = await sendMessageRaw(token, chatId, {
+          clientMessageId: resolvedClientMessageId,
+          replyToMessageId,
+          attachmentIds: attachments.map((attachment) => attachment.id),
+          encryptedPayload,
+        });
+        recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:transportDispatch:end", {
+          messageId: response.id,
+          serverOrder: response.serverOrder ?? null,
+        });
+
+        const sentMessage = {
+          id: response.id,
+          chatId: response.chatId,
+          serverOrder: response.serverOrder ?? null,
+          sender: response.sender,
+          content: normalizedContent,
+          createdAt: response.createdAt,
+          editedAt: response.editedAt,
+          status: response.status,
+          clientMessageId: response.clientMessageId ?? resolvedClientMessageId,
+          replyTo: response.replyTo,
+          reactions: response.reactions ?? [],
+          attachments,
+        } satisfies ChatMessage;
+        rememberOutgoingMessageMirror(currentUserId, sentMessage);
+        void rememberArchivedDecryptedMessage(currentUserId, sentMessage);
+        recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:archiveRemembered");
+        return sentMessage;
+      };
+
+      try {
+        return await dispatchMessage(primedConversationBundles);
+      } catch (error) {
+        const recoverableRetryMode = getRecoverableEncryptedEnvelopeErrorMode(error);
+        if (!recoverableRetryMode) {
+          throw error;
+        }
+
+        recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:recoverableRetry", {
+          mode: recoverableRetryMode,
+        });
+        await recoverLocalEncryptionStateForRetry(
           currentUserId,
-          encryptedContent,
-          participants,
-          conversationBundles
-        )
-      : await encryptDirectDeviceMessage(
+          options.isDirectChat === false,
+          options.session,
+          recoverableRetryMode
+        );
+        recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:recoverableRetryRecovered", {
+          mode: recoverableRetryMode,
+        });
+        const forceRefresh = shouldForceRefreshPreparedRecipientsForError(error);
+        const retriedConversationBundles = await prepareSendConversationDeviceBundles(
           token,
           currentUserId,
-          encryptedContent,
           participants,
-          conversationBundles
+          forceRefresh
         );
-    if (!resolvedClientMessageId) {
-      throw new ApiError("Client message id is required", 400);
+        return dispatchMessage(retriedConversationBundles);
+      }
     }
-    recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:encrypt:end", {
-      scheme: encryptedPayload.scheme,
-    });
-
-    recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:transportDispatch:start");
-    const response = await sendMessageRaw(token, chatId, {
-      clientMessageId: resolvedClientMessageId,
-      replyToMessageId,
-      attachmentIds: attachments.map((attachment) => attachment.id),
-      encryptedPayload,
-    });
-    recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:transportDispatch:end", {
-      messageId: response.id,
-      serverOrder: response.serverOrder ?? null,
-    });
-
-    const sentMessage = {
-      id: response.id,
-      chatId: response.chatId,
-      serverOrder: response.serverOrder ?? null,
-      sender: response.sender,
-      content: normalizedContent,
-      createdAt: response.createdAt,
-      editedAt: response.editedAt,
-      status: response.status,
-      clientMessageId: response.clientMessageId ?? resolvedClientMessageId,
-      replyTo: response.replyTo,
-      reactions: response.reactions ?? [],
-      attachments,
-    } satisfies ChatMessage;
-    rememberOutgoingMessageMirror(currentUserId, sentMessage);
-    void rememberArchivedDecryptedMessage(currentUserId, sentMessage);
-    recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:archiveRemembered");
-    return sentMessage;
-  };
-
-  try {
-    return await dispatchMessage(primedConversationBundles);
-  } catch (error) {
-    const recoverableRetryMode = getRecoverableEncryptedEnvelopeErrorMode(error);
-    if (!recoverableRetryMode) {
-      throw error;
-    }
-
-    recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:recoverableRetry", {
-      mode: recoverableRetryMode,
-    });
-    await recoverLocalEncryptionStateForRetry(
-      currentUserId,
-      options.isDirectChat === false,
-      options.session,
-      recoverableRetryMode
-    );
-    recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:recoverableRetryRecovered", {
-      mode: recoverableRetryMode,
-    });
-    const forceRefresh = shouldForceRefreshPreparedRecipientsForError(error);
-    const retriedConversationBundles = await prepareSendConversationDeviceBundles(
-      token,
-      currentUserId,
-      participants,
-      forceRefresh
-    );
-    return dispatchMessage(retriedConversationBundles);
-  }
+  );
 }
 
 export async function updateEncryptedMessage(
@@ -1952,80 +1960,82 @@ export async function updateEncryptedMessage(
     throw new ApiError("Encrypted chat is still initializing on this device. Try again.", 409);
   }
 
-  if (options?.session && options.session.user.id === (options.currentUserId ?? userId)) {
-    await waitForEncryptionDeviceRegistration(options.session);
-  }
-
   const currentUserId = options?.currentUserId ?? userId;
-  rememberOutgoingMessageMirror(currentUserId, {
-    id: messageId,
-    chatId,
-    content: normalizedContent,
-    createdAt: new Date().toISOString(),
-    editedAt: null,
-    attachments,
-    clientMessageId: null,
-  });
-  const primedConversationBundles = await prepareSendConversationDeviceBundles(
-    token,
-    currentUserId,
-    participants
-  );
-  const dispatchUpdate = async (conversationBundles: ConversationDeviceBundleResolution) => {
-    const encryptedContent = serializeMessageContent(normalizedContent, attachments);
-    const encryptedPayload = options?.isDirectChat === false
-      ? await encryptGroupMessage(
-          token,
-          chatId,
-          currentUserId,
-          encryptedContent,
-          participants,
-          conversationBundles
-        )
-      : await encryptDirectDeviceMessage(
-          token,
-          currentUserId,
-          encryptedContent,
-          participants,
-          conversationBundles
-        );
-    const response = await updateMessage(token, chatId, messageId, {
-      encryptedPayload,
-    });
-
-    const hydratedMessage = {
-      ...(await hydrateChatMessage(response, userId)),
-      content: normalizedContent,
-      attachments,
-    } satisfies ChatMessage;
-    rememberOutgoingMessageMirror(currentUserId, hydratedMessage);
-    await rememberArchivedDecryptedMessage(currentUserId, hydratedMessage);
-    return hydratedMessage;
-  };
-
-  try {
-    return await dispatchUpdate(primedConversationBundles);
-  } catch (error) {
-    const recoverableRetryMode = getRecoverableEncryptedEnvelopeErrorMode(error);
-    if (!recoverableRetryMode) {
-      throw error;
+  return serializeEncryptedConversationSend(currentUserId, chatId, "", async () => {
+    if (options?.session && options.session.user.id === (options.currentUserId ?? userId)) {
+      await waitForEncryptionDeviceRegistration(options.session);
     }
 
-    await recoverLocalEncryptionStateForRetry(
-      currentUserId,
-      options?.isDirectChat === false,
-      options?.session,
-      recoverableRetryMode
-    );
-    const forceRefresh = shouldForceRefreshPreparedRecipientsForError(error);
-    const retriedConversationBundles = await prepareSendConversationDeviceBundles(
+    rememberOutgoingMessageMirror(currentUserId, {
+      id: messageId,
+      chatId,
+      content: normalizedContent,
+      createdAt: new Date().toISOString(),
+      editedAt: null,
+      attachments,
+      clientMessageId: null,
+    });
+    const primedConversationBundles = await prepareSendConversationDeviceBundles(
       token,
       currentUserId,
-      participants,
-      forceRefresh
+      participants
     );
-    return dispatchUpdate(retriedConversationBundles);
-  }
+    const dispatchUpdate = async (conversationBundles: ConversationDeviceBundleResolution) => {
+      const encryptedContent = serializeMessageContent(normalizedContent, attachments);
+      const encryptedPayload = options?.isDirectChat === false
+        ? await encryptGroupMessage(
+            token,
+            chatId,
+            currentUserId,
+            encryptedContent,
+            participants,
+            conversationBundles
+          )
+        : await encryptDirectDeviceMessage(
+            token,
+            currentUserId,
+            encryptedContent,
+            participants,
+            conversationBundles
+          );
+      const response = await updateMessage(token, chatId, messageId, {
+        encryptedPayload,
+      });
+
+      const hydratedMessage = {
+        ...(await hydrateChatMessage(response, userId)),
+        content: normalizedContent,
+        attachments,
+      } satisfies ChatMessage;
+      rememberOutgoingMessageMirror(currentUserId, hydratedMessage);
+      await rememberArchivedDecryptedMessage(currentUserId, hydratedMessage);
+      return hydratedMessage;
+    };
+
+    try {
+      return await dispatchUpdate(primedConversationBundles);
+    } catch (error) {
+      const recoverableRetryMode = getRecoverableEncryptedEnvelopeErrorMode(error);
+      if (!recoverableRetryMode) {
+        throw error;
+      }
+
+      await recoverLocalEncryptionStateForRetry(
+        currentUserId,
+        options?.isDirectChat === false,
+        options?.session,
+        recoverableRetryMode
+      );
+      const forceRefresh = shouldForceRefreshPreparedRecipientsForError(error);
+      const retriedConversationBundles = await prepareSendConversationDeviceBundles(
+        token,
+        currentUserId,
+        participants,
+        forceRefresh
+      );
+      return dispatchUpdate(retriedConversationBundles);
+    }
+  });
 }
 
 export async function primeEncryptedMessageRecipients(
@@ -2524,6 +2534,45 @@ function serializeMessageHydration<T>(userId: string, task: () => Promise<T>): P
   return serializedTask.finally(() => {
     if (inFlightMessageHydrationByUserId.get(userId) === settledTask) {
       inFlightMessageHydrationByUserId.delete(userId);
+    }
+  });
+}
+
+function serializeEncryptedConversationSend<T>(
+  userId: string,
+  chatId: string,
+  clientMessageId: string,
+  task: () => Promise<T>
+): Promise<T> {
+  const queueKey = `${userId}:${chatId}`;
+  const previousSend =
+    inFlightEncryptedConversationSendByKey.get(queueKey) ?? Promise.resolve();
+  const queued = inFlightEncryptedConversationSendByKey.has(queueKey);
+  if (queued) {
+    recordSendDiagnosticStep(clientMessageId, "e2ee:conversationQueue:waiting", {
+      queueKey,
+    });
+  }
+
+  const serializedTask = previousSend.catch(() => undefined).then(async () => {
+    recordSendDiagnosticStep(clientMessageId, "e2ee:conversationQueue:acquired", {
+      queueKey,
+      queued,
+    });
+    return task();
+  });
+  const settledTask = serializedTask.then(
+    () => undefined,
+    () => undefined
+  );
+  inFlightEncryptedConversationSendByKey.set(queueKey, settledTask);
+
+  return serializedTask.finally(() => {
+    recordSendDiagnosticStep(clientMessageId, "e2ee:conversationQueue:released", {
+      queueKey,
+    });
+    if (inFlightEncryptedConversationSendByKey.get(queueKey) === settledTask) {
+      inFlightEncryptedConversationSendByKey.delete(queueKey);
     }
   });
 }

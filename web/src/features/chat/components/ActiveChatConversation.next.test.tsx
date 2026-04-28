@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { finishSendDiagnostic, startSendDiagnostic } from "../../../lib/sendDiagnostics";
 import type { ChatMessage, MessageReaction, MessageStatus, Participant, UserProfile } from "../../../lib/types";
 import type { TimelineItem } from "../chatWorkspaceUtils";
 import { ConversationTimeline } from "./ActiveChatConversation.next";
@@ -143,6 +144,7 @@ describe("ActiveChatConversation timeline memoization", () => {
 
   beforeEach(() => {
     (globalThis as ReactActEnvironment).IS_REACT_ACT_ENVIRONMENT = true;
+    window.sessionStorage.clear();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = null;
@@ -154,6 +156,7 @@ describe("ActiveChatConversation timeline memoization", () => {
     });
     root = null;
     container.remove();
+    window.sessionStorage.clear();
     (globalThis as ReactActEnvironment).IS_REACT_ACT_ENVIRONMENT = false;
   });
 
@@ -227,5 +230,66 @@ describe("ActiveChatConversation timeline memoization", () => {
     });
 
     expect(onToggleSelectedMessage).toHaveBeenCalledWith("message-1");
+  });
+
+  it("shows a specific retry hint for failed sends with stored diagnostics", async () => {
+    startSendDiagnostic({
+      clientMessageId: "client-failed-send",
+      chatId: "chat-1",
+      contentLength: 5,
+      attachmentCount: 0,
+      participantCount: 2,
+    });
+    finishSendDiagnostic("client-failed-send", "ERROR", {
+      code: "realtime_connection_interrupted",
+      category: "transport",
+      message: "Realtime connection was interrupted before the message was confirmed.",
+      describedMessage: "Realtime connection was interrupted before the message was confirmed.",
+      retryable: true,
+    });
+
+    const failedTimelineItems: TimelineItem[] = [
+      {
+        type: "message",
+        key: "failed-message",
+        message: message({
+          id: "failed-message",
+          content: "Will retry later",
+          clientMessageId: "client-failed-send",
+          status: messageStatus("FAILED"),
+        }),
+      },
+    ];
+
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(
+        <ConversationTimeline
+          activeChatId="chat-1"
+          directChat={true}
+          isSelectingMessages={false}
+          selectedMessageIdSet={emptySelectionSet}
+          timelineItems={failedTimelineItems}
+          sessionUser={timelineSessionUser}
+          onRender={noop}
+          onOpenMessageContextMenu={noop}
+          onJumpToMessage={noop}
+          onToggleSelectedMessage={noop}
+          onToggleReaction={noop}
+          onRetryMessage={noop}
+          onDownloadAttachment={noop}
+          onLoadAttachmentPreview={loadAttachmentPreview}
+          formatClock={formatClock}
+          getMessageStatusClassName={getMessageStatusClassName}
+          getMessageStatusGlyph={getMessageStatusGlyph}
+          getMessageStatusLabel={getMessageStatusLabel}
+          getReactionOption={getReactionOption}
+        />
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Waiting for reconnect");
+    expect(container.textContent).toContain("Retry");
   });
 });

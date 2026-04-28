@@ -409,6 +409,39 @@ select {
   color: #dbe8ff;
 }
 
+.auth-unlock-summary,
+.auth-recovery-warning {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.auth-recovery-warning strong,
+.auth-error-title {
+  color: #fff4f1;
+  font-size: 0.95rem;
+}
+
+.auth-recovery-warning p,
+.auth-error-copy {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.auth-error-panel {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.auth-error-detail-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: #ffd8d2;
+}
+
+.auth-error-detail-list li + li {
+  margin-top: 0.2rem;
+}
+
 .sidebar,
 .conversation {
   border-radius: 1.8rem;
@@ -2005,6 +2038,34 @@ select {
 
 .menu-session-list {
   max-height: 18rem;
+}
+
+.session-sheet-grid {
+  display: grid;
+  gap: 0.95rem;
+}
+
+.session-sheet-section {
+  padding: 0.9rem;
+  border-radius: 1.1rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.session-section-head {
+  display: grid;
+  gap: 0.28rem;
+}
+
+.session-section-head strong {
+  color: #f4fbff;
+  font-size: 0.96rem;
+}
+
+.session-section-head span {
+  color: rgba(245, 239, 231, 0.62);
+  font-size: 0.84rem;
+  line-height: 1.45;
 }
 
 .contact-search-form,
@@ -3609,6 +3670,20 @@ select {
 
 .message-retry-button:hover {
   color: #ffd0b9;
+}
+
+.message-failure-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.65rem;
+}
+
+.message-failure-label {
+  color: #ffb08c;
+  font-size: 0.78rem;
+  line-height: 1.3;
 }
 
 .north-message-stream .typing-indicator {

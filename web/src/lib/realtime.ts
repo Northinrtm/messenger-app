@@ -744,6 +744,7 @@ export function sendMessageRaw(
           status: fallbackError instanceof ApiError ? fallbackError.status : null,
           message:
             fallbackError instanceof Error ? fallbackError.message : "HTTP fallback failed",
+          details: fallbackError instanceof ApiError ? fallbackError.details : [],
         });
         throw fallbackError;
       });
@@ -799,6 +800,7 @@ function rejectPendingSendRequest(error: MessageSendErrorEvent) {
   recordSendDiagnosticStep(clientMessageId, "realtime:ack:error", {
     status: error.status,
     error: error.error,
+    details: error.details,
   });
   pendingRequest.reject(new ApiError(error.error, error.status, error.details));
 }
@@ -816,6 +818,10 @@ function clearPendingSendRequest(clientMessageId: string) {
 function failPendingSendRequests(message: string, status: number) {
   pendingSendRequests.forEach((pendingRequest, clientMessageId) => {
     window.clearTimeout(pendingRequest.timeoutId);
+    recordSendDiagnosticStep(clientMessageId, "realtime:pendingRequest:error", {
+      message,
+      status,
+    });
     pendingRequest.reject(new ApiError(message, status));
     pendingSendRequests.delete(clientMessageId);
   });
