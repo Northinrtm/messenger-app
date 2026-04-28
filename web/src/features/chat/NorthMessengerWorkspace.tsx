@@ -1058,6 +1058,13 @@ export function NorthMessengerWorkspace({
   const activePinnedMessage = hydratedPinnedMessage ?? activeChat?.pinnedMessage ?? null;
   const forwardableChats = visibleChats.filter((chat) => chat.id !== activeChat?.id);
   const canDeleteContextMenuMessageForSelf = Boolean(contextMenuMessage && activeChat?.direct);
+  const showDeleteContextMenuMessageForEveryone = Boolean(
+    contextMenuMessage &&
+      activeChat &&
+      (activeChat.direct ||
+        (isOwnMessage(contextMenuMessage, session.user) &&
+          contextMenuMessage.id !== contextMenuMessage.clientMessageId))
+  );
   const canDeleteContextMenuMessageForEveryone = Boolean(
     contextMenuMessage &&
       contextMenuMessage.id !== contextMenuMessage.clientMessageId &&
@@ -1081,10 +1088,12 @@ export function NorthMessengerWorkspace({
   );
   const isPinnedContextMenuMessage =
     Boolean(contextMenuMessage && activeChat?.pinnedMessage?.id === contextMenuMessage.id);
-  const deleteForEveryoneLabel = activeChat?.direct ? "Удалить для обоих" : "Удалить для всех";
+  const deleteForEveryoneLabel = activeChat?.direct
+    ? "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0434\u043B\u044F \u043E\u0431\u043E\u0438\u0445"
+    : "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0434\u043B\u044F \u0432\u0441\u0435\u0445";
   const deleteForEveryoneHint = activeChat?.direct
-    ? "Сообщение исчезнет у вас обоих"
-    : "Сообщение исчезнет у всех участников";
+    ? "\u0421\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435 \u0438\u0441\u0447\u0435\u0437\u043D\u0435\u0442 \u0443 \u0432\u0430\u0441 \u043E\u0431\u043E\u0438\u0445"
+    : "\u0421\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435 \u0438\u0441\u0447\u0435\u0437\u043D\u0435\u0442 \u0443 \u0432\u0441\u0435\u0445 \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A\u043E\u0432";
 
   useEffect(() => {
     let cancelled = false;
@@ -2659,6 +2668,7 @@ export function NorthMessengerWorkspace({
         canPinContextMenuMessage,
         isPinnedContextMenuMessage,
         canDeleteContextMenuMessageForSelf,
+        showDeleteContextMenuMessageForEveryone,
         canDeleteContextMenuMessageForEveryone,
         deleteForEveryoneLabel,
         deleteForEveryoneHint,
