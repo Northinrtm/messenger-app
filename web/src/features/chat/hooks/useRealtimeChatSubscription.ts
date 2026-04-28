@@ -24,6 +24,10 @@ import {
   upsertChat,
 } from "../chatState";
 import { applyTypingEvent } from "../typingState";
+import {
+  parseRealtimeEventTimestamp,
+  shouldProcessTypingEvent,
+} from "../typingRealtime";
 import { shouldAcknowledgeIncomingMessageAsRead } from "./messageReadVisibility";
 
 type UseRealtimeChatSubscriptionOptions = {
@@ -46,6 +50,7 @@ type UseRealtimeChatSubscriptionOptions = {
   onUnauthorized: () => void;
   queryClient: QueryClient;
   refreshChatPreviewFromServer: (chatId: string) => Promise<unknown> | void;
+  scheduleTypingStop: (chatId: string, participantId: string) => void;
   scheduleTypingTimeout: (chatId: string, participantId: string) => void;
   sendTypingHeartbeat: (chatId: string) => void;
   sessionToken: string;
@@ -114,6 +119,7 @@ export function useRealtimeChatSubscription({
   onUnauthorized,
   queryClient,
   refreshChatPreviewFromServer,
+  scheduleTypingStop,
   scheduleTypingTimeout,
   sendTypingHeartbeat,
   sessionToken,
@@ -128,6 +134,7 @@ export function useRealtimeChatSubscription({
   const handledRealtimeMessageIdsRef = useRef(new Map<string, true>());
   const hasEstablishedRealtimeConnectionRef = useRef(false);
   const activeChatReconnectSnapshotRef = useRef<ActiveChatReconnectSnapshot | null>(null);
+  const typingEventWatermarksRef = useRef(new Map<string, number>());
   const getMessagesKey = (chatId: string) => buildMessagesQueryKey(currentUser.id, chatId);
 
   const rememberRealtimeMessage = (messageId: string) => {
@@ -146,6 +153,12 @@ export function useRealtimeChatSubscription({
     }
 
     const nextMessage = normalizeIncomingMessage(message);
+    const typingMessageKey = `${message.chatId}:${message.sender.id}`;
+    const messageCreatedAt = parseRealtimeEventTimestamp(message.createdAt);
+    const previousTypingWatermark = typingEventWatermarksRef.current.get(typingMessageKey);
+    if (previousTypingWatermark === undefined || messageCreatedAt > previousTypingWatermark) {
+      typingEventWatermarksRef.current.set(typingMessageKey, messageCreatedAt);
+    }
     const ownMessage = isOwnMessage(nextMessage);
     const isVisibleActiveChat = shouldAcknowledgeIncomingMessageAsRead({
       activeChatId,
@@ -292,8 +305,16 @@ export function useRealtimeChatSubscription({
       return;
     }
 
+    const typingEventKey = `${event.chatId}:${event.participant.id}`;
+    const typingEventTimestamp = parseRealtimeEventTimestamp(event.createdAt);
+    const previousTypingWatermark = typingEventWatermarksRef.current.get(typingEventKey);
+    if (!shouldProcessTypingEvent(previousTypingWatermark, typingEventTimestamp)) {
+      return;
+    }
+    typingEventWatermarksRef.current.set(typingEventKey, typingEventTimestamp);
+
     if (!event.typing) {
-      clearTypingParticipant(event.chatId, event.participant.id);
+      scheduleTypingStop(event.chatId, event.participant.id);
       return;
     }
 

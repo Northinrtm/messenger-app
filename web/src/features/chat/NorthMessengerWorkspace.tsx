@@ -175,6 +175,7 @@ type Props = {
 const TYPING_EVENT_TTL_MS = 8_000;
 const TYPING_HEARTBEAT_MS = 3_000;
 const TYPING_IDLE_MS = 8_000;
+const TYPING_MIN_VISIBLE_MS = 1_200;
 const MESSAGE_QUERY_GC_TIME_MS = 30 * 60_000;
 const TYPING_QUERY_GC_TIME_MS = 15_000;
 const SEARCH_QUERY_GC_TIME_MS = 30_000;
@@ -468,6 +469,7 @@ export function NorthMessengerWorkspace({
   const {
     clearTypingParticipant,
     handleComposerChange,
+    scheduleTypingStop,
     scheduleTypingTimeout,
     sendTypingHeartbeat,
     setTypingByChatId,
@@ -479,6 +481,7 @@ export function NorthMessengerWorkspace({
     composerChatId: activeChatId,
     heartbeatMs: TYPING_HEARTBEAT_MS,
     idleMs: TYPING_IDLE_MS,
+    minVisibleMs: TYPING_MIN_VISIBLE_MS,
     ttlMs: TYPING_EVENT_TTL_MS,
     setComposerDraft,
   });
@@ -2111,6 +2114,7 @@ export function NorthMessengerWorkspace({
     onUnauthorized: () => onSessionChange(null),
     queryClient,
     refreshChatPreviewFromServer,
+    scheduleTypingStop,
     scheduleTypingTimeout,
     sendTypingHeartbeat,
     sessionToken: session.token,

@@ -2,6 +2,10 @@ import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { publishTypingEvent } from "../../../lib/realtime";
 import type { Participant } from "../../../lib/types";
 import { removeTypingParticipant } from "../typingState";
+import {
+  getTypingIndicatorClearDelay,
+  shouldSendTypingHeartbeat,
+} from "../typingRealtime";
 
 type UseTypingSignalsOptions = {
   activeChatId: string | null;
@@ -9,6 +13,7 @@ type UseTypingSignalsOptions = {
   composerChatId: string | null;
   heartbeatMs: number;
   idleMs: number;
+  minVisibleMs: number;
   ttlMs: number;
   setComposerDraft: (chatId: string, nextValue: string) => void;
 };
@@ -19,11 +24,13 @@ export function useTypingSignals({
   composerChatId,
   heartbeatMs,
   idleMs,
+  minVisibleMs,
   ttlMs,
   setComposerDraft,
 }: UseTypingSignalsOptions) {
   const [typingByChatId, setTypingByChatId] = useState<Record<string, Participant[]>>({});
   const typingTimeoutsRef = useRef(new Map<string, number>());
+  const typingVisibleSinceRef = useRef(new Map<string, number>());
   const typingSignalRef = useRef<{ chatId: string | null; active: boolean; lastSentAt: number }>({
     chatId: null,
     active: false,
@@ -42,6 +49,7 @@ export function useTypingSignals({
       window.clearTimeout(timeoutId);
       typingTimeoutsRef.current.delete(key);
     }
+    typingVisibleSinceRef.current.delete(key);
 
     setTypingByChatId((current) => removeTypingParticipant(current, chatId, participantId));
   });
@@ -52,6 +60,10 @@ export function useTypingSignals({
 
   const sendTypingHeartbeat = useEffectEvent((chatId: string) => {
     const now = Date.now();
+    if (!shouldSendTypingHeartbeat(typingActivityRef.current, chatId, now, idleMs)) {
+      return;
+    }
+
     const currentSignal = typingSignalRef.current;
 
     if (currentSignal.active && currentSignal.chatId && currentSignal.chatId !== chatId) {
@@ -92,6 +104,13 @@ export function useTypingSignals({
   const stopTyping = useEffectEvent((chatId?: string | null) => {
     const currentSignal = typingSignalRef.current;
     const targetChatId = chatId ?? currentSignal.chatId;
+    if (targetChatId && typingActivityRef.current.chatId === targetChatId) {
+      typingActivityRef.current = {
+        chatId: targetChatId,
+        lastInputAt: 0,
+      };
+    }
+
     if (!targetChatId || !currentSignal.active || currentSignal.chatId !== targetChatId) {
       return;
     }
@@ -110,10 +129,36 @@ export function useTypingSignals({
     if (existingTimeoutId !== undefined) {
       window.clearTimeout(existingTimeoutId);
     }
+    if (!typingVisibleSinceRef.current.has(key)) {
+      typingVisibleSinceRef.current.set(key, Date.now());
+    }
 
     const timeoutId = window.setTimeout(() => {
       clearTypingParticipant(chatId, participantId);
     }, ttlMs);
+    typingTimeoutsRef.current.set(key, timeoutId);
+  });
+
+  const scheduleTypingStop = useEffectEvent((chatId: string, participantId: string) => {
+    const key = `${chatId}:${participantId}`;
+    const existingTimeoutId = typingTimeoutsRef.current.get(key);
+    if (existingTimeoutId !== undefined) {
+      window.clearTimeout(existingTimeoutId);
+    }
+
+    const delayMs = getTypingIndicatorClearDelay(
+      typingVisibleSinceRef.current.get(key),
+      Date.now(),
+      minVisibleMs
+    );
+    if (delayMs <= 0) {
+      clearTypingParticipant(chatId, participantId);
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      clearTypingParticipant(chatId, participantId);
+    }, delayMs);
     typingTimeoutsRef.current.set(key, timeoutId);
   });
 
@@ -198,6 +243,7 @@ export function useTypingSignals({
   return {
     clearTypingParticipant,
     handleComposerChange,
+    scheduleTypingStop,
     scheduleTypingTimeout,
     sendTypingHeartbeat,
     setTypingByChatId,
