@@ -175,6 +175,21 @@ export async function discardUnusableRegisteredEncryptionDeviceMaterial<
   return null;
 }
 
+function resetLocalEncryptionStateForReboundDeviceId(options: {
+  userId: string;
+  removeDeviceSessions: (userId: string) => void;
+  removeRememberedDeviceSessions: (userId: string) => void;
+  removeGroupSenderChains: (userId: string) => void;
+  removeGroupHistoryKeys: (userId: string) => void;
+  clearCompletedDevicePreparation: (userId: string) => void;
+}) {
+  options.removeDeviceSessions(options.userId);
+  options.removeRememberedDeviceSessions(options.userId);
+  options.removeGroupSenderChains(options.userId);
+  options.removeGroupHistoryKeys(options.userId);
+  options.clearCompletedDevicePreparation(options.userId);
+}
+
 export function isSignedPrekeyRotationDue<
   Material extends Pick<
     DeviceEncryptionMaterialLike,
@@ -233,6 +248,11 @@ export async function recoverRegisteredEncryptionDeviceMaterial<
     material: Material
   ) => Promise<void>;
   markRegistrationCompleted: (userId: string) => void;
+  removeDeviceSessions: (userId: string) => void;
+  removeRememberedDeviceSessions: (userId: string) => void;
+  removeGroupSenderChains: (userId: string) => void;
+  removeGroupHistoryKeys: (userId: string) => void;
+  clearCompletedDevicePreparation: (userId: string) => void;
 }) {
   let currentMaterial =
     options.material ??
@@ -263,6 +283,19 @@ export async function recoverRegisteredEncryptionDeviceMaterial<
       ...currentMaterial,
       deviceId: existingDevice.deviceId,
     };
+    if (
+      currentMaterial.deviceId &&
+      currentMaterial.deviceId !== existingDevice.deviceId
+    ) {
+      resetLocalEncryptionStateForReboundDeviceId({
+        userId: options.session.user.id,
+        removeDeviceSessions: options.removeDeviceSessions,
+        removeRememberedDeviceSessions: options.removeRememberedDeviceSessions,
+        removeGroupSenderChains: options.removeGroupSenderChains,
+        removeGroupHistoryKeys: options.removeGroupHistoryKeys,
+        clearCompletedDevicePreparation: options.clearCompletedDevicePreparation,
+      });
+    }
     options.writeEncryptionDeviceMaterial(
       options.session.user.id,
       hydratedMaterial
@@ -369,6 +402,10 @@ export async function ensureRegisteredEncryptionDeviceInternal<
     material: Material
   ) => Promise<void>;
   markRegistrationCompleted: (userId: string) => void;
+  removeDeviceSessions: (userId: string) => void;
+  removeRememberedDeviceSessions: (userId: string) => void;
+  removeGroupSenderChains: (userId: string) => void;
+  removeGroupHistoryKeys: (userId: string) => void;
   clearCompletedDevicePreparation: (userId: string) => void;
 }) {
   if (!options.isSecureContextAvailable()) {
@@ -411,6 +448,14 @@ export async function ensureRegisteredEncryptionDeviceInternal<
       ...material,
       deviceId: existingDevice.deviceId,
     };
+    resetLocalEncryptionStateForReboundDeviceId({
+      userId: options.session.user.id,
+      removeDeviceSessions: options.removeDeviceSessions,
+      removeRememberedDeviceSessions: options.removeRememberedDeviceSessions,
+      removeGroupSenderChains: options.removeGroupSenderChains,
+      removeGroupHistoryKeys: options.removeGroupHistoryKeys,
+      clearCompletedDevicePreparation: options.clearCompletedDevicePreparation,
+    });
     options.writeEncryptionDeviceMaterial(
       options.session.user.id,
       hydratedMaterial
@@ -447,6 +492,19 @@ export async function ensureRegisteredEncryptionDeviceInternal<
       options.session.token,
       buildOwnEncryptionDeviceUpsertRequest(nextMaterial)
     );
+    if (
+      material?.deviceId &&
+      material.deviceId !== persistedDevice.deviceId
+    ) {
+      resetLocalEncryptionStateForReboundDeviceId({
+        userId: options.session.user.id,
+        removeDeviceSessions: options.removeDeviceSessions,
+        removeRememberedDeviceSessions: options.removeRememberedDeviceSessions,
+        removeGroupSenderChains: options.removeGroupSenderChains,
+        removeGroupHistoryKeys: options.removeGroupHistoryKeys,
+        clearCompletedDevicePreparation: options.clearCompletedDevicePreparation,
+      });
+    }
     const persistedMaterial = {
       ...nextMaterial,
       deviceId: persistedDevice.deviceId,

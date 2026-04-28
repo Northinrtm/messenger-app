@@ -153,6 +153,10 @@ describe("e2eeOwnDeviceRegistration", () => {
       writeEncryptionDeviceMaterial,
       rememberEncryptionDeviceMaterial,
       markRegistrationCompleted,
+      removeDeviceSessions: vi.fn(),
+      removeRememberedDeviceSessions: vi.fn(),
+      removeGroupSenderChains: vi.fn(),
+      removeGroupHistoryKeys: vi.fn(),
       clearCompletedDevicePreparation,
     });
 
@@ -162,6 +166,100 @@ describe("e2eeOwnDeviceRegistration", () => {
     );
     expect(rememberEncryptionDeviceMaterial).toHaveBeenCalled();
     expect(markRegistrationCompleted).toHaveBeenCalledWith("self");
+    expect(clearCompletedDevicePreparation).toHaveBeenCalledWith("self");
+  });
+
+  it("clears local session and group state when the server rebinds the deviceId", async () => {
+    const removeDeviceSessions = vi.fn();
+    const removeRememberedDeviceSessions = vi.fn();
+    const removeGroupSenderChains = vi.fn();
+    const removeGroupHistoryKeys = vi.fn();
+    const clearCompletedDevicePreparation = vi.fn();
+
+    await ensureRegisteredEncryptionDeviceInternal({
+      session,
+      isSecureContextAvailable: () => true,
+      listOwnEncryptionDevices: vi.fn(async () => []),
+      readEncryptionDeviceMaterial: vi.fn(async () => material),
+      discardUnusableRegisteredEncryptionDeviceMaterial: vi.fn(async (_userId, value) => value),
+      isSignedPrekeyRotationDue: vi.fn(() => false),
+      minOneTimePrekeys: 4,
+      refreshEncryptionDeviceMaterial: vi.fn(async () => material),
+      createEncryptionDeviceMaterial: vi.fn(async () => material),
+      upsertOwnEncryptionDevice: vi.fn(async () => ({ deviceId: "server-device-2" })),
+      writeEncryptionDeviceMaterial: vi.fn(),
+      rememberEncryptionDeviceMaterial: vi.fn(async () => undefined),
+      markRegistrationCompleted: vi.fn(),
+      removeDeviceSessions,
+      removeRememberedDeviceSessions,
+      removeGroupSenderChains,
+      removeGroupHistoryKeys,
+      clearCompletedDevicePreparation,
+    });
+
+    expect(removeDeviceSessions).toHaveBeenCalledWith("self");
+    expect(removeRememberedDeviceSessions).toHaveBeenCalledWith("self");
+    expect(removeGroupSenderChains).toHaveBeenCalledWith("self");
+    expect(removeGroupHistoryKeys).toHaveBeenCalledWith("self");
+    expect(clearCompletedDevicePreparation).toHaveBeenCalledWith("self");
+  });
+
+  it("clears local session and group state when an existing matching device is rebound", async () => {
+    const removeDeviceSessions = vi.fn();
+    const removeRememberedDeviceSessions = vi.fn();
+    const removeGroupSenderChains = vi.fn();
+    const removeGroupHistoryKeys = vi.fn();
+    const writeEncryptionDeviceMaterial = vi.fn();
+    const rememberEncryptionDeviceMaterial = vi.fn(async () => undefined);
+    const clearCompletedDevicePreparation = vi.fn();
+
+    await ensureRegisteredEncryptionDeviceInternal({
+      session,
+      isSecureContextAvailable: () => true,
+      listOwnEncryptionDevices: vi.fn(async () => [
+        {
+          deviceId: "server-device-rebound",
+          deviceName: "Self",
+          identityKey: material.identityKey,
+          identityKeyAlgorithm: "X25519",
+          identitySignatureKey: material.identitySignatureKey,
+          identitySignatureKeyAlgorithm: "Ed25519",
+          signedPrekeyId: material.signedPrekeyId,
+          signedPrekeyPublicKey: material.signedPrekeyPublicKey,
+          signedPrekeySignature: "sig",
+          signedPrekeyAlgorithm: "X25519",
+          deviceVersion: "v1",
+          availableOneTimePrekeys: 5,
+          registeredAt: "2026-04-20T12:00:00.000Z",
+          lastSeenAt: "2026-04-20T12:00:00.000Z",
+        },
+      ]),
+      readEncryptionDeviceMaterial: vi.fn(async () => material),
+      discardUnusableRegisteredEncryptionDeviceMaterial: vi.fn(async (_userId, value) => value),
+      isSignedPrekeyRotationDue: vi.fn(() => false),
+      minOneTimePrekeys: 4,
+      refreshEncryptionDeviceMaterial: vi.fn(async () => material),
+      createEncryptionDeviceMaterial: vi.fn(async () => material),
+      upsertOwnEncryptionDevice: vi.fn(async () => ({ deviceId: "server-device-rebound" })),
+      writeEncryptionDeviceMaterial,
+      rememberEncryptionDeviceMaterial,
+      markRegistrationCompleted: vi.fn(),
+      removeDeviceSessions,
+      removeRememberedDeviceSessions,
+      removeGroupSenderChains,
+      removeGroupHistoryKeys,
+      clearCompletedDevicePreparation,
+    });
+
+    expect(removeDeviceSessions).toHaveBeenCalledWith("self");
+    expect(removeRememberedDeviceSessions).toHaveBeenCalledWith("self");
+    expect(removeGroupSenderChains).toHaveBeenCalledWith("self");
+    expect(removeGroupHistoryKeys).toHaveBeenCalledWith("self");
+    expect(writeEncryptionDeviceMaterial).toHaveBeenCalledWith(
+      "self",
+      expect.objectContaining({ deviceId: "server-device-rebound" })
+    );
+    expect(rememberEncryptionDeviceMaterial).toHaveBeenCalled();
     expect(clearCompletedDevicePreparation).toHaveBeenCalledWith("self");
   });
 

@@ -3570,6 +3570,10 @@ async function ensureRegisteredEncryptionDeviceInternal(session: AuthResponse) {
     rememberEncryptionDeviceMaterial,
     markRegistrationCompleted: (userId) =>
       completedEncryptionDeviceRegistration.set(userId, Date.now()),
+    removeDeviceSessions,
+    removeRememberedDeviceSessions,
+    removeGroupSenderChains,
+    removeGroupHistoryKeys,
     clearCompletedDevicePreparation,
   });
 }
@@ -3587,6 +3591,11 @@ async function recoverRegisteredEncryptionDeviceMaterial(
     rememberEncryptionDeviceMaterial,
     markRegistrationCompleted: (userId) =>
       completedEncryptionDeviceRegistration.set(userId, Date.now()),
+    removeDeviceSessions,
+    removeRememberedDeviceSessions,
+    removeGroupSenderChains,
+    removeGroupHistoryKeys,
+    clearCompletedDevicePreparation,
   });
 }
 
