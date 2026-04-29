@@ -1,4 +1,4 @@
-import type { ChatSummary, Participant, UserProfile } from "../../../lib/types";
+import type { ChatPrejoinHistoryPolicy, ChatSummary, Participant, UserProfile } from "../../../lib/types";
 import { AvatarCircle } from "./AvatarCircle";
 
 type Props = {
@@ -9,6 +9,7 @@ type Props = {
   isDirectBlocked: boolean;
   groupDetailsTitle: string;
   groupDetailsAvatarUrl: string | null;
+  groupDetailsPrejoinHistoryPolicy: ChatPrejoinHistoryPolicy;
   groupInviteLinkUrl: string | null;
   availableGroupInviteContacts: UserProfile[];
   selectedGroupInviteContacts: UserProfile[];
@@ -35,6 +36,7 @@ type Props = {
   onGroupDetailsTitleChange: (value: string) => void;
   onGroupAvatarSelected: (file: File) => void;
   onRemoveGroupAvatar: () => void;
+  onGroupDetailsPrejoinHistoryPolicyChange: (value: ChatPrejoinHistoryPolicy) => void;
   onSubmitUpdateGroup: () => void;
   onGenerateGroupInviteLink: () => void;
   onCopyGroupInviteLink: (value: string) => void;
@@ -54,14 +56,48 @@ type Props = {
   onToggleBlocked: () => void;
 };
 
+const COPY = {
+  closeMenu: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C \u043C\u0435\u043D\u044E",
+  addToContacts: "\u0412 \u043A\u043E\u043D\u0442\u0430\u043A\u0442\u044B",
+  call: "\u0421\u043E\u0437\u0432\u043E\u043D",
+  schedule: "\u0417\u0430\u043F\u043B\u0430\u043D\u0438\u0440\u043E\u0432\u0430\u0442\u044C",
+  participants: "\u0423\u0447\u0430\u0441\u0442\u043D\u0438\u043A\u0438",
+  inviteLink: "\u0421\u0441\u044B\u043B\u043A\u0430-\u043F\u0440\u0438\u0433\u043B\u0430\u0448\u0435\u043D\u0438\u0435",
+  inviteLinkHelp:
+    "\u041E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u0442 \u0433\u0440\u0443\u043F\u043F\u0443 \u0438 \u0441\u0440\u0430\u0437\u0443 \u0434\u043E\u0431\u0430\u0432\u043B\u044F\u0435\u0442 \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F \u043F\u043E \u043A\u043E\u0440\u043E\u0442\u043A\u043E\u043C\u0443 \u0430\u0434\u0440\u0435\u0441\u0443.",
+  copy: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C",
+  refreshLink: "\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u044C \u0441\u0441\u044B\u043B\u043A\u0443",
+  generateLink: "\u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0441\u0441\u044B\u043B\u043A\u0443",
+  refreshingLink: "\u041E\u0431\u043D\u043E\u0432\u043B\u044F\u0435\u043C \u0441\u0441\u044B\u043B\u043A\u0443...",
+  groupAvatar: "\u0410\u0432\u0430\u0442\u0430\u0440 \u0433\u0440\u0443\u043F\u043F\u044B",
+  pickPhoto: "\u0412\u044B\u0431\u0440\u0430\u0442\u044C \u0444\u043E\u0442\u043E",
+  removePhoto: "\u0423\u0431\u0440\u0430\u0442\u044C \u0444\u043E\u0442\u043E",
+  groupTitle: "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0433\u0440\u0443\u043F\u043F\u044B",
+  historyTitle: "\u0418\u0441\u0442\u043E\u0440\u0438\u044F \u0434\u043B\u044F \u043D\u043E\u0432\u044B\u0445 \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A\u043E\u0432",
+  historyJoinOnly: "\u0421 \u043C\u043E\u043C\u0435\u043D\u0442\u0430 \u0432\u0441\u0442\u0443\u043F\u043B\u0435\u043D\u0438\u044F",
+  historyJoinOnlyHelp:
+    "\u041D\u043E\u0432\u044B\u0439 \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A \u0443\u0432\u0438\u0434\u0438\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u043D\u043E\u0432\u044B\u0435 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F \u043F\u043E\u0441\u043B\u0435 \u0432\u0445\u043E\u0434\u0430 \u0432 \u0433\u0440\u0443\u043F\u043F\u0443.",
+  historyFull: "\u0412\u0441\u044F \u0438\u0441\u0442\u043E\u0440\u0438\u044F",
+  historyFullHelp:
+    "\u0421\u0435\u0440\u0432\u0435\u0440 \u043E\u0442\u043A\u0440\u043E\u0435\u0442 \u043D\u043E\u0432\u043E\u043C\u0443 \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A\u0443 \u0441\u0442\u0430\u0440\u0443\u044E \u0438\u0441\u0442\u043E\u0440\u0438\u044E \u0433\u0440\u0443\u043F\u043F\u044B.",
+  save: "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C",
+  saving: "\u0421\u043E\u0445\u0440\u0430\u043D\u044F\u0435\u043C...",
+  leaveGroup: "\u0412\u044B\u0439\u0442\u0438 \u0438\u0437 \u0433\u0440\u0443\u043F\u043F\u044B",
+  deleteGroup: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0433\u0440\u0443\u043F\u043F\u0443",
+  unblock: "\u0420\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u0442\u044C",
+  block: "\u0417\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u0442\u044C",
+  about: "\u041E \u0441\u0435\u0431\u0435",
+  selected: "\u0412\u044B\u0431\u0440\u0430\u043D\u043E",
+} as const;
+
 function renderMemberCount(count: number) {
   if (count % 10 === 1 && count % 100 !== 11) {
-    return `${count} участник`;
+    return `${count} \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A`;
   }
   if (count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14)) {
-    return `${count} участника`;
+    return `${count} \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A\u0430`;
   }
-  return `${count} участников`;
+  return `${count} \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A\u043E\u0432`;
 }
 
 export function ChatMenuPanel({
@@ -72,10 +108,10 @@ export function ChatMenuPanel({
   isDirectBlocked,
   groupDetailsTitle,
   groupDetailsAvatarUrl,
+  groupDetailsPrejoinHistoryPolicy,
   groupInviteLinkUrl,
   groupInviteLinkPending,
   updateGroupPending,
-  createChatPending,
   leaveGroupPending,
   deleteGroupPending,
   toggleBlockPending,
@@ -87,6 +123,7 @@ export function ChatMenuPanel({
   onGroupDetailsTitleChange,
   onGroupAvatarSelected,
   onRemoveGroupAvatar,
+  onGroupDetailsPrejoinHistoryPolicyChange,
   onSubmitUpdateGroup,
   onGenerateGroupInviteLink,
   onCopyGroupInviteLink,
@@ -117,7 +154,7 @@ export function ChatMenuPanel({
             type="button"
             className="sidebar-menu-collapse"
             onClick={onClose}
-            aria-label="Закрыть меню"
+            aria-label={COPY.closeMenu}
           >
             ×
           </button>
@@ -126,7 +163,7 @@ export function ChatMenuPanel({
         <div className="chat-menu-actions">
           {!activeDirectInContacts ? (
             <button type="button" className="ghost-button compact" onClick={onAddToContacts}>
-              В контакты
+              {COPY.addToContacts}
             </button>
           ) : null}
           <button
@@ -135,7 +172,7 @@ export function ChatMenuPanel({
             disabled={isDirectBlocked}
             onClick={onStartDirectConference}
           >
-            Созвон
+            {COPY.call}
           </button>
           <button
             type="button"
@@ -143,7 +180,7 @@ export function ChatMenuPanel({
             disabled={toggleBlockPending}
             onClick={onToggleBlocked}
           >
-            {isDirectBlocked ? "Разблокировать" : "Заблокировать"}
+            {isDirectBlocked ? COPY.unblock : COPY.block}
           </button>
         </div>
 
@@ -153,7 +190,7 @@ export function ChatMenuPanel({
         </div>
         {activeDirectParticipant.profession ? (
           <div className="profile-line">
-            <span className="profile-label">О себе</span>
+            <span className="profile-label">{COPY.about}</span>
             <strong className="profile-about-value">{activeDirectParticipant.profession}</strong>
           </div>
         ) : null}
@@ -168,9 +205,11 @@ export function ChatMenuPanel({
   const normalizedGroupTitle = groupDetailsTitle.trim();
   const groupTitle = normalizedGroupTitle || activeChat.title;
   const isCurrentUserOwner = activeChat.ownerUserId === sessionUserId;
+  const currentPolicy = activeChat.prejoinHistoryPolicy ?? "FULL_HISTORY";
   const groupChanged =
     groupTitle !== activeChat.title ||
-    (groupDetailsAvatarUrl ?? null) !== (activeChat.avatarUrl ?? null);
+    (groupDetailsAvatarUrl ?? null) !== (activeChat.avatarUrl ?? null) ||
+    groupDetailsPrejoinHistoryPolicy !== currentPolicy;
 
   return (
     <div className="chat-menu-panel">
@@ -191,7 +230,7 @@ export function ChatMenuPanel({
           type="button"
           className="sidebar-menu-collapse"
           onClick={onClose}
-          aria-label="Закрыть меню"
+          aria-label={COPY.closeMenu}
         >
           ×
         </button>
@@ -200,26 +239,26 @@ export function ChatMenuPanel({
       <div className="chat-menu-primary-actions">
         <div className="chat-menu-actions">
           <button type="button" className="ghost-button compact" onClick={() => onOpenGroupConferenceComposer("instant")}>
-            Созвон
+            {COPY.call}
           </button>
           <button
             type="button"
             className="ghost-button compact"
             onClick={() => onOpenGroupConferenceComposer("scheduled")}
           >
-            Запланировать
+            {COPY.schedule}
           </button>
         </div>
         <button type="button" className="ghost-button compact chat-menu-toggle" onClick={onOpenMembers}>
-          Участники
+          {COPY.participants}
         </button>
       </div>
 
       {canManageInviteLink ? (
         <div className="invite-link-panel chat-menu-invite-panel">
           <div className="invite-link-copy">
-            <strong>Ссылка-приглашение</strong>
-            <span>Открывает группу и сразу добавляет пользователя по короткому адресу.</span>
+            <strong>{COPY.inviteLink}</strong>
+            <span>{COPY.inviteLinkHelp}</span>
           </div>
           {groupInviteLinkUrl ? (
             <div className="invite-link-row">
@@ -234,7 +273,7 @@ export function ChatMenuPanel({
                 className="ghost-button compact"
                 onClick={() => onCopyGroupInviteLink(groupInviteLinkUrl)}
               >
-                Копировать
+                {COPY.copy}
               </button>
             </div>
           ) : null}
@@ -245,10 +284,10 @@ export function ChatMenuPanel({
             onClick={onGenerateGroupInviteLink}
           >
             {groupInviteLinkPending
-              ? "Обновляем ссылку..."
+              ? COPY.refreshingLink
               : groupInviteLinkUrl
-                ? "Обновить ссылку"
-                : "Сгенерировать ссылку"}
+                ? COPY.refreshLink
+                : COPY.generateLink}
           </button>
         </div>
       ) : null}
@@ -256,10 +295,10 @@ export function ChatMenuPanel({
       {canEditGroup ? (
         <>
           <div className="profile-line">
-            <span className="profile-label">Аватар группы</span>
+            <span className="profile-label">{COPY.groupAvatar}</span>
             <div className="profile-avatar-actions">
               <label htmlFor="chat-menu-group-avatar" className="ghost-button compact">
-                Выбрать фото
+                {COPY.pickPhoto}
               </label>
               <input
                 id="chat-menu-group-avatar"
@@ -276,7 +315,7 @@ export function ChatMenuPanel({
               />
               {groupDetailsAvatarUrl ? (
                 <button type="button" className="ghost-button compact" onClick={onRemoveGroupAvatar}>
-                  Убрать фото
+                  {COPY.removePhoto}
                 </button>
               ) : null}
             </div>
@@ -289,19 +328,50 @@ export function ChatMenuPanel({
               onSubmitUpdateGroup();
             }}
           >
-            <span className="profile-label">Название группы</span>
+            <span className="profile-label">{COPY.groupTitle}</span>
             <input
               value={groupDetailsTitle}
               onChange={(event) => onGroupDetailsTitleChange(event.target.value)}
-              placeholder="Название группы"
+              placeholder={COPY.groupTitle}
               maxLength={120}
             />
+
+            <div className="chat-menu-history-panel">
+              <span className="profile-label">{COPY.historyTitle}</span>
+              <div className="chat-menu-history-toggle" role="group" aria-label={COPY.historyTitle}>
+                <button
+                  type="button"
+                  className={
+                    groupDetailsPrejoinHistoryPolicy === "JOIN_ONLY"
+                      ? "chat-menu-history-option is-active"
+                      : "chat-menu-history-option"
+                  }
+                  onClick={() => onGroupDetailsPrejoinHistoryPolicyChange("JOIN_ONLY")}
+                >
+                  <strong>{COPY.historyJoinOnly}</strong>
+                  <span>{COPY.historyJoinOnlyHelp}</span>
+                </button>
+                <button
+                  type="button"
+                  className={
+                    groupDetailsPrejoinHistoryPolicy === "FULL_HISTORY"
+                      ? "chat-menu-history-option is-active"
+                      : "chat-menu-history-option"
+                  }
+                  onClick={() => onGroupDetailsPrejoinHistoryPolicyChange("FULL_HISTORY")}
+                >
+                  <strong>{COPY.historyFull}</strong>
+                  <span>{COPY.historyFullHelp}</span>
+                </button>
+              </div>
+            </div>
+
             <button
               type="submit"
               className="secondary-button"
               disabled={updateGroupPending || normalizedGroupTitle.length < 2 || !groupChanged}
             >
-              {updateGroupPending ? "Сохраняем..." : "Сохранить"}
+              {updateGroupPending ? COPY.saving : COPY.save}
             </button>
           </form>
         </>
@@ -315,7 +385,7 @@ export function ChatMenuPanel({
             disabled={leaveGroupPending || deleteGroupPending}
             onClick={onLeaveGroup}
           >
-            Выйти из группы
+            {COPY.leaveGroup}
           </button>
         ) : null}
         {canDeleteGroup ? (
@@ -325,7 +395,7 @@ export function ChatMenuPanel({
             disabled={deleteGroupPending}
             onClick={onDeleteGroup}
           >
-            Удалить группу
+            {COPY.deleteGroup}
           </button>
         ) : null}
       </div>

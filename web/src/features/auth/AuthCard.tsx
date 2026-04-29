@@ -50,6 +50,7 @@ export function AuthCard({
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordConfirm, setPasswordConfirm] = useState("");
   const [resetToken, setResetToken] = useState(initialPasswordResetToken ?? "");
   const [resetPassword, setResetPassword] = useState("");
   const [infoMessage, setInfoMessage] = useState<string | null>(
@@ -84,6 +85,7 @@ export function AuthCard({
     },
     onSuccess: (response) => {
       setPassword("");
+      setPasswordConfirm("");
       onAuthenticated(response);
     },
   });
@@ -207,6 +209,9 @@ export function AuthCard({
     .filter(Boolean)
     .map((item) => describeError(item))
     .find(Boolean);
+  const registrationPasswordsMatch = password === passwordConfirm;
+  const registrationPasswordReady =
+    mode !== "register" || (password.length > 0 && passwordConfirm.length > 0 && registrationPasswordsMatch);
   const isAuthMode = mode === "login" || mode === "register";
   const isBusy =
     authMutation.isPending ||
@@ -291,6 +296,9 @@ export function AuthCard({
             if (mode === "verifyEmail") {
               return;
             }
+            if (mode === "register" && !registrationPasswordReady) {
+              return;
+            }
             authMutation.mutate();
           }}
         >
@@ -372,17 +380,32 @@ export function AuthCard({
               </label>
             </>
           ) : mode === "requestReset" ? null : (
-            <label className="field">
-              <span>Password</span>
-              <input
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder=""
-                type="password"
-                autoComplete={mode === "register" ? "new-password" : "current-password"}
-                required
-              />
-            </label>
+            <>
+              <label className="field">
+                <span>Password</span>
+                <input
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder=""
+                  type="password"
+                  autoComplete={mode === "register" ? "new-password" : "current-password"}
+                  required
+                />
+              </label>
+              {mode === "register" ? (
+                <label className="field">
+                  <span>Confirm password</span>
+                  <input
+                    value={passwordConfirm}
+                    onChange={(event) => setPasswordConfirm(event.target.value)}
+                    placeholder=""
+                    type="password"
+                    autoComplete="new-password"
+                    required
+                  />
+                </label>
+              ) : null}
+            </>
           )}
 
           {infoMessage ? <div className="form-note">{infoMessage}</div> : null}
@@ -399,10 +422,18 @@ export function AuthCard({
             </div>
           ) : null}
 
+          {mode === "register" && passwordConfirm.length > 0 && !registrationPasswordsMatch ? (
+            <div className="form-error">Passwords do not match.</div>
+          ) : null}
+
           {error ? <div className="form-error">{error}</div> : null}
 
           {mode === "verifyEmail" ? null : (
-            <button type="submit" className="primary-button" disabled={isBusy}>
+            <button
+              type="submit"
+              className="primary-button"
+              disabled={isBusy || (mode === "register" && !registrationPasswordReady)}
+            >
               {mode === "requestReset"
                 ? requestResetMutation.isPending
                   ? "Sending reset link..."

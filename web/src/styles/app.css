@@ -3871,6 +3871,61 @@ select {
   justify-content: center;
 }
 
+.chat-menu-history-panel {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.chat-menu-history-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.chat-menu-history-option {
+  min-width: 0;
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.8rem 0.85rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1rem;
+  background: rgba(33, 49, 67, 0.92);
+  color: #cfe0f2;
+  text-align: left;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.chat-menu-history-option strong {
+  color: #f4fbff;
+  font-size: 0.92rem;
+}
+
+.chat-menu-history-option span {
+  color: #9cb4ca;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.chat-menu-history-option:hover {
+  border-color: rgba(125, 181, 255, 0.28);
+  background: rgba(39, 58, 78, 0.96);
+}
+
+.chat-menu-history-option.is-active {
+  border-color: rgba(125, 181, 255, 0.42);
+  background: linear-gradient(180deg, rgba(47, 86, 128, 0.96), rgba(36, 68, 103, 0.96));
+}
+
+.chat-menu-history-option.is-active span {
+  color: rgba(236, 244, 255, 0.84);
+}
+
+@media (max-width: 560px) {
+  .chat-menu-history-toggle {
+    grid-template-columns: 1fr;
+  }
+}
+
 .chat-menu-invite-panel {
   margin-top: -0.1rem;
 }

@@ -136,12 +136,14 @@ describe("AuthCard auth flow", () => {
     const emailInput = inputs[1] as HTMLInputElement;
     const displayNameInput = inputs[2] as HTMLInputElement;
     const passwordInput = inputs[3] as HTMLInputElement;
+    const passwordConfirmInput = inputs[4] as HTMLInputElement;
 
     await act(async () => {
       setInputValue(usernameInput, "north");
       setInputValue(emailInput, "north@example.com");
       setInputValue(displayNameInput, "North");
       setInputValue(passwordInput, "riverlantern");
+      setInputValue(passwordConfirmInput, "riverlantern");
       (container.querySelector("form") as HTMLFormElement).dispatchEvent(
         new Event("submit", { bubbles: true, cancelable: true })
       );
@@ -175,12 +177,14 @@ describe("AuthCard auth flow", () => {
     const emailInput = inputs[1] as HTMLInputElement;
     const displayNameInput = inputs[2] as HTMLInputElement;
     const passwordInput = inputs[3] as HTMLInputElement;
+    const passwordConfirmInput = inputs[4] as HTMLInputElement;
 
     await act(async () => {
       setInputValue(usernameInput, "north");
       setInputValue(emailInput, "north@example.com");
       setInputValue(displayNameInput, "");
       setInputValue(passwordInput, "riverlantern");
+      setInputValue(passwordConfirmInput, "riverlantern");
       (container.querySelector("form") as HTMLFormElement).dispatchEvent(
         new Event("submit", { bubbles: true, cancelable: true })
       );
@@ -202,6 +206,35 @@ describe("AuthCard auth flow", () => {
     });
 
     expect(container.textContent).not.toContain("displayName: must not be empty");
+  });
+
+  it("does not submit registration when password confirmation does not match", async () => {
+    await act(async () => {
+      renderAuthCard(root!, <AuthCard onAuthenticated={vi.fn()} />);
+      await flushMicrotasks();
+    });
+
+    const inputs = container.querySelectorAll("input");
+    const usernameInput = inputs[0] as HTMLInputElement;
+    const emailInput = inputs[1] as HTMLInputElement;
+    const displayNameInput = inputs[2] as HTMLInputElement;
+    const passwordInput = inputs[3] as HTMLInputElement;
+    const passwordConfirmInput = inputs[4] as HTMLInputElement;
+
+    await act(async () => {
+      setInputValue(usernameInput, "north");
+      setInputValue(emailInput, "north@example.com");
+      setInputValue(displayNameInput, "North");
+      setInputValue(passwordInput, "riverlantern");
+      setInputValue(passwordConfirmInput, "riverlantern2");
+      (container.querySelector("form") as HTMLFormElement).dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true })
+      );
+      await flushMicrotasks();
+    });
+
+    expect(register).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Passwords do not match.");
   });
 
   it("sign in still works normally", async () => {
