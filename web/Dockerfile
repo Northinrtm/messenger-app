@@ -1,4 +1,4 @@
-﻿FROM node:22-alpine AS build
+FROM node:22-bookworm-slim AS build
 WORKDIR /app
 
 COPY package.json .
@@ -20,7 +20,7 @@ ENV VITE_APP_REVISION=${VITE_APP_REVISION}
 ENV VITE_WS_URL=${VITE_WS_URL}
 ENV VITE_JITSI_BASE_URL=${VITE_JITSI_BASE_URL}
 
-RUN npm ci
+RUN npm ci --no-audit --no-fund
 RUN npm run build
 
 FROM nginx:1.29-alpine
