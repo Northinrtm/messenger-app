@@ -103,8 +103,8 @@ export function UnlockCard({
   const signOutMutation = useMutation({
     mutationFn: () => logout(),
     onSettled: async () => {
-      const { clearUnlockedEncryptionState } = await import("../../lib/e2ee");
-      clearUnlockedEncryptionState(session.user.id);
+      const { lockUnlockedEncryptionState } = await import("../../lib/e2ee");
+      lockUnlockedEncryptionState(session.user.id);
       onSignedOut();
     },
   });

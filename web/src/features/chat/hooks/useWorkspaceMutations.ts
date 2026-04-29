@@ -309,8 +309,8 @@ export function useWorkspaceMutations({
   const signOutMutation = useMutation({
     mutationFn: () => logout(),
     onSettled: async () => {
-      const { clearUnlockedEncryptionState } = await import("../../../lib/e2ee");
-      clearUnlockedEncryptionState(currentSession.user.id);
+      const { lockUnlockedEncryptionState } = await import("../../../lib/e2ee");
+      lockUnlockedEncryptionState(currentSession.user.id);
       onSessionChange(null);
     },
   });
