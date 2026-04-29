@@ -4223,8 +4223,12 @@ describe("e2ee hardening", () => {
       x: "generated",
     } as JsonWebKey);
     vi.spyOn(window.crypto.subtle, "deriveBits").mockResolvedValue(new Uint8Array(32).buffer);
+    vi.spyOn(window.crypto.subtle, "deriveKey").mockResolvedValue({} as CryptoKey);
     vi.spyOn(window.crypto.subtle, "sign").mockResolvedValue(new Uint8Array([1, 2, 3]).buffer);
     vi.spyOn(window.crypto.subtle, "encrypt").mockImplementation(
+      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
+    );
+    vi.spyOn(window.crypto.subtle, "decrypt").mockImplementation(
       async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
     );
     vi.mocked(listOwnEncryptionDevices).mockResolvedValue([
@@ -4386,6 +4390,144 @@ describe("e2ee hardening", () => {
     expect(persistedGroupState.outboundChains?.["group-chat-id"]).toMatchObject({
       senderKeyId: retriedSharedEnvelope.senderKeyId,
       nextMessageCounter: 1,
+    });
+  });
+
+  it("restores a newer remembered outbound group sender chain before rotating on session repair", async () => {
+    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
+    vi.spyOn(window.crypto.subtle, "generateKey").mockResolvedValue({
+      publicKey: {} as CryptoKey,
+      privateKey: {} as CryptoKey,
+    } as CryptoKeyPair);
+    vi.spyOn(window.crypto.subtle, "exportKey").mockResolvedValue({
+      kty: "OKP",
+      crv: "X25519",
+      x: "generated",
+    } as JsonWebKey);
+    vi.spyOn(window.crypto.subtle, "deriveBits").mockResolvedValue(new Uint8Array(32).buffer);
+    vi.spyOn(window.crypto.subtle, "deriveKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "sign").mockResolvedValue(new Uint8Array([1, 2, 3]).buffer);
+    vi.spyOn(window.crypto.subtle, "encrypt").mockImplementation(
+      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
+    );
+    vi.spyOn(window.crypto.subtle, "decrypt").mockImplementation(
+      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
+    );
+    vi.mocked(resolveEncryptionDeviceBundles).mockResolvedValue([deviceBundle]);
+    vi.mocked(sendMessageRaw).mockImplementationOnce(async (_token, chatId, request) => ({
+      id: "group-message-id-initial",
+      chatId,
+      sender: selfParticipant,
+      createdAt: "2026-04-09T10:35:00.000Z",
+      editedAt: null,
+      status: null,
+      clientMessageId: request.clientMessageId ?? null,
+      replyTo: null,
+      reactions: [],
+      encryptedPayload: request.encryptedPayload,
+    }));
+    window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(identity));
+    window.sessionStorage.setItem(DEVICE_MATERIAL_KEY, JSON.stringify(localDeviceMaterial));
+
+    await sendEncryptedMessage(
+      "token",
+      "group-chat-id",
+      "initial group secret",
+      [selfParticipant, participant],
+      "group-client-message-id-initial",
+      null,
+      { currentUserId: USER_ID, isDirectChat: false }
+    );
+
+    const initialSharedEnvelope = JSON.parse(
+      vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload?.sharedEnvelope ?? "{}"
+    ) as { senderKeyId?: string; messageCounter?: number };
+    const staleGroupState = JSON.parse(
+      window.sessionStorage.getItem(GROUP_SENDER_CHAIN_KEY) ?? "{}"
+    ) as {
+      outboundChains?: Record<
+        string,
+        {
+          senderKeyId?: string;
+          nextMessageCounter?: number;
+        }
+      >;
+    };
+    expect(window.localStorage.getItem(`north-messenger:group-sender-chain-e2ee:remembered:${USER_ID}`)).not.toBeNull();
+    staleGroupState.outboundChains = {
+      ...(staleGroupState.outboundChains ?? {}),
+      "group-chat-id": {
+        ...(staleGroupState.outboundChains?.["group-chat-id"] ?? {}),
+        nextMessageCounter: 0,
+      },
+    };
+    window.sessionStorage.setItem(GROUP_SENDER_CHAIN_KEY, JSON.stringify(staleGroupState));
+
+    vi.mocked(sendMessageRaw).mockReset();
+    vi.mocked(sendMessageRaw)
+      .mockRejectedValueOnce(new ApiError("Encrypted group envelope message counter is stale", 400))
+      .mockImplementationOnce(async (_token, chatId, request) => ({
+        id: "group-message-id-restored",
+        chatId,
+        sender: selfParticipant,
+        createdAt: "2026-04-09T10:36:00.000Z",
+        editedAt: null,
+        status: null,
+        clientMessageId: request.clientMessageId ?? null,
+        replyTo: null,
+        reactions: [],
+        encryptedPayload: request.encryptedPayload,
+      }));
+
+    await expect(
+      sendEncryptedMessage(
+        "token",
+        "group-chat-id",
+        "group secret after session restore",
+        [selfParticipant, participant],
+        "group-client-message-id-restored",
+        null,
+        { currentUserId: USER_ID, isDirectChat: false }
+      )
+    ).resolves.toMatchObject({
+      id: "group-message-id-restored",
+      clientMessageId: "group-client-message-id-restored",
+    });
+
+    expect(sendMessageRaw).toHaveBeenCalledTimes(2);
+
+    const staleSharedEnvelope = JSON.parse(
+      vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload?.sharedEnvelope ?? "{}"
+    ) as { senderKeyId?: string; messageCounter?: number };
+    const restoredSharedEnvelope = JSON.parse(
+      vi.mocked(sendMessageRaw).mock.calls[1]?.[2].encryptedPayload?.sharedEnvelope ?? "{}"
+    ) as { senderKeyId?: string; messageCounter?: number };
+
+    expect(staleSharedEnvelope).toMatchObject({
+      senderKeyId: initialSharedEnvelope.senderKeyId,
+      messageCounter: 0,
+    });
+    expect(restoredSharedEnvelope).toMatchObject({
+      senderKeyId: initialSharedEnvelope.senderKeyId,
+      messageCounter: 1,
+    });
+
+    const persistedGroupState = JSON.parse(
+      window.sessionStorage.getItem(GROUP_SENDER_CHAIN_KEY) ?? "{}"
+    ) as {
+      outboundChains?: Record<
+        string,
+        {
+          senderKeyId?: string;
+          nextMessageCounter?: number;
+        }
+      >;
+    };
+
+    expect(persistedGroupState.outboundChains?.["group-chat-id"]).toMatchObject({
+      senderKeyId: initialSharedEnvelope.senderKeyId,
+      nextMessageCounter: 2,
     });
   });
 

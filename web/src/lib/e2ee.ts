@@ -1382,13 +1382,23 @@ export async function readLatestArchivedDecryptedChatMessage(userId: string, cha
   };
 }
 
-function resetLocalEncryptionSessionsForRetry(userId: string, clearGroupSenderChainsToo: boolean) {
+function resetLocalEncryptionSessionsForRetry(
+  userId: string,
+  clearGroupSenderChainsToo: boolean,
+  discardRememberedState: boolean
+) {
   removeDeviceSessions(userId);
-  removeRememberedDeviceSessions(userId);
+  if (discardRememberedState) {
+    removeRememberedDeviceSessions(userId);
+  }
   clearCompletedDevicePreparation(userId);
   if (clearGroupSenderChainsToo) {
-    removeGroupSenderChains(userId);
-    removeGroupHistoryKeys(userId);
+    if (discardRememberedState) {
+      removeGroupSenderChains(userId);
+      removeGroupHistoryKeys(userId);
+    } else {
+      removeRuntimeGroupSenderChains(userId);
+    }
   }
 }
 
@@ -1403,9 +1413,17 @@ async function recoverLocalEncryptionStateForRetry(
   currentUserId: string,
   clearGroupSenderChainsToo: boolean,
   session: AuthResponse | undefined,
-  repairMode: "session" | "device"
+  repairMode: "session" | "device",
+  discardRememberedState = repairMode === "device"
 ) {
-  resetLocalEncryptionSessionsForRetry(currentUserId, clearGroupSenderChainsToo);
+  resetLocalEncryptionSessionsForRetry(
+    currentUserId,
+    clearGroupSenderChainsToo,
+    discardRememberedState
+  );
+  if (clearGroupSenderChainsToo && !discardRememberedState) {
+    await restoreRememberedGroupSenderChainsForRetry(currentUserId);
+  }
   if (repairMode !== "device") {
     return;
   }
@@ -1414,6 +1432,18 @@ async function recoverLocalEncryptionStateForRetry(
   if (session && session.user.id === currentUserId) {
     await waitForEncryptionDeviceRegistration(session);
   }
+}
+
+async function restoreRememberedGroupSenderChainsForRetry(userId: string) {
+  const rememberedState = await readRememberedGroupSenderChainState(userId);
+  if (!rememberedState) {
+    return;
+  }
+
+  // Retry repair should reuse the last remembered outbound chain directly
+  // instead of treating it like a fresh reload that requires rotation on the
+  // next send.
+  writeGroupSenderChainState(userId, rememberedState);
 }
 
 export function clearUnlockedEncryptionState(userId?: string) {
@@ -1904,31 +1934,56 @@ export async function sendEncryptedMessage(
       try {
         return await dispatchMessage(primedConversationBundles);
       } catch (error) {
-        const recoverableRetryMode = getRecoverableEncryptedEnvelopeErrorMode(error);
+        let recoverableRetryMode = getRecoverableEncryptedEnvelopeErrorMode(error);
         if (!recoverableRetryMode) {
           throw error;
         }
 
-        recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:recoverableRetry", {
-          mode: recoverableRetryMode,
-        });
-        await recoverLocalEncryptionStateForRetry(
-          currentUserId,
-          options.isDirectChat === false,
-          options.session,
-          recoverableRetryMode
-        );
-        recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:recoverableRetryRecovered", {
-          mode: recoverableRetryMode,
-        });
-        const forceRefresh = shouldForceRefreshPreparedRecipientsForError(error);
-        const retriedConversationBundles = await prepareSendConversationDeviceBundles(
-          token,
-          currentUserId,
-          participants,
-          forceRefresh
-        );
-        return dispatchMessage(retriedConversationBundles);
+        let retryError: unknown = error;
+        let discardRememberedState = false;
+        while (true) {
+          recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:recoverableRetry", {
+            mode: recoverableRetryMode,
+            discardRememberedState,
+          });
+          await recoverLocalEncryptionStateForRetry(
+            currentUserId,
+            options.isDirectChat === false,
+            options.session,
+            recoverableRetryMode,
+            discardRememberedState
+          );
+          recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:recoverableRetryRecovered", {
+            mode: recoverableRetryMode,
+            discardRememberedState,
+          });
+          const forceRefresh = shouldForceRefreshPreparedRecipientsForError(retryError);
+          const retriedConversationBundles = await prepareSendConversationDeviceBundles(
+            token,
+            currentUserId,
+            participants,
+            forceRefresh
+          );
+          try {
+            return await dispatchMessage(retriedConversationBundles);
+          } catch (nextError) {
+            const nextRetryMode = getRecoverableEncryptedEnvelopeErrorMode(nextError);
+            const canEscalateSessionRecovery =
+              !discardRememberedState &&
+              recoverableRetryMode === "session" &&
+              nextRetryMode === "session";
+            if (!canEscalateSessionRecovery) {
+              throw nextError;
+            }
+
+            recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:recoverableRetryEscalated", {
+              mode: recoverableRetryMode,
+            });
+            retryError = nextError;
+            recoverableRetryMode = nextRetryMode;
+            discardRememberedState = true;
+          }
+        }
       }
     }
   );
@@ -2015,25 +2070,45 @@ export async function updateEncryptedMessage(
     try {
       return await dispatchUpdate(primedConversationBundles);
     } catch (error) {
-      const recoverableRetryMode = getRecoverableEncryptedEnvelopeErrorMode(error);
+      let recoverableRetryMode = getRecoverableEncryptedEnvelopeErrorMode(error);
       if (!recoverableRetryMode) {
         throw error;
       }
 
-      await recoverLocalEncryptionStateForRetry(
-        currentUserId,
-        options?.isDirectChat === false,
-        options?.session,
-        recoverableRetryMode
-      );
-      const forceRefresh = shouldForceRefreshPreparedRecipientsForError(error);
-      const retriedConversationBundles = await prepareSendConversationDeviceBundles(
-        token,
-        currentUserId,
-        participants,
-        forceRefresh
-      );
-      return dispatchUpdate(retriedConversationBundles);
+      let retryError: unknown = error;
+      let discardRememberedState = false;
+      while (true) {
+        await recoverLocalEncryptionStateForRetry(
+          currentUserId,
+          options?.isDirectChat === false,
+          options?.session,
+          recoverableRetryMode,
+          discardRememberedState
+        );
+        const forceRefresh = shouldForceRefreshPreparedRecipientsForError(retryError);
+        const retriedConversationBundles = await prepareSendConversationDeviceBundles(
+          token,
+          currentUserId,
+          participants,
+          forceRefresh
+        );
+        try {
+          return await dispatchUpdate(retriedConversationBundles);
+        } catch (nextError) {
+          const nextRetryMode = getRecoverableEncryptedEnvelopeErrorMode(nextError);
+          const canEscalateSessionRecovery =
+            !discardRememberedState &&
+            recoverableRetryMode === "session" &&
+            nextRetryMode === "session";
+          if (!canEscalateSessionRecovery) {
+            throw nextError;
+          }
+
+          retryError = nextError;
+          recoverableRetryMode = nextRetryMode;
+          discardRememberedState = true;
+        }
+      }
     }
   });
 }
@@ -4106,6 +4181,19 @@ function removeGroupSenderChains(userId: string) {
     getGroupSenderChainStorageKey,
     getRememberedGroupSenderChainStorageKey,
   });
+}
+
+function removeRuntimeGroupSenderChains(userId: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    clearPersistentRestoredOutboundGroupChats(userId);
+    window.sessionStorage.removeItem(getGroupSenderChainStorageKey(userId));
+  } catch {
+    return;
+  }
 }
 
 async function readRememberedGroupSenderChainState(

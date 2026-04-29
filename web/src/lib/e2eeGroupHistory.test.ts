@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { ApiError } from "./api";
 import type { GroupHistoryKeyAccess, UserEncryptionDeviceBundle } from "./types";
 import type { GroupHistoryKeyRecord, GroupSharedEnvelope } from "./e2eeGroupEngine";
 import {
@@ -191,7 +192,10 @@ describe("e2eeGroupHistory", () => {
         new Error("Encrypted message key is no longer available for this session")
       )
     ).toBe(true);
-    expect(isRecoverableGroupHistoryFallbackError(new Error("other"))).toBe(false);
+    expect(isRecoverableGroupHistoryFallbackError(new Error("other"))).toBe(true);
+    expect(
+      isRecoverableGroupHistoryFallbackError(new ApiError("identity changed", 409))
+    ).toBe(false);
   });
 
   it("decrypts group history messages from a local or remotely recovered history key", async () => {

@@ -162,4 +162,56 @@ describe("e2eeGroupDecryption", () => {
     expect(upsertInbound).toHaveBeenCalledTimes(1);
     expect(rememberState).toHaveBeenCalledTimes(1);
   });
+
+  it("falls back to group history when direct distribution decrypt fails with a recoverable error", async () => {
+    const message = baseMessage();
+    message.encryptedPayload = {
+      scheme: "GROUP-SENDER-KEY-AES-GCM",
+      encryptedKeysByRecipientId: {
+        "self-device": "{\"distribution\":true}",
+      },
+      sharedEnvelope: "{}",
+      historyEnvelope: "{}",
+    };
+    const historyFallback = vi.fn(async () => "history-plaintext");
+
+    await expect(
+      decryptGroupMessage<OwnMaterial, GroupInboundSenderChainRecord, DistributionEnvelope>({
+        message,
+        userId: "self",
+        readOwnMaterial: async () => ({ deviceId: "self-device" }),
+        parseGroupSharedEnvelope: () => sharedEnvelope,
+        decryptGroupHistoryMessage: historyFallback,
+        parseDirectDeviceEnvelope: () => ({
+          recipientDeviceId: "self-device",
+          senderIdentitySignatureKey: "sender-signature-key",
+          senderUserId: "sender",
+          senderDeviceId: "sender-device",
+        }),
+        assertGroupDistributionSenderMatchesSharedEnvelope: () => undefined,
+        readGroupSenderChainState: async () => ({ outboundChains: {}, inboundChains: {} }),
+        resolveInboundGroupSenderChainRecord: () => null,
+        assertValidGroupEnvelopeSignature: async () => undefined,
+        resolveInboundGroupMessageKey: async () => new Uint8Array(),
+        writeGroupSenderChainState: () => undefined,
+        rememberGroupSenderChainState: async () => undefined,
+        decryptGroupSharedEnvelopeContent: async () => "distribution-plaintext",
+        decryptDirectRecipientEnvelope: async () => {
+          throw new Error("distribution decrypt failed");
+        },
+        isRecoverableGroupHistoryFallbackError: () => true,
+        parseGroupSenderKeyDistribution: () => {
+          throw new Error("should not parse distribution");
+        },
+        base64ToBytes: () => new Uint8Array(),
+        deriveMessageRatchetStep: async () => ({
+          messageKey: new Uint8Array(),
+          nextChainKey: new Uint8Array(),
+        }),
+        upsertInboundGroupSenderChainRecord: () => undefined,
+      })
+    ).resolves.toBe("history-plaintext");
+
+    expect(historyFallback).toHaveBeenCalledTimes(1);
+  });
 });

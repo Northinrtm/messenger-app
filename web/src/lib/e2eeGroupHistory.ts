@@ -254,16 +254,11 @@ export function isRecoverableGroupHistoryFallbackError(error: unknown) {
     return false;
   }
 
-  return (
-    error instanceof Error &&
-    [
-      "Encrypted device session is not available in this browser",
-      "Encrypted message chain is no longer available for this session",
-      "Encrypted message key is no longer available for this session",
-      "Encrypted message counter gap is too large for this session",
-      "Encrypted message key could not be derived for this session",
-    ].includes(error.message)
-  );
+  // Group-history envelopes are an authenticated redundant transport for the
+  // same group message. If direct distribution decryption failed for any
+  // non-API reason, prefer the history envelope over surfacing an
+  // unavailable-message placeholder.
+  return error instanceof Error;
 }
 
 export async function decryptGroupHistoryMessage<
