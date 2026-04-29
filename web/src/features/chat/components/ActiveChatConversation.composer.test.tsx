@@ -105,6 +105,7 @@ function conversationProps(
     activeDraft: "",
     isChatMenuOpen: false,
     isDirectChatBlocked: false,
+    historyAccessNotice: null,
     encryptionIdentityWarning: null,
     chatMenuButtonRef: { current: null },
     messageStreamRef: { current: null },
@@ -287,6 +288,34 @@ describe("ActiveChatConversation composer", () => {
 
     expect(container.querySelector(".composer-upload-progress")).toBeNull();
     expect(container.querySelector(".composer-attachment-chip")?.textContent).toContain("image.png");
+  });
+
+  it("renders a group history access notice when older encrypted messages are still unavailable", async () => {
+    await act(async () => {
+      root!.render(
+        <ActiveChatConversation
+          {...conversationProps({
+            activeChat: chatSummary({ direct: false, title: "Group chat" }),
+            activeDirectParticipant: null,
+            historyAccessNotice: {
+              title: "History is preparing",
+              description: "Older messages should appear automatically.",
+              isPending: true,
+            },
+          })}
+        />
+      );
+      await Promise.resolve();
+    });
+
+    const notice = container.querySelector(".message-history-notice") as HTMLDivElement | null;
+    if (!notice) {
+      throw new Error("History access notice is missing");
+    }
+
+    expect(notice.textContent).toContain("History is preparing");
+    expect(notice.textContent).toContain("Older messages should appear automatically.");
+    expect(notice.classList.contains("is-pending")).toBe(true);
   });
 
   it("renders the selection toolbar and delete dialog actions", async () => {

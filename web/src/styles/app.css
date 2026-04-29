@@ -3261,6 +3261,40 @@ select {
   line-height: 1;
 }
 
+.message-history-notice {
+  width: min(100%, 56rem);
+  display: grid;
+  gap: 0.22rem;
+  justify-self: center;
+  padding: 0.78rem 0.92rem;
+  border-radius: 1rem;
+  background: rgba(39, 65, 92, 0.84);
+  border: 1px solid rgba(125, 181, 255, 0.18);
+  color: #dceaf7;
+}
+
+.message-history-notice.is-pending {
+  border-color: rgba(125, 181, 255, 0.32);
+  background: rgba(34, 63, 93, 0.92);
+}
+
+.message-history-notice-copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.18rem;
+}
+
+.message-history-notice-copy strong {
+  color: #f4fbff;
+  font-size: 0.93rem;
+}
+
+.message-history-notice-copy span {
+  color: #c0d6eb;
+  line-height: 1.4;
+  font-size: 0.86rem;
+}
+
 .message-selection-dialog-backdrop {
   position: absolute;
   inset: 0;

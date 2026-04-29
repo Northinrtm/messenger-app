@@ -95,6 +95,22 @@ export function shouldGrantRealtimeGroupHistoryAccess(
   return !chat.direct && chat.members.some((member) => member.id === currentUserId);
 }
 
+export function shouldRefreshActiveChatOnRealtimeChatUpdate(
+  chat: Pick<ChatSummary, "id" | "direct">,
+  options: {
+    activeChatId: string | null;
+    cachedMessages: InfiniteData<Pick<ChatMessage, "content">[]> | undefined;
+  }
+) {
+  if (chat.direct || !options.activeChatId || chat.id !== options.activeChatId) {
+    return false;
+  }
+
+  return (options.cachedMessages?.pages ?? []).some((page) =>
+    page.some((message) => isUnavailableEncryptedMessage(message.content))
+  );
+}
+
 export function useRealtimeChatSubscription({
   acknowledgeDelivered,
   acknowledgeRead,
@@ -197,6 +213,12 @@ export function useRealtimeChatSubscription({
     const isNewChat = !(
       queryClient.getQueryData<ChatSummary[]>(["chats", sessionToken]) ?? []
     ).some((currentChat) => currentChat.id === chat.id);
+    const shouldRefreshActiveChat = shouldRefreshActiveChatOnRealtimeChatUpdate(chat, {
+      activeChatId,
+      cachedMessages: queryClient.getQueryData<InfiniteData<ChatMessage[]>>(
+        getMessagesKey(chat.id)
+      ),
+    });
 
     queryClient.setQueryData<ChatSummary[]>(
       ["chats", sessionToken],
@@ -213,6 +235,10 @@ export function useRealtimeChatSubscription({
 
     if (shouldGrantRealtimeGroupHistoryAccess(chat, currentUser.id)) {
       void grantRealtimeGroupHistoryAccess(sessionToken, currentUser.id, chat);
+    }
+
+    if (shouldRefreshActiveChat) {
+      void queryClient.invalidateQueries({ queryKey: getMessagesKey(chat.id) });
     }
   });
 

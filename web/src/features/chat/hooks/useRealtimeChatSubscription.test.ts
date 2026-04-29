@@ -3,10 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   getRealtimeUnreadMode,
   shouldGrantRealtimeGroupHistoryAccess,
+  shouldRefreshActiveChatOnRealtimeChatUpdate,
   shouldRefreshChatListOnRealtimeConnect,
   shouldRefreshActiveChatOnRealtimeConnect,
 } from "./useRealtimeChatSubscription";
-import type { ChatSummary } from "../../../lib/types";
+import type { ChatMessage, ChatSummary } from "../../../lib/types";
 
 describe("shouldRefreshActiveChatOnRealtimeConnect", () => {
   it("skips the redundant initial active chat refetch on first websocket connect", () => {
@@ -112,5 +113,59 @@ describe("shouldGrantRealtimeGroupHistoryAccess", () => {
       shouldGrantRealtimeGroupHistoryAccess({ ...groupChat, direct: true }, "user-1")
     ).toBe(false);
     expect(shouldGrantRealtimeGroupHistoryAccess(groupChat, "user-3")).toBe(false);
+  });
+});
+
+describe("shouldRefreshActiveChatOnRealtimeChatUpdate", () => {
+  const groupChat = {
+    id: "chat-1",
+    direct: false,
+  } as ChatSummary;
+
+  const cachedMessages = {
+    pages: [
+      [
+        {
+          content: "[Encrypted message unavailable]",
+        } as ChatMessage,
+      ],
+    ],
+    pageParams: [null],
+  };
+
+  it("refreshes the active group chat when cached messages still contain unavailable placeholders", () => {
+    expect(
+      shouldRefreshActiveChatOnRealtimeChatUpdate(groupChat, {
+        activeChatId: "chat-1",
+        cachedMessages,
+      })
+    ).toBe(true);
+  });
+
+  it("skips refresh for other chats, direct chats, and fully readable caches", () => {
+    expect(
+      shouldRefreshActiveChatOnRealtimeChatUpdate(groupChat, {
+        activeChatId: "chat-2",
+        cachedMessages,
+      })
+    ).toBe(false);
+    expect(
+      shouldRefreshActiveChatOnRealtimeChatUpdate(
+        { ...groupChat, direct: true },
+        {
+          activeChatId: "chat-1",
+          cachedMessages,
+        }
+      )
+    ).toBe(false);
+    expect(
+      shouldRefreshActiveChatOnRealtimeChatUpdate(groupChat, {
+        activeChatId: "chat-1",
+        cachedMessages: {
+          pages: [[{ content: "hello" } as ChatMessage]],
+          pageParams: [null],
+        },
+      })
+    ).toBe(false);
   });
 });

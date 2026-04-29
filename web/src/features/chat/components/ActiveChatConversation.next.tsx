@@ -44,6 +44,12 @@ type EncryptionIdentityWarning = {
   isPending: boolean;
 };
 
+type HistoryAccessNotice = {
+  title: string;
+  description: string;
+  isPending: boolean;
+};
+
 const MESSAGE_SELECTION_COPY = {
   toolbarForward: "\u041F\u0415\u0420\u0415\u0421\u041B\u0410\u0422\u042C",
   toolbarDelete: "\u0423\u0414\u0410\u041B\u0418\u0422\u042C",
@@ -97,6 +103,7 @@ type Props = {
   activeDraft: string;
   isChatMenuOpen: boolean;
   isDirectChatBlocked: boolean;
+  historyAccessNotice: HistoryAccessNotice | null;
   encryptionIdentityWarning: EncryptionIdentityWarning | null;
   chatMenuButtonRef: RefObject<HTMLButtonElement | null>;
   messageStreamRef: RefObject<HTMLDivElement | null>;
@@ -165,6 +172,7 @@ export function ActiveChatConversation({
   activeDraft,
   isChatMenuOpen,
   isDirectChatBlocked,
+  historyAccessNotice,
   encryptionIdentityWarning,
   chatMenuButtonRef,
   messageStreamRef,
@@ -462,6 +470,23 @@ export function ActiveChatConversation({
           >
             {isFetchingNextPage ? "Загружаем..." : "Показать более ранние"}
           </button>
+        ) : null}
+
+        {historyAccessNotice ? (
+          <div
+            className={
+              historyAccessNotice.isPending
+                ? "message-history-notice is-pending"
+                : "message-history-notice"
+            }
+            role="status"
+            aria-live="polite"
+          >
+            <div className="message-history-notice-copy">
+              <strong>{historyAccessNotice.title}</strong>
+              <span>{historyAccessNotice.description}</span>
+            </div>
+          </div>
         ) : null}
 
         {messagesLoading ? (

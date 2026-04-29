@@ -183,6 +183,16 @@ const CONFERENCE_ACTIVATION_LEAD_MS = 5 * 60 * 1000;
 const CHAT_ENCRYPTION_WARNING_GRACE_MS = 500;
 const BUILD_META_POLL_MS = 60_000;
 const BUILD_UPDATE_AUTO_RELOAD_DELAY_MS = 1_500;
+const GROUP_HISTORY_ACCESS_NOTICE_COPY = {
+  pendingTitle:
+    "\u0418\u0441\u0442\u043e\u0440\u0438\u044f encrypted-\u0447\u0430\u0442\u0430 \u043f\u043e\u0434\u0433\u043e\u0442\u0430\u0432\u043b\u0438\u0432\u0430\u0435\u0442\u0441\u044f",
+  pendingDescription:
+    "\u0415\u0441\u043b\u0438 \u0443 \u043a\u043e\u0433\u043e-\u0442\u043e \u0438\u0437 \u0443\u0447\u0430\u0441\u0442\u043d\u0438\u043a\u043e\u0432 \u0435\u0441\u0442\u044c \u043d\u0443\u0436\u043d\u044b\u0435 \u043a\u043b\u044e\u0447\u0438, \u0441\u0442\u0430\u0440\u044b\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u044f \u043f\u043e\u044f\u0432\u044f\u0442\u0441\u044f \u0430\u0432\u0442\u043e\u043c\u0430\u0442\u0438\u0447\u0435\u0441\u043a\u0438.",
+  idleTitle:
+    "\u0427\u0430\u0441\u0442\u044c \u0441\u0442\u0430\u0440\u043e\u0439 \u0438\u0441\u0442\u043e\u0440\u0438\u0438 \u043f\u043e\u043a\u0430 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u0430",
+  idleDescription:
+    "\u0421\u0442\u0430\u0440\u044b\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u044f \u043c\u043e\u0433\u0443\u0442 \u043f\u043e\u044f\u0432\u0438\u0442\u044c\u0441\u044f \u0430\u0432\u0442\u043e\u043c\u0430\u0442\u0438\u0447\u0435\u0441\u043a\u0438, \u043a\u043e\u0433\u0434\u0430 \u043a\u0442\u043e-\u0442\u043e \u0438\u0437 \u0443\u0436\u0435 \u0441\u043e\u0441\u0442\u043e\u044f\u0432\u0448\u0438\u0445 \u0432 \u0433\u0440\u0443\u043f\u043f\u0435 \u0443\u0447\u0430\u0441\u0442\u043d\u0438\u043a\u043e\u0432 \u0432\u044b\u0439\u0434\u0435\u0442 \u043e\u043d\u043b\u0430\u0439\u043d.",
+} as const;
 
 const initialPushNotificationState = (): PushNotificationClientState => ({
   supported: isPushNotificationSupported(),
@@ -976,6 +986,22 @@ export function NorthMessengerWorkspace({
     : "";
   const showTypingIndicator = activeTypingParticipants.length > 0;
   const timelineItems = useMemo(() => buildTimeline(messages), [messages]);
+  const activeChatHistoryAccessNotice =
+    activeChat &&
+    !activeChat.direct &&
+    messages.some((message) => isUnavailableEncryptedMessage(message.content))
+      ? {
+          title:
+            messagesQuery.isFetching || messagesQuery.isRefetching
+              ? GROUP_HISTORY_ACCESS_NOTICE_COPY.pendingTitle
+              : GROUP_HISTORY_ACCESS_NOTICE_COPY.idleTitle,
+          description:
+            messagesQuery.isFetching || messagesQuery.isRefetching
+              ? GROUP_HISTORY_ACCESS_NOTICE_COPY.pendingDescription
+              : GROUP_HISTORY_ACCESS_NOTICE_COPY.idleDescription,
+          isPending: messagesQuery.isFetching || messagesQuery.isRefetching,
+        }
+      : null;
   const readableIncomingMessageIdsKey = useMemo(
     () => buildReadableIncomingMessageIdsKey(messages, session.user.id),
     [messages, session.user.id]
@@ -2536,6 +2562,7 @@ export function NorthMessengerWorkspace({
           activeDraft,
           isChatMenuOpen,
           isDirectChatBlocked: activeDirectBlockedByMe,
+          historyAccessNotice: activeChatHistoryAccessNotice,
           encryptionIdentityWarning: activeChatEncryptionWarning,
           chatMenuButtonRef,
           messageStreamRef,
