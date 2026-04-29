@@ -18,6 +18,7 @@ import {
   logout,
   removeGroupParticipant as removeGroupParticipantRequest,
   removeContact as removeContactRequest,
+  retireOwnEncryptionDevice,
   revokeGroupModerator as revokeGroupModeratorRequest,
   revokeSession,
   resendOwnEmailVerification,
@@ -32,6 +33,7 @@ import type {
   AuthResponse,
   ChatSummary,
   Participant,
+  UserEncryptionDevice,
   UserProfile,
   UserSessionInfo,
   VideoConference,
@@ -445,6 +447,16 @@ export function useWorkspaceMutations({
     },
   });
 
+  const retireEncryptionDeviceMutation = useMutation({
+    mutationFn: (deviceId: string) => retireOwnEncryptionDevice(token, deviceId),
+    onSuccess: (_, deviceId) => {
+      queryClient.setQueryData(["encryption-devices", token], (current: UserEncryptionDevice[] | undefined) =>
+        current?.filter((item) => item.deviceId !== deviceId) ?? []
+      );
+      void queryClient.invalidateQueries({ queryKey: ["encryption-devices", token] });
+    },
+  });
+
   const unblockUserMutation = useMutation({
     mutationFn: (username: string) => unblockUserRequest(token, username),
     onSuccess: (_result, username) => {
@@ -648,6 +660,7 @@ export function useWorkspaceMutations({
     removeContact,
     removeContactMutation,
     revokeGroupModeratorMutation,
+    retireEncryptionDeviceMutation,
     revokeSessionMutation,
     resendOwnEmailVerificationMutation,
     signOutMutation,

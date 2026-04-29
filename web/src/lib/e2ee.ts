@@ -3984,6 +3984,10 @@ async function readEncryptionDeviceMaterial(userId: string): Promise<DeviceEncry
   });
 }
 
+export async function getCurrentEncryptionDeviceId(userId: string) {
+  return (await readEncryptionDeviceMaterial(userId))?.deviceId ?? null;
+}
+
 function writeEncryptionDeviceMaterial(userId: string, material: DeviceEncryptionMaterial) {
   return writeEncryptionDeviceMaterialInternal({
     userId,

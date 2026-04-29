@@ -905,6 +905,13 @@ export function listOwnEncryptionDevices(token: string) {
   });
 }
 
+export function retireOwnEncryptionDevice(token: string, deviceId: string) {
+  return request<void>(`/api/e2ee/devices/me/${deviceId}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
 export function upsertOwnEncryptionDevice(
   token: string,
   body: {

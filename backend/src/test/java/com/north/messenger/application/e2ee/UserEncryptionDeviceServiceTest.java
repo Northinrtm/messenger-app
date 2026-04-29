@@ -467,6 +467,53 @@ class UserEncryptionDeviceServiceTest {
     }
 
     @Test
+    void retireOwnDeviceShouldRejectRetiringLastVisibleDevice() {
+        UserAccount user = testUserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "hash",
+                Instant.parse("2026-04-10T10:00:00Z")
+        );
+        UUID sessionId = UUID.randomUUID();
+        UserEncryptionDevice device = device(user.getId());
+
+        when(authService.requireAuthenticatedSession("north", "token"))
+                .thenReturn(new AuthService.AuthenticatedSession(user, sessionId));
+        when(userEncryptionDeviceRepository.findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDescRegisteredAtDesc(user.getId()))
+                .thenReturn(List.of(device));
+
+        assertThatThrownBy(() -> userEncryptionDeviceService.retireOwnDevice("north", "token", device.getId()))
+                .hasMessageContaining("At least one active encryption device must remain on the account");
+        verify(userEncryptionDeviceRepository, never()).save(device);
+    }
+
+    @Test
+    void retireOwnDeviceShouldRetireOlderVisibleDeviceWhenAnotherOneRemains() {
+        UserAccount user = testUserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "hash",
+                Instant.parse("2026-04-10T10:00:00Z")
+        );
+        UUID sessionId = UUID.randomUUID();
+        UserEncryptionDevice currentDevice = device(user.getId());
+        UserEncryptionDevice oldDevice = device(user.getId());
+
+        when(authService.requireAuthenticatedSession("north", "token"))
+                .thenReturn(new AuthService.AuthenticatedSession(user, sessionId));
+        when(userEncryptionDeviceRepository.findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDescRegisteredAtDesc(user.getId()))
+                .thenReturn(List.of(currentDevice, oldDevice));
+
+        userEncryptionDeviceService.retireOwnDevice("north", "token", oldDevice.getId());
+
+        assertThat(oldDevice.getRetiredAt()).isNotNull();
+        assertThat(currentDevice.getRetiredAt()).isNull();
+        verify(userEncryptionDeviceRepository).save(oldDevice);
+    }
+
+    @Test
     void resolveDeviceBundlesShouldReturnDevicesForUsersWhoShareAChat() {
         UserAccount currentUser = testUserAccount(
                 UUID.randomUUID(),

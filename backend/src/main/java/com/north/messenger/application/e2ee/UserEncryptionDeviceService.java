@@ -90,6 +90,29 @@ public class UserEncryptionDeviceService {
     }
 
     @Transactional
+    public void retireOwnDevice(String username, String accessToken, UUID deviceId) {
+        AuthService.AuthenticatedSession authenticatedSession = authService.requireAuthenticatedSession(username, accessToken);
+        UUID userId = authenticatedSession.user().getId();
+        List<UserEncryptionDevice> activeDevices = visibleDevices(
+                userEncryptionDeviceRepository.findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDescRegisteredAtDesc(userId)
+        );
+        if (activeDevices.size() <= MIN_ACTIVE_DEVICES_PER_USER) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "At least one active encryption device must remain on the account"
+            );
+        }
+
+        UserEncryptionDevice targetDevice = activeDevices.stream()
+                .filter(device -> device.getId().equals(deviceId))
+                .findFirst()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Encryption device not found"));
+
+        targetDevice.retire(Instant.now());
+        userEncryptionDeviceRepository.save(targetDevice);
+    }
+
+    @Transactional
     public UserEncryptionDeviceResponse upsertOwnDevice(
             String username,
             String accessToken,

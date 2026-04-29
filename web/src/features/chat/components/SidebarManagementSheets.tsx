@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import type { PushNotificationPermission } from "../../../lib/pushNotifications";
 import type {
   UserEncryptionDevice,
@@ -43,6 +43,7 @@ type Props = {
   contactSearchResults: UserProfile[];
   contacts: UserProfile[];
   contactsLoading: boolean;
+  currentEncryptionDeviceId: string | null;
   encryptionDevices: UserEncryptionDevice[];
   encryptionDevicesLoading: boolean;
   sessions: UserSessionInfo[];
@@ -83,6 +84,7 @@ type Props = {
   pushNotificationsInfo: string | null;
   pushNotificationsError: string | null;
   revokeSessionPending: boolean;
+  retireEncryptionDevicePending: boolean;
   contactSearchFetching: boolean;
   onClose: () => void;
   onProfileDisplayNameChange: (value: string) => void;
@@ -119,6 +121,7 @@ type Props = {
   onAddContact: (user: UserProfile) => void;
   onRemoveContact: (username: string) => void;
   onCreateChat: (username: string) => void;
+  onRetireEncryptionDevice: (deviceId: string) => void;
   onRevokeSession: (sessionId: string) => void;
   formatProfileDate: (value: string) => string;
   formatSessionTime: (value: string) => string;
@@ -130,6 +133,15 @@ function formatEncryptionDeviceCountLabel(count: number) {
   }
 
   return `${count} E2EE-\u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432`;
+}
+
+function isStaleEncryptionDevice(lastSeenAt: string) {
+  const lastSeenAtTimestamp = Date.parse(lastSeenAt);
+  if (!Number.isFinite(lastSeenAtTimestamp)) {
+    return false;
+  }
+
+  return Date.now() - lastSeenAtTimestamp >= 30 * 24 * 60 * 60 * 1000;
 }
 
 export function SidebarManagementSheets({
@@ -151,6 +163,7 @@ export function SidebarManagementSheets({
   contactSearchResults,
   contacts,
   contactsLoading,
+  currentEncryptionDeviceId,
   encryptionDevices,
   encryptionDevicesLoading,
   sessions,
@@ -191,6 +204,7 @@ export function SidebarManagementSheets({
   pushNotificationsInfo,
   pushNotificationsError,
   revokeSessionPending,
+  retireEncryptionDevicePending,
   contactSearchFetching,
   onClose,
   onProfileDisplayNameChange,
@@ -227,6 +241,7 @@ export function SidebarManagementSheets({
   onAddContact,
   onRemoveContact,
   onCreateChat,
+  onRetireEncryptionDevice,
   onRevokeSession,
   formatProfileDate,
   formatSessionTime,
@@ -325,11 +340,11 @@ export function SidebarManagementSheets({
       <div className="sheet-card">
         <div className="sheet-head">
           <div>
-            <div className="section-title">Мой профиль</div>
-            <p className="sheet-copy">Настройки текущего аккаунта.</p>
+            <div className="section-title">РњРѕР№ РїСЂРѕС„РёР»СЊ</div>
+            <p className="sheet-copy">РќР°СЃС‚СЂРѕР№РєРё С‚РµРєСѓС‰РµРіРѕ Р°РєРєР°СѓРЅС‚Р°.</p>
           </div>
           <button type="button" className="ghost-button compact" onClick={onClose}>
-            Закрыть
+            Р—Р°РєСЂС‹С‚СЊ
           </button>
         </div>
 
@@ -345,7 +360,7 @@ export function SidebarManagementSheets({
                 online={profile.online}
               />
               <span className="profile-avatar-badge">
-                {avatarPending ? "Загружаем..." : "Изменить фото"}
+                {avatarPending ? "Р—Р°РіСЂСѓР¶Р°РµРј..." : "РР·РјРµРЅРёС‚СЊ С„РѕС‚Рѕ"}
               </span>
               <input
                 className="profile-avatar-input"
@@ -375,12 +390,12 @@ export function SidebarManagementSheets({
               onSubmitProfileDisplayName();
             }}
           >
-            <span className="profile-label">Имя</span>
+            <span className="profile-label">РРјСЏ</span>
             <div className="profile-inline-row">
               <input
                 value={profileDisplayName}
                 onChange={(event) => onProfileDisplayNameChange(event.target.value)}
-                placeholder="Ваше имя"
+                placeholder="Р’Р°С€Рµ РёРјСЏ"
                 maxLength={40}
               />
               {profileChanged ? (
@@ -389,16 +404,16 @@ export function SidebarManagementSheets({
                   className="ghost-button compact profile-inline-save"
                   disabled={updateProfilePending || normalizedProfileDisplayName.length < 2}
                 >
-                  {updateProfilePending ? "Сохраняем..." : "Сохранить"}
+                  {updateProfilePending ? "РЎРѕС…СЂР°РЅСЏРµРј..." : "РЎРѕС…СЂР°РЅРёС‚СЊ"}
                 </button>
               ) : null}
             </div>
 
-            <span className="profile-label">Профессия</span>
+            <span className="profile-label">РџСЂРѕС„РµСЃСЃРёСЏ</span>
             <input
               value={profileProfession}
               onChange={(event) => onProfileProfessionChange(event.target.value)}
-              placeholder="Например: продуктовый менеджер"
+              placeholder="РќР°РїСЂРёРјРµСЂ: РїСЂРѕРґСѓРєС‚РѕРІС‹Р№ РјРµРЅРµРґР¶РµСЂ"
               maxLength={80}
             />
           </form>
@@ -406,8 +421,8 @@ export function SidebarManagementSheets({
           <div className="profile-line profile-action-panel">
             <div className="profile-action-row">
               <div className="profile-action-copy">
-                <span className="profile-label">Безопасность</span>
-                <strong>Пароль</strong>
+                <span className="profile-label">Р‘РµР·РѕРїР°СЃРЅРѕСЃС‚СЊ</span>
+                <strong>РџР°СЂРѕР»СЊ</strong>
               </div>
               <button
                 type="button"
@@ -422,7 +437,7 @@ export function SidebarManagementSheets({
                   setIsPasswordFormOpen(true);
                 }}
               >
-                {isPasswordFormOpen ? "Скрыть" : "Сменить пароль"}
+                {isPasswordFormOpen ? "РЎРєСЂС‹С‚СЊ" : "РЎРјРµРЅРёС‚СЊ РїР°СЂРѕР»СЊ"}
               </button>
             </div>
 
@@ -437,48 +452,48 @@ export function SidebarManagementSheets({
                 <input
                   value={passwordChangeCurrent}
                   onChange={(event) => onPasswordChangeCurrentChange(event.target.value)}
-                  placeholder="Текущий пароль"
+                  placeholder="РўРµРєСѓС‰РёР№ РїР°СЂРѕР»СЊ"
                   type="password"
                   autoComplete="current-password"
                 />
                 <input
                   value={passwordChangeNext}
                   onChange={(event) => onPasswordChangeNextChange(event.target.value)}
-                  placeholder="Новый пароль"
+                  placeholder="РќРѕРІС‹Р№ РїР°СЂРѕР»СЊ"
                   type="password"
                   autoComplete="new-password"
                 />
                 <input
                   value={passwordChangeConfirm}
                   onChange={(event) => onPasswordChangeConfirmChange(event.target.value)}
-                  placeholder="Повторите новый пароль"
+                  placeholder="РџРѕРІС‚РѕСЂРёС‚Рµ РЅРѕРІС‹Р№ РїР°СЂРѕР»СЊ"
                   type="password"
                   autoComplete="new-password"
                 />
                 {!passwordChangeMatches && passwordChangeConfirm.length > 0 ? (
-                  <div className="form-error">Пароли не совпадают.</div>
+                  <div className="form-error">РџР°СЂРѕР»Рё РЅРµ СЃРѕРІРїР°РґР°СЋС‚.</div>
                 ) : null}
                 <button
                   type="submit"
                   className="secondary-button"
                   disabled={changePasswordPending || !passwordChangeReady}
                 >
-                  {changePasswordPending ? "Меняем пароль..." : "Обновить пароль"}
+                  {changePasswordPending ? "РњРµРЅСЏРµРј РїР°СЂРѕР»СЊ..." : "РћР±РЅРѕРІРёС‚СЊ РїР°СЂРѕР»СЊ"}
                 </button>
               </form>
             ) : null}
           </div>
 
           <div className="profile-line">
-            <span className="profile-label">Создан</span>
+            <span className="profile-label">РЎРѕР·РґР°РЅ</span>
             <span>{formatProfileDate(profile.createdAt)}</span>
           </div>
 
           <div className="profile-line profile-action-panel profile-danger-panel">
             <div className="profile-action-row">
               <div className="profile-action-copy">
-                <span className="profile-label">Аккаунт</span>
-                <strong>Удаление аккаунта</strong>
+                <span className="profile-label">РђРєРєР°СѓРЅС‚</span>
+                <strong>РЈРґР°Р»РµРЅРёРµ Р°РєРєР°СѓРЅС‚Р°</strong>
               </div>
               <button
                 type="button"
@@ -493,15 +508,15 @@ export function SidebarManagementSheets({
                   setIsDeleteConfirmOpen(true);
                 }}
               >
-                Удалить аккаунт
+                РЈРґР°Р»РёС‚СЊ Р°РєРєР°СѓРЅС‚
               </button>
             </div>
 
             {isDeleteConfirmOpen ? (
               <div className="profile-delete-confirm">
                 <p>
-                  Введите username <strong>{profile.username}</strong>, чтобы подтвердить удаление
-                  аккаунта.
+                  Р’РІРµРґРёС‚Рµ username <strong>{profile.username}</strong>, С‡С‚РѕР±С‹ РїРѕРґС‚РІРµСЂРґРёС‚СЊ СѓРґР°Р»РµРЅРёРµ
+                  Р°РєРєР°СѓРЅС‚Р°.
                 </p>
                 <input
                   value={deleteAccountConfirmation}
@@ -517,7 +532,7 @@ export function SidebarManagementSheets({
                   disabled={deleteAccountPending || !deleteAccountRequiresMatch}
                   onClick={onDeleteAccount}
                 >
-                  {deleteAccountPending ? "Удаляем аккаунт..." : "Подтвердить удаление"}
+                  {deleteAccountPending ? "РЈРґР°Р»СЏРµРј Р°РєРєР°СѓРЅС‚..." : "РџРѕРґС‚РІРµСЂРґРёС‚СЊ СѓРґР°Р»РµРЅРёРµ"}
                 </button>
               </div>
             ) : null}
@@ -562,11 +577,11 @@ export function SidebarManagementSheets({
       <div className="sheet-card">
         <div className="sheet-head">
           <div>
-            <div className="section-title">Мой профиль</div>
-            <p className="sheet-copy">Информация о текущем аккаунте.</p>
+            <div className="section-title">РњРѕР№ РїСЂРѕС„РёР»СЊ</div>
+            <p className="sheet-copy">РРЅС„РѕСЂРјР°С†РёСЏ Рѕ С‚РµРєСѓС‰РµРј Р°РєРєР°СѓРЅС‚Рµ.</p>
           </div>
           <button type="button" className="ghost-button compact" onClick={onClose}>
-            Закрыть
+            Р—Р°РєСЂС‹С‚СЊ
           </button>
         </div>
 
@@ -583,7 +598,7 @@ export function SidebarManagementSheets({
               <span>@{profile.username}</span>
             </div>
             <p className="profile-avatar-hint">
-              Вставь изображение из буфера обмена через Ctrl+V, когда открыт профиль.
+              Р’СЃС‚Р°РІСЊ РёР·РѕР±СЂР°Р¶РµРЅРёРµ РёР· Р±СѓС„РµСЂР° РѕР±РјРµРЅР° С‡РµСЂРµР· Ctrl+V, РєРѕРіРґР° РѕС‚РєСЂС‹С‚ РїСЂРѕС„РёР»СЊ.
             </p>
             <div className="profile-avatar-actions">
               {profile.avatarUrl ? (
@@ -593,7 +608,7 @@ export function SidebarManagementSheets({
                   disabled={avatarPending}
                   onClick={onRemoveAvatar}
                 >
-                  Убрать фото
+                  РЈР±СЂР°С‚СЊ С„РѕС‚Рѕ
                 </button>
               ) : null}
             </div>
@@ -605,18 +620,18 @@ export function SidebarManagementSheets({
               onSubmitProfileDisplayName();
             }}
           >
-            <span className="profile-label">Имя</span>
+            <span className="profile-label">РРјСЏ</span>
             <input
               value={profileDisplayName}
               onChange={(event) => onProfileDisplayNameChange(event.target.value)}
-              placeholder="Новое имя"
+              placeholder="РќРѕРІРѕРµ РёРјСЏ"
               maxLength={40}
             />
-            <span className="profile-label">Профессия</span>
+            <span className="profile-label">РџСЂРѕС„РµСЃСЃРёСЏ</span>
             <input
               value={profileProfession}
               onChange={(event) => onProfileProfessionChange(event.target.value)}
-              placeholder="Например: продуктовый менеджер"
+              placeholder="РќР°РїСЂРёРјРµСЂ: РїСЂРѕРґСѓРєС‚РѕРІС‹Р№ РјРµРЅРµРґР¶РµСЂ"
               maxLength={80}
             />
             <button
@@ -628,7 +643,7 @@ export function SidebarManagementSheets({
                 !profileChanged
               }
             >
-              {updateProfilePending ? "Сохраняем..." : "Сохранить профиль"}
+              {updateProfilePending ? "РЎРѕС…СЂР°РЅСЏРµРј..." : "РЎРѕС…СЂР°РЅРёС‚СЊ РїСЂРѕС„РёР»СЊ"}
             </button>
           </form>
           <form
@@ -682,25 +697,25 @@ export function SidebarManagementSheets({
           </div>
           {profile.profession ? (
             <div className="profile-line">
-              <span className="profile-label">Профессия</span>
+              <span className="profile-label">РџСЂРѕС„РµСЃСЃРёСЏ</span>
               <strong>{profile.profession}</strong>
             </div>
           ) : null}
           <div className="profile-line">
-            <span className="profile-label">ID аккаунта</span>
+            <span className="profile-label">ID Р°РєРєР°СѓРЅС‚Р°</span>
             <span>{profile.id}</span>
           </div>
           <div className="profile-line">
-            <span className="profile-label">Создан</span>
+            <span className="profile-label">РЎРѕР·РґР°РЅ</span>
             <span>{formatProfileDate(profile.createdAt)}</span>
           </div>
           <div className="profile-danger-card">
             <div className="profile-danger-copy">
-              <span className="profile-label">Удаление аккаунта</span>
-              <strong>Это действие необратимо.</strong>
+              <span className="profile-label">РЈРґР°Р»РµРЅРёРµ Р°РєРєР°СѓРЅС‚Р°</span>
+              <strong>Р­С‚Рѕ РґРµР№СЃС‚РІРёРµ РЅРµРѕР±СЂР°С‚РёРјРѕ.</strong>
               <p>
-                Все сессии будут завершены, а профиль и связанные данные будут удалены.
-                Введите @{profile.username}, чтобы подтвердить операцию.
+                Р’СЃРµ СЃРµСЃСЃРёРё Р±СѓРґСѓС‚ Р·Р°РІРµСЂС€РµРЅС‹, Р° РїСЂРѕС„РёР»СЊ Рё СЃРІСЏР·Р°РЅРЅС‹Рµ РґР°РЅРЅС‹Рµ Р±СѓРґСѓС‚ СѓРґР°Р»РµРЅС‹.
+                Р’РІРµРґРёС‚Рµ @{profile.username}, С‡С‚РѕР±С‹ РїРѕРґС‚РІРµСЂРґРёС‚СЊ РѕРїРµСЂР°С†РёСЋ.
               </p>
             </div>
             <input
@@ -717,7 +732,7 @@ export function SidebarManagementSheets({
               disabled={deleteAccountPending || !deleteAccountRequiresMatch}
               onClick={onDeleteAccount}
             >
-              {deleteAccountPending ? "Удаляем аккаунт..." : "Удалить аккаунт"}
+              {deleteAccountPending ? "РЈРґР°Р»СЏРµРј Р°РєРєР°СѓРЅС‚..." : "РЈРґР°Р»РёС‚СЊ Р°РєРєР°СѓРЅС‚"}
             </button>
           </div>
         </div>
@@ -730,11 +745,11 @@ export function SidebarManagementSheets({
       <div className="sheet-card">
         <div className="sheet-head">
           <div>
-            <div className="section-title">Группы</div>
-            <p className="sheet-copy">Создайте новую группу и добавляйте участников по кнопке.</p>
+            <div className="section-title">Р“СЂСѓРїРїС‹</div>
+            <p className="sheet-copy">РЎРѕР·РґР°Р№С‚Рµ РЅРѕРІСѓСЋ РіСЂСѓРїРїСѓ Рё РґРѕР±Р°РІР»СЏР№С‚Рµ СѓС‡Р°СЃС‚РЅРёРєРѕРІ РїРѕ РєРЅРѕРїРєРµ.</p>
           </div>
           <button type="button" className="ghost-button compact" onClick={onClose}>
-            Закрыть
+            Р—Р°РєСЂС‹С‚СЊ
           </button>
         </div>
 
@@ -748,11 +763,11 @@ export function SidebarManagementSheets({
           <input
             value={groupTitle}
             onChange={(event) => onGroupTitleChange(event.target.value)}
-            placeholder="Название группы"
+            placeholder="РќР°Р·РІР°РЅРёРµ РіСЂСѓРїРїС‹"
           />
           <div className="sheet-section">
             <button type="button" className="ghost-button" onClick={onToggleGroupCreatePicker}>
-              {isGroupCreatePickerOpen ? "Скрыть список контактов" : "Добавить участника"}
+              {isGroupCreatePickerOpen ? "РЎРєСЂС‹С‚СЊ СЃРїРёСЃРѕРє РєРѕРЅС‚Р°РєС‚РѕРІ" : "Р”РѕР±Р°РІРёС‚СЊ СѓС‡Р°СЃС‚РЅРёРєР°"}
             </button>
             {selectedGroupContacts.length > 0 ? (
               <div className="sheet-chip-list">
@@ -766,10 +781,10 @@ export function SidebarManagementSheets({
             {isGroupCreatePickerOpen ? (
               <div className="group-picker-list">
                 {contactsLoading ? (
-                  <div className="empty-list">Загружаем контакты...</div>
+                  <div className="empty-list">Р—Р°РіСЂСѓР¶Р°РµРј РєРѕРЅС‚Р°РєС‚С‹...</div>
                 ) : groupContacts.length === 0 ? (
                   <div className="empty-list">
-                    Добавь сначала контакты, чтобы собрать группу.
+                    Р”РѕР±Р°РІСЊ СЃРЅР°С‡Р°Р»Р° РєРѕРЅС‚Р°РєС‚С‹, С‡С‚РѕР±С‹ СЃРѕР±СЂР°С‚СЊ РіСЂСѓРїРїСѓ.
                   </div>
                 ) : (
                   groupContacts.map((contact) => {
@@ -795,7 +810,7 @@ export function SidebarManagementSheets({
                           <strong>{contact.displayName}</strong>
                           <span>@{contact.username}</span>
                         </div>
-                        <span className="member-pill">{selected ? "Выбран" : "Выбрать"}</span>
+                        <span className="member-pill">{selected ? "Р’С‹Р±СЂР°РЅ" : "Р’С‹Р±СЂР°С‚СЊ"}</span>
                       </button>
                     );
                   })
@@ -808,7 +823,7 @@ export function SidebarManagementSheets({
             className="secondary-button"
             disabled={createGroupPending || !groupTitle.trim()}
           >
-            {createGroupPending ? "Создаем..." : "Создать"}
+            {createGroupPending ? "РЎРѕР·РґР°РµРј..." : "РЎРѕР·РґР°С‚СЊ"}
           </button>
         </form>
       </div>
@@ -825,11 +840,11 @@ export function SidebarManagementSheets({
       <div className="sheet-card">
         <div className="sheet-head">
           <div>
-            <div className="section-title">Инфо</div>
-            <p className="sheet-copy">Информация о группе и управление участниками.</p>
+            <div className="section-title">РРЅС„Рѕ</div>
+            <p className="sheet-copy">РРЅС„РѕСЂРјР°С†РёСЏ Рѕ РіСЂСѓРїРїРµ Рё СѓРїСЂР°РІР»РµРЅРёРµ СѓС‡Р°СЃС‚РЅРёРєР°РјРё.</p>
           </div>
           <button type="button" className="ghost-button compact" onClick={onClose}>
-            Закрыть
+            Р—Р°РєСЂС‹С‚СЊ
           </button>
         </div>
 
@@ -843,18 +858,18 @@ export function SidebarManagementSheets({
           />
           <div className="profile-avatar-copy">
             <strong>{normalizedGroupTitle || activeChat.title}</strong>
-            <span>{activeChat.members.length} участников</span>
+            <span>{activeChat.members.length} СѓС‡Р°СЃС‚РЅРёРєРѕРІ</span>
           </div>
         </div>
 
         <div className="profile-line">
-          <span className="profile-label">Аватар группы</span>
+          <span className="profile-label">РђРІР°С‚Р°СЂ РіСЂСѓРїРїС‹</span>
           <p className="profile-avatar-hint">
-            Смени название и аватар группы, затем сохрани изменения.
+            РЎРјРµРЅРё РЅР°Р·РІР°РЅРёРµ Рё Р°РІР°С‚Р°СЂ РіСЂСѓРїРїС‹, Р·Р°С‚РµРј СЃРѕС…СЂР°РЅРё РёР·РјРµРЅРµРЅРёСЏ.
           </p>
           <div className="profile-avatar-actions">
             <label htmlFor="group-avatar-input" className="ghost-button compact">
-              Выбрать фото
+              Р’С‹Р±СЂР°С‚СЊ С„РѕС‚Рѕ
             </label>
             <input
               id="group-avatar-input"
@@ -875,7 +890,7 @@ export function SidebarManagementSheets({
                 className="ghost-button compact"
                 onClick={onRemoveGroupAvatar}
               >
-                Убрать фото
+                РЈР±СЂР°С‚СЊ С„РѕС‚Рѕ
               </button>
             ) : null}
           </div>
@@ -888,11 +903,11 @@ export function SidebarManagementSheets({
             onSubmitUpdateGroup();
           }}
         >
-          <span className="profile-label">Название группы</span>
+          <span className="profile-label">РќР°Р·РІР°РЅРёРµ РіСЂСѓРїРїС‹</span>
           <input
             value={groupDetailsTitle}
             onChange={(event) => onGroupDetailsTitleChange(event.target.value)}
-            placeholder="Название группы"
+            placeholder="РќР°Р·РІР°РЅРёРµ РіСЂСѓРїРїС‹"
             maxLength={120}
           />
           <button
@@ -900,7 +915,7 @@ export function SidebarManagementSheets({
             className="secondary-button"
             disabled={updateGroupPending || normalizedGroupTitle.length < 2 || !groupDetailsChanged}
           >
-            {updateGroupPending ? "Сохраняем..." : "Сохранить изменения"}
+            {updateGroupPending ? "РЎРѕС…СЂР°РЅСЏРµРј..." : "РЎРѕС…СЂР°РЅРёС‚СЊ РёР·РјРµРЅРµРЅРёСЏ"}
           </button>
         </form>
 
@@ -911,8 +926,8 @@ export function SidebarManagementSheets({
             onClick={() => onOpenGroupMembers()}
           >
             <div className="sheet-row-copy">
-              <strong>Участники</strong>
-              <span>Открыть список участников группы.</span>
+              <strong>РЈС‡Р°СЃС‚РЅРёРєРё</strong>
+              <span>РћС‚РєСЂС‹С‚СЊ СЃРїРёСЃРѕРє СѓС‡Р°СЃС‚РЅРёРєРѕРІ РіСЂСѓРїРїС‹.</span>
             </div>
             <span className="member-pill">{activeChat.members.length}</span>
           </button>
@@ -922,15 +937,15 @@ export function SidebarManagementSheets({
             onClick={() => onOpenGroupMembers({ openInvitePicker: true })}
           >
             <div className="sheet-row-copy">
-              <strong>Добавить из контактов</strong>
+              <strong>Р”РѕР±Р°РІРёС‚СЊ РёР· РєРѕРЅС‚Р°РєС‚РѕРІ</strong>
               <span>
                 {availableGroupInviteContacts.length > 0
-                  ? "Выбери людей из контактов и добавь их в группу."
-                  : "Все контакты уже добавлены в эту группу."}
+                  ? "Р’С‹Р±РµСЂРё Р»СЋРґРµР№ РёР· РєРѕРЅС‚Р°РєС‚РѕРІ Рё РґРѕР±Р°РІСЊ РёС… РІ РіСЂСѓРїРїСѓ."
+                  : "Р’СЃРµ РєРѕРЅС‚Р°РєС‚С‹ СѓР¶Рµ РґРѕР±Р°РІР»РµРЅС‹ РІ СЌС‚Сѓ РіСЂСѓРїРїСѓ."}
               </span>
             </div>
             <span className="member-pill">
-              {availableGroupInviteContacts.length > 0 ? "Добавить" : "Готово"}
+              {availableGroupInviteContacts.length > 0 ? "Р”РѕР±Р°РІРёС‚СЊ" : "Р“РѕС‚РѕРІРѕ"}
             </span>
           </button>
         </div>
@@ -938,8 +953,8 @@ export function SidebarManagementSheets({
         {groupInviteLinkVisible ? (
           <div className="invite-link-panel">
           <div className="invite-link-copy">
-            <strong>Ссылка-приглашение</strong>
-            <span>Открывает группу и сразу добавляет пользователя по короткому адресу.</span>
+            <strong>РЎСЃС‹Р»РєР°-РїСЂРёРіР»Р°С€РµРЅРёРµ</strong>
+            <span>РћС‚РєСЂС‹РІР°РµС‚ РіСЂСѓРїРїСѓ Рё СЃСЂР°Р·Сѓ РґРѕР±Р°РІР»СЏРµС‚ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РїРѕ РєРѕСЂРѕС‚РєРѕРјСѓ Р°РґСЂРµСЃСѓ.</span>
           </div>
           {groupInviteLinkUrl ? (
             <div className="invite-link-row">
@@ -954,7 +969,7 @@ export function SidebarManagementSheets({
                 className="ghost-button compact"
                 onClick={() => onCopyGroupInviteLink(groupInviteLinkUrl)}
               >
-                Копировать
+                РљРѕРїРёСЂРѕРІР°С‚СЊ
               </button>
             </div>
           ) : null}
@@ -965,10 +980,10 @@ export function SidebarManagementSheets({
             onClick={onGenerateGroupInviteLink}
           >
             {groupInviteLinkPending
-              ? "Генерируем ссылку..."
+              ? "Р“РµРЅРµСЂРёСЂСѓРµРј СЃСЃС‹Р»РєСѓ..."
               : groupInviteLinkUrl
-                ? "Обновить ссылку"
-                : "Сгенерировать ссылку"}
+                ? "РћР±РЅРѕРІРёС‚СЊ СЃСЃС‹Р»РєСѓ"
+                : "РЎРіРµРЅРµСЂРёСЂРѕРІР°С‚СЊ СЃСЃС‹Р»РєСѓ"}
           </button>
           </div>
         ) : null}
@@ -981,13 +996,13 @@ export function SidebarManagementSheets({
       <div className="sheet-card">
         <div className="sheet-head">
           <div>
-            <div className="section-title">Участники группы</div>
+            <div className="section-title">РЈС‡Р°СЃС‚РЅРёРєРё РіСЂСѓРїРїС‹</div>
             <p className="sheet-copy">
-              Посмотри кто уже в {activeChat.title} и добавь новых людей из контактов.
+              РџРѕСЃРјРѕС‚СЂРё РєС‚Рѕ СѓР¶Рµ РІ {activeChat.title} Рё РґРѕР±Р°РІСЊ РЅРѕРІС‹С… Р»СЋРґРµР№ РёР· РєРѕРЅС‚Р°РєС‚РѕРІ.
             </p>
           </div>
           <button type="button" className="ghost-button compact" onClick={onClose}>
-            Закрыть
+            Р—Р°РєСЂС‹С‚СЊ
           </button>
         </div>
 
@@ -999,7 +1014,7 @@ export function SidebarManagementSheets({
           }}
         >
           <div className="sheet-section">
-            <div className="section-title">В этой группе</div>
+            <div className="section-title">Р’ СЌС‚РѕР№ РіСЂСѓРїРїРµ</div>
             <div className="sheet-list">
               {activeChat.members.map((member) => {
                 const current = member.id === sessionUser.id;
@@ -1012,7 +1027,7 @@ export function SidebarManagementSheets({
                       online={member.online}
                     />
                     <div className="sheet-row-copy">
-                      <strong>{member.displayName}{current ? " (Вы)" : ""}</strong>
+                      <strong>{member.displayName}{current ? " (Р’С‹)" : ""}</strong>
                       <span>@{member.username}</span>
                     </div>
                     <div className="sheet-row-actions">
@@ -1026,7 +1041,7 @@ export function SidebarManagementSheets({
                           {"\u0427\u0430\u0442"}
                         </button>
                       ) : null}
-                      <span className="member-pill">{current ? "Вы" : "В группе"}</span>
+                      <span className="member-pill">{current ? "Р’С‹" : "Р’ РіСЂСѓРїРїРµ"}</span>
                     </div>
                   </div>
                 );
@@ -1035,7 +1050,7 @@ export function SidebarManagementSheets({
           </div>
           <div className="sheet-section">
             <button type="button" className="ghost-button" onClick={onToggleGroupInvitePicker}>
-              {isGroupInvitePickerOpen ? "Скрыть список контактов" : "Добавить участника"}
+              {isGroupInvitePickerOpen ? "РЎРєСЂС‹С‚СЊ СЃРїРёСЃРѕРє РєРѕРЅС‚Р°РєС‚РѕРІ" : "Р”РѕР±Р°РІРёС‚СЊ СѓС‡Р°СЃС‚РЅРёРєР°"}
             </button>
             {selectedGroupInviteContacts.length > 0 ? (
               <div className="sheet-chip-list">
@@ -1051,7 +1066,7 @@ export function SidebarManagementSheets({
                 <div className="group-picker-list">
                   {availableGroupInviteContacts.length === 0 ? (
                     <div className="empty-list">
-                      Все контакты уже в этой группе или список пуст.
+                      Р’СЃРµ РєРѕРЅС‚Р°РєС‚С‹ СѓР¶Рµ РІ СЌС‚РѕР№ РіСЂСѓРїРїРµ РёР»Рё СЃРїРёСЃРѕРє РїСѓСЃС‚.
                     </div>
                   ) : (
                     availableGroupInviteContacts.map((contact) => {
@@ -1077,7 +1092,7 @@ export function SidebarManagementSheets({
                             <strong>{contact.displayName}</strong>
                             <span>@{contact.username}</span>
                           </div>
-                          <span className="member-pill">{selected ? "Выбран" : "Выбрать"}</span>
+                          <span className="member-pill">{selected ? "Р’С‹Р±СЂР°РЅ" : "Р’С‹Р±СЂР°С‚СЊ"}</span>
                         </button>
                       );
                     })
@@ -1088,7 +1103,7 @@ export function SidebarManagementSheets({
                   className="secondary-button"
                   disabled={addGroupParticipantsPending || !groupInviteUsernames.length}
                 >
-                  {addGroupParticipantsPending ? "Добавляем..." : "Добавить в группу"}
+                  {addGroupParticipantsPending ? "Р”РѕР±Р°РІР»СЏРµРј..." : "Р”РѕР±Р°РІРёС‚СЊ РІ РіСЂСѓРїРїСѓ"}
                 </button>
               </>
             ) : null}
@@ -1103,13 +1118,13 @@ export function SidebarManagementSheets({
       <div className="sheet-card">
         <div className="sheet-head">
           <div>
-            <div className="section-title">Добавить в конференцию</div>
+            <div className="section-title">Р”РѕР±Р°РІРёС‚СЊ РІ РєРѕРЅС„РµСЂРµРЅС†РёСЋ</div>
             <p className="sheet-copy">
-              Выбери людей из контактов для {activeConference?.title ?? "встречи"}.
+              Р’С‹Р±РµСЂРё Р»СЋРґРµР№ РёР· РєРѕРЅС‚Р°РєС‚РѕРІ РґР»СЏ {activeConference?.title ?? "РІСЃС‚СЂРµС‡Рё"}.
             </p>
           </div>
           <button type="button" className="ghost-button compact" onClick={onClose}>
-            Закрыть
+            Р—Р°РєСЂС‹С‚СЊ
           </button>
         </div>
 
@@ -1123,7 +1138,7 @@ export function SidebarManagementSheets({
           <div className="group-picker-list">
             {availableConferenceInviteContacts.length === 0 ? (
               <div className="empty-list">
-                Все контакты уже приглашены в конференцию или список пуст.
+                Р’СЃРµ РєРѕРЅС‚Р°РєС‚С‹ СѓР¶Рµ РїСЂРёРіР»Р°С€РµРЅС‹ РІ РєРѕРЅС„РµСЂРµРЅС†РёСЋ РёР»Рё СЃРїРёСЃРѕРє РїСѓСЃС‚.
               </div>
             ) : (
               availableConferenceInviteContacts.map((contact) => {
@@ -1149,7 +1164,7 @@ export function SidebarManagementSheets({
                       <strong>{contact.displayName}</strong>
                       <span>@{contact.username}</span>
                     </div>
-                    <span className="member-pill">{selected ? "Выбран" : "Выбрать"}</span>
+                    <span className="member-pill">{selected ? "Р’С‹Р±СЂР°РЅ" : "Р’С‹Р±СЂР°С‚СЊ"}</span>
                   </button>
                 );
               })
@@ -1160,7 +1175,7 @@ export function SidebarManagementSheets({
             className="secondary-button"
             disabled={addConferenceParticipantsPending || !conferenceInviteUsernames.length}
           >
-            {addConferenceParticipantsPending ? "Добавляем..." : "Добавить в конференцию"}
+            {addConferenceParticipantsPending ? "Р”РѕР±Р°РІР»СЏРµРј..." : "Р”РѕР±Р°РІРёС‚СЊ РІ РєРѕРЅС„РµСЂРµРЅС†РёСЋ"}
           </button>
         </form>
       </div>
@@ -1172,11 +1187,11 @@ export function SidebarManagementSheets({
       <div className="sheet-card">
         <div className="sheet-head">
           <div>
-            <div className="section-title">Контакты</div>
-            <p className="sheet-copy">Добавляй контакты и открывай с ними личные чаты.</p>
+            <div className="section-title">РљРѕРЅС‚Р°РєС‚С‹</div>
+            <p className="sheet-copy">Р”РѕР±Р°РІР»СЏР№ РєРѕРЅС‚Р°РєС‚С‹ Рё РѕС‚РєСЂС‹РІР°Р№ СЃ РЅРёРјРё Р»РёС‡РЅС‹Рµ С‡Р°С‚С‹.</p>
           </div>
           <button type="button" className="ghost-button compact" onClick={onClose}>
-            Закрыть
+            Р—Р°РєСЂС‹С‚СЊ
           </button>
         </div>
 
@@ -1185,7 +1200,7 @@ export function SidebarManagementSheets({
             <input
               value={contactSearch}
               onChange={(event) => onContactSearchChange(event.target.value)}
-              placeholder="Username или display name"
+              placeholder="Username РёР»Рё display name"
               autoComplete="off"
               autoCapitalize="none"
               autoCorrect="off"
@@ -1195,9 +1210,9 @@ export function SidebarManagementSheets({
             {showContactSearchResults ? (
               <div className="search-dropdown contact-search-dropdown">
                 {contactSearchFetching ? (
-                  <div className="search-result-empty">Ищем пользователей...</div>
+                  <div className="search-result-empty">РС‰РµРј РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№...</div>
                 ) : contactSearchResults.length === 0 ? (
-                  <div className="search-result-empty">Пользователи не найдены.</div>
+                  <div className="search-result-empty">РџРѕР»СЊР·РѕРІР°С‚РµР»Рё РЅРµ РЅР°Р№РґРµРЅС‹.</div>
                 ) : (
                   contactSearchResults.map((user) => (
                     <div key={user.id} className="search-result-row with-action">
@@ -1216,7 +1231,7 @@ export function SidebarManagementSheets({
                         className="ghost-button compact"
                         onClick={() => onAddContact(user)}
                       >
-                        Добавить
+                        Р”РѕР±Р°РІРёС‚СЊ
                       </button>
                     </div>
                   ))
@@ -1228,9 +1243,9 @@ export function SidebarManagementSheets({
 
         <div className="sheet-list">
           {contactsLoading ? (
-            <div className="empty-list">Загружаем контакты...</div>
+            <div className="empty-list">Р—Р°РіСЂСѓР¶Р°РµРј РєРѕРЅС‚Р°РєС‚С‹...</div>
           ) : contacts.length === 0 ? (
-            <div className="empty-list">Контактов пока нет.</div>
+            <div className="empty-list">РљРѕРЅС‚Р°РєС‚РѕРІ РїРѕРєР° РЅРµС‚.</div>
           ) : (
             contacts.map((contact) => (
               <div key={contact.username} className="sheet-row sheet-row-with-avatar">
@@ -1251,14 +1266,14 @@ export function SidebarManagementSheets({
                     disabled={createChatPending}
                     onClick={() => onCreateChat(contact.username)}
                   >
-                    Чат
+                    Р§Р°С‚
                   </button>
                   <button
                     type="button"
                     className="ghost-button compact"
                     onClick={() => onRemoveContact(contact.username)}
                   >
-                    Удалить
+                    РЈРґР°Р»РёС‚СЊ
                   </button>
                 </div>
               </div>
@@ -1367,78 +1382,56 @@ export function SidebarManagementSheets({
                   }
                 </div>
               ) : (
-                encryptionDevices.map((device) => (
-                  <div key={device.deviceId} className="session-row">
-                    <div className="session-copy">
-                      <strong>{device.deviceName}</strong>
-                      <span>
-                        {"\u041F\u043E\u0441\u043B\u0435\u0434\u043D\u0438\u0439 seen:"}{" "}
-                        {formatSessionTime(device.lastSeenAt)}
-                      </span>
-                      <span>
-                        {"\u0417\u0430\u0440\u0435\u0433\u0438\u0441\u0442\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043E:"}{" "}
-                        {formatSessionTime(device.registeredAt)}
-                      </span>
-                      <span>
-                        {"OTP prekeys:"} {device.availableOneTimePrekeys}
-                        {device.deviceVersion ? ` · v${device.deviceVersion}` : ""}
-                      </span>
+                encryptionDevices.map((device) => {
+                  const isCurrentDevice = device.deviceId === currentEncryptionDeviceId;
+                  const isOnlyVisibleDevice = encryptionDevices.length <= 1;
+                  const staleDevice = isStaleEncryptionDevice(device.lastSeenAt);
+
+                  return (
+                    <div key={device.deviceId} className="session-row">
+                      <div className="session-copy">
+                        <strong>{device.deviceName}</strong>
+                        <span>
+                          {"\u041F\u043E\u0441\u043B\u0435\u0434\u043D\u0438\u0439 seen:"}{" "}
+                          {formatSessionTime(device.lastSeenAt)}
+                        </span>
+                        <span>
+                          {"\u0417\u0430\u0440\u0435\u0433\u0438\u0441\u0442\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043E:"}{" "}
+                          {formatSessionTime(device.registeredAt)}
+                        </span>
+                        <span>
+                          {"OTP prekeys:"} {device.availableOneTimePrekeys}
+                          {device.deviceVersion ? ` · v${device.deviceVersion}` : ""}
+                        </span>
+                      </div>
+                      <div className="member-pill-stack">
+                        {isCurrentDevice ? (
+                          <span className="member-pill">{"\u042D\u0442\u043E \u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u043E"}</span>
+                        ) : null}
+                        {staleDevice ? (
+                          <span className="member-pill">
+                            {"\u0414\u0430\u0432\u043D\u043E \u043D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043B\u043E\u0441\u044C"}
+                          </span>
+                        ) : null}
+                        {isOnlyVisibleDevice ? (
+                          <span className="member-pill">{"\u041F\u043E\u0441\u043B\u0435\u0434\u043D\u0435\u0435 E2EE"}</span>
+                        ) : !isCurrentDevice ? (
+                          <button
+                            type="button"
+                            className="ghost-button compact"
+                            disabled={retireEncryptionDevicePending}
+                            onClick={() => onRetireEncryptionDevice(device.deviceId)}
+                          >
+                            {"\u041E\u0442\u043A\u043B\u044E\u0447\u0438\u0442\u044C E2EE"}
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
-                    <span className="member-pill">{"E2EE"}</span>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </section>
-        </div>
-      </div>
-    );
-  }
-
-  if (false && sheet === "sessions") {
-    return (
-      <div className="sheet-card">
-        <div className="sheet-head">
-          <div>
-            <div className="section-title">Активные устройства</div>
-            <p className="sheet-copy">Сессии и устройство, с которого выполнен вход.</p>
-          </div>
-          <button type="button" className="ghost-button compact" onClick={onClose}>
-            Закрыть
-          </button>
-        </div>
-
-        <div className="session-list menu-session-list">
-          {sessionsLoading ? (
-            <div className="empty-list">Загружаем список устройств...</div>
-          ) : sessions.length === 0 ? (
-            <div className="empty-list">Активна только текущая сессия.</div>
-          ) : (
-            sessions.map((item) => {
-              const current = item.id === currentSessionId;
-              return (
-                <div key={item.id} className="session-row">
-                  <div className="session-copy">
-                    <strong>{item.deviceName}</strong>
-                    <span>Последняя активность: {formatSessionTime(item.lastUsedAt)}</span>
-                    <span>Истекает: {formatSessionTime(item.expiresAt)}</span>
-                  </div>
-                  {current ? (
-                    <span className="member-pill">Текущее</span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="ghost-button compact"
-                      disabled={revokeSessionPending}
-                      onClick={() => onRevokeSession(item.id)}
-                    >
-                      Отключить
-                    </button>
-                  )}
-                </div>
-              );
-            })
-          )}
         </div>
       </div>
     );

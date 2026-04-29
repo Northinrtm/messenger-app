@@ -52,6 +52,7 @@ function buildProps(): Parameters<typeof SidebarManagementSheets>[0] {
     contactSearchResults: [],
     contacts: [],
     contactsLoading: false,
+    currentEncryptionDeviceId: "device-1",
     encryptionDevices: [
       {
         deviceId: "device-1",
@@ -117,6 +118,7 @@ function buildProps(): Parameters<typeof SidebarManagementSheets>[0] {
     pushNotificationsInfo: null,
     pushNotificationsError: null,
     revokeSessionPending: false,
+    retireEncryptionDevicePending: false,
     contactSearchFetching: false,
     onClose: noop,
     onProfileDisplayNameChange: noop,
@@ -154,6 +156,7 @@ function buildProps(): Parameters<typeof SidebarManagementSheets>[0] {
     onRemoveContact: noop,
     onCreateChat: noop,
     onRevokeSession: noop,
+    onRetireEncryptionDevice: noop,
     formatProfileDate: (value) => value,
     formatSessionTime: (value) => value,
   };
@@ -188,5 +191,6 @@ describe("SidebarManagementSheets sessions sheet", () => {
     expect(container.textContent).toContain("Pixel 8");
     expect(container.textContent).toContain("OTP prekeys: 12");
     expect(container.textContent).toContain("E2EE-устройства");
+    expect(container.textContent).toContain("Это устройство");
   });
 });

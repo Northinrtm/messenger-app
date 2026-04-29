@@ -541,6 +541,7 @@ export function NorthMessengerWorkspace({
     conferencesQuery,
     contactsQuery,
     contactsSearchQuery,
+    currentEncryptionDeviceQuery,
     encryptionDevicesQuery,
     messages,
     messagesQuery,
@@ -620,6 +621,7 @@ export function NorthMessengerWorkspace({
     () => applyChatPreviewOverrides(serverChats, chatPreviewOverrides),
     [chatPreviewOverrides, serverChats]
   );
+  const currentEncryptionDeviceId = currentEncryptionDeviceQuery.data ?? null;
   const encryptionDevices = encryptionDevicesQuery.data ?? [];
   const sessions = sessionsQuery.data ?? [];
   const profile = profileQuery.data ?? session.user;
@@ -1657,6 +1659,7 @@ export function NorthMessengerWorkspace({
     removeContact,
     removeContactMutation,
     revokeGroupModeratorMutation,
+    retireEncryptionDeviceMutation,
     revokeSessionMutation,
     resendOwnEmailVerificationMutation,
     signOutMutation,
@@ -2187,6 +2190,7 @@ export function NorthMessengerWorkspace({
       unblockUserMutation.error,
       chatsQuery.error,
       encryptionDevicesQuery.error,
+      retireEncryptionDeviceMutation.error,
       sessionsQuery.error,
       profileQuery.error,
       archivedChatsQuery.error,
@@ -2377,6 +2381,7 @@ export function NorthMessengerWorkspace({
     contactsLoading,
     encryptionDevices,
     encryptionDevicesLoading,
+    currentEncryptionDeviceId,
     sessions,
     sessionsLoading,
     activeChat,
@@ -2414,6 +2419,7 @@ export function NorthMessengerWorkspace({
     pushNotificationsInfo: pushNotificationInfo,
     pushNotificationsError: pushNotificationError,
     revokeSessionPending: revokeSessionMutation.isPending,
+    retireEncryptionDevicePending: retireEncryptionDeviceMutation.isPending,
     contactSearchFetching: contactsSearchQuery.isFetching,
     onClose: () => setSidebarSheet(null),
     onProfileDisplayNameChange: setProfileDisplayName,
@@ -2450,6 +2456,7 @@ export function NorthMessengerWorkspace({
     onAddContact: handleAddContact,
     onRemoveContact: removeContact,
     onCreateChat: (username) => createChatMutation.mutate(username),
+    onRetireEncryptionDevice: (deviceId) => retireEncryptionDeviceMutation.mutate(deviceId),
     onRevokeSession: (sessionId) => revokeSessionMutation.mutate(sessionId),
     formatProfileDate,
     formatSessionTime,

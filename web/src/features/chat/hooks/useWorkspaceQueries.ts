@@ -255,6 +255,16 @@ export function useWorkspaceQueries({
     staleTime: 60_000,
   });
 
+  const currentEncryptionDeviceQuery = useQuery({
+    queryKey: ["current-encryption-device", userId],
+    queryFn: async () => {
+      const { getCurrentEncryptionDeviceId } = await import("../../../lib/e2ee");
+      return getCurrentEncryptionDeviceId(userId);
+    },
+    enabled: shouldFetchEncryptionDevices,
+    staleTime: 15_000,
+  });
+
   const profileQuery = useQuery({
     queryKey: ["profile", sessionToken],
     queryFn: () => getProfile(sessionToken),
@@ -552,6 +562,7 @@ export function useWorkspaceQueries({
     messages,
     messagesQuery,
     pendingOutgoingMessagesQuery,
+    currentEncryptionDeviceQuery,
     profileQuery,
     encryptionDevicesQuery,
     sessionsQuery,
