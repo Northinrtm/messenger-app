@@ -358,6 +358,7 @@ const queuedRecoverySnapshotSyncByUserId = new Set<string>();
 const inFlightRecoverySyncSessionWaitByUserId = new Map<string, Promise<AuthResponse | null>>();
 const inFlightRecoveryArchiveRefreshByUserId = new Map<string, Promise<boolean>>();
 const completedRecoveryArchiveRefreshByUserId = new Map<string, number>();
+const completedGroupHistoryAccessGrantFingerprintsByUserChat = new Map<string, string>();
 const DECRYPTED_ATTACHMENT_CACHE_MAX_BYTES = 64 * 1024 * 1024;
 const decryptedAttachmentCache = new Map<
   string,
@@ -1448,6 +1449,7 @@ async function restoreRememberedGroupSenderChainsForRetry(userId: string) {
 
 export function clearUnlockedEncryptionState(userId?: string) {
   ensureE2eeTransportStorageSchema();
+  clearCompletedGroupHistoryAccessGrantFingerprints(userId);
   return clearUnlockedEncryptionStateInternal({
     userId,
     unlockedIdentityByUserId,
@@ -1474,6 +1476,7 @@ export function clearUnlockedEncryptionState(userId?: string) {
 
 export function lockUnlockedEncryptionState(userId?: string) {
   ensureE2eeTransportStorageSchema();
+  clearCompletedGroupHistoryAccessGrantFingerprints(userId);
   return lockUnlockedEncryptionStateInternal({
     userId,
     unlockedIdentityByUserId,
@@ -2811,7 +2814,7 @@ export async function grantGroupHistoryAccessForParticipants(
   token: string,
   chatId: string,
   participants: Participant[],
-  options?: { currentUserId?: string; session?: AuthResponse }
+  options?: { currentUserId?: string; session?: AuthResponse; force?: boolean }
 ) {
   ensureE2eeTransportStorageSchema();
 
@@ -2829,21 +2832,43 @@ export async function grantGroupHistoryAccessForParticipants(
     currentUserId,
     participants
   );
-  const historyKeyRecord =
-    (await readCurrentGroupHistoryKeyRecord(currentUserId, chatId)) ??
-    (await resolveGroupHistoryKeyRecordFromServer(token, currentUserId, chatId, ownMaterial));
-  if (!historyKeyRecord) {
+  await resolveGroupHistoryKeyRecordFromServer(token, currentUserId, chatId, ownMaterial).catch(
+    () => null
+  );
+  const historyKeyRecords = await readGroupHistoryKeyRecordsForChat(currentUserId, chatId);
+  if (historyKeyRecords.length === 0) {
     return;
   }
 
-  await upsertGroupHistoryKeyAccessForTargets(
-    token,
+  const grantFingerprint = buildGroupHistoryAccessGrantFingerprint(
     chatId,
-    currentUserId,
-    ownMaterial,
     targetBundles,
-    nextSessions,
-    historyKeyRecord
+    historyKeyRecords
+  );
+  const grantFingerprintKey = getGroupHistoryAccessGrantFingerprintKey(currentUserId, chatId);
+  if (
+    !options.force &&
+    completedGroupHistoryAccessGrantFingerprintsByUserChat.get(grantFingerprintKey) ===
+      grantFingerprint
+  ) {
+    return;
+  }
+
+  for (const historyKeyRecord of historyKeyRecords) {
+    await upsertGroupHistoryKeyAccessForTargets(
+      token,
+      chatId,
+      currentUserId,
+      ownMaterial,
+      targetBundles,
+      nextSessions,
+      historyKeyRecord
+    );
+  }
+
+  completedGroupHistoryAccessGrantFingerprintsByUserChat.set(
+    grantFingerprintKey,
+    grantFingerprint
   );
 }
 
@@ -4305,6 +4330,49 @@ async function readCurrentGroupHistoryKeyRecord(userId: string, chatId: string) 
     chatId,
     readGroupHistoryKeyState,
   });
+}
+
+async function readGroupHistoryKeyRecordsForChat(userId: string, chatId: string) {
+  const state = await readGroupHistoryKeyState(userId);
+  return Object.values(state.keysById)
+    .filter((record) => record.chatId === chatId)
+    .sort((left, right) => {
+      const createdAtDelta = Date.parse(left.createdAt) - Date.parse(right.createdAt);
+      if (createdAtDelta !== 0) {
+        return createdAtDelta;
+      }
+      return left.historyKeyId.localeCompare(right.historyKeyId);
+    });
+}
+
+function buildGroupHistoryAccessGrantFingerprint(
+  chatId: string,
+  targetBundles: UserEncryptionDeviceBundle[],
+  historyKeyRecords: GroupHistoryKeyRecord[]
+) {
+  const recipientFingerprint = targetBundles
+    .map((bundle) => getDeviceBundleMapKey(bundle.userId, bundle.deviceId))
+    .sort()
+    .join(",");
+  const historyKeyFingerprint = historyKeyRecords.map((record) => record.historyKeyId).sort().join(",");
+  return `${chatId}|${recipientFingerprint}|${historyKeyFingerprint}`;
+}
+
+function getGroupHistoryAccessGrantFingerprintKey(userId: string, chatId: string) {
+  return `${userId}:${chatId}`;
+}
+
+function clearCompletedGroupHistoryAccessGrantFingerprints(userId?: string) {
+  if (!userId) {
+    completedGroupHistoryAccessGrantFingerprintsByUserChat.clear();
+    return;
+  }
+
+  for (const key of completedGroupHistoryAccessGrantFingerprintsByUserChat.keys()) {
+    if (key.startsWith(`${userId}:`)) {
+      completedGroupHistoryAccessGrantFingerprintsByUserChat.delete(key);
+    }
+  }
 }
 
 async function readDeviceSessions(userId: string): Promise<Record<string, DeviceSessionRecord>> {

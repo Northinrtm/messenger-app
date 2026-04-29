@@ -249,6 +249,7 @@ export function useWorkspaceMutations({
           await grantGroupHistoryAccessForParticipants(token, chat.id, chat.members, {
             currentUserId: currentSession.user.id,
             session: currentSession,
+            force: true,
           });
         } catch {
           // History-key grant is best-effort here; the regular live E2EE flow still remains usable.

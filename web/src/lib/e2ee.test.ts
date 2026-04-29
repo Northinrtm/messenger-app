@@ -49,6 +49,7 @@ import {
   clearPinnedEncryptionIdentity,
   clearUnlockedEncryptionState,
   ensureEncryptionReady,
+  grantGroupHistoryAccessForParticipants,
   getEncryptedMessages,
   getEncryptedMessagesSnapshot,
   hasUnlockedPrivateEncryptionKey,
@@ -4689,6 +4690,129 @@ describe("e2ee hardening", () => {
         "self-device": expect.any(String),
       })
     );
+  });
+
+  it("backfills all known group history keys for current participants after a membership change", async () => {
+    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
+    vi.spyOn(window.crypto.subtle, "generateKey").mockResolvedValue({
+      publicKey: {} as CryptoKey,
+      privateKey: {} as CryptoKey,
+    } as CryptoKeyPair);
+    vi.spyOn(window.crypto.subtle, "exportKey").mockResolvedValue({
+      kty: "OKP",
+      crv: "X25519",
+      x: "generated",
+    } as JsonWebKey);
+    vi.spyOn(window.crypto.subtle, "deriveBits").mockResolvedValue(new Uint8Array(32).buffer);
+    vi.spyOn(window.crypto.subtle, "sign").mockResolvedValue(new Uint8Array([1, 2, 3]).buffer);
+    vi.spyOn(window.crypto.subtle, "encrypt").mockImplementation(
+      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
+    );
+    vi.mocked(resolveEncryptionDeviceBundles).mockResolvedValue([deviceBundle]);
+    window.sessionStorage.setItem(DEVICE_MATERIAL_KEY, JSON.stringify(localDeviceMaterial));
+    window.sessionStorage.setItem(
+      GROUP_HISTORY_KEY,
+      JSON.stringify({
+        currentKeyIdsByChatId: {
+          "group-chat-id": "history-key-2",
+          "other-chat-id": "other-history-key",
+        },
+        keysById: {
+          "history-key-1": {
+            historyKeyId: "history-key-1",
+            chatId: "group-chat-id",
+            keyMaterial: utf8ToBase64("group-history-key-material-1"),
+            createdAt: "2026-04-20T10:00:00.000Z",
+            updatedAt: "2026-04-20T10:00:00.000Z",
+          },
+          "history-key-2": {
+            historyKeyId: "history-key-2",
+            chatId: "group-chat-id",
+            keyMaterial: utf8ToBase64("group-history-key-material-2"),
+            createdAt: "2026-04-21T10:00:00.000Z",
+            updatedAt: "2026-04-21T10:00:00.000Z",
+          },
+          "other-history-key": {
+            historyKeyId: "other-history-key",
+            chatId: "other-chat-id",
+            keyMaterial: utf8ToBase64("other-group-history-key-material"),
+            createdAt: "2026-04-22T10:00:00.000Z",
+            updatedAt: "2026-04-22T10:00:00.000Z",
+          },
+        },
+      })
+    );
+
+    await expect(
+      grantGroupHistoryAccessForParticipants(
+        "token",
+        "group-chat-id",
+        [selfParticipant, participant],
+        { currentUserId: USER_ID, force: true }
+      )
+    ).resolves.toBeUndefined();
+
+    expect(upsertGroupHistoryKey).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(upsertGroupHistoryKey).mock.calls[0]?.[2]?.historyKeyId).toBe(
+      "history-key-1"
+    );
+    expect(vi.mocked(upsertGroupHistoryKey).mock.calls[1]?.[2]?.historyKeyId).toBe(
+      "history-key-2"
+    );
+  });
+
+  it("skips repeating the same group history backfill fingerprint until the membership or keys change", async () => {
+    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
+    vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
+    vi.spyOn(window.crypto.subtle, "generateKey").mockResolvedValue({
+      publicKey: {} as CryptoKey,
+      privateKey: {} as CryptoKey,
+    } as CryptoKeyPair);
+    vi.spyOn(window.crypto.subtle, "exportKey").mockResolvedValue({
+      kty: "OKP",
+      crv: "X25519",
+      x: "generated",
+    } as JsonWebKey);
+    vi.spyOn(window.crypto.subtle, "deriveBits").mockResolvedValue(new Uint8Array(32).buffer);
+    vi.spyOn(window.crypto.subtle, "sign").mockResolvedValue(new Uint8Array([1, 2, 3]).buffer);
+    vi.spyOn(window.crypto.subtle, "encrypt").mockImplementation(
+      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
+    );
+    vi.mocked(resolveEncryptionDeviceBundles).mockResolvedValue([deviceBundle]);
+    window.sessionStorage.setItem(DEVICE_MATERIAL_KEY, JSON.stringify(localDeviceMaterial));
+    window.sessionStorage.setItem(
+      GROUP_HISTORY_KEY,
+      JSON.stringify({
+        currentKeyIdsByChatId: {
+          "group-chat-id": "history-key-1",
+        },
+        keysById: {
+          "history-key-1": {
+            historyKeyId: "history-key-1",
+            chatId: "group-chat-id",
+            keyMaterial: utf8ToBase64("group-history-key-material-1"),
+            createdAt: "2026-04-20T10:00:00.000Z",
+            updatedAt: "2026-04-20T10:00:00.000Z",
+          },
+        },
+      })
+    );
+
+    await grantGroupHistoryAccessForParticipants(
+      "token",
+      "group-chat-id",
+      [selfParticipant, participant],
+      { currentUserId: USER_ID }
+    );
+    await grantGroupHistoryAccessForParticipants(
+      "token",
+      "group-chat-id",
+      [selfParticipant, participant],
+      { currentUserId: USER_ID }
+    );
+
+    expect(upsertGroupHistoryKey).toHaveBeenCalledTimes(1);
   });
 
   it("restores incoming group message history from persisted inbound sender-chain state after reload", async () => {
