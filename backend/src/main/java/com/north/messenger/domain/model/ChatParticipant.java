@@ -23,14 +23,28 @@ public class ChatParticipant {
     @Column(name = "joined_at", nullable = false, updatable = false)
     private Instant joinedAt;
 
+    @Column(name = "prejoin_history_access_granted_at")
+    private Instant prejoinHistoryAccessGrantedAt;
+
     protected ChatParticipant() {
     }
 
     public ChatParticipant(UUID id, UUID chatId, UUID userId, Instant joinedAt) {
+        this(id, chatId, userId, joinedAt, null);
+    }
+
+    public ChatParticipant(
+            UUID id,
+            UUID chatId,
+            UUID userId,
+            Instant joinedAt,
+            Instant prejoinHistoryAccessGrantedAt
+    ) {
         this.id = id;
         this.chatId = chatId;
         this.userId = userId;
         this.joinedAt = joinedAt;
+        this.prejoinHistoryAccessGrantedAt = prejoinHistoryAccessGrantedAt;
     }
 
     public UUID getId() {
@@ -47,6 +61,14 @@ public class ChatParticipant {
 
     public Instant getJoinedAt() {
         return joinedAt;
+    }
+
+    public Instant getPrejoinHistoryAccessGrantedAt() {
+        return prejoinHistoryAccessGrantedAt;
+    }
+
+    public void grantPrejoinHistoryAccess(Instant grantedAt) {
+        this.prejoinHistoryAccessGrantedAt = grantedAt;
     }
 }
 

@@ -123,6 +123,10 @@ public class JwtService {
         return issuedAt.plus(jwtProperties.refreshTokenTtl());
     }
 
+    public byte[] exportSigningKeyMaterial() {
+        return signingKey.getEncoded();
+    }
+
     public record IssuedAccessToken(
             String token,
             Instant expiresAt

@@ -57,6 +57,8 @@ export type ChatHistoryBackfillStatus = {
   completedAt: string | null;
 };
 
+export type ChatPrejoinHistoryPolicy = "JOIN_ONLY" | "FULL_HISTORY";
+
 export type ChatMessageAttachment = {
   id: string;
   fileName: string;
@@ -89,6 +91,7 @@ export type ChatSummary = {
   unreadCount: number;
   pinnedMessage: MessageSnippet | null;
   historyAccessStatus?: ChatHistoryBackfillStatus | null;
+  prejoinHistoryPolicy?: ChatPrejoinHistoryPolicy | null;
 };
 
 export type ChatDraft = {
@@ -288,6 +291,7 @@ export type UserEncryptionRecoverySnapshot = {
 export type GroupHistoryKeyAccess = {
   historyKeyId: string;
   wrappedKeyPayloadJson: string;
+  serverGrantPayloadJson?: string | null;
   createdAt: string;
   updatedAt: string;
 };

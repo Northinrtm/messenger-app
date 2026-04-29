@@ -7,6 +7,8 @@ public record UpdateGroupChatRequest(
         @NotBlank
         @Size(min = 2, max = 120)
         String title,
-        String avatarUrl
+        String avatarUrl,
+        @Size(max = 32)
+        String prejoinHistoryPolicy
 ) {
 }

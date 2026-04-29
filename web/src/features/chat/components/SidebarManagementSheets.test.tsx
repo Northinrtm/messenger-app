@@ -1,6 +1,6 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SidebarManagementSheets } from "./SidebarManagementSheets";
 
@@ -49,6 +49,7 @@ function buildProps(
     groupTitle: "",
     groupDetailsTitle: "",
     groupDetailsAvatarUrl: null,
+    groupDetailsPrejoinHistoryPolicy: "JOIN_ONLY",
     contactSearch: "",
     showContactSearchResults: false,
     contactSearchResults: [],
@@ -139,6 +140,7 @@ function buildProps(
     onDisablePushNotifications: noop,
     onGroupTitleChange: noop,
     onGroupDetailsTitleChange: noop,
+    onGroupDetailsPrejoinHistoryPolicyChange: noop,
     onGroupAvatarSelected: noop,
     onRemoveGroupAvatar: noop,
     onToggleGroupCreatePicker: noop,
@@ -296,5 +298,89 @@ describe("SidebarManagementSheets sessions sheet", () => {
 
     expect(container.textContent).toContain("Давно не использовалось");
     expect(container.textContent).toContain("Давно не использовались: 1.");
+  });
+});
+
+describe("SidebarManagementSheets group info sheet", () => {
+  let container: HTMLDivElement;
+  let root: Root | null;
+
+  beforeEach(() => {
+    (globalThis as ReactActEnvironment).IS_REACT_ACT_ENVIRONMENT = true;
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root?.unmount();
+    });
+    root = null;
+    container.remove();
+    (globalThis as ReactActEnvironment).IS_REACT_ACT_ENVIRONMENT = false;
+  });
+
+  it("renders prejoin history policy options and calls change handler", async () => {
+    const onGroupDetailsPrejoinHistoryPolicyChange = vi.fn();
+    await act(async () => {
+      root!.render(
+        <SidebarManagementSheets
+          {...buildProps({
+            sheet: "groupInfo",
+            groupDetailsTitle: "Тест",
+            activeChat: {
+              id: "chat-1",
+              direct: false,
+              title: "Тест",
+              avatarUrl: null,
+              ownerUserId: "user-1",
+              moderatorUserIds: [],
+              members: [
+                {
+                  id: "user-1",
+                  username: "north",
+                  displayName: "North",
+                  profession: null,
+                  avatarUrl: null,
+                  online: true,
+                },
+                {
+                  id: "user-2",
+                  username: "alice",
+                  displayName: "Alice",
+                  profession: null,
+                  avatarUrl: null,
+                  online: true,
+                },
+              ],
+              lastMessage: null,
+              lastMessageAt: null,
+              updatedAt: "2026-04-29T10:00:00Z",
+              unreadCount: 0,
+              pinnedMessage: null,
+              historyAccessStatus: null,
+              prejoinHistoryPolicy: "JOIN_ONLY",
+            },
+            onGroupDetailsPrejoinHistoryPolicyChange,
+          })}
+        />
+      );
+    });
+
+    expect(container.textContent).toContain("История для новых участников");
+    expect(container.textContent).toContain("Не показывать сообщения до вступления");
+    expect(container.textContent).toContain("Показывать всю историю группы");
+
+    const fullHistoryButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Показывать всю историю группы")
+    );
+    expect(fullHistoryButton).toBeTruthy();
+
+    await act(async () => {
+      fullHistoryButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(onGroupDetailsPrejoinHistoryPolicyChange).toHaveBeenCalledWith("FULL_HISTORY");
   });
 });

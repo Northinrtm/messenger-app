@@ -14,6 +14,8 @@ public record UpsertGroupHistoryKeyRequest(
         Map<
                 @NotBlank @Size(max = 64) String,
                 @NotBlank @Size(max = 12000) String
-                > wrappedKeysByRecipientDeviceId
+                > wrappedKeysByRecipientDeviceId,
+        @Size(max = 12000)
+        String serverEscrowGrantPayloadJson
 ) {
 }

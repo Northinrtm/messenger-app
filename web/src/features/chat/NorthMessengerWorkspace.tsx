@@ -57,6 +57,7 @@ import type {
   AuthResponse,
   ChatMessage,
   ChatMessageAttachment,
+  ChatPrejoinHistoryPolicy,
   MessageReaction,
   ChatSummary,
   Participant,
@@ -260,6 +261,8 @@ export function NorthMessengerWorkspace({
   const [groupTitle, setGroupTitle] = useState("");
   const [groupDetailsTitle, setGroupDetailsTitle] = useState("");
   const [groupDetailsAvatarUrl, setGroupDetailsAvatarUrl] = useState<string | null>(null);
+  const [groupDetailsPrejoinHistoryPolicy, setGroupDetailsPrejoinHistoryPolicy] =
+    useState<ChatPrejoinHistoryPolicy>("FULL_HISTORY");
   const [conferenceTitle, setConferenceTitle] = useState("");
   const [conferenceScheduledAt, setConferenceScheduledAt] = useState(() =>
     createInitialConferenceDateTime()
@@ -1755,6 +1758,7 @@ export function NorthMessengerWorkspace({
     passwordChangeNext,
     groupInviteUsernames,
     groupDetailsAvatarUrl,
+    groupDetailsPrejoinHistoryPolicy,
     groupDetailsTitle,
     groupParticipantUsernames,
     groupTitle,
@@ -1775,6 +1779,7 @@ export function NorthMessengerWorkspace({
     setActiveListTab,
     setConferenceInviteUsernames,
     setGroupDetailsAvatarUrl,
+    setGroupDetailsPrejoinHistoryPolicy,
     setGroupDetailsTitle,
     setGroupInviteUsernames,
     setGroupParticipantUsernames,
@@ -2037,13 +2042,15 @@ export function NorthMessengerWorkspace({
   }, [activeChat, activeChatCanShareInviteLink, createGroupInviteLinkMutation, groupInviteCodesByChatId, isChatMenuOpen]);
 
   useEffect(() => {
-    if (!isChatMenuOpen || !activeChat || activeChat.direct) {
+    const shouldSyncGroupDetails = isChatMenuOpen || sidebarSheet === "groupInfo";
+    if (!shouldSyncGroupDetails || !activeChat || activeChat.direct) {
       return;
     }
 
     setGroupDetailsTitle(activeChat.title);
     setGroupDetailsAvatarUrl(activeChat.avatarUrl ?? null);
-  }, [activeChat, isChatMenuOpen]);
+    setGroupDetailsPrejoinHistoryPolicy(activeChat.prejoinHistoryPolicy ?? "FULL_HISTORY");
+  }, [activeChat, isChatMenuOpen, sidebarSheet]);
 
   useEffect(() => {
     if (!pendingInviteCode) {
@@ -2435,6 +2442,7 @@ export function NorthMessengerWorkspace({
     groupTitle,
     groupDetailsTitle,
     groupDetailsAvatarUrl,
+    groupDetailsPrejoinHistoryPolicy,
     contactSearch,
     showContactSearchResults,
     contactSearchResults,
@@ -2499,6 +2507,7 @@ export function NorthMessengerWorkspace({
     onDisablePushNotifications: () => void handleDisablePushNotifications(),
     onGroupTitleChange: setGroupTitle,
     onGroupDetailsTitleChange: setGroupDetailsTitle,
+    onGroupDetailsPrejoinHistoryPolicyChange: setGroupDetailsPrejoinHistoryPolicy,
     onGroupAvatarSelected: (file) => void uploadGroupAvatarFromFile(file),
     onRemoveGroupAvatar: () => setGroupDetailsAvatarUrl(null),
     onToggleGroupCreatePicker: () => setIsGroupCreatePickerOpen((current) => !current),

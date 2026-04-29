@@ -31,6 +31,7 @@ import {
 } from "../../../lib/api";
 import type {
   AuthResponse,
+  ChatPrejoinHistoryPolicy,
   ChatSummary,
   Participant,
   UserEncryptionDevice,
@@ -59,6 +60,7 @@ type UseWorkspaceMutationsOptions = {
   passwordChangeNext: string;
   groupInviteUsernames: string[];
   groupDetailsAvatarUrl: string | null;
+  groupDetailsPrejoinHistoryPolicy: ChatPrejoinHistoryPolicy;
   groupDetailsTitle: string;
   groupParticipantUsernames: string[];
   groupTitle: string;
@@ -75,6 +77,7 @@ type UseWorkspaceMutationsOptions = {
   setActiveListTab: React.Dispatch<React.SetStateAction<ConversationListTab>>;
   setConferenceInviteUsernames: React.Dispatch<React.SetStateAction<string[]>>;
   setGroupDetailsAvatarUrl: React.Dispatch<React.SetStateAction<string | null>>;
+  setGroupDetailsPrejoinHistoryPolicy: React.Dispatch<React.SetStateAction<ChatPrejoinHistoryPolicy>>;
   setGroupDetailsTitle: React.Dispatch<React.SetStateAction<string>>;
   setGroupInviteUsernames: React.Dispatch<React.SetStateAction<string[]>>;
   setGroupParticipantUsernames: React.Dispatch<React.SetStateAction<string[]>>;
@@ -103,6 +106,7 @@ export function useWorkspaceMutations({
   passwordChangeNext,
   groupInviteUsernames,
   groupDetailsAvatarUrl,
+  groupDetailsPrejoinHistoryPolicy,
   groupDetailsTitle,
   groupParticipantUsernames,
   groupTitle,
@@ -119,6 +123,7 @@ export function useWorkspaceMutations({
   setActiveListTab,
   setConferenceInviteUsernames,
   setGroupDetailsAvatarUrl,
+  setGroupDetailsPrejoinHistoryPolicy,
   setGroupDetailsTitle,
   setGroupInviteUsernames,
   setGroupParticipantUsernames,
@@ -295,15 +300,22 @@ export function useWorkspaceMutations({
   });
 
   const updateGroupMutation = useMutation({
-    mutationFn: (input: { chatId: string; title: string; avatarUrl: string | null }) =>
+    mutationFn: (input: {
+      chatId: string;
+      title: string;
+      avatarUrl: string | null;
+      prejoinHistoryPolicy: ChatPrejoinHistoryPolicy;
+    }) =>
       updateGroupChatRequest(token, input.chatId, {
         title: input.title,
         avatarUrl: input.avatarUrl,
+        prejoinHistoryPolicy: input.prejoinHistoryPolicy,
       }),
     onSuccess: (chat) => {
       queryClient.setQueryData<ChatSummary[]>(["chats", token], (current) => upsertChat(current, chat));
       setGroupDetailsTitle(chat.title);
       setGroupDetailsAvatarUrl(chat.avatarUrl ?? null);
+      setGroupDetailsPrejoinHistoryPolicy(chat.prejoinHistoryPolicy ?? "FULL_HISTORY");
     },
   });
 
@@ -582,7 +594,12 @@ export function useWorkspaceMutations({
     }
 
     const normalizedAvatarUrl = groupDetailsAvatarUrl ?? null;
-    if (title === activeChat.title && normalizedAvatarUrl === (activeChat.avatarUrl ?? null)) {
+    const currentPolicy = activeChat.prejoinHistoryPolicy ?? "FULL_HISTORY";
+    if (
+      title === activeChat.title &&
+      normalizedAvatarUrl === (activeChat.avatarUrl ?? null) &&
+      groupDetailsPrejoinHistoryPolicy === currentPolicy
+    ) {
       return;
     }
 
@@ -590,6 +607,7 @@ export function useWorkspaceMutations({
       chatId: activeChat.id,
       title,
       avatarUrl: normalizedAvatarUrl,
+      prejoinHistoryPolicy: groupDetailsPrejoinHistoryPolicy,
     });
   };
 

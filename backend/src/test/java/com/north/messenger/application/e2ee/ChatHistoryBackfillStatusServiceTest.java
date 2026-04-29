@@ -3,9 +3,13 @@ package com.north.messenger.application.e2ee;
 import com.north.messenger.application.chat.ChatUpdatedDeferredEvent;
 import com.north.messenger.domain.model.ChatHistoryBackfillState;
 import com.north.messenger.domain.model.ChatHistoryBackfillStatus;
+import com.north.messenger.domain.model.ChatParticipant;
 import com.north.messenger.domain.repository.ChatHistoryBackfillStatusRepository;
 import com.north.messenger.domain.repository.ChatHistoryKeyAccessRepository;
+import com.north.messenger.domain.repository.ChatHistoryKeyEscrowRepository;
 import com.north.messenger.domain.repository.ChatHistoryKeyRepository;
+import com.north.messenger.domain.repository.ChatParticipantRepository;
+import com.north.messenger.domain.repository.ChatRoomRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -27,6 +31,9 @@ class ChatHistoryBackfillStatusServiceTest {
     private ChatHistoryBackfillStatusRepository chatHistoryBackfillStatusRepository;
     private ChatHistoryKeyRepository chatHistoryKeyRepository;
     private ChatHistoryKeyAccessRepository chatHistoryKeyAccessRepository;
+    private ChatHistoryKeyEscrowRepository chatHistoryKeyEscrowRepository;
+    private ChatParticipantRepository chatParticipantRepository;
+    private ChatRoomRepository chatRoomRepository;
     private ApplicationEventPublisher eventPublisher;
     private ChatHistoryBackfillStatusService chatHistoryBackfillStatusService;
 
@@ -35,11 +42,17 @@ class ChatHistoryBackfillStatusServiceTest {
         chatHistoryBackfillStatusRepository = mock(ChatHistoryBackfillStatusRepository.class);
         chatHistoryKeyRepository = mock(ChatHistoryKeyRepository.class);
         chatHistoryKeyAccessRepository = mock(ChatHistoryKeyAccessRepository.class);
+        chatHistoryKeyEscrowRepository = mock(ChatHistoryKeyEscrowRepository.class);
+        chatParticipantRepository = mock(ChatParticipantRepository.class);
+        chatRoomRepository = mock(ChatRoomRepository.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
         chatHistoryBackfillStatusService = new ChatHistoryBackfillStatusService(
                 chatHistoryBackfillStatusRepository,
                 chatHistoryKeyRepository,
                 chatHistoryKeyAccessRepository,
+                chatHistoryKeyEscrowRepository,
+                chatParticipantRepository,
+                chatRoomRepository,
                 eventPublisher
         );
 
@@ -55,11 +68,13 @@ class ChatHistoryBackfillStatusServiceTest {
         Instant joinedAt = Instant.parse("2026-04-29T10:00:00Z");
 
         when(chatHistoryKeyRepository.countByChatIdAndCreatedAtBefore(chatId, joinedAt)).thenReturn(3L);
-        when(chatHistoryKeyAccessRepository.countDistinctHistoryKeysByChatIdAndRecipientUserIdBeforeJoinedAt(
+        when(chatHistoryKeyAccessRepository.findDistinctHistoryKeyIdsByChatIdAndRecipientUserIdBeforeJoinedAt(
                 chatId,
                 recipientUserId,
                 joinedAt
-        )).thenReturn(0L);
+        )).thenReturn(List.of());
+        when(chatParticipantRepository.findByChatIdAndUserId(chatId, recipientUserId))
+                .thenReturn(Optional.of(new ChatParticipant(UUID.randomUUID(), chatId, recipientUserId, joinedAt)));
         when(chatHistoryBackfillStatusRepository.findByChatIdAndRecipientUserId(chatId, recipientUserId))
                 .thenReturn(Optional.empty());
 
@@ -94,11 +109,18 @@ class ChatHistoryBackfillStatusServiceTest {
 
         when(chatHistoryBackfillStatusRepository.findAllByChatIdAndRecipientUserIdIn(chatId, List.of(recipientUserId)))
                 .thenReturn(List.of(status));
-        when(chatHistoryKeyAccessRepository.countDistinctHistoryKeysByChatIdAndRecipientUserIdBeforeJoinedAt(
+        when(chatHistoryKeyAccessRepository.findDistinctHistoryKeyIdsByChatIdAndRecipientUserIdBeforeJoinedAt(
                 chatId,
                 recipientUserId,
                 joinedAt
-        )).thenReturn(4L);
+        )).thenReturn(List.of(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID()
+        ));
+        when(chatParticipantRepository.findByChatIdAndUserId(chatId, recipientUserId))
+                .thenReturn(Optional.of(new ChatParticipant(UUID.randomUUID(), chatId, recipientUserId, joinedAt)));
 
         chatHistoryBackfillStatusService.refreshCoverage(chatId, List.of(recipientUserId));
 
@@ -128,11 +150,13 @@ class ChatHistoryBackfillStatusServiceTest {
 
         when(chatHistoryBackfillStatusRepository.findAllByChatIdAndRecipientUserIdIn(chatId, List.of(recipientUserId)))
                 .thenReturn(List.of(status));
-        when(chatHistoryKeyAccessRepository.countDistinctHistoryKeysByChatIdAndRecipientUserIdBeforeJoinedAt(
+        when(chatHistoryKeyAccessRepository.findDistinctHistoryKeyIdsByChatIdAndRecipientUserIdBeforeJoinedAt(
                 chatId,
                 recipientUserId,
                 joinedAt
-        )).thenReturn(2L);
+        )).thenReturn(List.of(UUID.randomUUID(), UUID.randomUUID()));
+        when(chatParticipantRepository.findByChatIdAndUserId(chatId, recipientUserId))
+                .thenReturn(Optional.of(new ChatParticipant(UUID.randomUUID(), chatId, recipientUserId, joinedAt)));
 
         chatHistoryBackfillStatusService.refreshCoverage(chatId, List.of(recipientUserId));
 

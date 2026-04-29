@@ -4,14 +4,22 @@ import com.north.messenger.api.dto.ChatHistoryBackfillStatusResponse;
 import com.north.messenger.application.chat.ChatUpdatedDeferredEvent;
 import com.north.messenger.domain.model.ChatHistoryBackfillState;
 import com.north.messenger.domain.model.ChatHistoryBackfillStatus;
+import com.north.messenger.domain.model.ChatParticipant;
+import com.north.messenger.domain.model.ChatPrejoinHistoryPolicy;
+import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.repository.ChatHistoryBackfillStatusRepository;
 import com.north.messenger.domain.repository.ChatHistoryKeyAccessRepository;
+import com.north.messenger.domain.repository.ChatHistoryKeyEscrowRepository;
 import com.north.messenger.domain.repository.ChatHistoryKeyRepository;
+import com.north.messenger.domain.repository.ChatParticipantRepository;
+import com.north.messenger.domain.repository.ChatRoomRepository;
 import java.time.Instant;
+import java.util.LinkedHashSet;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -24,17 +32,26 @@ public class ChatHistoryBackfillStatusService {
     private final ChatHistoryBackfillStatusRepository chatHistoryBackfillStatusRepository;
     private final ChatHistoryKeyRepository chatHistoryKeyRepository;
     private final ChatHistoryKeyAccessRepository chatHistoryKeyAccessRepository;
+    private final ChatHistoryKeyEscrowRepository chatHistoryKeyEscrowRepository;
+    private final ChatParticipantRepository chatParticipantRepository;
+    private final ChatRoomRepository chatRoomRepository;
     private final ApplicationEventPublisher eventPublisher;
 
     public ChatHistoryBackfillStatusService(
             ChatHistoryBackfillStatusRepository chatHistoryBackfillStatusRepository,
             ChatHistoryKeyRepository chatHistoryKeyRepository,
             ChatHistoryKeyAccessRepository chatHistoryKeyAccessRepository,
+            ChatHistoryKeyEscrowRepository chatHistoryKeyEscrowRepository,
+            ChatParticipantRepository chatParticipantRepository,
+            ChatRoomRepository chatRoomRepository,
             ApplicationEventPublisher eventPublisher
     ) {
         this.chatHistoryBackfillStatusRepository = chatHistoryBackfillStatusRepository;
         this.chatHistoryKeyRepository = chatHistoryKeyRepository;
         this.chatHistoryKeyAccessRepository = chatHistoryKeyAccessRepository;
+        this.chatHistoryKeyEscrowRepository = chatHistoryKeyEscrowRepository;
+        this.chatParticipantRepository = chatParticipantRepository;
+        this.chatRoomRepository = chatRoomRepository;
         this.eventPublisher = eventPublisher;
     }
 
@@ -86,13 +103,7 @@ public class ChatHistoryBackfillStatusService {
         }
 
         Instant now = Instant.now();
-        int grantedHistoryKeyCount = Math.toIntExact(
-                chatHistoryKeyAccessRepository.countDistinctHistoryKeysByChatIdAndRecipientUserIdBeforeJoinedAt(
-                        chatId,
-                        recipientUserId,
-                        joinedAt
-                )
-        );
+        int grantedHistoryKeyCount = resolveAccessibleHistoryKeyCount(chatId, recipientUserId, joinedAt);
         chatHistoryBackfillStatusRepository.findByChatIdAndRecipientUserId(chatId, recipientUserId)
                 .map(existing -> {
                     existing.updateCoverage(
@@ -133,12 +144,10 @@ public class ChatHistoryBackfillStatusService {
         Instant now = Instant.now();
         boolean changed = false;
         for (ChatHistoryBackfillStatus status : statuses) {
-            int grantedHistoryKeyCount = Math.toIntExact(
-                    chatHistoryKeyAccessRepository.countDistinctHistoryKeysByChatIdAndRecipientUserIdBeforeJoinedAt(
-                            status.getChatId(),
-                            status.getRecipientUserId(),
-                            status.getJoinedAt()
-                    )
+            int grantedHistoryKeyCount = resolveAccessibleHistoryKeyCount(
+                    status.getChatId(),
+                    status.getRecipientUserId(),
+                    status.getJoinedAt()
             );
             changed |= status.updateCoverage(
                     status.getPrimaryGrantorUserId(),
@@ -156,6 +165,48 @@ public class ChatHistoryBackfillStatusService {
     @Transactional
     public void clearParticipantBackfill(UUID chatId, UUID recipientUserId) {
         chatHistoryBackfillStatusRepository.deleteByChatIdAndRecipientUserId(chatId, recipientUserId);
+    }
+
+    @Transactional
+    public void refreshCoverage(UUID chatId) {
+        if (chatId == null) {
+            return;
+        }
+
+        List<ChatHistoryBackfillStatus> statuses = chatHistoryBackfillStatusRepository.findAllByChatId(chatId);
+        if (statuses.isEmpty()) {
+            return;
+        }
+
+        refreshCoverage(
+                chatId,
+                statuses.stream().map(ChatHistoryBackfillStatus::getRecipientUserId).toList()
+        );
+    }
+
+    private int resolveAccessibleHistoryKeyCount(UUID chatId, UUID recipientUserId, Instant joinedAt) {
+        Set<UUID> accessibleHistoryKeyIds = new LinkedHashSet<>(
+                chatHistoryKeyAccessRepository.findDistinctHistoryKeyIdsByChatIdAndRecipientUserIdBeforeJoinedAt(
+                        chatId,
+                        recipientUserId,
+                        joinedAt
+                )
+        );
+        ChatRoom room = chatRoomRepository.findById(chatId).orElse(null);
+        ChatParticipant membership = chatParticipantRepository.findByChatIdAndUserId(chatId, recipientUserId)
+                .orElse(null);
+        boolean hasServerManagedPrejoinAccess = room != null
+                && room.getPrejoinHistoryPolicy() == ChatPrejoinHistoryPolicy.FULL_HISTORY;
+        if (membership != null
+                && (hasServerManagedPrejoinAccess || membership.getPrejoinHistoryAccessGrantedAt() != null)) {
+            accessibleHistoryKeyIds.addAll(
+                    chatHistoryKeyEscrowRepository.findDistinctHistoryKeyIdsByChatIdAndHistoryKeyCreatedAtBefore(
+                            chatId,
+                            joinedAt
+                    )
+            );
+        }
+        return accessibleHistoryKeyIds.size();
     }
 
     private ChatHistoryBackfillStatusResponse toResponse(ChatHistoryBackfillStatus status) {

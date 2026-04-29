@@ -18,7 +18,8 @@ public record ChatSummaryResponse(
         Instant updatedAt,
         int unreadCount,
         MessageSnippetResponse pinnedMessage,
-        ChatHistoryBackfillStatusResponse historyAccessStatus
+        ChatHistoryBackfillStatusResponse historyAccessStatus,
+        String prejoinHistoryPolicy
 ) {
 }
 

@@ -35,6 +35,26 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> 
             where message.chatId = :chatId
               and message.encryptionScheme is not null
               and message.encryptionScheme <> ''
+              and message.createdAt >= :visibleFrom
+              and not exists (
+                select 1 from UserDeletedMessage deleted
+                where deleted.userId = :userId and deleted.messageId = message.id
+              )
+            order by message.serverOrder desc
+            """)
+    List<ChatMessage> findVisibleEncryptedByChatIdAndCreatedAtAfterOrderByServerOrderDesc(
+            @Param("chatId") UUID chatId,
+            @Param("userId") UUID userId,
+            @Param("visibleFrom") java.time.Instant visibleFrom,
+            Pageable pageable
+    );
+
+    @Query("""
+            select message
+            from ChatMessage message
+            where message.chatId = :chatId
+              and message.encryptionScheme is not null
+              and message.encryptionScheme <> ''
               and message.serverOrder < :beforeServerOrder
               and not exists (
                 select 1 from UserDeletedMessage deleted
@@ -46,6 +66,28 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> 
             @Param("chatId") UUID chatId,
             @Param("beforeServerOrder") long beforeServerOrder,
             @Param("userId") UUID userId,
+            Pageable pageable
+    );
+
+    @Query("""
+            select message
+            from ChatMessage message
+            where message.chatId = :chatId
+              and message.encryptionScheme is not null
+              and message.encryptionScheme <> ''
+              and message.serverOrder < :beforeServerOrder
+              and message.createdAt >= :visibleFrom
+              and not exists (
+                select 1 from UserDeletedMessage deleted
+                where deleted.userId = :userId and deleted.messageId = message.id
+              )
+            order by message.serverOrder desc
+            """)
+    List<ChatMessage> findVisibleEncryptedByChatIdAndServerOrderBeforeAndCreatedAtAfterOrderByServerOrderDesc(
+            @Param("chatId") UUID chatId,
+            @Param("beforeServerOrder") long beforeServerOrder,
+            @Param("userId") UUID userId,
+            @Param("visibleFrom") java.time.Instant visibleFrom,
             Pageable pageable
     );
 
@@ -79,6 +121,26 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> 
     List<ChatMessage> findLatestVisibleByChatIdAndUserId(
             @Param("chatId") UUID chatId,
             @Param("userId") UUID userId,
+            Pageable pageable
+    );
+
+    @Query("""
+            select message
+            from ChatMessage message
+            where message.chatId = :chatId
+              and message.encryptionScheme is not null
+              and message.encryptionScheme <> ''
+              and message.createdAt >= :visibleFrom
+              and not exists (
+                select 1 from UserDeletedMessage deleted
+                where deleted.userId = :userId and deleted.messageId = message.id
+              )
+            order by message.serverOrder desc
+            """)
+    List<ChatMessage> findLatestVisibleByChatIdAndUserIdCreatedAfter(
+            @Param("chatId") UUID chatId,
+            @Param("userId") UUID userId,
+            @Param("visibleFrom") java.time.Instant visibleFrom,
             Pageable pageable
     );
 }

@@ -2947,6 +2947,14 @@ async function upsertGroupHistoryKeyAccessForTargets(
         args.nextSessions,
         args.historyKeyRecord
       ),
+    buildServerEscrowGrantPayloadJson: (record) =>
+      JSON.stringify({
+        aadVersion: GROUP_HISTORY_KEY_GRANT_AAD_VERSION,
+        chatId: record.chatId,
+        historyKeyId: record.historyKeyId,
+        historyKey: record.keyMaterial,
+        createdAt: record.createdAt,
+      } satisfies GroupHistoryKeyGrantPayload),
     writeDeviceSessions,
     rememberDeviceSessions,
     upsertGroupHistoryKey,

@@ -2,6 +2,8 @@ package com.north.messenger.domain.model;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
@@ -22,6 +24,10 @@ public class ChatRoom {
 
     @Column(name = "owner_user_id")
     private UUID ownerUserId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "prejoin_history_policy", nullable = false, length = 24)
+    private ChatPrejoinHistoryPolicy prejoinHistoryPolicy = ChatPrejoinHistoryPolicy.FULL_HISTORY;
 
     @Column(name = "is_direct", nullable = false)
     private boolean direct;
@@ -87,6 +93,10 @@ public class ChatRoom {
         return ownerUserId;
     }
 
+    public ChatPrejoinHistoryPolicy getPrejoinHistoryPolicy() {
+        return prejoinHistoryPolicy;
+    }
+
     public String getAvatarUrl() {
         return avatarUrl;
     }
@@ -117,9 +127,16 @@ public class ChatRoom {
         this.ownerUserId = ownerUserId;
     }
 
-    public void updateGroupDetails(String title, String avatarUrl) {
+    public void updateGroupDetails(
+            String title,
+            String avatarUrl,
+            ChatPrejoinHistoryPolicy prejoinHistoryPolicy
+    ) {
         this.title = title;
         this.avatarUrl = avatarUrl;
+        this.prejoinHistoryPolicy = prejoinHistoryPolicy == null
+                ? ChatPrejoinHistoryPolicy.FULL_HISTORY
+                : prejoinHistoryPolicy;
     }
 
     public void configureDirectPair(UUID firstUserId, UUID secondUserId) {

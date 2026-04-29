@@ -8,17 +8,23 @@ import com.north.messenger.api.dto.GroupHistoryKeyResponse;
 import com.north.messenger.api.dto.UpsertGroupHistoryKeyRequest;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.chat.ChatService;
+import com.north.messenger.domain.model.ChatHistoryKeyEscrow;
 import com.north.messenger.domain.model.ChatHistoryKey;
 import com.north.messenger.domain.model.ChatHistoryKeyAccess;
+import com.north.messenger.domain.model.ChatParticipant;
+import com.north.messenger.domain.model.ChatPrejoinHistoryPolicy;
 import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.UserEncryptionDevice;
 import com.north.messenger.domain.model.UserEncryptionSignedPrekey;
 import com.north.messenger.domain.repository.ChatHistoryKeyAccessRepository;
+import com.north.messenger.domain.repository.ChatHistoryKeyEscrowRepository;
 import com.north.messenger.domain.repository.ChatHistoryKeyRepository;
+import com.north.messenger.domain.repository.ChatParticipantRepository;
 import com.north.messenger.domain.repository.UserEncryptionDeviceRepository;
 import com.north.messenger.domain.repository.UserEncryptionSignedPrekeyRepository;
 import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -44,11 +50,14 @@ public class ChatGroupHistoryKeyService {
     private final ChatService chatService;
     private final ChatHistoryKeyRepository chatHistoryKeyRepository;
     private final ChatHistoryKeyAccessRepository chatHistoryKeyAccessRepository;
+    private final ChatHistoryKeyEscrowRepository chatHistoryKeyEscrowRepository;
+    private final ChatParticipantRepository chatParticipantRepository;
     private final UserEncryptionDeviceRepository userEncryptionDeviceRepository;
     private final UserEncryptionSignedPrekeyRepository userEncryptionSignedPrekeyRepository;
     private final DeviceKeyValidationService deviceKeyValidationService;
     private final DeviceEnvelopeCounterService deviceEnvelopeCounterService;
     private final ChatHistoryBackfillStatusService chatHistoryBackfillStatusService;
+    private final ChatHistoryKeyEscrowCryptoService chatHistoryKeyEscrowCryptoService;
     private final ObjectMapper objectMapper;
 
     public ChatGroupHistoryKeyService(
@@ -56,22 +65,28 @@ public class ChatGroupHistoryKeyService {
             ChatService chatService,
             ChatHistoryKeyRepository chatHistoryKeyRepository,
             ChatHistoryKeyAccessRepository chatHistoryKeyAccessRepository,
+            ChatHistoryKeyEscrowRepository chatHistoryKeyEscrowRepository,
+            ChatParticipantRepository chatParticipantRepository,
             UserEncryptionDeviceRepository userEncryptionDeviceRepository,
             UserEncryptionSignedPrekeyRepository userEncryptionSignedPrekeyRepository,
             DeviceKeyValidationService deviceKeyValidationService,
             DeviceEnvelopeCounterService deviceEnvelopeCounterService,
             ChatHistoryBackfillStatusService chatHistoryBackfillStatusService,
+            ChatHistoryKeyEscrowCryptoService chatHistoryKeyEscrowCryptoService,
             ObjectMapper objectMapper
     ) {
         this.authService = authService;
         this.chatService = chatService;
         this.chatHistoryKeyRepository = chatHistoryKeyRepository;
         this.chatHistoryKeyAccessRepository = chatHistoryKeyAccessRepository;
+        this.chatHistoryKeyEscrowRepository = chatHistoryKeyEscrowRepository;
+        this.chatParticipantRepository = chatParticipantRepository;
         this.userEncryptionDeviceRepository = userEncryptionDeviceRepository;
         this.userEncryptionSignedPrekeyRepository = userEncryptionSignedPrekeyRepository;
         this.deviceKeyValidationService = deviceKeyValidationService;
         this.deviceEnvelopeCounterService = deviceEnvelopeCounterService;
         this.chatHistoryBackfillStatusService = chatHistoryBackfillStatusService;
+        this.chatHistoryKeyEscrowCryptoService = chatHistoryKeyEscrowCryptoService;
         this.objectMapper = objectMapper;
     }
 
@@ -84,21 +99,49 @@ public class ChatGroupHistoryKeyService {
         ChatRoom room = chatService.requireChatMembership(chatId, currentUser);
         requireGroupChat(room);
 
+        ChatParticipant membership = chatParticipantRepository.findByChatIdAndUserId(chatId, currentUser.getId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied for this chat"));
         UserEncryptionDevice recipientDevice = requireVisibleOwnedDevice(currentUser.getId(), deviceId);
-        return chatHistoryKeyAccessRepository
+        Map<UUID, GroupHistoryKeyAccessResponse> accessesByHistoryKeyId = new LinkedHashMap<>();
+        chatHistoryKeyAccessRepository
                 .findAllByChatIdAndRecipientUserIdAndRecipientDeviceIdOrderByCreatedAtAsc(
                         chatId,
                         currentUser.getId(),
                         recipientDevice.getId()
                 )
                 .stream()
-                .map(access -> new GroupHistoryKeyAccessResponse(
-                        access.getHistoryKeyId().toString(),
-                        access.getWrappedKeyPayloadJson(),
-                        access.getCreatedAt(),
-                        access.getUpdatedAt()
-                ))
-                .toList();
+                .forEach(access -> accessesByHistoryKeyId.put(
+                        access.getHistoryKeyId(),
+                        new GroupHistoryKeyAccessResponse(
+                                access.getHistoryKeyId().toString(),
+                                access.getWrappedKeyPayloadJson(),
+                                null,
+                                access.getCreatedAt(),
+                                access.getUpdatedAt()
+                        )
+                ));
+
+        if (room.getPrejoinHistoryPolicy() == ChatPrejoinHistoryPolicy.FULL_HISTORY
+                || membership.getPrejoinHistoryAccessGrantedAt() != null) {
+            for (ChatHistoryKeyEscrow escrow : chatHistoryKeyEscrowRepository
+                    .findAllByChatIdAndHistoryKeyCreatedAtBeforeOrderByHistoryKeyCreatedAtAsc(
+                            chatId,
+                            membership.getJoinedAt()
+                    )) {
+                accessesByHistoryKeyId.computeIfAbsent(escrow.getHistoryKeyId(), ignored ->
+                        new GroupHistoryKeyAccessResponse(
+                                escrow.getHistoryKeyId().toString(),
+                                "",
+                                chatHistoryKeyEscrowCryptoService.decryptGrantPayload(
+                                        escrow.getEncryptedGrantPayloadJson()
+                                ),
+                                escrow.getCreatedAt(),
+                                escrow.getUpdatedAt()
+                        ));
+            }
+        }
+
+        return List.copyOf(accessesByHistoryKeyId.values());
     }
 
     @Transactional
@@ -258,6 +301,7 @@ public class ChatGroupHistoryKeyService {
         for (ChatHistoryKeyAccess access : accessesToSave) {
             chatHistoryKeyAccessRepository.save(access);
         }
+        upsertEscrowGrantPayload(chatId, historyKey, request.serverEscrowGrantPayloadJson(), now);
         chatHistoryBackfillStatusService.refreshCoverage(
                 chatId,
                 accessesToSave.stream()
@@ -265,6 +309,7 @@ public class ChatGroupHistoryKeyService {
                         .distinct()
                         .toList()
         );
+        chatHistoryBackfillStatusService.refreshCoverage(chatId);
 
         return new GroupHistoryKeyResponse(historyKey.getId().toString(), historyKey.getCreatedAt());
     }
@@ -367,6 +412,43 @@ public class ChatGroupHistoryKeyService {
                 .toList();
     }
 
+    private void upsertEscrowGrantPayload(
+            UUID chatId,
+            ChatHistoryKey historyKey,
+            String serverEscrowGrantPayloadJson,
+            Instant now
+    ) {
+        if (serverEscrowGrantPayloadJson == null || serverEscrowGrantPayloadJson.isBlank()) {
+            return;
+        }
+
+        GroupHistoryKeyGrantPayload grantPayload = parseGroupHistoryGrantPayload(serverEscrowGrantPayloadJson);
+        if (!Objects.equals(grantPayload.chatId(), chatId)
+                || !Objects.equals(grantPayload.historyKeyId(), historyKey.getId())) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Group history escrow payload does not match the uploaded history key"
+            );
+        }
+
+        String encryptedGrantPayloadJson = chatHistoryKeyEscrowCryptoService.encryptGrantPayload(
+                serverEscrowGrantPayloadJson
+        );
+        chatHistoryKeyEscrowRepository.findByHistoryKeyId(historyKey.getId())
+                .map(existing -> {
+                    existing.updateEncryptedGrantPayloadJson(encryptedGrantPayloadJson, now);
+                    return existing;
+                })
+                .orElseGet(() -> chatHistoryKeyEscrowRepository.save(new ChatHistoryKeyEscrow(
+                        UUID.randomUUID(),
+                        historyKey.getId(),
+                        chatId,
+                        encryptedGrantPayloadJson,
+                        now,
+                        now
+                )));
+    }
+
     private DirectEnvelope parseDirectEnvelope(String serializedEnvelope) {
         try {
             JsonNode envelope = objectMapper.readTree(serializedEnvelope);
@@ -457,6 +539,49 @@ public class ChatGroupHistoryKeyService {
         }
     }
 
+    private GroupHistoryKeyGrantPayload parseGroupHistoryGrantPayload(String serializedPayload) {
+        try {
+            JsonNode payload = objectMapper.readTree(serializedPayload);
+            if (payload.path("aadVersion").asInt(-1) != 1) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Group history escrow payload must use current authenticated format"
+                );
+            }
+
+            String chatId = payload.path("chatId").asText();
+            String historyKeyId = payload.path("historyKeyId").asText();
+            String historyKey = payload.path("historyKey").asText();
+            String createdAt = payload.path("createdAt").asText();
+            if (chatId == null || chatId.isBlank()
+                    || historyKeyId == null || historyKeyId.isBlank()
+                    || historyKey == null || historyKey.isBlank()
+                    || createdAt == null || createdAt.isBlank()) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Group history escrow payload is incomplete"
+                );
+            }
+
+            return new GroupHistoryKeyGrantPayload(
+                    parseUuid(chatId, "Group history escrow payload is malformed"),
+                    parseUuid(historyKeyId, "Group history escrow payload is malformed"),
+                    historyKey,
+                    Instant.parse(createdAt)
+            );
+        } catch (IllegalArgumentException | DateTimeParseException exception) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Group history escrow payload is malformed"
+            );
+        } catch (JsonProcessingException exception) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Group history escrow payload is malformed"
+            );
+        }
+    }
+
     public record ValidatedGroupMessageHistoryEnvelope(
             UUID historyKeyId,
             String serializedEnvelope
@@ -473,6 +598,14 @@ public class ChatGroupHistoryKeyService {
             String ratchetPublicKey,
             int recipientSignedPrekeyId,
             int messageCounter
+    ) {
+    }
+
+    private record GroupHistoryKeyGrantPayload(
+            UUID chatId,
+            UUID historyKeyId,
+            String historyKey,
+            Instant createdAt
     ) {
     }
 }

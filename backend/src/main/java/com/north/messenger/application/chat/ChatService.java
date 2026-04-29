@@ -15,6 +15,7 @@ import com.north.messenger.application.message.RealtimeMessagingGateway;
 import com.north.messenger.observability.MessengerTelemetry;
 import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.model.ChatParticipant;
+import com.north.messenger.domain.model.ChatPrejoinHistoryPolicy;
 import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.ChatRoomBan;
 import com.north.messenger.domain.model.ChatRoomModerator;
@@ -283,13 +284,10 @@ public class ChatService {
 
         Instant joinedAt = Instant.now();
         participants.forEach(participant -> {
-            chatParticipantRepository.save(new ChatParticipant(UUID.randomUUID(), chatId, participant.getId(), joinedAt));
-            chatHistoryBackfillStatusService.trackParticipantBackfill(
-                    chatId,
-                    participant.getId(),
-                    currentUser.getId(),
-                    joinedAt
-            );
+            ChatParticipant membership = new ChatParticipant(UUID.randomUUID(), chatId, participant.getId(), joinedAt);
+            grantPrejoinHistoryAccessIfEnabled(room, membership, joinedAt);
+            chatParticipantRepository.save(membership);
+            syncParticipantHistoryAccessStatus(room, membership, currentUser.getId());
         });
         scheduleChatUpdated(chatId);
         return getChatSummaryForUser(chatId, currentUser);
@@ -304,8 +302,29 @@ public class ChatService {
         }
         requireGroupOwner(room, currentUser);
 
-        room.updateGroupDetails(normalizeGroupTitle(request.title()), normalizeAvatarUrl(request.avatarUrl()));
+        ChatPrejoinHistoryPolicy previousPrejoinHistoryPolicy = room.getPrejoinHistoryPolicy();
+        ChatPrejoinHistoryPolicy nextPrejoinHistoryPolicy = resolvePrejoinHistoryPolicy(
+                request.prejoinHistoryPolicy(),
+                previousPrejoinHistoryPolicy
+        );
+        room.updateGroupDetails(
+                normalizeGroupTitle(request.title()),
+                normalizeAvatarUrl(request.avatarUrl()),
+                nextPrejoinHistoryPolicy
+        );
         chatRoomRepository.save(room);
+        if (previousPrejoinHistoryPolicy != nextPrejoinHistoryPolicy
+                && nextPrejoinHistoryPolicy == ChatPrejoinHistoryPolicy.FULL_HISTORY) {
+            Instant grantedAt = Instant.now();
+            List<ChatParticipant> memberships = chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId);
+            memberships.forEach(membership -> {
+                if (membership.getPrejoinHistoryAccessGrantedAt() == null) {
+                    membership.grantPrejoinHistoryAccess(grantedAt);
+                }
+                syncParticipantHistoryAccessStatus(room, membership, currentUser.getId());
+            });
+            chatHistoryBackfillStatusService.refreshCoverage(chatId);
+        }
         scheduleChatUpdated(chatId);
         return getChatSummaryForUser(chatId, currentUser);
     }
@@ -475,15 +494,10 @@ public class ChatService {
         boolean alreadyMember = chatParticipantRepository.existsByChatIdAndUserId(chatId, currentUser.getId());
         if (!alreadyMember) {
             Instant joinedAt = Instant.now();
-            chatParticipantRepository.save(
-                    new ChatParticipant(UUID.randomUUID(), chatId, currentUser.getId(), joinedAt)
-            );
-            chatHistoryBackfillStatusService.trackParticipantBackfill(
-                    chatId,
-                    currentUser.getId(),
-                    room.getOwnerUserId(),
-                    joinedAt
-            );
+            ChatParticipant membership = new ChatParticipant(UUID.randomUUID(), chatId, currentUser.getId(), joinedAt);
+            grantPrejoinHistoryAccessIfEnabled(room, membership, joinedAt);
+            chatParticipantRepository.save(membership);
+            syncParticipantHistoryAccessStatus(room, membership, room.getOwnerUserId());
         }
 
         restoreDeletedChatStateForUsers(chatId, List.of(currentUser.getId()));
@@ -577,7 +591,11 @@ public class ChatService {
                 .filter(Objects::nonNull)
                 .filter(user -> !deletedUserIds.contains(user.getId()))
                 .toList();
-        Map<UUID, ChatMessage> lastMessagesByUserId = resolveLastVisibleMessagesForAudience(chatId, audience);
+        Map<UUID, ChatMessage> lastMessagesByUserId = resolveLastVisibleMessagesForAudience(
+                room,
+                memberships,
+                audience
+        );
 
         try {
             audience.forEach(user -> realtimeMessagingGateway.sendToUser(
@@ -733,6 +751,10 @@ public class ChatService {
             List<ParticipantResponse> members,
             ChatHistoryBackfillStatusResponse historyAccessStatus
     ) {
+        ChatParticipant currentMembership = memberships.stream()
+                .filter(membership -> membership.getUserId().equals(currentUserId))
+                .findFirst()
+                .orElse(null);
         return toSummary(
                 room,
                 currentUserId,
@@ -741,7 +763,7 @@ public class ChatService {
                 memberships,
                 moderatorUserIds,
                 members,
-                findLatestVisibleMessage(room.getId(), currentUserId),
+                findLatestVisibleMessage(room, currentMembership, currentUserId),
                 historyAccessStatus
         );
     }
@@ -758,7 +780,11 @@ public class ChatService {
             ChatHistoryBackfillStatusResponse historyAccessStatus
     ) {
         UUID ownerUserId = resolveGroupOwnerUserId(room, memberships);
-        MessageSnippetResponse pinnedMessage = buildPinnedSnippet(room, currentUserId, usersById);
+        ChatParticipant currentMembership = memberships.stream()
+                .filter(membership -> membership.getUserId().equals(currentUserId))
+                .findFirst()
+                .orElse(null);
+        MessageSnippetResponse pinnedMessage = buildPinnedSnippet(room, currentMembership, currentUserId, usersById);
         Instant updatedAt = lastMessage != null ? lastMessage.getCreatedAt() : room.getCreatedAt();
 
         String title;
@@ -786,7 +812,8 @@ public class ChatService {
                 updatedAt,
                 unreadCount,
                 pinnedMessage,
-                room.isDirect() ? null : historyAccessStatus
+                room.isDirect() ? null : historyAccessStatus,
+                room.isDirect() ? null : room.getPrejoinHistoryPolicy().name()
         );
     }
 
@@ -822,12 +849,20 @@ public class ChatService {
         return loadUnreadCounts(List.of(chatId), userId).getOrDefault(chatId, 0);
     }
 
-    private ChatMessage findLatestVisibleMessage(UUID chatId, UUID userId) {
-        return chatMessageRepository.findLatestVisibleByChatIdAndUserId(
-                        chatId,
+    private ChatMessage findLatestVisibleMessage(ChatRoom room, ChatParticipant membership, UUID userId) {
+        Instant visibleFrom = resolveVisibleHistoryStart(room, membership);
+        return (visibleFrom == null
+                ? chatMessageRepository.findLatestVisibleByChatIdAndUserId(
+                        room.getId(),
                         userId,
                         PageRequest.of(0, 1)
-                ).stream()
+                )
+                : chatMessageRepository.findLatestVisibleByChatIdAndUserIdCreatedAfter(
+                        room.getId(),
+                        userId,
+                        visibleFrom,
+                        PageRequest.of(0, 1)
+                )).stream()
                 .findFirst()
                 .orElse(null);
     }
@@ -841,36 +876,56 @@ public class ChatService {
                 .orElse(null);
     }
 
-    private Map<UUID, ChatMessage> resolveLastVisibleMessagesForAudience(UUID chatId, List<UserAccount> audience) {
+    private Map<UUID, ChatMessage> resolveLastVisibleMessagesForAudience(
+            ChatRoom room,
+            List<ChatParticipant> memberships,
+            List<UserAccount> audience
+    ) {
         Map<UUID, ChatMessage> lastMessagesByUserId = new LinkedHashMap<>();
         if (audience.isEmpty()) {
             return lastMessagesByUserId;
         }
 
-        ChatMessage latestMessage = findLatestEncryptedMessage(chatId);
-        if (latestMessage == null) {
-            audience.forEach(user -> lastMessagesByUserId.put(user.getId(), null));
-            return lastMessagesByUserId;
-        }
+        Map<UUID, ChatParticipant> membershipsByUserId = memberships.stream()
+                .collect(Collectors.toMap(ChatParticipant::getUserId, Function.identity()));
+        ChatMessage sharedLatestMessage = findLatestEncryptedMessage(room.getId());
+        Set<UUID> fallbackUserIds = new LinkedHashSet<>();
+        List<UUID> audienceUserIds = audience.stream()
+                .map(UserAccount::getId)
+                .toList();
+        Set<UUID> deletedSharedLatestUserIds = sharedLatestMessage == null
+                ? Set.of()
+                : userDeletedMessageRepository.findAllByMessageIdAndUserIdIn(
+                                sharedLatestMessage.getId(),
+                                audienceUserIds
+                        ).stream()
+                        .map(UserDeletedMessage::getUserId)
+                        .collect(Collectors.toSet());
 
-        Set<UUID> deletedLatestMessageUserIds = userDeletedMessageRepository.findAllByMessageIdAndUserIdIn(
-                        latestMessage.getId(),
-                        audience.stream().map(UserAccount::getId).toList()
-                ).stream()
-                .map(UserDeletedMessage::getUserId)
-                .collect(Collectors.toSet());
+        audience.forEach(user -> {
+            ChatParticipant membership = membershipsByUserId.get(user.getId());
+            Instant visibleFrom = resolveVisibleHistoryStart(room, membership);
+            boolean canUseSharedLatest = sharedLatestMessage != null
+                    && !deletedSharedLatestUserIds.contains(user.getId())
+                    && (visibleFrom == null || !sharedLatestMessage.getCreatedAt().isBefore(visibleFrom));
+            if (canUseSharedLatest) {
+                lastMessagesByUserId.put(user.getId(), sharedLatestMessage);
+                return;
+            }
 
-        audience.forEach(user -> lastMessagesByUserId.put(
-                user.getId(),
-                deletedLatestMessageUserIds.contains(user.getId())
-                        ? findLatestVisibleMessage(chatId, user.getId())
-                        : latestMessage
+            fallbackUserIds.add(user.getId());
+        });
+
+        fallbackUserIds.forEach(userId -> lastMessagesByUserId.put(
+                userId,
+                findLatestVisibleMessage(room, membershipsByUserId.get(userId), userId)
         ));
         return lastMessagesByUserId;
     }
 
     private MessageSnippetResponse buildPinnedSnippet(
             ChatRoom room,
+            ChatParticipant currentMembership,
             UUID currentUserId,
             Map<UUID, UserAccount> usersById
     ) {
@@ -885,6 +940,10 @@ public class ChatService {
 
         ChatMessage pinnedMessage = chatMessageRepository.findById(pinnedMessageId).orElse(null);
         if (pinnedMessage == null || !pinnedMessage.getChatId().equals(room.getId())) {
+            return null;
+        }
+        Instant visibleFrom = resolveVisibleHistoryStart(room, currentMembership);
+        if (visibleFrom != null && pinnedMessage.getCreatedAt().isBefore(visibleFrom)) {
             return null;
         }
 
@@ -1095,6 +1154,63 @@ public class ChatService {
 
     private String normalizeGroupTitle(String title) {
         return title.trim();
+    }
+
+    private ChatPrejoinHistoryPolicy resolvePrejoinHistoryPolicy(
+            String value,
+            ChatPrejoinHistoryPolicy fallback
+    ) {
+        if (value == null || value.isBlank()) {
+            return fallback == null ? ChatPrejoinHistoryPolicy.JOIN_ONLY : fallback;
+        }
+
+        try {
+            return ChatPrejoinHistoryPolicy.valueOf(value.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Group history policy is invalid");
+        }
+    }
+
+    private void grantPrejoinHistoryAccessIfEnabled(
+            ChatRoom room,
+            ChatParticipant membership,
+            Instant grantedAt
+    ) {
+        if (room.getPrejoinHistoryPolicy() == ChatPrejoinHistoryPolicy.FULL_HISTORY) {
+            membership.grantPrejoinHistoryAccess(grantedAt);
+        }
+    }
+
+    private void syncParticipantHistoryAccessStatus(
+            ChatRoom room,
+            ChatParticipant membership,
+            UUID primaryGrantorUserId
+    ) {
+        if (room.getPrejoinHistoryPolicy() != ChatPrejoinHistoryPolicy.FULL_HISTORY
+                && membership.getPrejoinHistoryAccessGrantedAt() == null) {
+            chatHistoryBackfillStatusService.clearParticipantBackfill(room.getId(), membership.getUserId());
+            return;
+        }
+
+        chatHistoryBackfillStatusService.trackParticipantBackfill(
+                room.getId(),
+                membership.getUserId(),
+                primaryGrantorUserId,
+                membership.getJoinedAt()
+        );
+    }
+
+    private Instant resolveVisibleHistoryStart(ChatRoom room, ChatParticipant membership) {
+        if (room == null || room.isDirect() || membership == null) {
+            return null;
+        }
+        if (room.getPrejoinHistoryPolicy() == ChatPrejoinHistoryPolicy.FULL_HISTORY) {
+            return null;
+        }
+        if (membership.getPrejoinHistoryAccessGrantedAt() != null) {
+            return null;
+        }
+        return membership.getJoinedAt();
     }
 
     private String normalizeAvatarUrl(String avatarUrl) {

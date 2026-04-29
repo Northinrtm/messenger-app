@@ -8,9 +8,14 @@ import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.chat.ChatService;
 import com.north.messenger.domain.model.ChatMessage;
+import com.north.messenger.domain.model.ChatParticipant;
+import com.north.messenger.domain.model.ChatPrejoinHistoryPolicy;
+import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.repository.ChatMessageRepository;
+import com.north.messenger.domain.repository.ChatParticipantRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -34,6 +39,7 @@ class MessageQueryService {
     private final AuthService authService;
     private final ChatService chatService;
     private final ChatMessageRepository chatMessageRepository;
+    private final ChatParticipantRepository chatParticipantRepository;
     private final UserAccountRepository userAccountRepository;
     private final MessageReceiptService messageReceiptService;
     private final MessageSupport messageSupport;
@@ -42,6 +48,7 @@ class MessageQueryService {
             AuthService authService,
             ChatService chatService,
             ChatMessageRepository chatMessageRepository,
+            ChatParticipantRepository chatParticipantRepository,
             UserAccountRepository userAccountRepository,
             MessageReceiptService messageReceiptService,
             MessageSupport messageSupport
@@ -49,6 +56,7 @@ class MessageQueryService {
         this.authService = authService;
         this.chatService = chatService;
         this.chatMessageRepository = chatMessageRepository;
+        this.chatParticipantRepository = chatParticipantRepository;
         this.userAccountRepository = userAccountRepository;
         this.messageReceiptService = messageReceiptService;
         this.messageSupport = messageSupport;
@@ -63,7 +71,13 @@ class MessageQueryService {
             boolean acknowledgeDelivered
     ) {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
-        chatService.requireChatMembership(chatId, currentUser);
+        ChatRoom room = chatService.requireChatMembership(chatId, currentUser);
+        ChatParticipant membership = chatParticipantRepository.findByChatIdAndUserId(chatId, currentUser.getId())
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.FORBIDDEN,
+                        "Access denied for this chat"
+                ));
+        Instant visibleFrom = resolveVisibleHistoryStart(room, membership);
 
         int safeLimit = Math.max(1, Math.min(limit, 100));
         PageRequest pageRequest = PageRequest.of(0, safeLimit);
@@ -74,13 +88,31 @@ class MessageQueryService {
                                 currentUser.getId(),
                                 pageRequest
                         )
-                        : chatMessageRepository.findVisibleEncryptedByChatIdAndServerOrderBeforeOrderByServerOrderDesc(
-                                chatId,
-                                beforeServerOrder,
-                                currentUser.getId(),
-                                pageRequest
-                        )
+                        : visibleFrom == null
+                                ? chatMessageRepository.findVisibleEncryptedByChatIdAndServerOrderBeforeOrderByServerOrderDesc(
+                                        chatId,
+                                        beforeServerOrder,
+                                        currentUser.getId(),
+                                        pageRequest
+                                )
+                                : chatMessageRepository.findVisibleEncryptedByChatIdAndServerOrderBeforeAndCreatedAtAfterOrderByServerOrderDesc(
+                                        chatId,
+                                        beforeServerOrder,
+                                        currentUser.getId(),
+                                        visibleFrom,
+                                        pageRequest
+                                )
         );
+        if (visibleFrom != null && beforeServerOrder == null) {
+            recentMessages = new ArrayList<>(
+                    chatMessageRepository.findVisibleEncryptedByChatIdAndCreatedAtAfterOrderByServerOrderDesc(
+                            chatId,
+                            currentUser.getId(),
+                            visibleFrom,
+                            pageRequest
+                    )
+            );
+        }
         recentMessages.sort(MessageQueryService::compareMessageOrder);
 
         Map<UUID, UserAccount> usersById = userAccountRepository.findAllByIdIn(
@@ -138,6 +170,15 @@ class MessageQueryService {
 
     private static int compareMessageOrder(ChatMessage left, ChatMessage right) {
         return Long.compare(left.getServerOrder(), right.getServerOrder());
+    }
+
+    private Instant resolveVisibleHistoryStart(ChatRoom room, ChatParticipant membership) {
+        if (room.isDirect()
+                || room.getPrejoinHistoryPolicy() == ChatPrejoinHistoryPolicy.FULL_HISTORY
+                || membership.getPrejoinHistoryAccessGrantedAt() != null) {
+            return null;
+        }
+        return membership.getJoinedAt();
     }
 
     private Optional<RenderedMessage> tryRenderMessage(

@@ -12,7 +12,9 @@ import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.UserEncryptionDevice;
 import com.north.messenger.domain.model.UserEncryptionSignedPrekey;
 import com.north.messenger.domain.repository.ChatHistoryKeyAccessRepository;
+import com.north.messenger.domain.repository.ChatHistoryKeyEscrowRepository;
 import com.north.messenger.domain.repository.ChatHistoryKeyRepository;
+import com.north.messenger.domain.repository.ChatParticipantRepository;
 import com.north.messenger.domain.repository.UserEncryptionDeviceRepository;
 import com.north.messenger.domain.repository.UserEncryptionEnvelopeCounterRepository;
 import com.north.messenger.domain.repository.UserEncryptionSignedPrekeyRepository;
@@ -45,10 +47,13 @@ class ChatGroupHistoryKeyServiceTest {
     private ChatService chatService;
     private ChatHistoryKeyRepository chatHistoryKeyRepository;
     private ChatHistoryKeyAccessRepository chatHistoryKeyAccessRepository;
+    private ChatHistoryKeyEscrowRepository chatHistoryKeyEscrowRepository;
+    private ChatParticipantRepository chatParticipantRepository;
     private UserEncryptionDeviceRepository userEncryptionDeviceRepository;
     private UserEncryptionSignedPrekeyRepository userEncryptionSignedPrekeyRepository;
     private UserEncryptionEnvelopeCounterRepository userEncryptionEnvelopeCounterRepository;
     private ChatHistoryBackfillStatusService chatHistoryBackfillStatusService;
+    private ChatHistoryKeyEscrowCryptoService chatHistoryKeyEscrowCryptoService;
     private ChatGroupHistoryKeyService chatGroupHistoryKeyService;
     private ObjectMapper objectMapper;
 
@@ -58,10 +63,13 @@ class ChatGroupHistoryKeyServiceTest {
         chatService = mock(ChatService.class);
         chatHistoryKeyRepository = mock(ChatHistoryKeyRepository.class);
         chatHistoryKeyAccessRepository = mock(ChatHistoryKeyAccessRepository.class);
+        chatHistoryKeyEscrowRepository = mock(ChatHistoryKeyEscrowRepository.class);
+        chatParticipantRepository = mock(ChatParticipantRepository.class);
         userEncryptionDeviceRepository = mock(UserEncryptionDeviceRepository.class);
         userEncryptionSignedPrekeyRepository = mock(UserEncryptionSignedPrekeyRepository.class);
         userEncryptionEnvelopeCounterRepository = mock(UserEncryptionEnvelopeCounterRepository.class);
         chatHistoryBackfillStatusService = mock(ChatHistoryBackfillStatusService.class);
+        chatHistoryKeyEscrowCryptoService = mock(ChatHistoryKeyEscrowCryptoService.class);
         objectMapper = new ObjectMapper();
 
         DeviceKeyValidationService deviceKeyValidationService = new DeviceKeyValidationService(objectMapper);
@@ -72,11 +80,14 @@ class ChatGroupHistoryKeyServiceTest {
                 chatService,
                 chatHistoryKeyRepository,
                 chatHistoryKeyAccessRepository,
+                chatHistoryKeyEscrowRepository,
+                chatParticipantRepository,
                 userEncryptionDeviceRepository,
                 userEncryptionSignedPrekeyRepository,
                 deviceKeyValidationService,
                 deviceEnvelopeCounterService,
                 chatHistoryBackfillStatusService,
+                chatHistoryKeyEscrowCryptoService,
                 objectMapper
         );
 
@@ -160,7 +171,8 @@ class ChatGroupHistoryKeyServiceTest {
                         Map.of(
                                 senderDevice.getId().toString(), senderWrappedEnvelope,
                                 recipientDevice.getId().toString(), recipientWrappedEnvelope
-                        )
+                        ),
+                        null
                 )
         );
 

@@ -114,6 +114,12 @@ class ChatServiceTest {
                 .thenReturn(java.util.Map.of());
         when(chatHistoryBackfillStatusService.getStatusesByUserIdsForChat(any(UUID.class), anyCollection()))
                 .thenReturn(java.util.Map.of());
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserIdCreatedAfter(
+                any(UUID.class),
+                any(UUID.class),
+                any(Instant.class),
+                any(Pageable.class)
+        )).thenReturn(List.of());
     }
 
     @Test
@@ -827,7 +833,7 @@ class ChatServiceTest {
         var response = chatService.updateGroupChat(
                 "north",
                 chatId,
-                new UpdateGroupChatRequest("New name", avatarUrl)
+                new UpdateGroupChatRequest("New name", avatarUrl, "JOIN_ONLY")
         );
 
         assertThat(response.title()).isEqualTo("New name");
@@ -939,7 +945,7 @@ class ChatServiceTest {
         var response = chatService.updateGroupChat(
                 "north",
                 chatId,
-                new UpdateGroupChatRequest("Repaired title", null)
+                new UpdateGroupChatRequest("Repaired title", null, "JOIN_ONLY")
         );
 
         assertThat(response.title()).isEqualTo("Repaired title");

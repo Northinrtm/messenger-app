@@ -825,7 +825,7 @@ export function addGroupParticipants(
 export function updateGroupChat(
   token: string,
   chatId: string,
-  input: { title: string; avatarUrl: string | null }
+  input: { title: string; avatarUrl: string | null; prejoinHistoryPolicy: "JOIN_ONLY" | "FULL_HISTORY" }
 ) {
   return request<ChatSummary>(`/api/chats/${chatId}`, {
     method: "PUT",
@@ -994,6 +994,7 @@ export function upsertGroupHistoryKey(
   body: {
     historyKeyId: string;
     wrappedKeysByRecipientDeviceId: Record<string, string>;
+    serverEscrowGrantPayloadJson?: string | null;
   }
 ) {
   return request<{ historyKeyId: string; createdAt: string }>(

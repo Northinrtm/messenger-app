@@ -15,5 +15,7 @@ public interface ChatHistoryBackfillStatusRepository extends JpaRepository<ChatH
 
     List<ChatHistoryBackfillStatus> findAllByChatIdAndRecipientUserIdIn(UUID chatId, Collection<UUID> recipientUserIds);
 
+    List<ChatHistoryBackfillStatus> findAllByChatId(UUID chatId);
+
     void deleteByChatIdAndRecipientUserId(UUID chatId, UUID recipientUserId);
 }

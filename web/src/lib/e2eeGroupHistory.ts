@@ -51,11 +51,14 @@ export async function resolveGroupHistoryKeyRecordFromServer<OwnMaterial extends
   );
   for (const access of accesses) {
     try {
-      const decryptedPayload = await options.decryptDirectRecipientEnvelopeContent(
-        access.wrappedKeyPayloadJson,
-        options.userId,
-        options.ownMaterial
-      );
+      const decryptedPayload =
+        access.serverGrantPayloadJson && access.serverGrantPayloadJson.trim()
+          ? access.serverGrantPayloadJson
+          : await options.decryptDirectRecipientEnvelopeContent(
+              access.wrappedKeyPayloadJson,
+              options.userId,
+              options.ownMaterial
+            );
       const grantPayload = options.parseGroupHistoryKeyGrantPayload(decryptedPayload);
       if (
         grantPayload.chatId !== options.chatId ||
@@ -152,6 +155,7 @@ export async function upsertGroupHistoryKeyAccessForTargets<OwnMaterial, Session
       historyKeyRecord: GroupHistoryKeyRecord;
     }
   ) => Promise<Record<string, string>>;
+  buildServerEscrowGrantPayloadJson: (historyKeyRecord: GroupHistoryKeyRecord) => string;
   writeDeviceSessions: (userId: string, sessions: Record<string, SessionRecord>) => void;
   rememberDeviceSessions: (userId: string, sessions: Record<string, SessionRecord>) => Promise<void>;
   upsertGroupHistoryKey: (
@@ -160,6 +164,7 @@ export async function upsertGroupHistoryKeyAccessForTargets<OwnMaterial, Session
     body: {
       historyKeyId: string;
       wrappedKeysByRecipientDeviceId: Record<string, string>;
+      serverEscrowGrantPayloadJson?: string | null;
     }
   ) => Promise<unknown>;
   persistGroupHistoryKeyRecord: (userId: string, record: GroupHistoryKeyRecord) => Promise<void>;
@@ -181,6 +186,9 @@ export async function upsertGroupHistoryKeyAccessForTargets<OwnMaterial, Session
   await options.upsertGroupHistoryKey(options.token, options.chatId, {
     historyKeyId: options.historyKeyRecord.historyKeyId,
     wrappedKeysByRecipientDeviceId,
+    serverEscrowGrantPayloadJson: options.buildServerEscrowGrantPayloadJson(
+      options.historyKeyRecord
+    ),
   });
   await options.persistGroupHistoryKeyRecord(options.currentUserId, {
     ...options.historyKeyRecord,

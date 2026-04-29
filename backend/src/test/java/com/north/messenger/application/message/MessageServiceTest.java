@@ -17,6 +17,7 @@ import com.north.messenger.application.push.PushNotificationDeliveryService;
 import com.north.messenger.observability.MessengerTelemetry;
 import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.model.ChatMessageRecipientPayload;
+import com.north.messenger.domain.model.ChatParticipant;
 import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.ChatGroupSenderKeyCounter;
 import com.north.messenger.domain.model.MessageReceipt;
@@ -30,6 +31,7 @@ import com.north.messenger.domain.model.UserEncryptionSignedPrekey;
 import com.north.messenger.domain.repository.ChatGroupSenderKeyCounterRepository;
 import com.north.messenger.domain.repository.ChatMessageRepository;
 import com.north.messenger.domain.repository.ChatMessageRecipientPayloadRepository;
+import com.north.messenger.domain.repository.ChatParticipantRepository;
 import com.north.messenger.domain.repository.MessageReceiptRepository;
 import com.north.messenger.domain.repository.MessageReactionRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
@@ -77,6 +79,7 @@ class MessageServiceTest {
     private ChatService chatService;
     private ChatMessageRepository chatMessageRepository;
     private ChatMessageRecipientPayloadRepository chatMessageRecipientPayloadRepository;
+    private ChatParticipantRepository chatParticipantRepository;
     private MessageReceiptRepository messageReceiptRepository;
     private MessageReactionRepository messageReactionRepository;
     private UserAccountRepository userAccountRepository;
@@ -103,6 +106,7 @@ class MessageServiceTest {
         chatService = mock(ChatService.class);
         chatMessageRepository = mock(ChatMessageRepository.class);
         chatMessageRecipientPayloadRepository = mock(ChatMessageRecipientPayloadRepository.class);
+        chatParticipantRepository = mock(ChatParticipantRepository.class);
         messageReceiptRepository = mock(MessageReceiptRepository.class);
         messageReactionRepository = mock(MessageReactionRepository.class);
         userAccountRepository = mock(UserAccountRepository.class);
@@ -175,6 +179,7 @@ class MessageServiceTest {
                 authService,
                 chatService,
                 chatMessageRepository,
+                chatParticipantRepository,
                 userAccountRepository,
                 messageReceiptService,
                 messageSupport
@@ -207,6 +212,13 @@ class MessageServiceTest {
         when(chatMessageRecipientPayloadRepository.findAllByMessageIdInAndRecipientUserId(any(), any()))
                 .thenReturn(List.of());
         when(messageReceiptRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(chatParticipantRepository.findByChatIdAndUserId(any(), any())).thenAnswer(invocation ->
+                Optional.of(new ChatParticipant(
+                        UUID.randomUUID(),
+                        invocation.getArgument(0),
+                        invocation.getArgument(1),
+                        Instant.parse("2026-04-01T00:00:00Z")
+                )));
         when(userEncryptionEnvelopeCounterRepository.findBySenderDeviceIdAndRecipientDeviceIdAndRatchetPublicKey(any(), any(), any()))
                 .thenReturn(Optional.empty());
         when(userEncryptionEnvelopeCounterRepository.insertIfAbsent(any(), any(), any(), any(), any(), anyInt(), any(Instant.class)))
