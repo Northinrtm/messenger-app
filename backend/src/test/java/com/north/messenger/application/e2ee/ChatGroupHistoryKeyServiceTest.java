@@ -48,6 +48,7 @@ class ChatGroupHistoryKeyServiceTest {
     private UserEncryptionDeviceRepository userEncryptionDeviceRepository;
     private UserEncryptionSignedPrekeyRepository userEncryptionSignedPrekeyRepository;
     private UserEncryptionEnvelopeCounterRepository userEncryptionEnvelopeCounterRepository;
+    private ChatHistoryBackfillStatusService chatHistoryBackfillStatusService;
     private ChatGroupHistoryKeyService chatGroupHistoryKeyService;
     private ObjectMapper objectMapper;
 
@@ -60,6 +61,7 @@ class ChatGroupHistoryKeyServiceTest {
         userEncryptionDeviceRepository = mock(UserEncryptionDeviceRepository.class);
         userEncryptionSignedPrekeyRepository = mock(UserEncryptionSignedPrekeyRepository.class);
         userEncryptionEnvelopeCounterRepository = mock(UserEncryptionEnvelopeCounterRepository.class);
+        chatHistoryBackfillStatusService = mock(ChatHistoryBackfillStatusService.class);
         objectMapper = new ObjectMapper();
 
         DeviceKeyValidationService deviceKeyValidationService = new DeviceKeyValidationService(objectMapper);
@@ -74,6 +76,7 @@ class ChatGroupHistoryKeyServiceTest {
                 userEncryptionSignedPrekeyRepository,
                 deviceKeyValidationService,
                 deviceEnvelopeCounterService,
+                chatHistoryBackfillStatusService,
                 objectMapper
         );
 
@@ -162,6 +165,10 @@ class ChatGroupHistoryKeyServiceTest {
         );
 
         assertThat(response.historyKeyId()).isEqualTo(historyKeyId.toString());
+        verify(chatHistoryBackfillStatusService).refreshCoverage(
+                eq(room.getId()),
+                eq(List.of(sender.getId()))
+        );
         verify(userEncryptionEnvelopeCounterRepository).insertIfAbsent(
                 any(),
                 eq(senderDevice.getId()),

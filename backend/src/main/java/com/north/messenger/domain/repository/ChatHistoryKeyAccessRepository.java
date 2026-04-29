@@ -26,4 +26,18 @@ public interface ChatHistoryKeyAccessRepository extends JpaRepository<ChatHistor
             @Param("recipientUserId") UUID recipientUserId,
             @Param("recipientDeviceId") UUID recipientDeviceId
     );
+
+    @Query("""
+            select count(distinct access.historyKeyId)
+            from ChatHistoryKeyAccess access
+            join ChatHistoryKey historyKey on historyKey.id = access.historyKeyId
+            where historyKey.chatId = :chatId
+              and access.recipientUserId = :recipientUserId
+              and historyKey.createdAt < :joinedAt
+            """)
+    long countDistinctHistoryKeysByChatIdAndRecipientUserIdBeforeJoinedAt(
+            @Param("chatId") UUID chatId,
+            @Param("recipientUserId") UUID recipientUserId,
+            @Param("joinedAt") java.time.Instant joinedAt
+    );
 }

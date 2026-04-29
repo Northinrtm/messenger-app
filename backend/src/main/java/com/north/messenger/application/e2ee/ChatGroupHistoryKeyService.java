@@ -48,6 +48,7 @@ public class ChatGroupHistoryKeyService {
     private final UserEncryptionSignedPrekeyRepository userEncryptionSignedPrekeyRepository;
     private final DeviceKeyValidationService deviceKeyValidationService;
     private final DeviceEnvelopeCounterService deviceEnvelopeCounterService;
+    private final ChatHistoryBackfillStatusService chatHistoryBackfillStatusService;
     private final ObjectMapper objectMapper;
 
     public ChatGroupHistoryKeyService(
@@ -59,6 +60,7 @@ public class ChatGroupHistoryKeyService {
             UserEncryptionSignedPrekeyRepository userEncryptionSignedPrekeyRepository,
             DeviceKeyValidationService deviceKeyValidationService,
             DeviceEnvelopeCounterService deviceEnvelopeCounterService,
+            ChatHistoryBackfillStatusService chatHistoryBackfillStatusService,
             ObjectMapper objectMapper
     ) {
         this.authService = authService;
@@ -69,6 +71,7 @@ public class ChatGroupHistoryKeyService {
         this.userEncryptionSignedPrekeyRepository = userEncryptionSignedPrekeyRepository;
         this.deviceKeyValidationService = deviceKeyValidationService;
         this.deviceEnvelopeCounterService = deviceEnvelopeCounterService;
+        this.chatHistoryBackfillStatusService = chatHistoryBackfillStatusService;
         this.objectMapper = objectMapper;
     }
 
@@ -255,6 +258,13 @@ public class ChatGroupHistoryKeyService {
         for (ChatHistoryKeyAccess access : accessesToSave) {
             chatHistoryKeyAccessRepository.save(access);
         }
+        chatHistoryBackfillStatusService.refreshCoverage(
+                chatId,
+                accessesToSave.stream()
+                        .map(ChatHistoryKeyAccess::getRecipientUserId)
+                        .distinct()
+                        .toList()
+        );
 
         return new GroupHistoryKeyResponse(historyKey.getId().toString(), historyKey.getCreatedAt());
     }

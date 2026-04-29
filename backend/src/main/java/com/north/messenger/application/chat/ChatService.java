@@ -1,6 +1,7 @@
 package com.north.messenger.application.chat;
 
 import com.north.messenger.api.dto.ChatSummaryResponse;
+import com.north.messenger.api.dto.ChatHistoryBackfillStatusResponse;
 import com.north.messenger.api.dto.ChatRemovalEventResponse;
 import com.north.messenger.api.dto.CreateDirectChatRequest;
 import com.north.messenger.api.dto.CreateGroupChatRequest;
@@ -9,6 +10,7 @@ import com.north.messenger.api.dto.AddGroupParticipantsRequest;
 import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.api.dto.UpdateGroupChatRequest;
 import com.north.messenger.application.auth.AuthService;
+import com.north.messenger.application.e2ee.ChatHistoryBackfillStatusService;
 import com.north.messenger.application.message.RealtimeMessagingGateway;
 import com.north.messenger.observability.MessengerTelemetry;
 import com.north.messenger.domain.model.ChatMessage;
@@ -73,6 +75,7 @@ public class ChatService {
     private final MessengerTelemetry telemetry;
     private final DirectChatCreationLockService directChatCreationLockService;
     private final ApplicationEventPublisher eventPublisher;
+    private final ChatHistoryBackfillStatusService chatHistoryBackfillStatusService;
 
     public ChatService(
             AuthService authService,
@@ -89,7 +92,8 @@ public class ChatService {
             RealtimeMessagingGateway realtimeMessagingGateway,
             MessengerTelemetry telemetry,
             DirectChatCreationLockService directChatCreationLockService,
-            ApplicationEventPublisher eventPublisher
+            ApplicationEventPublisher eventPublisher,
+            ChatHistoryBackfillStatusService chatHistoryBackfillStatusService
     ) {
         this.authService = authService;
         this.chatRoomRepository = chatRoomRepository;
@@ -106,6 +110,7 @@ public class ChatService {
         this.telemetry = telemetry;
         this.directChatCreationLockService = directChatCreationLockService;
         this.eventPublisher = eventPublisher;
+        this.chatHistoryBackfillStatusService = chatHistoryBackfillStatusService;
     }
 
     public List<ChatSummaryResponse> listChats(String username) {
@@ -131,12 +136,19 @@ public class ChatService {
         Map<UUID, ChatRoom> roomsById = chatRoomRepository.findAllById(visibleChatIds).stream()
                 .collect(Collectors.toMap(ChatRoom::getId, Function.identity()));
         Map<UUID, Integer> unreadCountsByChatId = loadUnreadCounts(visibleChatIds, currentUser.getId());
+        Map<UUID, ChatHistoryBackfillStatusResponse> historyAccessStatusesByChatId =
+                chatHistoryBackfillStatusService.getStatusesByChatIdsForUser(visibleChatIds, currentUser.getId());
 
         List<ChatSummaryResponse> chats = new ArrayList<>();
         for (UUID chatId : visibleChatIds) {
             ChatRoom room = roomsById.get(chatId);
             if (room != null) {
-                chats.add(toSummary(room, currentUser.getId(), unreadCountsByChatId.getOrDefault(chatId, 0)));
+                chats.add(toSummary(
+                        room,
+                        currentUser.getId(),
+                        unreadCountsByChatId.getOrDefault(chatId, 0),
+                        historyAccessStatusesByChatId.get(chatId)
+                ));
             }
         }
 
@@ -270,9 +282,15 @@ public class ChatService {
         participants.forEach(participant -> requireGroupNotBanned(chatId, participant));
 
         Instant joinedAt = Instant.now();
-        participants.forEach(participant ->
-                chatParticipantRepository.save(new ChatParticipant(UUID.randomUUID(), chatId, participant.getId(), joinedAt))
-        );
+        participants.forEach(participant -> {
+            chatParticipantRepository.save(new ChatParticipant(UUID.randomUUID(), chatId, participant.getId(), joinedAt));
+            chatHistoryBackfillStatusService.trackParticipantBackfill(
+                    chatId,
+                    participant.getId(),
+                    currentUser.getId(),
+                    joinedAt
+            );
+        });
         scheduleChatUpdated(chatId);
         return getChatSummaryForUser(chatId, currentUser);
     }
@@ -310,6 +328,7 @@ public class ChatService {
         }
 
         chatParticipantRepository.deleteByChatIdAndUserId(chatId, currentUser.getId());
+        chatHistoryBackfillStatusService.clearParticipantBackfill(chatId, currentUser.getId());
         chatRoomModeratorRepository.deleteByChatIdAndUserId(chatId, currentUser.getId());
         userArchivedChatRepository.deleteByUserIdAndChatId(currentUser.getId(), chatId);
         userDeletedChatRepository.deleteByUserIdAndChatId(currentUser.getId(), chatId);
@@ -365,6 +384,7 @@ public class ChatService {
         boolean wasMember = chatParticipantRepository.existsByChatIdAndUserId(chatId, bannedUser.getId());
         if (wasMember) {
             chatParticipantRepository.deleteByChatIdAndUserId(chatId, bannedUser.getId());
+            chatHistoryBackfillStatusService.clearParticipantBackfill(chatId, bannedUser.getId());
             chatRoomModeratorRepository.deleteByChatIdAndUserId(chatId, bannedUser.getId());
             userArchivedChatRepository.deleteByUserIdAndChatId(bannedUser.getId(), chatId);
             userDeletedChatRepository.deleteByUserIdAndChatId(bannedUser.getId(), chatId);
@@ -434,6 +454,7 @@ public class ChatService {
         assertCanModerateTarget(room, currentUser, currentRole, participant, "remove");
 
         chatParticipantRepository.deleteByChatIdAndUserId(chatId, participant.getId());
+        chatHistoryBackfillStatusService.clearParticipantBackfill(chatId, participant.getId());
         chatRoomModeratorRepository.deleteByChatIdAndUserId(chatId, participant.getId());
         userArchivedChatRepository.deleteByUserIdAndChatId(participant.getId(), chatId);
         userDeletedChatRepository.deleteByUserIdAndChatId(participant.getId(), chatId);
@@ -453,8 +474,15 @@ public class ChatService {
 
         boolean alreadyMember = chatParticipantRepository.existsByChatIdAndUserId(chatId, currentUser.getId());
         if (!alreadyMember) {
+            Instant joinedAt = Instant.now();
             chatParticipantRepository.save(
-                    new ChatParticipant(UUID.randomUUID(), chatId, currentUser.getId(), Instant.now())
+                    new ChatParticipant(UUID.randomUUID(), chatId, currentUser.getId(), joinedAt)
+            );
+            chatHistoryBackfillStatusService.trackParticipantBackfill(
+                    chatId,
+                    currentUser.getId(),
+                    room.getOwnerUserId(),
+                    joinedAt
             );
         }
 
@@ -537,6 +565,8 @@ public class ChatService {
         List<ParticipantResponse> members = buildParticipantResponses(memberships, usersById, onlineByUserId);
         List<UUID> moderatorUserIds = resolveModeratorUserIds(chatId);
         Map<UUID, Integer> unreadCountsByUserId = loadUnreadCountsForUsers(chatId);
+        Map<UUID, ChatHistoryBackfillStatusResponse> historyAccessStatusesByUserId =
+                chatHistoryBackfillStatusService.getStatusesByUserIdsForChat(chatId, participantUserIds);
         List<UserDeletedChat> deletedChatEntries = userDeletedChatRepository.findAllByChatId(chatId);
         Set<UUID> deletedUserIds = (deletedChatEntries == null ? List.<UserDeletedChat>of() : deletedChatEntries).stream()
                 .map(UserDeletedChat::getUserId)
@@ -561,7 +591,8 @@ public class ChatService {
                                     memberships,
                                     moderatorUserIds,
                                     members,
-                                    lastMessagesByUserId.get(user.getId())
+                                    lastMessagesByUserId.get(user.getId()),
+                                    historyAccessStatusesByUserId.get(user.getId())
                             )
                     ));
             telemetry.recordChatSummaryBroadcast(telemetrySample, room, audience.size(), "sent", chatId);
@@ -649,7 +680,12 @@ public class ChatService {
     }
 
     private ChatSummaryResponse toSummary(ChatRoom room, UUID currentUserId) {
-        return toSummary(room, currentUserId, loadUnreadCount(room.getId(), currentUserId));
+        return toSummary(
+                room,
+                currentUserId,
+                loadUnreadCount(room.getId(), currentUserId),
+                room.isDirect() ? null : chatHistoryBackfillStatusService.getStatus(room.getId(), currentUserId)
+        );
     }
 
     @Transactional
@@ -661,7 +697,12 @@ public class ChatService {
         userDeletedChatRepository.deleteByChatIdAndUserIdIn(chatId, userIds);
     }
 
-    private ChatSummaryResponse toSummary(ChatRoom room, UUID currentUserId, int unreadCount) {
+    private ChatSummaryResponse toSummary(
+            ChatRoom room,
+            UUID currentUserId,
+            int unreadCount,
+            ChatHistoryBackfillStatusResponse historyAccessStatus
+    ) {
         List<ChatParticipant> memberships = chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(room.getId());
         List<UUID> participantUserIds = memberships.stream()
                 .map(ChatParticipant::getUserId)
@@ -677,28 +718,8 @@ public class ChatService {
                 unreadCount,
                 memberships,
                 resolveModeratorUserIds(room.getId()),
-                buildParticipantResponses(memberships, usersById, onlineByUserId)
-        );
-    }
-
-    private ChatSummaryResponse toSummary(
-            ChatRoom room,
-            UUID currentUserId,
-            Map<UUID, UserAccount> usersById,
-            int unreadCount,
-            List<ChatParticipant> memberships,
-            List<UUID> moderatorUserIds,
-            List<ParticipantResponse> members
-    ) {
-        return toSummary(
-                room,
-                currentUserId,
-                usersById,
-                unreadCount,
-                memberships,
-                moderatorUserIds,
-                members,
-                findLatestVisibleMessage(room.getId(), currentUserId)
+                buildParticipantResponses(memberships, usersById, onlineByUserId),
+                historyAccessStatus
         );
     }
 
@@ -710,7 +731,31 @@ public class ChatService {
             List<ChatParticipant> memberships,
             List<UUID> moderatorUserIds,
             List<ParticipantResponse> members,
-            ChatMessage lastMessage
+            ChatHistoryBackfillStatusResponse historyAccessStatus
+    ) {
+        return toSummary(
+                room,
+                currentUserId,
+                usersById,
+                unreadCount,
+                memberships,
+                moderatorUserIds,
+                members,
+                findLatestVisibleMessage(room.getId(), currentUserId),
+                historyAccessStatus
+        );
+    }
+
+    private ChatSummaryResponse toSummary(
+            ChatRoom room,
+            UUID currentUserId,
+            Map<UUID, UserAccount> usersById,
+            int unreadCount,
+            List<ChatParticipant> memberships,
+            List<UUID> moderatorUserIds,
+            List<ParticipantResponse> members,
+            ChatMessage lastMessage,
+            ChatHistoryBackfillStatusResponse historyAccessStatus
     ) {
         UUID ownerUserId = resolveGroupOwnerUserId(room, memberships);
         MessageSnippetResponse pinnedMessage = buildPinnedSnippet(room, currentUserId, usersById);
@@ -740,7 +785,8 @@ public class ChatService {
                 lastMessage != null ? lastMessage.getServerOrder() : null,
                 updatedAt,
                 unreadCount,
-                pinnedMessage
+                pinnedMessage,
+                room.isDirect() ? null : historyAccessStatus
         );
     }
 

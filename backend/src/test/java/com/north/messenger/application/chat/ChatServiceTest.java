@@ -2,9 +2,11 @@ package com.north.messenger.application.chat;
 
 import com.north.messenger.api.dto.CreateGroupChatRequest;
 import com.north.messenger.api.dto.ChatSummaryResponse;
+import com.north.messenger.api.dto.ChatHistoryBackfillStatusResponse;
 import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.api.dto.UpdateGroupChatRequest;
 import com.north.messenger.application.auth.AuthService;
+import com.north.messenger.application.e2ee.ChatHistoryBackfillStatusService;
 import com.north.messenger.application.message.RealtimeMessagingGateway;
 import com.north.messenger.observability.MessengerTelemetry;
 import com.north.messenger.domain.model.ChatMessage;
@@ -41,6 +43,7 @@ import static com.north.messenger.support.TestUserAccounts.testUserAccount;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -65,6 +68,7 @@ class ChatServiceTest {
     private MessengerTelemetry telemetry;
     private DirectChatCreationLockService directChatCreationLockService;
     private ApplicationEventPublisher eventPublisher;
+    private ChatHistoryBackfillStatusService chatHistoryBackfillStatusService;
     private ChatService chatService;
 
     @BeforeEach
@@ -84,6 +88,7 @@ class ChatServiceTest {
         telemetry = mock(MessengerTelemetry.class);
         directChatCreationLockService = mock(DirectChatCreationLockService.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
+        chatHistoryBackfillStatusService = mock(ChatHistoryBackfillStatusService.class);
         chatService = new ChatService(
                 authService,
                 chatRoomRepository,
@@ -99,11 +104,16 @@ class ChatServiceTest {
                 realtimeMessagingGateway,
                 telemetry,
                 directChatCreationLockService,
-                eventPublisher
+                eventPublisher,
+                chatHistoryBackfillStatusService
         );
         when(userArchivedChatRepository.save(any(UserArchivedChat.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(userDeletedChatRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(chatRoomModeratorRepository.findAllByChatId(any(UUID.class))).thenReturn(List.of());
+        when(chatHistoryBackfillStatusService.getStatusesByChatIdsForUser(anyCollection(), any(UUID.class)))
+                .thenReturn(java.util.Map.of());
+        when(chatHistoryBackfillStatusService.getStatusesByUserIdsForChat(any(UUID.class), anyCollection()))
+                .thenReturn(java.util.Map.of());
     }
 
     @Test
@@ -226,6 +236,78 @@ class ChatServiceTest {
 
         assertThat(chats).hasSize(1);
         assertThat(chats.get(0).lastMessage()).isEqualTo("Encrypted message");
+    }
+
+    @Test
+    void listChatsShouldIncludeBackfillStatusForNewlyJoinedGroupMembers() {
+        UserAccount user = testUserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UserAccount peer = testUserAccount(
+                UUID.randomUUID(),
+                "alice",
+                "Alice",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UUID chatId = UUID.randomUUID();
+        ChatRoom room = new ChatRoom(chatId, "Group", false, Instant.parse("2026-03-21T12:00:00Z"));
+        room.updateOwnerUserId(peer.getId());
+        ChatParticipant ownMembership = new ChatParticipant(
+                UUID.randomUUID(),
+                chatId,
+                user.getId(),
+                Instant.parse("2026-03-22T12:00:00Z")
+        );
+        ChatParticipant peerMembership = new ChatParticipant(
+                UUID.randomUUID(),
+                chatId,
+                peer.getId(),
+                Instant.parse("2026-03-21T12:00:00Z")
+        );
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(user);
+        when(chatParticipantRepository.findAllByUserIdOrderByJoinedAtAsc(user.getId())).thenReturn(List.of(ownMembership));
+        when(userDeletedChatRepository.findAllByUserIdOrderByDeletedAtDesc(user.getId())).thenReturn(List.of());
+        when(chatRoomRepository.findAllById(List.of(chatId))).thenReturn(List.of(room));
+        when(messageReceiptRepository.countUnreadByUserIdAndChatIdIn(user.getId(), List.of(chatId)))
+                .thenReturn(List.of());
+        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId))
+                .thenReturn(List.of(peerMembership, ownMembership));
+        when(userAccountRepository.findAllByIdIn(List.of(peer.getId(), user.getId()))).thenReturn(List.of(user, peer));
+        when(authService.resolveOnlineByUserIds(List.of(peer.getId(), user.getId())))
+                .thenReturn(java.util.Map.of(peer.getId(), true, user.getId(), true));
+        when(authService.toParticipant(peer, true)).thenReturn(new ParticipantResponse(
+                peer.getId(), peer.getUsername(), peer.getDisplayName(), peer.getAvatarUrl(), true
+        ));
+        when(authService.toParticipant(user, true)).thenReturn(new ParticipantResponse(
+                user.getId(), user.getUsername(), user.getDisplayName(), user.getAvatarUrl(), true
+        ));
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(eq(chatId), eq(user.getId()), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(chatHistoryBackfillStatusService.getStatusesByChatIdsForUser(List.of(chatId), user.getId()))
+                .thenReturn(java.util.Map.of(
+                        chatId,
+                        new ChatHistoryBackfillStatusResponse(
+                                "PARTIAL",
+                                4,
+                                2,
+                                peer.getId(),
+                                Instant.parse("2026-03-22T12:00:00Z"),
+                                null
+                        )
+                ));
+
+        List<ChatSummaryResponse> chats = chatService.listChats("north");
+
+        assertThat(chats).hasSize(1);
+        assertThat(chats.get(0).historyAccessStatus()).isNotNull();
+        assertThat(chats.get(0).historyAccessStatus().state()).isEqualTo("PARTIAL");
+        assertThat(chats.get(0).historyAccessStatus().grantedHistoryKeyCount()).isEqualTo(2);
     }
 
     @Test

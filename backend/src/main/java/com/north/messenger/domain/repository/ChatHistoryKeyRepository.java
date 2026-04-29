@@ -8,4 +8,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface ChatHistoryKeyRepository extends JpaRepository<ChatHistoryKey, UUID> {
 
     Optional<ChatHistoryKey> findByIdAndChatId(UUID id, UUID chatId);
+
+    long countByChatIdAndCreatedAtBefore(UUID chatId, java.time.Instant createdAt);
 }

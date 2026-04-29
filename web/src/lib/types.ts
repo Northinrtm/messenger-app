@@ -48,6 +48,15 @@ export type MessageSnippet = {
   preview: string;
 };
 
+export type ChatHistoryBackfillStatus = {
+  state: "PENDING" | "PARTIAL" | "COMPLETE";
+  requiredHistoryKeyCount: number;
+  grantedHistoryKeyCount: number;
+  primaryGrantorUserId: string | null;
+  joinedAt: string;
+  completedAt: string | null;
+};
+
 export type ChatMessageAttachment = {
   id: string;
   fileName: string;
@@ -79,6 +88,7 @@ export type ChatSummary = {
   updatedAt: string;
   unreadCount: number;
   pinnedMessage: MessageSnippet | null;
+  historyAccessStatus?: ChatHistoryBackfillStatus | null;
 };
 
 export type ChatDraft = {

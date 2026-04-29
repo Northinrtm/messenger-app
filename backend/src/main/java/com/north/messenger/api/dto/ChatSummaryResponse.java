@@ -17,7 +17,8 @@ public record ChatSummaryResponse(
         Long lastMessageServerOrder,
         Instant updatedAt,
         int unreadCount,
-        MessageSnippetResponse pinnedMessage
+        MessageSnippetResponse pinnedMessage,
+        ChatHistoryBackfillStatusResponse historyAccessStatus
 ) {
 }
 
