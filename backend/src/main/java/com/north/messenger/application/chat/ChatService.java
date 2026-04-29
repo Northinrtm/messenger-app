@@ -242,7 +242,7 @@ public class ChatService {
         );
         room.updateOwnerUserId(currentUser.getId());
         chatRoomRepository.save(room);
-        addParticipants(room.getId(), currentUser, participants);
+        addParticipants(room, currentUser, participants);
         scheduleChatUpdated(room.getId());
         return getChatSummaryForUser(room.getId(), currentUser);
     }
@@ -680,7 +680,7 @@ public class ChatService {
                 directChatPair.highUserId()
         );
         chatRoomRepository.save(room);
-        addParticipants(room.getId(), currentUser, List.of(participant));
+        addParticipants(room, currentUser, List.of(participant));
         scheduleChatUpdated(room.getId());
         return getChatSummaryForUser(room.getId(), currentUser);
     }
@@ -987,16 +987,36 @@ public class ChatService {
                 ));
     }
 
-    private void addParticipants(UUID chatId, UserAccount currentUser, List<UserAccount> participants) {
+    private void addParticipants(ChatRoom room, UserAccount currentUser, List<UserAccount> participants) {
         Instant joinedAt = Instant.now();
-        chatParticipantRepository.save(new ChatParticipant(UUID.randomUUID(), chatId, currentUser.getId(), joinedAt));
-        for (int index = 0; index < participants.size(); index++) {
-            chatParticipantRepository.save(new ChatParticipant(
+        ChatParticipant ownerMembership = new ChatParticipant(
+                UUID.randomUUID(),
+                room.getId(),
+                currentUser.getId(),
+                joinedAt
+        );
+        if (!room.isDirect()) {
+            grantPrejoinHistoryAccessIfEnabled(room, ownerMembership, joinedAt);
+        }
+        chatParticipantRepository.save(ownerMembership);
+        if (!room.isDirect()) {
+            syncParticipantHistoryAccessStatus(room, ownerMembership, currentUser.getId());
+        }
+
+        for (UserAccount participant : participants) {
+            ChatParticipant membership = new ChatParticipant(
                     UUID.randomUUID(),
-                    chatId,
-                    participants.get(index).getId(),
-                    joinedAt.plusMillis(index + 1L)
-            ));
+                    room.getId(),
+                    participant.getId(),
+                    joinedAt
+            );
+            if (!room.isDirect()) {
+                grantPrejoinHistoryAccessIfEnabled(room, membership, joinedAt);
+            }
+            chatParticipantRepository.save(membership);
+            if (!room.isDirect()) {
+                syncParticipantHistoryAccessStatus(room, membership, currentUser.getId());
+            }
         }
     }
 

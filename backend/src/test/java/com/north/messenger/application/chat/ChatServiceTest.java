@@ -739,6 +739,83 @@ class ChatServiceTest {
     }
 
     @Test
+    void createGroupChatShouldTreatInitialParticipantsAsFoundingMembers() {
+        UserAccount currentUser = testUserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UserAccount invitedUser = testUserAccount(
+                UUID.randomUUID(),
+                "alice",
+                "Alice",
+                "password-hash",
+                Instant.parse("2026-03-20T12:05:00Z")
+        );
+        ParticipantResponse currentParticipant = new ParticipantResponse(
+                currentUser.getId(),
+                currentUser.getUsername(),
+                currentUser.getDisplayName(),
+                currentUser.getAvatarUrl(),
+                true
+        );
+        ParticipantResponse invitedParticipant = new ParticipantResponse(
+                invitedUser.getId(),
+                invitedUser.getUsername(),
+                invitedUser.getDisplayName(),
+                invitedUser.getAvatarUrl(),
+                false
+        );
+        var savedRoom = new java.util.concurrent.atomic.AtomicReference<ChatRoom>();
+        var memberships = new ArrayList<ChatParticipant>();
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
+        when(authService.requireExistingUser("alice")).thenReturn(invitedUser);
+        when(chatRoomRepository.save(any(ChatRoom.class))).thenAnswer(invocation -> {
+            ChatRoom room = invocation.getArgument(0);
+            savedRoom.set(room);
+            return room;
+        });
+        when(chatRoomRepository.findById(any(UUID.class))).thenAnswer(invocation ->
+                Optional.ofNullable(savedRoom.get()).filter(room -> room.getId().equals(invocation.getArgument(0))));
+        when(chatParticipantRepository.save(any(ChatParticipant.class))).thenAnswer(invocation -> {
+            ChatParticipant membership = invocation.getArgument(0);
+            memberships.add(membership);
+            return membership;
+        });
+        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(any(UUID.class))).thenAnswer(invocation ->
+                memberships.stream()
+                        .filter(membership -> membership.getChatId().equals(invocation.getArgument(0)))
+                        .toList());
+        when(chatParticipantRepository.existsByChatIdAndUserId(any(UUID.class), eq(currentUser.getId()))).thenReturn(true);
+        when(userAccountRepository.findAllByIdIn(List.of(currentUser.getId(), invitedUser.getId())))
+                .thenReturn(List.of(currentUser, invitedUser));
+        when(authService.resolveOnlineByUserIds(List.of(currentUser.getId(), invitedUser.getId())))
+                .thenReturn(java.util.Map.of(currentUser.getId(), true, invitedUser.getId(), false));
+        when(messageReceiptRepository.countUnreadByChatId(any(UUID.class))).thenReturn(List.of());
+        when(messageReceiptRepository.countUnreadByUserIdAndChatIdIn(any(UUID.class), any())).thenReturn(List.of());
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(any(UUID.class), eq(currentUser.getId()), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(any(UUID.class), eq(invitedUser.getId()), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(authService.toParticipant(currentUser, true)).thenReturn(currentParticipant);
+        when(authService.toParticipant(invitedUser, false)).thenReturn(invitedParticipant);
+
+        var response = chatService.createGroupChat(
+                "north",
+                new CreateGroupChatRequest("Project room", List.of("alice"))
+        );
+
+        assertThat(response.members()).containsExactly(currentParticipant, invitedParticipant);
+        assertThat(memberships).hasSize(2);
+        assertThat(memberships.get(0).getJoinedAt()).isEqualTo(memberships.get(1).getJoinedAt());
+        assertThat(memberships.stream().map(ChatParticipant::getUserId))
+                .containsExactly(currentUser.getId(), invitedUser.getId());
+    }
+
+    @Test
     void deleteGroupShouldDeferRemovalBroadcastForAllParticipants() {
         UserAccount owner = testUserAccount(UUID.randomUUID(), "north", "North", "hash", Instant.now());
         UserAccount member = testUserAccount(UUID.randomUUID(), "alice", "Alice", "hash", Instant.now());

@@ -7,6 +7,9 @@ import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.chat.ChatService;
 import com.north.messenger.domain.model.ChatHistoryKey;
 import com.north.messenger.domain.model.ChatHistoryKeyAccess;
+import com.north.messenger.domain.model.ChatHistoryKeyEscrow;
+import com.north.messenger.domain.model.ChatParticipant;
+import com.north.messenger.domain.model.ChatPrejoinHistoryPolicy;
 import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.UserEncryptionDevice;
@@ -38,6 +41,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -190,6 +194,78 @@ class ChatGroupHistoryKeyServiceTest {
                 eq(0),
                 any(Instant.class)
         );
+    }
+
+    @Test
+    void listOwnGroupHistoryKeysShouldReturnEscrowForPostJoinHistoryWhenPrejoinHistoryIsDisabled() throws Exception {
+        UserAccount member = testUserAccount(
+                UUID.randomUUID(),
+                "alice",
+                "alice@example.com",
+                "Alice",
+                null,
+                null,
+                "pw",
+                Instant.parse("2026-03-24T11:00:00Z")
+        );
+        UUID chatId = UUID.randomUUID();
+        Instant joinedAt = Instant.parse("2026-04-29T17:00:00Z");
+        Instant postJoinKeyCreatedAt = joinedAt.plusSeconds(5);
+        UUID historyKeyId = UUID.randomUUID();
+
+        ChatRoom room = new ChatRoom(
+                chatId,
+                "Group",
+                false,
+                Instant.parse("2026-03-24T11:00:00Z")
+        );
+        room.updateGroupDetails("Group", null, ChatPrejoinHistoryPolicy.JOIN_ONLY);
+
+        ChatParticipant membership = new ChatParticipant(
+                UUID.randomUUID(),
+                chatId,
+                member.getId(),
+                joinedAt
+        );
+        UserEncryptionDevice currentDevice = device(member.getId());
+        ChatHistoryKeyEscrow escrow = new ChatHistoryKeyEscrow(
+                UUID.randomUUID(),
+                historyKeyId,
+                chatId,
+                "{\"ciphertext\":\"server\"}",
+                postJoinKeyCreatedAt,
+                postJoinKeyCreatedAt
+        );
+
+        when(authService.requireAuthenticatedUser("alice")).thenReturn(member);
+        when(chatService.requireChatMembership(chatId, member)).thenReturn(room);
+        when(chatParticipantRepository.findByChatIdAndUserId(chatId, member.getId()))
+                .thenReturn(Optional.of(membership));
+        when(userEncryptionDeviceRepository.findById(currentDevice.getId()))
+                .thenReturn(Optional.of(currentDevice));
+        when(chatHistoryKeyAccessRepository.findAllByChatIdAndRecipientUserIdAndRecipientDeviceIdOrderByCreatedAtAsc(
+                chatId,
+                member.getId(),
+                currentDevice.getId()
+        )).thenReturn(List.of());
+        when(chatHistoryKeyEscrowRepository.findAllByChatIdAndHistoryKeyCreatedAtOnOrAfterOrderByHistoryKeyCreatedAtAsc(
+                chatId,
+                joinedAt
+        )).thenReturn(List.of(escrow));
+        when(chatHistoryKeyEscrowCryptoService.decryptGrantPayload("{\"ciphertext\":\"server\"}"))
+                .thenReturn("{\"historyKey\":\"post-join\"}");
+
+        var responses = chatGroupHistoryKeyService.listOwnGroupHistoryKeys(
+                "alice",
+                chatId,
+                currentDevice.getId().toString()
+        );
+
+        assertThat(responses).hasSize(1);
+        assertThat(responses.get(0).historyKeyId()).isEqualTo(historyKeyId.toString());
+        assertThat(responses.get(0).wrappedKeyPayloadJson()).isEmpty();
+        assertThat(responses.get(0).serverGrantPayloadJson()).isEqualTo("{\"historyKey\":\"post-join\"}");
+        verify(chatHistoryKeyEscrowRepository, never()).findAllByChatIdOrderByHistoryKeyCreatedAtAsc(chatId);
     }
 
     private UserEncryptionDevice device(UUID userId) throws Exception {

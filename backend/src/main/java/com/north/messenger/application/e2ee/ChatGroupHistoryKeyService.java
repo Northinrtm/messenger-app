@@ -121,25 +121,7 @@ public class ChatGroupHistoryKeyService {
                         )
                 ));
 
-        if (room.getPrejoinHistoryPolicy() == ChatPrejoinHistoryPolicy.FULL_HISTORY
-                || membership.getPrejoinHistoryAccessGrantedAt() != null) {
-            for (ChatHistoryKeyEscrow escrow : chatHistoryKeyEscrowRepository
-                    .findAllByChatIdAndHistoryKeyCreatedAtBeforeOrderByHistoryKeyCreatedAtAsc(
-                            chatId,
-                            membership.getJoinedAt()
-                    )) {
-                accessesByHistoryKeyId.computeIfAbsent(escrow.getHistoryKeyId(), ignored ->
-                        new GroupHistoryKeyAccessResponse(
-                                escrow.getHistoryKeyId().toString(),
-                                "",
-                                chatHistoryKeyEscrowCryptoService.decryptGrantPayload(
-                                        escrow.getEncryptedGrantPayloadJson()
-                                ),
-                                escrow.getCreatedAt(),
-                                escrow.getUpdatedAt()
-                        ));
-            }
-        }
+        mergeEscrowHistoryKeyAccesses(accessesByHistoryKeyId, chatId, room, membership);
 
         return List.copyOf(accessesByHistoryKeyId.values());
     }
@@ -536,6 +518,38 @@ public class ChatGroupHistoryKeyService {
             Base64.getDecoder().decode(value);
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
+        }
+    }
+
+    private void mergeEscrowHistoryKeyAccesses(
+            Map<UUID, GroupHistoryKeyAccessResponse> accessesByHistoryKeyId,
+            UUID chatId,
+            ChatRoom room,
+            ChatParticipant membership
+    ) {
+        List<ChatHistoryKeyEscrow> escrowRecords;
+        if (room.getPrejoinHistoryPolicy() == ChatPrejoinHistoryPolicy.FULL_HISTORY
+                || membership.getPrejoinHistoryAccessGrantedAt() != null) {
+            escrowRecords = chatHistoryKeyEscrowRepository.findAllByChatIdOrderByHistoryKeyCreatedAtAsc(chatId);
+        } else {
+            escrowRecords = chatHistoryKeyEscrowRepository
+                    .findAllByChatIdAndHistoryKeyCreatedAtOnOrAfterOrderByHistoryKeyCreatedAtAsc(
+                            chatId,
+                            membership.getJoinedAt()
+                    );
+        }
+
+        for (ChatHistoryKeyEscrow escrow : escrowRecords) {
+            accessesByHistoryKeyId.computeIfAbsent(escrow.getHistoryKeyId(), ignored ->
+                    new GroupHistoryKeyAccessResponse(
+                            escrow.getHistoryKeyId().toString(),
+                            "",
+                            chatHistoryKeyEscrowCryptoService.decryptGrantPayload(
+                                    escrow.getEncryptedGrantPayloadJson()
+                            ),
+                            escrow.getCreatedAt(),
+                            escrow.getUpdatedAt()
+                    ));
         }
     }
 

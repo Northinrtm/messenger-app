@@ -18,12 +18,36 @@ public interface ChatHistoryKeyEscrowRepository extends JpaRepository<ChatHistor
             from ChatHistoryKeyEscrow escrow
             join ChatHistoryKey historyKey on historyKey.id = escrow.historyKeyId
             where escrow.chatId = :chatId
+            order by historyKey.createdAt asc, escrow.createdAt asc
+            """)
+    List<ChatHistoryKeyEscrow> findAllByChatIdOrderByHistoryKeyCreatedAtAsc(
+            @Param("chatId") UUID chatId
+    );
+
+    @Query("""
+            select escrow
+            from ChatHistoryKeyEscrow escrow
+            join ChatHistoryKey historyKey on historyKey.id = escrow.historyKeyId
+            where escrow.chatId = :chatId
               and historyKey.createdAt < :beforeCreatedAt
             order by historyKey.createdAt asc, escrow.createdAt asc
             """)
     List<ChatHistoryKeyEscrow> findAllByChatIdAndHistoryKeyCreatedAtBeforeOrderByHistoryKeyCreatedAtAsc(
             @Param("chatId") UUID chatId,
             @Param("beforeCreatedAt") Instant beforeCreatedAt
+    );
+
+    @Query("""
+            select escrow
+            from ChatHistoryKeyEscrow escrow
+            join ChatHistoryKey historyKey on historyKey.id = escrow.historyKeyId
+            where escrow.chatId = :chatId
+              and historyKey.createdAt >= :fromCreatedAt
+            order by historyKey.createdAt asc, escrow.createdAt asc
+            """)
+    List<ChatHistoryKeyEscrow> findAllByChatIdAndHistoryKeyCreatedAtOnOrAfterOrderByHistoryKeyCreatedAtAsc(
+            @Param("chatId") UUID chatId,
+            @Param("fromCreatedAt") Instant fromCreatedAt
     );
 
     @Query("""
