@@ -10,7 +10,9 @@ type ReactActEnvironment = typeof globalThis & {
 
 const noop = () => {};
 
-function buildProps(): Parameters<typeof SidebarManagementSheets>[0] {
+function buildProps(
+  overrides: Partial<Parameters<typeof SidebarManagementSheets>[0]> = {}
+): Parameters<typeof SidebarManagementSheets>[0] {
   return {
     sheet: "sessions",
     profile: {
@@ -159,6 +161,7 @@ function buildProps(): Parameters<typeof SidebarManagementSheets>[0] {
     onRetireEncryptionDevice: noop,
     formatProfileDate: (value) => value,
     formatSessionTime: (value) => value,
+    ...overrides,
   };
 }
 
@@ -192,5 +195,106 @@ describe("SidebarManagementSheets sessions sheet", () => {
     expect(container.textContent).toContain("OTP prekeys: 12");
     expect(container.textContent).toContain("E2EE-устройства");
     expect(container.textContent).toContain("Это устройство");
+    expect(container.textContent).toContain("Единственное E2EE");
+    expect(container.textContent).not.toContain("v3");
+  });
+
+  it("marks a recent non-current device as backup", async () => {
+    await act(async () => {
+      root!.render(
+        <SidebarManagementSheets
+          {...buildProps({
+            encryptionDevices: [
+              {
+                deviceId: "device-1",
+                deviceName: "Chrome on Windows",
+                identityKey: "identity-key-1",
+                identityKeyAlgorithm: "X25519",
+                identitySignatureKey: "signature-key-1",
+                identitySignatureKeyAlgorithm: "Ed25519",
+                signedPrekeyId: 1,
+                signedPrekeyPublicKey: "signed-prekey-1",
+                signedPrekeySignature: "signature-1",
+                signedPrekeyAlgorithm: "X25519",
+                deviceVersion: "alpha-build-hash",
+                availableOneTimePrekeys: 14,
+                registeredAt: "2099-04-28T13:00:00Z",
+                lastSeenAt: "2099-04-28T13:02:00Z",
+              },
+              {
+                deviceId: "device-2",
+                deviceName: "Pixel 8",
+                identityKey: "identity-key-2",
+                identityKeyAlgorithm: "X25519",
+                identitySignatureKey: "signature-key-2",
+                identitySignatureKeyAlgorithm: "Ed25519",
+                signedPrekeyId: 2,
+                signedPrekeyPublicKey: "signed-prekey-2",
+                signedPrekeySignature: "signature-2",
+                signedPrekeyAlgorithm: "X25519",
+                deviceVersion: "3",
+                availableOneTimePrekeys: 10,
+                registeredAt: "2099-04-27T13:00:00Z",
+                lastSeenAt: "2099-04-27T13:02:00Z",
+              },
+            ],
+          })}
+        />
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "Это хороший минимум: текущее и одно запасное E2EE-устройство."
+    );
+    expect(container.textContent).toContain("Запасное");
+    expect(container.textContent).not.toContain("alpha-build-hash");
+  });
+
+  it("marks stale non-current devices", async () => {
+    await act(async () => {
+      root!.render(
+        <SidebarManagementSheets
+          {...buildProps({
+            encryptionDevices: [
+              {
+                deviceId: "device-1",
+                deviceName: "Chrome on Windows",
+                identityKey: "identity-key-1",
+                identityKeyAlgorithm: "X25519",
+                identitySignatureKey: "signature-key-1",
+                identitySignatureKeyAlgorithm: "Ed25519",
+                signedPrekeyId: 1,
+                signedPrekeyPublicKey: "signed-prekey-1",
+                signedPrekeySignature: "signature-1",
+                signedPrekeyAlgorithm: "X25519",
+                deviceVersion: "3",
+                availableOneTimePrekeys: 14,
+                registeredAt: "2099-04-28T13:00:00Z",
+                lastSeenAt: "2099-04-28T13:02:00Z",
+              },
+              {
+                deviceId: "device-2",
+                deviceName: "Old laptop",
+                identityKey: "identity-key-2",
+                identityKeyAlgorithm: "X25519",
+                identitySignatureKey: "signature-key-2",
+                identitySignatureKeyAlgorithm: "Ed25519",
+                signedPrekeyId: 2,
+                signedPrekeyPublicKey: "signed-prekey-2",
+                signedPrekeySignature: "signature-2",
+                signedPrekeyAlgorithm: "X25519",
+                deviceVersion: "legacy-build",
+                availableOneTimePrekeys: 2,
+                registeredAt: "2020-01-01T00:00:00Z",
+                lastSeenAt: "2020-01-02T00:00:00Z",
+              },
+            ],
+          })}
+        />
+      );
+    });
+
+    expect(container.textContent).toContain("Давно не использовалось");
+    expect(container.textContent).toContain("Давно не использовались: 1.");
   });
 });

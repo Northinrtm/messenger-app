@@ -135,13 +135,97 @@ function formatEncryptionDeviceCountLabel(count: number) {
   return `${count} E2EE-\u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432`;
 }
 
+function parseTimestamp(value: string) {
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
 function isStaleEncryptionDevice(lastSeenAt: string) {
-  const lastSeenAtTimestamp = Date.parse(lastSeenAt);
-  if (!Number.isFinite(lastSeenAtTimestamp)) {
+  const lastSeenAtTimestamp = parseTimestamp(lastSeenAt);
+  if (!lastSeenAtTimestamp) {
     return false;
   }
 
   return Date.now() - lastSeenAtTimestamp >= 30 * 24 * 60 * 60 * 1000;
+}
+
+function sortEncryptionDevices(
+  devices: UserEncryptionDevice[],
+  currentEncryptionDeviceId: string | null
+) {
+  return [...devices].sort((left, right) => {
+    const leftCurrent = left.deviceId === currentEncryptionDeviceId ? 1 : 0;
+    const rightCurrent = right.deviceId === currentEncryptionDeviceId ? 1 : 0;
+    if (leftCurrent !== rightCurrent) {
+      return rightCurrent - leftCurrent;
+    }
+
+    const seenDelta = parseTimestamp(right.lastSeenAt) - parseTimestamp(left.lastSeenAt);
+    if (seenDelta !== 0) {
+      return seenDelta;
+    }
+
+    return parseTimestamp(right.registeredAt) - parseTimestamp(left.registeredAt);
+  });
+}
+
+function buildEncryptionDeviceSummary(
+  devices: UserEncryptionDevice[],
+  currentEncryptionDeviceId: string | null
+) {
+  if (devices.length === 0) {
+    return "\u041F\u043E\u043A\u0430 \u043D\u0435\u0442 \u0437\u0430\u0440\u0435\u0433\u0438\u0441\u0442\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0445 E2EE-\u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432. \u041F\u043E\u0441\u043B\u0435 \u0443\u0441\u043F\u0435\u0448\u043D\u043E\u0439 \u0440\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u043A\u0438 encrypted chats \u043D\u043E\u0432\u043E\u0435 \u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u043E \u043F\u043E\u044F\u0432\u0438\u0442\u0441\u044F \u0437\u0434\u0435\u0441\u044C.";
+  }
+
+  const staleCount = devices.filter((device) => isStaleEncryptionDevice(device.lastSeenAt)).length;
+  const currentDeviceAvailable = devices.some(
+    (device) => device.deviceId === currentEncryptionDeviceId
+  );
+
+  if (devices.length === 1) {
+    return currentDeviceAvailable
+      ? "\u0421\u0435\u0439\u0447\u0430\u0441 \u0430\u043A\u0442\u0438\u0432\u043D\u043E \u0442\u043E\u043B\u044C\u043A\u043E \u044D\u0442\u043E E2EE-\u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u043E. \u0411\u0435\u0437 \u0437\u0430\u043F\u0430\u0441\u043D\u043E\u0433\u043E \u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u0430 \u0432\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C \u0441\u0442\u0430\u0440\u0443\u044E encrypted-\u0438\u0441\u0442\u043E\u0440\u0438\u044E \u0431\u0443\u0434\u0435\u0442 \u0441\u043B\u043E\u0436\u043D\u0435\u0435."
+      : "\u0410\u043A\u0442\u0438\u0432\u043D\u043E \u0442\u043E\u043B\u044C\u043A\u043E \u043E\u0434\u043D\u043E E2EE-\u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u043E. \u0415\u0441\u043B\u0438 \u044D\u0442\u043E \u043D\u0435 \u0432\u0430\u0448 \u0442\u0435\u043A\u0443\u0449\u0438\u0439 \u043A\u043B\u0438\u0435\u043D\u0442, \u043B\u0443\u0447\u0448\u0435 \u0441\u043D\u0430\u0447\u0430\u043B\u0430 \u0440\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u0442\u044C encrypted chats \u0437\u0434\u0435\u0441\u044C.";
+  }
+
+  if (devices.length === 2 && staleCount === 0) {
+    return "\u042D\u0442\u043E \u0445\u043E\u0440\u043E\u0448\u0438\u0439 \u043C\u0438\u043D\u0438\u043C\u0443\u043C: \u0442\u0435\u043A\u0443\u0449\u0435\u0435 \u0438 \u043E\u0434\u043D\u043E \u0437\u0430\u043F\u0430\u0441\u043D\u043E\u0435 E2EE-\u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u043E.";
+  }
+
+  return `\u041D\u0430 \u0430\u043A\u043A\u0430\u0443\u043D\u0442\u0435 ${formatEncryptionDeviceCountLabel(
+    devices.length
+  )}. \u041E\u0431\u044B\u0447\u043D\u043E \u0441\u0442\u043E\u0438\u0442 \u043E\u0441\u0442\u0430\u0432\u0438\u0442\u044C 1-2 \u0434\u043E\u0432\u0435\u0440\u0435\u043D\u043D\u044B\u0445 \u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u0430, \u0430 \u0441\u0442\u0430\u0440\u044B\u0435 \u0438 \u0441\u043B\u0443\u0447\u0430\u0439\u043D\u044B\u0435 \u043E\u0442\u043A\u043B\u044E\u0447\u0430\u0442\u044C.${staleCount > 0 ? ` \u0414\u0430\u0432\u043D\u043E \u043D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043B\u0438\u0441\u044C: ${staleCount}.` : ""}`;
+}
+
+function buildEncryptionDevicePills(
+  devices: UserEncryptionDevice[],
+  currentEncryptionDeviceId: string | null,
+  device: UserEncryptionDevice
+) {
+  const pills: string[] = [];
+  const isCurrentDevice = device.deviceId === currentEncryptionDeviceId;
+  const staleDevice = isStaleEncryptionDevice(device.lastSeenAt);
+  const sortedDevices = sortEncryptionDevices(devices, currentEncryptionDeviceId);
+  const backupCandidate =
+    devices.length > 1 &&
+    !staleDevice &&
+    !isCurrentDevice &&
+    sortedDevices.find((item) => item.deviceId !== currentEncryptionDeviceId)?.deviceId ===
+      device.deviceId;
+
+  if (isCurrentDevice) {
+    pills.push("\u042D\u0442\u043E \u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u043E");
+  }
+  if (devices.length <= 1) {
+    pills.push("\u0415\u0434\u0438\u043D\u0441\u0442\u0432\u0435\u043D\u043D\u043E\u0435 E2EE");
+  } else if (backupCandidate) {
+    pills.push("\u0417\u0430\u043F\u0430\u0441\u043D\u043E\u0435");
+  }
+  if (staleDevice) {
+    pills.push("\u0414\u0430\u0432\u043D\u043E \u043D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043B\u043E\u0441\u044C");
+  }
+
+  return pills;
 }
 
 export function SidebarManagementSheets({
@@ -1285,12 +1369,14 @@ export function SidebarManagementSheets({
   }
 
   if (sheet === "sessions") {
-    const encryptionDeviceSummary =
-      encryptionDevices.length > 0
-        ? `\u041D\u0430 \u0430\u043A\u043A\u0430\u0443\u043D\u0442\u0435 ${formatEncryptionDeviceCountLabel(
-            encryptionDevices.length
-          )}. \u0418\u043C\u0435\u043D\u043D\u043E \u044D\u0442\u0438 \u043A\u043B\u044E\u0447\u0438 \u043D\u0443\u0436\u043D\u044B \u0434\u043B\u044F \u0432\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F encrypted chats \u043D\u0430 \u0434\u0440\u0443\u0433\u0438\u0445 \u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u0430\u0445.`
-        : "\u041F\u043E\u043A\u0430 \u043D\u0435\u0442 \u0437\u0430\u0440\u0435\u0433\u0438\u0441\u0442\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0445 E2EE-\u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432. \u041F\u043E\u0441\u043B\u0435 \u0443\u0441\u043F\u0435\u0448\u043D\u043E\u0439 \u0440\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u043A\u0438 encrypted chats \u043D\u043E\u0432\u043E\u0435 \u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u043E \u043F\u043E\u044F\u0432\u0438\u0442\u0441\u044F \u0437\u0434\u0435\u0441\u044C.";
+    const encryptionDeviceSummary = buildEncryptionDeviceSummary(
+      encryptionDevices,
+      currentEncryptionDeviceId
+    );
+    const sortedEncryptionDevices = sortEncryptionDevices(
+      encryptionDevices,
+      currentEncryptionDeviceId
+    );
 
     return (
       <div className="sheet-card">
@@ -1382,10 +1468,14 @@ export function SidebarManagementSheets({
                   }
                 </div>
               ) : (
-                encryptionDevices.map((device) => {
+                sortedEncryptionDevices.map((device) => {
                   const isCurrentDevice = device.deviceId === currentEncryptionDeviceId;
                   const isOnlyVisibleDevice = encryptionDevices.length <= 1;
-                  const staleDevice = isStaleEncryptionDevice(device.lastSeenAt);
+                  const devicePills = buildEncryptionDevicePills(
+                    encryptionDevices,
+                    currentEncryptionDeviceId,
+                    device
+                  );
 
                   return (
                     <div key={device.deviceId} className="session-row">
@@ -1401,20 +1491,16 @@ export function SidebarManagementSheets({
                         </span>
                         <span>
                           {"OTP prekeys:"} {device.availableOneTimePrekeys}
-                          {device.deviceVersion ? ` · v${device.deviceVersion}` : ""}
                         </span>
                       </div>
                       <div className="member-pill-stack">
-                        {isCurrentDevice ? (
-                          <span className="member-pill">{"\u042D\u0442\u043E \u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u043E"}</span>
-                        ) : null}
-                        {staleDevice ? (
-                          <span className="member-pill">
-                            {"\u0414\u0430\u0432\u043D\u043E \u043D\u0435 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043B\u043E\u0441\u044C"}
+                        {devicePills.map((pill) => (
+                          <span key={pill} className="member-pill">
+                            {pill}
                           </span>
-                        ) : null}
+                        ))}
                         {isOnlyVisibleDevice ? (
-                          <span className="member-pill">{"\u041F\u043E\u0441\u043B\u0435\u0434\u043D\u0435\u0435 E2EE"}</span>
+                          null
                         ) : !isCurrentDevice ? (
                           <button
                             type="button"
