@@ -86,7 +86,10 @@ textarea::placeholder {
   display: grid;
   place-items: center;
   min-height: 100vh;
+  min-height: 100svh;
   padding: 2rem;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
 }
 
 .unlock-overlay {
@@ -96,6 +99,8 @@ textarea::placeholder {
   display: grid;
   place-items: center;
   padding: 1.5rem;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
   background: rgba(7, 12, 19, 0.6);
   backdrop-filter: blur(12px);
 }
@@ -142,6 +147,10 @@ textarea::placeholder {
   box-shadow:
     0 28px 88px rgba(0, 0, 0, 0.42),
     inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+.unlock-card {
+  -webkit-overflow-scrolling: touch;
 }
 
 .unlock-card.is-device-loading {
@@ -1385,6 +1394,15 @@ select {
   .session-row {
     display: grid;
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-height: 820px) {
+  .auth-shell,
+  .unlock-overlay {
+    place-items: start center;
+    padding-top: 0.85rem;
+    padding-bottom: 0.85rem;
   }
 }
 
