@@ -170,7 +170,8 @@ class MessageQueryService {
                     message,
                     currentUser.getId(),
                     encryptedKeysByMessageId.getOrDefault(message.getId(), Map.of()),
-                    visibleCurrentUserDeviceIds
+                    visibleCurrentUserDeviceIds,
+                    true
             );
         } catch (IllegalStateException exception) {
             log.warn(

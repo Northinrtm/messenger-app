@@ -1132,6 +1132,22 @@ class MessageSupport {
             Map<String, String> encryptedKeysByRecipientId,
             Set<String> visibleCurrentUserDeviceIds
     ) {
+        return toEncryptedPayload(
+                message,
+                currentUserId,
+                encryptedKeysByRecipientId,
+                visibleCurrentUserDeviceIds,
+                false
+        );
+    }
+
+    EncryptedMessagePayloadResponse toEncryptedPayload(
+            ChatMessage message,
+            UUID currentUserId,
+            Map<String, String> encryptedKeysByRecipientId,
+            Set<String> visibleCurrentUserDeviceIds,
+            boolean allowHistoricalOwnDirectPayloads
+    ) {
         if (!message.isEncrypted()) {
             throw new IllegalStateException("Plaintext messages are not supported by the encrypted message API");
         }
@@ -1168,6 +1184,15 @@ class MessageSupport {
                             deviceId -> deviceId,
                             deviceId -> encryptedKeysByRecipientId.get(deviceId)
                     ));
+            if (matchingDevicePayloads.isEmpty()
+                    && allowHistoricalOwnDirectPayloads
+                    && currentUserId.equals(message.getSenderId())
+                    && !encryptedKeysByRecipientId.isEmpty()) {
+                return new EncryptedMessagePayloadResponse(
+                        message.getEncryptionScheme(),
+                        new LinkedHashMap<>(encryptedKeysByRecipientId)
+                );
+            }
             if (matchingDevicePayloads.isEmpty()) {
                 throw new IllegalStateException("Encrypted direct payload is missing for recipient devices of " + currentUserId);
             }

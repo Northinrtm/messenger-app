@@ -2012,6 +2012,59 @@ class MessageServiceTest {
     }
 
     @Test
+    void listMessagesShouldReturnHistoricalOwnDirectPayloadsAfterDeviceRotation() {
+        UUID chatId = UUID.randomUUID();
+        UserAccount currentUser = user("north");
+        UserAccount recipient = user("alice");
+        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
+        UserEncryptionDevice historicalSelfDevice = device(currentUser, UUID.randomUUID(), "historical-self-device");
+        ChatMessage message = withServerOrder(new ChatMessage(
+                UUID.fromString("00000000-0000-0000-0000-0000000000d3"),
+                chatId,
+                currentUser.getId(),
+                "ciphertext-own-historical",
+                "X3DH-DEVICE-AES-GCM",
+                "iv-own-historical",
+                "",
+                Instant.parse("2026-03-24T12:00:00Z")
+        ), 10L);
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
+        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
+                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
+        );
+        when(chatMessageRepository.findVisibleEncryptedByChatIdOrderByServerOrderDesc(eq(chatId), eq(currentUser.getId()), any()))
+                .thenReturn(List.of(message));
+        when(userAccountRepository.findAllByIdIn(any())).thenReturn(List.of(currentUser));
+        when(messageReceiptRepository.findAllByMessageIdIn(any())).thenReturn(List.of());
+        when(messageReactionRepository.findAllByMessageIdIn(any())).thenReturn(List.of());
+        when(authService.toParticipant(currentUser)).thenReturn(participant(currentUser));
+        when(userEncryptionDeviceRepository.findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDesc(currentUser.getId()))
+                .thenReturn(List.of(currentDevice));
+        when(chatMessageRecipientPayloadRepository.findAllByMessageIdInAndRecipientUserId(
+                argThat(messageIds -> messageIds != null
+                        && messageIds.size() == 1
+                        && messageIds.contains(message.getId())),
+                eq(currentUser.getId())
+        )).thenReturn(List.of(
+                new ChatMessageRecipientPayload(
+                        message.getId(),
+                        historicalSelfDevice.getId(),
+                        currentUser.getId(),
+                        "historical-self-payload",
+                        message.getCreatedAt()
+                )
+        ));
+
+        List<MessageResponse> response = messageService.listMessages(chatId, "north", null, 50, false);
+
+        assertThat(response).hasSize(1);
+        assertThat(response.get(0).encryptedPayload()).isNotNull();
+        assertThat(response.get(0).encryptedPayload().encryptedKeysByRecipientId())
+                .containsEntry(historicalSelfDevice.getId().toString(), "historical-self-payload");
+    }
+
+    @Test
     void listMessagesShouldUseServerOrderCursorForPagination() {
         UUID chatId = UUID.randomUUID();
         long beforeServerOrder = 100L;
