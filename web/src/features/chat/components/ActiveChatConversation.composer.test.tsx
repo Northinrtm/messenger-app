@@ -113,7 +113,6 @@ function conversationProps(
     onBack: () => {},
     onToggleChatMenu: () => {},
     onOpenMembers: () => {},
-    onToggleArchive: () => {},
     onCloseChat: () => {},
     onJumpToPinned: () => {},
     onUnpin: () => {},

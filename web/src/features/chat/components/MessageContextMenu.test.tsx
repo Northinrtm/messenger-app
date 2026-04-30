@@ -79,6 +79,8 @@ function renderMenu(root: Root, overrides: Partial<Parameters<typeof MessageCont
         onCopy={() => undefined}
         onDeleteForSelf={() => undefined}
         onDeleteForEveryone={() => undefined}
+        isChatArchived={false}
+        onToggleChatArchive={() => undefined}
         onDeleteChatForSelf={() => undefined}
         {...overrides}
       />
@@ -155,5 +157,35 @@ describe("MessageContextMenu", () => {
       "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0434\u043B\u044F \u0432\u0441\u0435\u0445"
     );
     expect(container.querySelectorAll(".context-menu-item.is-danger")).toHaveLength(1);
+  });
+
+  it("archives a chat from the chat context menu", async () => {
+    const toggleArchiveSpy = vi.fn();
+
+    await renderMenu(root!, {
+      contextMenu: {
+        kind: "chat",
+        chatId: "chat-archive",
+        x: 120,
+        y: 80,
+      },
+      contextMenuMessage: null,
+      isChatArchived: false,
+      onToggleChatArchive: toggleArchiveSpy,
+    });
+
+    expect(container.textContent).toContain("В архив");
+
+    const archiveButton = container.querySelector(".context-menu-item") as HTMLButtonElement | null;
+    if (!archiveButton) {
+      throw new Error("Archive chat button is missing");
+    }
+
+    await act(async () => {
+      archiveButton.click();
+      await Promise.resolve();
+    });
+
+    expect(toggleArchiveSpy).toHaveBeenCalledWith("chat-archive");
   });
 });

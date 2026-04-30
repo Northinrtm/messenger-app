@@ -2624,19 +2624,51 @@ select {
   color: #73b6ff;
 }
 
-.archive-toggle-button {
+.conversation-actions {
+  display: flex;
   align-self: center;
+}
+
+.conversation-close-button {
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  align-self: center;
+  background: rgba(255, 255, 255, 0.05);
+  color: transparent;
+  font-size: 0;
+  transition:
+    background 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.conversation-close-button::before {
+  content: "×";
+  color: #a8bdd2;
+  font-size: 1.55rem;
+  line-height: 1;
+}
+
+.conversation-close-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: none;
+}
+
+.conversation-close-button:focus-visible {
+  outline: 2px solid #63a8f6;
+  outline-offset: 2px;
+}
+
+.conversation-close-button-icon {
+  display: none;
 }
 
 .close-chat-button {
-  order: 3;
-}
-
-.conversation-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-  align-self: center;
+  display: none;
 }
 
 .north-conversation-header.is-selection-mode {

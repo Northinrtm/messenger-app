@@ -722,12 +722,10 @@ export function SidebarManagementSheets({
 
   if (sheet === "groupInfo" && activeChat && !activeChat.direct) {
     const normalizedGroupTitle = groupDetailsTitle.trim();
-    const currentPrejoinHistoryPolicy = activeChat.prejoinHistoryPolicy ?? "FULL_HISTORY";
     const isFullHistoryEnabled = groupDetailsPrejoinHistoryPolicy === "FULL_HISTORY";
     const groupDetailsChanged =
       normalizedGroupTitle !== activeChat.title ||
-      (groupDetailsAvatarUrl ?? null) !== (activeChat.avatarUrl ?? null) ||
-      groupDetailsPrejoinHistoryPolicy !== currentPrejoinHistoryPolicy;
+      (groupDetailsAvatarUrl ?? null) !== (activeChat.avatarUrl ?? null);
 
     return (
       <div className="sheet-card">
@@ -826,6 +824,7 @@ export function SidebarManagementSheets({
                 aria-checked={isFullHistoryEnabled}
                 aria-label="Разрешить новым участникам группы видеть старую историю сообщений"
                 className={isFullHistoryEnabled ? "group-history-switch is-on" : "group-history-switch"}
+                disabled={updateGroupPending}
                 onClick={() =>
                   onGroupDetailsPrejoinHistoryPolicyChange(
                     isFullHistoryEnabled ? "JOIN_ONLY" : "FULL_HISTORY"

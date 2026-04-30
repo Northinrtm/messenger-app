@@ -111,7 +111,6 @@ type Props = {
   onBack: () => void;
   onToggleChatMenu: () => void;
   onOpenMembers: () => void;
-  onToggleArchive: () => void;
   onCloseChat: () => void;
   onJumpToPinned: () => void;
   onUnpin: () => void;
@@ -181,7 +180,6 @@ export function ActiveChatConversation({
   onBack,
   onToggleChatMenu,
   onOpenMembers,
-  onToggleArchive,
   onCloseChat,
   onJumpToPinned,
   onUnpin,
@@ -422,14 +420,15 @@ export function ActiveChatConversation({
         <div className="conversation-actions">
           <button
             type="button"
-            className="ghost-button compact archive-toggle-button"
-            onClick={onToggleArchive}
+            className="conversation-close-button"
+            onClick={onCloseChat}
+            aria-label="Закрыть чат"
           >
             {archivedChatIdSet.has(activeChat.id) ? "Вернуть" : "В архив"}
           </button>
           <button
             type="button"
-            className="ghost-button compact archive-toggle-button close-chat-button"
+            className="close-chat-button"
             onClick={onCloseChat}
           >
             Закрыть

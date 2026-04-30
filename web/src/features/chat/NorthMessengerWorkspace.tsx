@@ -1722,11 +1722,13 @@ export function NorthMessengerWorkspace({
     submitCreateGroup,
     submitPasswordChange,
     submitUpdateGroup,
+    submitUpdateGroupPrejoinHistoryPolicy,
     submitProfileDisplayName,
     toggleArchiveChat,
     updateArchivedChatMutation,
     updateConferenceMutation,
     updateGroupMutation,
+    updateGroupHistoryPolicyMutation,
     updateProfileMutation,
     unblockUserMutation,
   } = useWorkspaceMutations({
@@ -1903,6 +1905,17 @@ export function NorthMessengerWorkspace({
     submitUpdateGroup();
   });
 
+  const handleUpdateGroupPrejoinHistoryPolicy = useEffectEvent(
+    (value: ChatPrejoinHistoryPolicy) => {
+      submitUpdateGroupPrejoinHistoryPolicy(value);
+    }
+  );
+
+  const handleToggleChatArchiveFromContextMenu = useEffectEvent((chatId: string) => {
+    setContextMenu(null);
+    toggleArchiveChat(chatId, archivedChatIdSet);
+  });
+
   const handleLeaveGroup = useEffectEvent(() => {
     if (!activeChat || activeChat.direct || activeChatIsOwnedByCurrentUser) {
       return;
@@ -2038,7 +2051,7 @@ export function NorthMessengerWorkspace({
     setGroupDetailsTitle(activeChat.title);
     setGroupDetailsAvatarUrl(activeChat.avatarUrl ?? null);
     setGroupDetailsPrejoinHistoryPolicy(activeChat.prejoinHistoryPolicy ?? "FULL_HISTORY");
-  }, [activeChat, isChatMenuOpen, sidebarSheet]);
+  }, [activeChat?.id, activeChat?.direct, isChatMenuOpen, sidebarSheet]);
 
   useEffect(() => {
     if (!pendingInviteCode) {
@@ -2459,7 +2472,8 @@ export function NorthMessengerWorkspace({
     groupInviteLinkPending: createGroupInviteLinkMutation.isPending,
     addGroupParticipantsPending: addGroupParticipantsMutation.isPending,
     addConferenceParticipantsPending: addConferenceParticipantsMutation.isPending,
-    updateGroupPending: updateGroupMutation.isPending,
+    updateGroupPending:
+      updateGroupMutation.isPending || updateGroupHistoryPolicyMutation.isPending,
     createChatPending: createChatMutation.isPending,
     updateProfilePending: updateProfileMutation.isPending,
     changePasswordPending: changePasswordMutation.isPending,
@@ -2495,7 +2509,7 @@ export function NorthMessengerWorkspace({
     onDisablePushNotifications: () => void handleDisablePushNotifications(),
     onGroupTitleChange: setGroupTitle,
     onGroupDetailsTitleChange: setGroupDetailsTitle,
-    onGroupDetailsPrejoinHistoryPolicyChange: setGroupDetailsPrejoinHistoryPolicy,
+    onGroupDetailsPrejoinHistoryPolicyChange: handleUpdateGroupPrejoinHistoryPolicy,
     onGroupAvatarSelected: (file) => void uploadGroupAvatarFromFile(file),
     onRemoveGroupAvatar: () => setGroupDetailsAvatarUrl(null),
     onToggleGroupCreatePicker: () => setIsGroupCreatePickerOpen((current) => !current),
@@ -2608,7 +2622,6 @@ export function NorthMessengerWorkspace({
             setIsChatMenuOpen(false);
             setIsChatMembersOpen(true);
           },
-          onToggleArchive: () => toggleArchiveChat(activeChat.id, archivedChatIdSet),
           onCloseChat: closeActiveChat,
           onJumpToPinned: () => {
             if (activePinnedMessage) {
@@ -2664,7 +2677,8 @@ export function NorthMessengerWorkspace({
           isGroupInvitePickerOpen,
           groupInviteLinkPending: createGroupInviteLinkMutation.isPending,
           addGroupParticipantsPending: addGroupParticipantsMutation.isPending,
-          updateGroupPending: updateGroupMutation.isPending,
+          updateGroupPending:
+            updateGroupMutation.isPending || updateGroupHistoryPolicyMutation.isPending,
           createChatPending: createChatMutation.isPending,
           leaveGroupPending: leaveGroupMutation.isPending,
           deleteGroupPending: deleteGroupMutation.isPending,
@@ -2687,7 +2701,7 @@ export function NorthMessengerWorkspace({
           onGroupDetailsTitleChange: setGroupDetailsTitle,
           onGroupAvatarSelected: (file) => void uploadGroupAvatarFromFile(file),
           onRemoveGroupAvatar: () => setGroupDetailsAvatarUrl(null),
-          onGroupDetailsPrejoinHistoryPolicyChange: setGroupDetailsPrejoinHistoryPolicy,
+          onGroupDetailsPrejoinHistoryPolicyChange: handleUpdateGroupPrejoinHistoryPolicy,
           onSubmitUpdateGroup: handleSubmitUpdateGroup,
           onGenerateGroupInviteLink: handleGenerateGroupInviteLink,
           onCopyGroupInviteLink: (value) => void navigator.clipboard.writeText(value),
@@ -2763,6 +2777,9 @@ export function NorthMessengerWorkspace({
         onCopy: copyMessageText,
         onDeleteForSelf: deleteMessageForSelf,
         onDeleteForEveryone: deleteMessageForEveryone,
+        isChatArchived:
+          contextMenu.kind === "chat" ? archivedChatIdSet.has(contextMenu.chatId) : false,
+        onToggleChatArchive: handleToggleChatArchiveFromContextMenu,
         onDeleteChatForSelf: deleteChatForSelf,
       }
     : null;

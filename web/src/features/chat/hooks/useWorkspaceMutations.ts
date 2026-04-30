@@ -319,6 +319,24 @@ export function useWorkspaceMutations({
     },
   });
 
+  const updateGroupHistoryPolicyMutation = useMutation({
+    mutationFn: (input: {
+      chatId: string;
+      title: string;
+      avatarUrl: string | null;
+      prejoinHistoryPolicy: ChatPrejoinHistoryPolicy;
+    }) =>
+      updateGroupChatRequest(token, input.chatId, {
+        title: input.title,
+        avatarUrl: input.avatarUrl,
+        prejoinHistoryPolicy: input.prejoinHistoryPolicy,
+      }),
+    onSuccess: (chat) => {
+      queryClient.setQueryData<ChatSummary[]>(["chats", token], (current) => upsertChat(current, chat));
+      setGroupDetailsPrejoinHistoryPolicy(chat.prejoinHistoryPolicy ?? "FULL_HISTORY");
+    },
+  });
+
   const signOutMutation = useMutation({
     mutationFn: () => logout(),
     onSettled: async () => {
@@ -611,6 +629,32 @@ export function useWorkspaceMutations({
     });
   };
 
+  const submitUpdateGroupPrejoinHistoryPolicy = (prejoinHistoryPolicy: ChatPrejoinHistoryPolicy) => {
+    if (!activeChat || activeChat.direct) {
+      return;
+    }
+
+    const currentPolicy = activeChat.prejoinHistoryPolicy ?? "FULL_HISTORY";
+    if (prejoinHistoryPolicy === currentPolicy) {
+      return;
+    }
+
+    setGroupDetailsPrejoinHistoryPolicy(prejoinHistoryPolicy);
+    updateGroupHistoryPolicyMutation.mutate(
+      {
+        chatId: activeChat.id,
+        title: activeChat.title,
+        avatarUrl: activeChat.avatarUrl ?? null,
+        prejoinHistoryPolicy,
+      },
+      {
+        onError: () => {
+          setGroupDetailsPrejoinHistoryPolicy(currentPolicy);
+        },
+      }
+    );
+  };
+
   const submitCreateConference = (formatClock: (value: string) => string) => {
     const parsedDate = new Date(conferenceScheduledAt);
     const scheduledAt = Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
@@ -690,11 +734,13 @@ export function useWorkspaceMutations({
     submitCreateGroup,
     submitPasswordChange,
     submitUpdateGroup,
+    submitUpdateGroupPrejoinHistoryPolicy,
     submitProfileDisplayName,
     toggleArchiveChat,
     updateArchivedChatMutation,
     updateConferenceMutation,
     updateGroupMutation,
+    updateGroupHistoryPolicyMutation,
     updateProfileMutation,
     unblockUserMutation,
   };

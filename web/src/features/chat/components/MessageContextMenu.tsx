@@ -44,6 +44,13 @@ const MENU_COPY = {
     "\u0421\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435 \u0438\u0441\u0447\u0435\u0437\u043D\u0435\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u0443 \u0432\u0430\u0441",
   deleteForEveryoneDisabled:
     "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0434\u043B\u044F \u0432\u0441\u0435\u0445 \u043C\u043E\u0436\u043D\u043E \u0442\u043E\u043B\u044C\u043A\u043E \u0441\u0432\u043E\u0438 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F",
+  archiveChatLabel: "\u0412 \u0430\u0440\u0445\u0438\u0432",
+  archiveChatHint:
+    "\u0423\u0431\u0440\u0430\u0442\u044C \u0447\u0430\u0442 \u0438\u0437 \u043E\u0441\u043D\u043E\u0432\u043D\u043E\u0433\u043E \u0441\u043F\u0438\u0441\u043A\u0430",
+  restoreChatLabel: "\u0412\u0435\u0440\u043D\u0443\u0442\u044C \u0438\u0437 \u0430\u0440\u0445\u0438\u0432\u0430",
+  restoreChatHint:
+    "\u0412\u0435\u0440\u043D\u0443\u0442\u044C \u0447\u0430\u0442 \u043E\u0431\u0440\u0430\u0442\u043D\u043E \u0432 \u043E\u0441\u043D\u043E\u0432\u043D\u043E\u0439 \u0441\u043F\u0438\u0441\u043E\u043A",
+  archiveIcon: "\u21AA",
   deleteChatForSelfLabel: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0447\u0430\u0442 \u0443 \u0441\u0435\u0431\u044F",
   deleteChatForSelfHint:
     "\u0427\u0430\u0442 \u0438\u0441\u0447\u0435\u0437\u043D\u0435\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u0438\u0437 \u0432\u0430\u0448\u0435\u0433\u043E \u0441\u043F\u0438\u0441\u043A\u0430",
@@ -79,6 +86,8 @@ type Props = {
   onCopy: (message: ChatMessage) => void;
   onDeleteForSelf: (chatId: string, messageId: string) => void;
   onDeleteForEveryone: (chatId: string, messageId: string) => void;
+  isChatArchived: boolean;
+  onToggleChatArchive: (chatId: string) => void;
   onDeleteChatForSelf: (chatId: string) => void;
 };
 
@@ -108,6 +117,8 @@ export function MessageContextMenu({
   onCopy,
   onDeleteForSelf,
   onDeleteForEveryone,
+  isChatArchived,
+  onToggleChatArchive,
   onDeleteChatForSelf,
 }: Props) {
   return (
@@ -264,18 +275,36 @@ export function MessageContextMenu({
             ) : null}
           </>
         ) : (
-          <button
-            type="button"
-            className="context-menu-item is-danger"
-            role="menuitem"
-            onClick={() => onDeleteChatForSelf(contextMenu.chatId)}
-          >
-            <span className="context-menu-item-icon">{MENU_COPY.deleteIcon}</span>
-            <span className="context-menu-item-copy">
-              <span className="context-menu-item-label">{MENU_COPY.deleteChatForSelfLabel}</span>
-              <span className="context-menu-item-hint">{MENU_COPY.deleteChatForSelfHint}</span>
-            </span>
-          </button>
+          <>
+            <button
+              type="button"
+              className="context-menu-item"
+              role="menuitem"
+              onClick={() => onToggleChatArchive(contextMenu.chatId)}
+            >
+              <span className="context-menu-item-icon">{MENU_COPY.archiveIcon}</span>
+              <span className="context-menu-item-copy">
+                <span className="context-menu-item-label">
+                  {isChatArchived ? MENU_COPY.restoreChatLabel : MENU_COPY.archiveChatLabel}
+                </span>
+                <span className="context-menu-item-hint">
+                  {isChatArchived ? MENU_COPY.restoreChatHint : MENU_COPY.archiveChatHint}
+                </span>
+              </span>
+            </button>
+            <button
+              type="button"
+              className="context-menu-item is-danger"
+              role="menuitem"
+              onClick={() => onDeleteChatForSelf(contextMenu.chatId)}
+            >
+              <span className="context-menu-item-icon">{MENU_COPY.deleteIcon}</span>
+              <span className="context-menu-item-copy">
+                <span className="context-menu-item-label">{MENU_COPY.deleteChatForSelfLabel}</span>
+                <span className="context-menu-item-hint">{MENU_COPY.deleteChatForSelfHint}</span>
+              </span>
+            </button>
+          </>
         )}
       </div>
     </div>

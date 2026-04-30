@@ -202,12 +202,10 @@ export function ChatMenuPanel({
   const normalizedGroupTitle = groupDetailsTitle.trim();
   const groupTitle = normalizedGroupTitle || activeChat.title;
   const isCurrentUserOwner = activeChat.ownerUserId === sessionUserId;
-  const currentPolicy = activeChat.prejoinHistoryPolicy ?? "FULL_HISTORY";
   const isFullHistoryEnabled = groupDetailsPrejoinHistoryPolicy === "FULL_HISTORY";
   const groupChanged =
     groupTitle !== activeChat.title ||
-    (groupDetailsAvatarUrl ?? null) !== (activeChat.avatarUrl ?? null) ||
-    groupDetailsPrejoinHistoryPolicy !== currentPolicy;
+    (groupDetailsAvatarUrl ?? null) !== (activeChat.avatarUrl ?? null);
 
   return (
     <div className="chat-menu-panel">
@@ -353,6 +351,7 @@ export function ChatMenuPanel({
                   aria-checked={isFullHistoryEnabled}
                   aria-label={COPY.historyToggleLabel}
                   className={isFullHistoryEnabled ? "group-history-switch is-on" : "group-history-switch"}
+                  disabled={updateGroupPending}
                   onClick={() =>
                     onGroupDetailsPrejoinHistoryPolicyChange(
                       isFullHistoryEnabled ? "JOIN_ONLY" : "FULL_HISTORY"
