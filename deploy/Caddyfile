@@ -1,6 +1,12 @@
 {$APP_DOMAIN} {
     encode gzip zstd
 
+    log ws_access {
+        no_hostname
+        output stdout
+        format json
+    }
+
     header {
         Strict-Transport-Security "max-age=31536000"
         X-Content-Type-Options "nosniff"
@@ -50,10 +56,20 @@
         respond "Not found" 404
     }
 
-    @backend_app {
-        path /api/* /ws /ws/*
+    @backend_websocket {
+        path /ws /ws/*
     }
-    handle @backend_app {
+    handle @backend_websocket {
+        log_name ws_access
+        reverse_proxy backend:8080 {
+            transport http {
+                dial_timeout 5s
+            }
+        }
+    }
+
+    @backend_api path /api/*
+    handle @backend_api {
         reverse_proxy backend:8080 {
             transport http {
                 dial_timeout 5s

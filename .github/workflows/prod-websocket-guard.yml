@@ -59,7 +59,7 @@ jobs:
           else
             dc='docker-compose -f docker-compose.prod.yml --env-file .env.prod'
           fi
-          sh -lc "eval \"$dc logs --no-log-prefix --since ${WS_ALERT_WINDOW:-10m} web 2>&1\" | grep '\"kind\":\"ws_access\"' || true"
+          sh -lc "eval \"$dc logs --no-log-prefix --since ${WS_ALERT_WINDOW:-10m} edge 2>&1\" || true"
           REMOTE
 
       - name: Analyze websocket activity
@@ -86,10 +86,19 @@ jobs:
                 item = json.loads(line)
               except json.JSONDecodeError:
                 continue
-              if item.get("kind") != "ws_access":
+              request = item.get("request")
+              if not isinstance(request, dict):
+                continue
+              request_uri = str(request.get("uri", ""))
+              if not request_uri.startswith("/ws"):
                 continue
               status = str(item.get("status", ""))
-              remote_addr = str(item.get("remote_addr", "unknown"))
+              remote_addr = str(
+                request.get("client_ip")
+                or request.get("remote_ip")
+                or item.get("remote_ip")
+                or "unknown"
+              )
               total += 1
               count_429 += int(status == "429")
               by_ip[remote_addr] += 1
