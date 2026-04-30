@@ -41,8 +41,10 @@ class ProductionDeploymentConfigTest {
         String caddyfile = readRepoFile("deploy", "Caddyfile");
 
         assertThat(caddyfile)
-                .contains("@backend_app")
-                .contains("path /api/* /ws /ws/*")
+                .contains("@backend_websocket")
+                .contains("path /ws /ws/*")
+                .contains("log_name ws_access")
+                .contains("@backend_api path /api/*")
                 .contains("reverse_proxy backend:8080")
                 .contains("reverse_proxy web:80");
     }
