@@ -2639,18 +2639,12 @@ select {
   place-items: center;
   align-self: center;
   background: rgba(255, 255, 255, 0.05);
-  color: transparent;
-  font-size: 0;
-  transition:
-    background 180ms ease,
-    box-shadow 180ms ease;
-}
-
-.conversation-close-button::before {
-  content: "×";
   color: #a8bdd2;
   font-size: 1.55rem;
   line-height: 1;
+  transition:
+    background 180ms ease,
+    box-shadow 180ms ease;
 }
 
 .conversation-close-button:hover {
@@ -2661,14 +2655,6 @@ select {
 .conversation-close-button:focus-visible {
   outline: 2px solid #63a8f6;
   outline-offset: 2px;
-}
-
-.conversation-close-button-icon {
-  display: none;
-}
-
-.close-chat-button {
-  display: none;
 }
 
 .north-conversation-header.is-selection-mode {

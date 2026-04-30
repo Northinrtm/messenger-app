@@ -2588,7 +2588,6 @@ export function NorthMessengerWorkspace({
       ? {
           activeChat,
           activeDirectParticipant,
-          archivedChatIdSet,
           sessionUser: session.user,
           conversationSubtitle,
           showTypingIndicator,

@@ -1,7 +1,6 @@
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useEffectEvent, useRef, useState } from "react";
 import { AuthCard } from "../features/auth/AuthCard";
 import { UnlockCard } from "../features/auth/UnlockCard";
-import { NorthMessengerWorkspace } from "../features/chat/NorthMessengerWorkspace";
 import { refreshSession } from "../lib/api";
 import {
   getSessionRefreshDelay,
@@ -16,6 +15,10 @@ const INVITE_PATH_PREFIX = "/j/";
 const PASSWORD_RESET_QUERY_PARAM = "resetToken";
 const EMAIL_VERIFICATION_QUERY_PARAM = "verifyEmailToken";
 let initialSessionRestorePromise: Promise<AuthResponse | null> | null = null;
+const NorthMessengerWorkspace = lazy(async () => {
+  const module = await import("../features/chat/NorthMessengerWorkspace");
+  return { default: module.NorthMessengerWorkspace };
+});
 
 function restoreInitialSession() {
   if (!initialSessionRestorePromise) {
@@ -309,12 +312,24 @@ export function App() {
         />
       ) : session ? (
         <>
-          <NorthMessengerWorkspace
-            session={session}
-            pendingInviteCode={pendingInviteCode}
-            onPendingInviteHandled={handlePendingInviteHandled}
-            onSessionChange={setSession}
-          />
+          <Suspense
+            fallback={
+              <main className="auth-shell">
+                <section className="auth-card">
+                  <div className="eyebrow">Opening workspace</div>
+                  <h1>Preparing your chats.</h1>
+                  <p className="auth-copy">Loading the messenger workspace and secure messaging tools.</p>
+                </section>
+              </main>
+            }
+          >
+            <NorthMessengerWorkspace
+              session={session}
+              pendingInviteCode={pendingInviteCode}
+              onPendingInviteHandled={handlePendingInviteHandled}
+              onSessionChange={setSession}
+            />
+          </Suspense>
           {sessionNeedsUnlock ? (
             <UnlockCard
               session={session}

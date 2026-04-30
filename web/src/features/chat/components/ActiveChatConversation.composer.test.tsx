@@ -85,7 +85,6 @@ function conversationProps(
   return {
     activeChat: chatSummary(),
     activeDirectParticipant: participant({ id: "user-2", username: "anna", displayName: "Anna" }),
-    archivedChatIdSet: new Set(),
     sessionUser: userProfile(),
     conversationSubtitle: "subtitle",
     showTypingIndicator: false,

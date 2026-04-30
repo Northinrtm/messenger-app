@@ -83,7 +83,6 @@ const MESSAGE_SELECTION_COPY = {
 type Props = {
   activeChat: ChatSummary;
   activeDirectParticipant: Participant | null;
-  archivedChatIdSet: Set<string>;
   sessionUser: UserProfile;
   conversationSubtitle: string;
   showTypingIndicator: boolean;
@@ -152,7 +151,6 @@ type Props = {
 export function ActiveChatConversation({
   activeChat,
   activeDirectParticipant,
-  archivedChatIdSet,
   sessionUser,
   conversationSubtitle,
   showTypingIndicator,
@@ -424,14 +422,7 @@ export function ActiveChatConversation({
             onClick={onCloseChat}
             aria-label="Закрыть чат"
           >
-            {archivedChatIdSet.has(activeChat.id) ? "Вернуть" : "В архив"}
-          </button>
-          <button
-            type="button"
-            className="close-chat-button"
-            onClick={onCloseChat}
-          >
-            Закрыть
+            {"\u00D7"}
           </button>
         </div>
         </>
