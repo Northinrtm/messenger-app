@@ -2604,6 +2604,10 @@ export function NorthMessengerWorkspace({
             setIsChatMembersOpen(false);
             setIsChatMenuOpen((current) => !current);
           },
+          onOpenMembers: () => {
+            setIsChatMenuOpen(false);
+            setIsChatMembersOpen(true);
+          },
           onToggleArchive: () => toggleArchiveChat(activeChat.id, archivedChatIdSet),
           onCloseChat: closeActiveChat,
           onJumpToPinned: () => {

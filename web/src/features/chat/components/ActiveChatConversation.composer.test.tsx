@@ -112,6 +112,7 @@ function conversationProps(
     composerTextareaRef: { current: null },
     onBack: () => {},
     onToggleChatMenu: () => {},
+    onOpenMembers: () => {},
     onToggleArchive: () => {},
     onCloseChat: () => {},
     onJumpToPinned: () => {},
@@ -455,5 +456,52 @@ describe("ActiveChatConversation composer", () => {
 
     expect(deleteForEveryoneSpy).toHaveBeenCalledTimes(1);
     expect(deleteForSelfSpy).not.toHaveBeenCalled();
+  });
+
+  it("opens group members from the participant counter without toggling the group menu", async () => {
+    const onToggleChatMenu = vi.fn();
+    const onOpenMembers = vi.fn();
+
+    await act(async () => {
+      root!.render(
+        <ActiveChatConversation
+          {...conversationProps({
+            activeChat: chatSummary({
+              direct: false,
+              title: "qwe",
+            }),
+            activeDirectParticipant: null,
+            conversationSubtitle: "2 участника",
+            onToggleChatMenu,
+            onOpenMembers,
+          })}
+        />
+      );
+      await Promise.resolve();
+    });
+
+    const titleButton = container.querySelector(".conversation-group-title-button") as
+      | HTMLButtonElement
+      | null;
+    const subtitleButton = container.querySelector(".conversation-subtitle-button") as
+      | HTMLButtonElement
+      | null;
+
+    if (!titleButton || !subtitleButton) {
+      throw new Error("Group header buttons are missing");
+    }
+
+    await act(async () => {
+      titleButton.click();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      subtitleButton.click();
+      await Promise.resolve();
+    });
+
+    expect(onToggleChatMenu).toHaveBeenCalledTimes(1);
+    expect(onOpenMembers).toHaveBeenCalledTimes(1);
   });
 });

@@ -723,6 +723,7 @@ export function SidebarManagementSheets({
   if (sheet === "groupInfo" && activeChat && !activeChat.direct) {
     const normalizedGroupTitle = groupDetailsTitle.trim();
     const currentPrejoinHistoryPolicy = activeChat.prejoinHistoryPolicy ?? "FULL_HISTORY";
+    const isFullHistoryEnabled = groupDetailsPrejoinHistoryPolicy === "FULL_HISTORY";
     const groupDetailsChanged =
       normalizedGroupTitle !== activeChat.title ||
       (groupDetailsAvatarUrl ?? null) !== (activeChat.avatarUrl ?? null) ||
@@ -802,48 +803,39 @@ export function SidebarManagementSheets({
             placeholder="Название группы"
             maxLength={120}
           />
-          <div className="sheet-section">
-            <div className="section-title">История для новых участников</div>
-            <div className="sheet-actions-stack">
-              <button
-                type="button"
-                className="sheet-row sheet-row-button"
-                onClick={() => onGroupDetailsPrejoinHistoryPolicyChange("JOIN_ONLY")}
-              >
-                <div className="sheet-row-copy">
-                  <strong>Не показывать сообщения до вступления</strong>
-                  <span>Новый участник увидит историю только с момента входа в группу.</span>
-                </div>
-                <span className="member-pill">
-                  {groupDetailsPrejoinHistoryPolicy === "JOIN_ONLY" ? "Выбрано" : "Выбрать"}
-                </span>
-              </button>
-              <button
-                type="button"
-                className="sheet-row sheet-row-button"
-                onClick={() => onGroupDetailsPrejoinHistoryPolicyChange("FULL_HISTORY")}
-              >
-                <div className="sheet-row-copy">
-                  <strong>Показывать всю историю группы</strong>
-                  <span>Сервер откроет новым участникам сообщения, отправленные до их вступления.</span>
-                </div>
-                <span className="member-pill">
-                  {groupDetailsPrejoinHistoryPolicy === "FULL_HISTORY" ? "Выбрано" : "Выбрать"}
-                </span>
-              </button>
-            </div>
-            <p className="profile-avatar-hint">
-              Уже выданный доступ к старой истории не отзывается. Изменение влияет на будущую выдачу
-              доступа и на участников, которым история еще не открывалась.
-            </p>
-          </div>
           <button
             type="submit"
             className="secondary-button"
             disabled={updateGroupPending || normalizedGroupTitle.length < 2 || !groupDetailsChanged}
           >
-            {updateGroupPending ? "Сохраняем..." : "Сохранить изменения"}
+            {updateGroupPending ? "Сохраняем..." : "Сохранить"}
           </button>
+          <div className="profile-line group-history-setting">
+            <div className="group-history-setting-row">
+              <div className="group-history-setting-copy">
+                <strong>Разрешить новым участникам группы видеть старую историю сообщений</strong>
+                <span>
+                  {isFullHistoryEnabled
+                    ? "Новые участники увидят историю группы полностью."
+                    : "Новые участники увидят только сообщения после вступления в группу."}
+                </span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isFullHistoryEnabled}
+                aria-label="Разрешить новым участникам группы видеть старую историю сообщений"
+                className={isFullHistoryEnabled ? "group-history-switch is-on" : "group-history-switch"}
+                onClick={() =>
+                  onGroupDetailsPrejoinHistoryPolicyChange(
+                    isFullHistoryEnabled ? "JOIN_ONLY" : "FULL_HISTORY"
+                  )
+                }
+              >
+                <span className="group-history-switch-thumb" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
         </form>
 
         <div className="sheet-actions-stack">
@@ -881,7 +873,6 @@ export function SidebarManagementSheets({
           <div className="invite-link-panel">
           <div className="invite-link-copy">
             <strong>Ссылка-приглашение</strong>
-            <span>Открывает группу и сразу добавляет пользователя по короткому адресу.</span>
           </div>
           {groupInviteLinkUrl ? (
             <div className="invite-link-row">

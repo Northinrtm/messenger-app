@@ -321,7 +321,7 @@ describe("SidebarManagementSheets group info sheet", () => {
     (globalThis as ReactActEnvironment).IS_REACT_ACT_ENVIRONMENT = false;
   });
 
-  it("renders prejoin history policy options and calls change handler", async () => {
+  it("renders the prejoin history switch and calls change handler", async () => {
     const onGroupDetailsPrejoinHistoryPolicyChange = vi.fn();
     await act(async () => {
       root!.render(
@@ -368,17 +368,16 @@ describe("SidebarManagementSheets group info sheet", () => {
       );
     });
 
-    expect(container.textContent).toContain("История для новых участников");
-    expect(container.textContent).toContain("Не показывать сообщения до вступления");
-    expect(container.textContent).toContain("Показывать всю историю группы");
-
-    const fullHistoryButton = Array.from(container.querySelectorAll("button")).find((button) =>
-      button.textContent?.includes("Показывать всю историю группы")
+    expect(container.textContent).toContain(
+      "Разрешить новым участникам группы видеть старую историю сообщений"
     );
-    expect(fullHistoryButton).toBeTruthy();
+
+    const historySwitch = container.querySelector('[role="switch"]') as HTMLButtonElement | null;
+    expect(historySwitch).toBeTruthy();
+    expect(historySwitch?.getAttribute("aria-checked")).toBe("false");
 
     await act(async () => {
-      fullHistoryButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      historySwitch?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(onGroupDetailsPrejoinHistoryPolicyChange).toHaveBeenCalledWith("FULL_HISTORY");

@@ -110,6 +110,7 @@ type Props = {
   composerTextareaRef: RefObject<HTMLTextAreaElement | null>;
   onBack: () => void;
   onToggleChatMenu: () => void;
+  onOpenMembers: () => void;
   onToggleArchive: () => void;
   onCloseChat: () => void;
   onJumpToPinned: () => void;
@@ -179,6 +180,7 @@ export function ActiveChatConversation({
   composerTextareaRef,
   onBack,
   onToggleChatMenu,
+  onOpenMembers,
   onToggleArchive,
   onCloseChat,
   onJumpToPinned,
@@ -381,37 +383,40 @@ export function ActiveChatConversation({
               </span>
             </button>
           ) : (
-            <button
-              type="button"
-              ref={chatMenuButtonRef}
-              className={
-                isChatMenuOpen
-                  ? "conversation-identity-button is-active"
-                  : "conversation-identity-button"
-              }
-              onClick={onToggleChatMenu}
-            >
-              <AvatarCircle
-                className="avatar conversation-avatar north-avatar"
-                name={activeChat.title}
-                avatarUrl={activeChat.avatarUrl}
-                badge="GR"
-              />
-              <span className="conversation-copy">
+            <div className="conversation-group-identity">
+              <button
+                type="button"
+                ref={chatMenuButtonRef}
+                className={
+                  isChatMenuOpen
+                    ? "conversation-group-title-button is-active"
+                    : "conversation-group-title-button"
+                }
+                onClick={onToggleChatMenu}
+              >
+                <AvatarCircle
+                  className="avatar conversation-avatar north-avatar"
+                  name={activeChat.title}
+                  avatarUrl={activeChat.avatarUrl}
+                  badge="GR"
+                />
                 <span className="conversation-title-row">
                   <h3>{activeChat.title}</h3>
                 </span>
-                <p
-                  className={
-                    showTypingIndicator
-                      ? "conversation-subtitle is-typing"
-                      : "conversation-subtitle"
-                  }
-                >
-                  {conversationSubtitle}
-                </p>
-              </span>
-            </button>
+              </button>
+              <button
+                type="button"
+                className={
+                  showTypingIndicator
+                    ? "conversation-subtitle-button is-typing"
+                    : "conversation-subtitle-button"
+                }
+                onClick={onOpenMembers}
+                aria-label="Открыть участников группы"
+              >
+                {conversationSubtitle}
+              </button>
+            </div>
           )}
         </div>
         <div className="conversation-actions">
