@@ -126,14 +126,10 @@ export async function decryptGroupMessage<
       await options.rememberGroupSenderChainState(options.userId, senderChainState);
       return options.decryptGroupSharedEnvelopeContent(sharedEnvelope, cachedMessageKey);
     } catch {
-      if (payload.historyEnvelope) {
-        return options.decryptGroupHistoryMessage(
-          options.message,
-          options.userId,
-          ownMaterial,
-          sharedEnvelope
-        );
-      }
+      // Older messages on the same sender chain still carry their own direct
+      // distribution envelopes. If a newer message already advanced the cached
+      // chain past this counter, fall through and decrypt the message-specific
+      // distribution instead of forcing history fallback.
     }
   }
 
