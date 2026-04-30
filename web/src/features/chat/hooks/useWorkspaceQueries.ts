@@ -1,6 +1,6 @@
 import type { InfiniteData } from "@tanstack/react-query";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   getArchivedChats,
   getArchivedVideoConferences,
@@ -35,6 +35,7 @@ import {
 type UseWorkspaceQueriesOptions = {
   activeChatId: string | null;
   activeConferenceId: string | null;
+  isActiveChatOpen: boolean;
   activeListTab: ConversationListTab;
   activePendingOutgoingCount: number;
   currentUser: UserProfile;
@@ -51,6 +52,14 @@ type UseWorkspaceQueriesOptions = {
 
 const INITIAL_MESSAGE_PAGE_SIZE = 30;
 const MESSAGE_HYDRATION_RETRY_DELAYS_MS = [250, 1_000, 3_000] as const;
+const CONNECTED_CHATS_REFETCH_INTERVAL_MS = 60_000;
+const FALLBACK_CHATS_REFETCH_INTERVAL_MS = 15_000;
+const FALLBACK_TYPING_REFETCH_INTERVAL_MS = 5_000;
+const FALLBACK_MESSAGES_REFETCH_INTERVAL_MS = 10_000;
+
+function isDocumentVisibleNow() {
+  return typeof document === "undefined" || document.visibilityState === "visible";
+}
 
 export function buildMessageHydrationKey(
   chatId: string,
@@ -108,12 +117,57 @@ export function buildRawMessagesQueryKey(userId: string, chatId: string | null |
   return ["messages-raw", userId, chatId ?? null] as const;
 }
 
-export function getChatsQueryRefreshStrategy(isRealtimeConnected: boolean) {
+export function getChatsQueryRefreshStrategy(options: {
+  isRealtimeConnected: boolean;
+  isDocumentVisible: boolean;
+}) {
   return {
-    refetchInterval: isRealtimeConnected ? 60_000 : 2_000,
-    refetchIntervalInBackground: !isRealtimeConnected,
+    refetchInterval: options.isRealtimeConnected
+      ? CONNECTED_CHATS_REFETCH_INTERVAL_MS
+      : options.isDocumentVisible
+        ? FALLBACK_CHATS_REFETCH_INTERVAL_MS
+        : false,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
   } as const;
+}
+
+export function getTypingQueryRefetchInterval(options: {
+  activeChatId: string | null;
+  isActiveChatOpen: boolean;
+  isDocumentVisible: boolean;
+  isRealtimeConnected: boolean;
+}) {
+  if (
+    options.isRealtimeConnected ||
+    !options.activeChatId ||
+    !options.isActiveChatOpen ||
+    !options.isDocumentVisible
+  ) {
+    return false;
+  }
+
+  return FALLBACK_TYPING_REFETCH_INTERVAL_MS;
+}
+
+export function getMessagesQueryRefetchInterval(options: {
+  activeChatId: string | null;
+  activePendingOutgoingCount: number;
+  isActiveChatOpen: boolean;
+  isDocumentVisible: boolean;
+  isRealtimeConnected: boolean;
+}) {
+  if (
+    options.isRealtimeConnected ||
+    !options.activeChatId ||
+    options.activePendingOutgoingCount > 0 ||
+    !options.isActiveChatOpen ||
+    !options.isDocumentVisible
+  ) {
+    return false;
+  }
+
+  return FALLBACK_MESSAGES_REFETCH_INTERVAL_MS;
 }
 
 export function getConferenceQueryRefreshStrategy(isAggressiveRefresh: boolean) {
@@ -248,6 +302,7 @@ export function shouldRetryUnavailableHydration(
 export function useWorkspaceQueries({
   activeChatId,
   activeConferenceId,
+  isActiveChatOpen,
   activeListTab,
   activePendingOutgoingCount,
   currentUser,
@@ -262,6 +317,7 @@ export function useWorkspaceQueries({
   userId,
 }: UseWorkspaceQueriesOptions) {
   const queryClient = useQueryClient();
+  const [isDocumentVisible, setIsDocumentVisible] = useState(isDocumentVisibleNow);
   const queuedMessageHydrationKeysRef = useRef(new Set<string>());
   const messageHydrationQueueRef = useRef(
     new Map<string, { chatId: string; rawMessage: ApiChatMessage }>()
@@ -275,10 +331,28 @@ export function useWorkspaceQueries({
     activeListTab === "conferences" || Boolean(activeConferenceId);
   const shouldFetchArchivedConferences = sidebarSheet === "archive" || Boolean(activeConferenceId);
 
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    const handleVisibilityChange = () => {
+      setIsDocumentVisible(isDocumentVisibleNow());
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
   const chatsQuery = useQuery({
     queryKey: ["chats", sessionToken],
     queryFn: () => getChats(sessionToken),
-    ...getChatsQueryRefreshStrategy(isRealtimeConnected),
+    ...getChatsQueryRefreshStrategy({
+      isRealtimeConnected,
+      isDocumentVisible,
+    }),
   });
 
   const sessionsQuery = useQuery({
@@ -367,8 +441,13 @@ export function useWorkspaceQueries({
   const activeTypingQuery = useQuery({
     queryKey: ["typing", sessionToken, activeChatId],
     queryFn: () => getTypingParticipants(sessionToken, activeChatId!),
-    enabled: Boolean(activeChatId) && !isRealtimeConnected,
-    refetchInterval: !isRealtimeConnected && activeChatId ? 1_500 : false,
+    enabled: Boolean(activeChatId) && !isRealtimeConnected && isActiveChatOpen && isDocumentVisible,
+    refetchInterval: getTypingQueryRefetchInterval({
+      activeChatId,
+      isActiveChatOpen,
+      isDocumentVisible,
+      isRealtimeConnected,
+    }),
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
     gcTime: typingQueryGcTimeMs,
@@ -408,8 +487,13 @@ export function useWorkspaceQueries({
     getNextPageParam: (lastPage, _allPages, lastPageParam) =>
       getNextMessagePageCursor(lastPage, lastPageParam),
     maxPages: 4,
-    refetchInterval:
-      activeChat?.id && activePendingOutgoingCount === 0 && !isRealtimeConnected ? 1_000 : false,
+    refetchInterval: getMessagesQueryRefetchInterval({
+      activeChatId: activeChat?.id ?? null,
+      activePendingOutgoingCount,
+      isActiveChatOpen,
+      isDocumentVisible,
+      isRealtimeConnected,
+    }),
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
     gcTime: messageQueryGcTimeMs,

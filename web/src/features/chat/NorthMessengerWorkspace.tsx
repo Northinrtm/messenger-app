@@ -573,6 +573,7 @@ export function NorthMessengerWorkspace({
   } = useWorkspaceQueries({
     activeChatId,
     activeConferenceId,
+    isActiveChatOpen,
     activeListTab,
     activePendingOutgoingCount,
     currentUser: session.user,
