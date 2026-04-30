@@ -223,6 +223,7 @@ import {
   setCurrentDeviceSessionRecord as setCurrentDeviceSessionRecordInternal,
   wasCurrentDeviceSessionRestoredFromPersistent as wasCurrentDeviceSessionRestoredFromPersistentInternal,
 } from "./e2eeSessionStore";
+import { dispatchE2eeDeviceStateSynced } from "./e2eeEvents";
 import {
   decryptRememberedDeviceSessions as decryptRememberedDeviceSessionsInternal,
   encryptRememberedDeviceSessions as encryptRememberedDeviceSessionsInternal,
@@ -1350,9 +1351,15 @@ async function refreshArchivedMessagesFromRemoteRecoverySnapshot(userId: string)
 
 export async function syncEncryptionDeviceState(session: AuthResponse) {
   ensureE2eeTransportStorageSchema();
+  const userId = session.user.id;
+  const hadRecoverySyncSession = recoverySyncSessionByUserId.has(userId);
+  const previousDeviceId = (await readEncryptionDeviceMaterial(userId))?.deviceId ?? null;
   rememberRecoverySyncSession(session);
 
-  if (!hasUnlockedPrivateEncryptionKey(session.user.id)) {
+  if (!hasUnlockedPrivateEncryptionKey(userId)) {
+    if (!hadRecoverySyncSession) {
+      dispatchE2eeDeviceStateSynced(userId);
+    }
     return;
   }
 
@@ -1363,6 +1370,11 @@ export async function syncEncryptionDeviceState(session: AuthResponse) {
     ]);
   } catch {
     // Device and recovery sync are best-effort. Messaging should keep working on the last known good state.
+  } finally {
+    const nextDeviceId = (await readEncryptionDeviceMaterial(userId))?.deviceId ?? null;
+    if (!hadRecoverySyncSession || previousDeviceId !== nextDeviceId) {
+      dispatchE2eeDeviceStateSynced(userId);
+    }
   }
 }
 

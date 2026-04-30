@@ -268,6 +268,91 @@ class ChatGroupHistoryKeyServiceTest {
         verify(chatHistoryKeyEscrowRepository, never()).findAllByChatIdOrderByHistoryKeyCreatedAtAsc(chatId);
     }
 
+    @Test
+    void listOwnGroupHistoryKeysShouldAllowEscrowLookupForRetiredOwnedDevice() throws Exception {
+        UserAccount member = testUserAccount(
+                UUID.randomUUID(),
+                "alice",
+                "alice@example.com",
+                "Alice",
+                null,
+                null,
+                "pw",
+                Instant.parse("2026-03-24T11:00:00Z")
+        );
+        UUID chatId = UUID.randomUUID();
+        UUID historyKeyId = UUID.randomUUID();
+        Instant joinedAt = Instant.parse("2026-04-30T06:04:36Z");
+
+        ChatRoom room = new ChatRoom(
+                chatId,
+                "Group",
+                false,
+                Instant.parse("2026-03-24T11:00:00Z")
+        );
+        room.updateGroupDetails("Group", null, ChatPrejoinHistoryPolicy.JOIN_ONLY);
+
+        ChatParticipant membership = new ChatParticipant(
+                UUID.randomUUID(),
+                chatId,
+                member.getId(),
+                joinedAt
+        );
+        membership.grantPrejoinHistoryAccess(joinedAt);
+
+        UserEncryptionDevice retiredDevice = new UserEncryptionDevice(
+                UUID.randomUUID(),
+                member.getId(),
+                "device",
+                x25519PublicJwk("identity-retired"),
+                "X25519",
+                ed25519PublicJwk(generateKeyPair("Ed25519")),
+                "Ed25519",
+                7,
+                x25519PublicJwk("signed-retired"),
+                sign(generateKeyPair("Ed25519").getPrivate(), signedPrekeySignaturePayload(x25519RawBytes("signed-retired"))),
+                "X25519",
+                joinedAt.minusSeconds(60),
+                joinedAt.minusSeconds(30),
+                joinedAt.minusSeconds(5)
+        );
+        ChatHistoryKeyEscrow escrow = new ChatHistoryKeyEscrow(
+                UUID.randomUUID(),
+                historyKeyId,
+                chatId,
+                "{\"ciphertext\":\"server\"}",
+                joinedAt.plusSeconds(1),
+                joinedAt.plusSeconds(1)
+        );
+
+        when(authService.requireAuthenticatedUser("alice")).thenReturn(member);
+        when(chatService.requireChatMembership(chatId, member)).thenReturn(room);
+        when(chatParticipantRepository.findByChatIdAndUserId(chatId, member.getId()))
+                .thenReturn(Optional.of(membership));
+        when(userEncryptionDeviceRepository.findById(retiredDevice.getId()))
+                .thenReturn(Optional.of(retiredDevice));
+        when(chatHistoryKeyAccessRepository.findAllByChatIdAndRecipientUserIdAndRecipientDeviceIdOrderByCreatedAtAsc(
+                chatId,
+                member.getId(),
+                retiredDevice.getId()
+        )).thenReturn(List.of());
+        when(chatHistoryKeyEscrowRepository.findAllByChatIdOrderByHistoryKeyCreatedAtAsc(chatId))
+                .thenReturn(List.of(escrow));
+        when(chatHistoryKeyEscrowCryptoService.decryptGrantPayload("{\"ciphertext\":\"server\"}"))
+                .thenReturn("{\"historyKey\":\"founding\"}");
+
+        var responses = chatGroupHistoryKeyService.listOwnGroupHistoryKeys(
+                "alice",
+                chatId,
+                retiredDevice.getId().toString()
+        );
+
+        assertThat(responses).hasSize(1);
+        assertThat(responses.get(0).historyKeyId()).isEqualTo(historyKeyId.toString());
+        assertThat(responses.get(0).wrappedKeyPayloadJson()).isEmpty();
+        assertThat(responses.get(0).serverGrantPayloadJson()).isEqualTo("{\"historyKey\":\"founding\"}");
+    }
+
     private UserEncryptionDevice device(UUID userId) throws Exception {
         KeyPair signatureKeyPair = generateKeyPair("Ed25519");
         UUID deviceId = UUID.randomUUID();

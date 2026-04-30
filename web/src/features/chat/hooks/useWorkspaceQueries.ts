@@ -17,6 +17,10 @@ import {
 import {
   isUnavailableEncryptedMessage,
 } from "../../../lib/e2eeShared";
+import {
+  E2EE_DEVICE_STATE_SYNCED_EVENT,
+  type E2eeDeviceStateSyncedDetail,
+} from "../../../lib/e2eeEvents";
 import { recoverLocalPendingMessages, removeLocalPendingMessage, toRecoveredPendingChatMessage } from "../../../lib/localPendingMessages";
 import type { ApiChatMessage, ChatMessage, ChatSummary, UserProfile } from "../../../lib/types";
 import type { ConversationListTab, SidebarSheet } from "../chatUi";
@@ -47,6 +51,46 @@ type UseWorkspaceQueriesOptions = {
 
 const INITIAL_MESSAGE_PAGE_SIZE = 30;
 const MESSAGE_HYDRATION_RETRY_DELAYS_MS = [250, 1_000, 3_000] as const;
+
+export function buildMessageHydrationKey(
+  chatId: string,
+  message: Pick<ApiChatMessage, "id" | "editedAt">
+) {
+  return `${chatId}:${message.id}:${message.editedAt ?? ""}`;
+}
+
+export function resetMessageHydrationStateForChat(options: {
+  chatId: string;
+  queuedHydrationKeys: Set<string>;
+  hydrationQueue: Map<string, { chatId: string; rawMessage: ApiChatMessage }>;
+  hydrationRetryCounts: Map<string, number>;
+  hydrationRetryTimeoutIds: Map<string, number>;
+  clearTimeout: (timeoutId: number) => void;
+}) {
+  const prefix = `${options.chatId}:`;
+  [...options.queuedHydrationKeys].forEach((hydrationKey) => {
+    if (hydrationKey.startsWith(prefix)) {
+      options.queuedHydrationKeys.delete(hydrationKey);
+    }
+  });
+  [...options.hydrationQueue.keys()].forEach((hydrationKey) => {
+    if (hydrationKey.startsWith(prefix)) {
+      options.hydrationQueue.delete(hydrationKey);
+    }
+  });
+  [...options.hydrationRetryCounts.keys()].forEach((hydrationKey) => {
+    if (hydrationKey.startsWith(prefix)) {
+      options.hydrationRetryCounts.delete(hydrationKey);
+    }
+  });
+  [...options.hydrationRetryTimeoutIds.entries()].forEach(([hydrationKey, timeoutId]) => {
+    if (!hydrationKey.startsWith(prefix)) {
+      return;
+    }
+    options.clearTimeout(timeoutId);
+    options.hydrationRetryTimeoutIds.delete(hydrationKey);
+  });
+}
 
 export type MessagePageCursor = {
   beforeServerOrder: number | null;
@@ -425,6 +469,36 @@ export function useWorkspaceQueries({
   }, [messagesQuery.data?.pages, pendingOutgoingMessagesQuery.data, queryClient, userId]);
 
   useEffect(() => {
+    if (!activeChat?.id || typeof window === "undefined") {
+      return;
+    }
+
+    const handleEncryptionDeviceSync = (event: Event) => {
+      const detail = (event as CustomEvent<E2eeDeviceStateSyncedDetail>).detail;
+      if (detail?.userId !== userId) {
+        return;
+      }
+
+      resetMessageHydrationStateForChat({
+        chatId: activeChat.id,
+        queuedHydrationKeys: queuedMessageHydrationKeysRef.current,
+        hydrationQueue: messageHydrationQueueRef.current,
+        hydrationRetryCounts: messageHydrationRetryCountRef.current,
+        hydrationRetryTimeoutIds: messageHydrationRetryTimeoutIdRef.current,
+        clearTimeout: (timeoutId) => window.clearTimeout(timeoutId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: buildMessagesQueryKey(userId, activeChat.id),
+      });
+    };
+
+    window.addEventListener(E2EE_DEVICE_STATE_SYNCED_EVENT, handleEncryptionDeviceSync);
+    return () => {
+      window.removeEventListener(E2EE_DEVICE_STATE_SYNCED_EVENT, handleEncryptionDeviceSync);
+    };
+  }, [activeChat?.id, queryClient, userId]);
+
+  useEffect(() => {
     const drainMessageHydrationQueue = async () => {
       const clearHydrationRetry = (hydrationKey: string) => {
         const timeoutId = messageHydrationRetryTimeoutIdRef.current.get(hydrationKey);
@@ -524,7 +598,7 @@ export function useWorkspaceQueries({
 
     rawMessages.pages.forEach((page) => {
       page.forEach((rawMessage) => {
-        const hydrationKey = `${activeChat.id}:${rawMessage.id}:${rawMessage.editedAt ?? ""}`;
+        const hydrationKey = buildMessageHydrationKey(activeChat.id, rawMessage);
         if (queuedMessageHydrationKeysRef.current.has(hydrationKey)) {
           return;
         }

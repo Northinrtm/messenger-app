@@ -101,7 +101,7 @@ public class ChatGroupHistoryKeyService {
 
         ChatParticipant membership = chatParticipantRepository.findByChatIdAndUserId(chatId, currentUser.getId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied for this chat"));
-        UserEncryptionDevice recipientDevice = requireVisibleOwnedDevice(currentUser.getId(), deviceId);
+        UserEncryptionDevice recipientDevice = requireOwnedHistoryLookupDevice(currentUser.getId(), deviceId);
         Map<UUID, GroupHistoryKeyAccessResponse> accessesByHistoryKeyId = new LinkedHashMap<>();
         chatHistoryKeyAccessRepository
                 .findAllByChatIdAndRecipientUserIdAndRecipientDeviceIdOrderByCreatedAtAsc(
@@ -353,16 +353,14 @@ public class ChatGroupHistoryKeyService {
         }
     }
 
-    private UserEncryptionDevice requireVisibleOwnedDevice(UUID currentUserId, String deviceId) {
+    private UserEncryptionDevice requireOwnedHistoryLookupDevice(UUID currentUserId, String deviceId) {
         UUID parsedDeviceId = parseUuid(deviceId, "Encryption device id is invalid");
         UserEncryptionDevice device = userEncryptionDeviceRepository.findById(parsedDeviceId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND,
                         "Encryption device was not found"
                 ));
-        if (!device.getUserId().equals(currentUserId)
-                || device.getRetiredAt() != null
-                || !deviceKeyValidationService.hasValidCurrentSignedPrekey(device)) {
+        if (!device.getUserId().equals(currentUserId)) {
             throw new ResponseStatusException(
                     HttpStatus.NOT_FOUND,
                     "Encryption device was not found"

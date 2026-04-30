@@ -1168,6 +1168,30 @@ describe("e2ee hardening", () => {
     expect(vi.mocked(upsertOwnEncryptionDevice)).not.toHaveBeenCalled();
   });
 
+  it("announces the first completed encryption device sync for message rehydration", async () => {
+    Object.defineProperty(window, "isSecureContext", {
+      configurable: true,
+      value: true,
+    });
+    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
+    window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(identity));
+    window.sessionStorage.setItem(DEVICE_MATERIAL_KEY, JSON.stringify(readyLocalDeviceMaterial));
+    vi.mocked(listOwnEncryptionDevices).mockResolvedValue([currentRegisteredDevice]);
+    const syncedListener = vi.fn();
+
+    window.addEventListener("north-messenger:e2ee-device-state-synced", syncedListener);
+    try {
+      await syncEncryptionDeviceState(currentSession);
+    } finally {
+      window.removeEventListener("north-messenger:e2ee-device-state-synced", syncedListener);
+    }
+
+    expect(syncedListener).toHaveBeenCalledTimes(1);
+    expect(syncedListener.mock.calls[0]?.[0]).toMatchObject({
+      detail: { userId: USER_ID },
+    });
+  });
+
   it("merges remote recovery history into sync uploads when the local archive is missing", async () => {
     Object.defineProperty(window, "isSecureContext", {
       configurable: true,
