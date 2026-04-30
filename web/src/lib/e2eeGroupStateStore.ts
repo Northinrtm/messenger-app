@@ -351,10 +351,6 @@ export async function readGroupSenderChainState(options: {
     userId: string
   ) => Promise<GroupSenderChainState | null>;
   writeGroupSenderChainState: (userId: string, state: GroupSenderChainState) => void;
-  markPersistentRestoredOutboundGroupChats: (
-    userId: string,
-    state: GroupSenderChainState
-  ) => void;
   removeGroupSenderChains: (userId: string) => void;
 }) {
   if (typeof window === "undefined") {
@@ -387,10 +383,6 @@ export async function readGroupSenderChainState(options: {
     );
     if (rememberedState) {
       options.writeGroupSenderChainState(options.userId, rememberedState);
-      options.markPersistentRestoredOutboundGroupChats(
-        options.userId,
-        rememberedState
-      );
       return rememberedState;
     }
   } catch {
@@ -426,33 +418,8 @@ export function writeGroupSenderChainState(options: {
   }
 }
 
-export async function writeGroupSenderChains(options: {
-  userId: string;
-  chains: Record<string, GroupSenderChainRecord>;
-  readGroupSenderChainState: (userId: string) => Promise<GroupSenderChainState>;
-  writeGroupSenderChainState: (
-    userId: string,
-    state: GroupSenderChainState
-  ) => void;
-  rememberGroupSenderChainState: (
-    userId: string,
-    state: GroupSenderChainState
-  ) => Promise<void>;
-}) {
-  const state = await options.readGroupSenderChainState(options.userId);
-  options.writeGroupSenderChainState(options.userId, {
-    ...state,
-    outboundChains: options.chains,
-  });
-  await options.rememberGroupSenderChainState(options.userId, {
-    ...state,
-    outboundChains: options.chains,
-  });
-}
-
 export function removeGroupSenderChains(options: {
   userId: string;
-  clearPersistentRestoredOutboundGroupChats: (userId: string) => void;
   getGroupSenderChainStorageKey: (userId: string) => string;
   getRememberedGroupSenderChainStorageKey: (userId: string) => string;
 }) {
@@ -461,7 +428,6 @@ export function removeGroupSenderChains(options: {
   }
 
   try {
-    options.clearPersistentRestoredOutboundGroupChats(options.userId);
     window.sessionStorage.removeItem(
       options.getGroupSenderChainStorageKey(options.userId)
     );

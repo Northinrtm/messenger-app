@@ -146,6 +146,7 @@ describe("e2eeRecoverySnapshotLifecycle", () => {
       readUnlockedIdentity: () => ({
         publicKey: "local-device-vault",
         privateKey: "vault-private",
+        accountPublicKey: '{"kty":"RSA","n":"account-public","e":"AQAB"}',
       }),
       readRememberedUnlockedIdentityRecord: () => ({
         salt: "salt",
@@ -179,6 +180,7 @@ describe("e2eeRecoverySnapshotLifecycle", () => {
       },
     ]);
     expect(upsertOwnEncryptionRecoverySnapshot).toHaveBeenCalledWith("token", {
+      accountPublicKey: '{"kty":"RSA","n":"account-public","e":"AQAB"}',
       snapshotPayloadJson: JSON.stringify({
         archivedMessages: [
           {

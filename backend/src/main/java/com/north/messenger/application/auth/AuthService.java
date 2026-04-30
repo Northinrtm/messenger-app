@@ -661,6 +661,7 @@ public class AuthService {
                     existing.update(
                             snapshotPayloadJson,
                             wrappedIdentityRecordJson,
+                            existing.getAccountPublicKey(),
                             wrappedPasswordVersion,
                             now
                     );
@@ -671,6 +672,7 @@ public class AuthService {
                         userId,
                         snapshotPayloadJson,
                         wrappedIdentityRecordJson,
+                        null,
                         wrappedPasswordVersion,
                         now,
                         now

@@ -283,6 +283,7 @@ export type UserEncryptionDeviceManifest = {
 export type UserEncryptionRecoverySnapshot = {
   snapshotPayloadJson: string;
   wrappedIdentityRecordJson: string;
+  accountPublicKey?: string | null;
   wrappedPasswordVersion?: number;
   createdAt: string;
   updatedAt: string;
@@ -294,4 +295,9 @@ export type GroupHistoryKeyAccess = {
   serverGrantPayloadJson?: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type UserEncryptionAccountKey = {
+  userId: string;
+  publicKey: string;
 };

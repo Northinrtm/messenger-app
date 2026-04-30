@@ -14,6 +14,7 @@ import type {
   PushSubscriptionPayload,
   KnownEncryptionDeviceManifestEntry,
   UserEncryptionDevice,
+  UserEncryptionAccountKey,
   UserEncryptionDeviceBundle,
   UserEncryptionDeviceManifest,
   UserEncryptionRecoverySnapshot,
@@ -988,12 +989,23 @@ export function getOwnGroupHistoryKeys(token: string, chatId: string, deviceId: 
   });
 }
 
+export function resolveEncryptionAccountKeys(token: string, userIds: string[]) {
+  return request<UserEncryptionAccountKey[]>("/api/e2ee/account-keys/resolve", {
+    method: "POST",
+    token,
+    body: {
+      userIds,
+    },
+  });
+}
+
 export function upsertGroupHistoryKey(
   token: string,
   chatId: string,
   body: {
     historyKeyId: string;
-    wrappedKeysByRecipientDeviceId: Record<string, string>;
+    wrappedKeysByRecipientDeviceId?: Record<string, string>;
+    wrappedKeysByRecipientUserId?: Record<string, string>;
     serverEscrowGrantPayloadJson?: string | null;
   }
 ) {
@@ -1012,6 +1024,7 @@ export function upsertOwnEncryptionRecoverySnapshot(
   body: {
     snapshotPayloadJson: string;
     wrappedIdentityRecordJson: string;
+    accountPublicKey: string;
   }
 ) {
   return request<UserEncryptionRecoverySnapshot>("/api/e2ee/recovery-snapshot/me", {

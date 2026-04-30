@@ -4,6 +4,8 @@ import type { AuthResponse, UserEncryptionRecoverySnapshot } from "./types";
 type StoredLocalIdentity = {
   publicKey: string;
   privateKey: string;
+  accountPublicKey?: string;
+  accountPrivateKey?: string;
 };
 
 type RememberedUnlockedIdentityRecord = {
@@ -16,6 +18,7 @@ type RememberedUnlockedIdentityRecord = {
 type RecoverySnapshotUpload = {
   snapshotPayloadJson: string;
   wrappedIdentityRecordJson: string;
+  accountPublicKey: string;
 };
 
 type ArchivedRecordLike = {
@@ -138,6 +141,7 @@ export async function syncEncryptionRecoverySnapshotInternal<T extends ArchivedR
     buildRecoverySnapshotUploadPayload({
       snapshotPayloadRecord,
       wrappedIdentityRecord: rememberedIdentityRecord,
+      accountPublicKey: identity.accountPublicKey ?? "",
     })
   );
 }
@@ -145,10 +149,12 @@ export async function syncEncryptionRecoverySnapshotInternal<T extends ArchivedR
 export function buildRecoverySnapshotUploadPayload<SnapshotRecord>(options: {
   snapshotPayloadRecord: SnapshotRecord;
   wrappedIdentityRecord: RememberedUnlockedIdentityRecord;
+  accountPublicKey: string;
 }): RecoverySnapshotUpload {
   return {
     snapshotPayloadJson: JSON.stringify(options.snapshotPayloadRecord),
     wrappedIdentityRecordJson: JSON.stringify(options.wrappedIdentityRecord),
+    accountPublicKey: options.accountPublicKey,
   };
 }
 
@@ -183,6 +189,7 @@ export async function buildOwnRecoverySnapshotUpload<
   return buildRecoverySnapshotUploadPayload({
     snapshotPayloadRecord,
     wrappedIdentityRecord: rememberedIdentityRecord,
+    accountPublicKey: identity.accountPublicKey ?? "",
   });
 }
 

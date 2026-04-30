@@ -2,9 +2,11 @@ package com.north.messenger.api;
 
 import com.north.messenger.api.dto.GroupHistoryKeyAccessResponse;
 import com.north.messenger.api.dto.GroupHistoryKeyResponse;
+import com.north.messenger.api.dto.ResolveEncryptionAccountKeysRequest;
 import com.north.messenger.api.dto.ResolveEncryptionDeviceBundlesRequest;
 import com.north.messenger.api.dto.ResolveEncryptionDeviceManifestRequest;
 import com.north.messenger.api.dto.UpsertGroupHistoryKeyRequest;
+import com.north.messenger.api.dto.UserEncryptionAccountKeyResolveResponse;
 import com.north.messenger.api.dto.UserEncryptionDeviceBundleResponse;
 import com.north.messenger.api.dto.UserEncryptionDeviceRequest;
 import com.north.messenger.api.dto.UserEncryptionDeviceManifestResponse;
@@ -120,6 +122,19 @@ public class UserEncryptionController {
             @Valid @RequestBody UserEncryptionRecoverySnapshotRequest request
     ) {
         return userEncryptionRecoverySnapshotService.upsertOwnRecoverySnapshot(
+                authentication.getName(),
+                extractBearerToken(authorization),
+                request
+        );
+    }
+
+    @PostMapping("/account-keys/resolve")
+    public List<UserEncryptionAccountKeyResolveResponse> resolveAccountKeys(
+            Authentication authentication,
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+            @Valid @RequestBody ResolveEncryptionAccountKeysRequest request
+    ) {
+        return userEncryptionRecoverySnapshotService.resolveAccountPublicKeys(
                 authentication.getName(),
                 extractBearerToken(authorization),
                 request

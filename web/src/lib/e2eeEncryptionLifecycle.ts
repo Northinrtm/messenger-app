@@ -4,6 +4,8 @@ import type { AuthResponse } from "./types";
 type StoredLocalIdentity = {
   publicKey: string;
   privateKey: string;
+  accountPublicKey?: string;
+  accountPrivateKey?: string;
 };
 
 type EnsureEncryptionReadyOptions = {
@@ -24,6 +26,11 @@ type EnsureEncryptionReadyOptions = {
     password: string
   ) => Promise<StoredLocalIdentity | null>;
   writeUnlockedIdentity: (userId: string, identity: StoredLocalIdentity) => void;
+  ensureAccountKeyPair: (
+    userId: string,
+    identity: StoredLocalIdentity,
+    password: string
+  ) => Promise<StoredLocalIdentity>;
   restoreEncryptionRecoverySnapshot: (
     session: AuthResponse,
     password: string
@@ -53,7 +60,13 @@ export async function ensureEncryptionReady(
   const userId = options.session.user.id;
   const unlockedIdentity = options.readUnlockedIdentity(userId);
   if (unlockedIdentity) {
-    await options.rememberUnlockedIdentity(userId, unlockedIdentity, options.password);
+    const ensuredIdentity = await options.ensureAccountKeyPair(
+      userId,
+      unlockedIdentity,
+      options.password
+    );
+    options.writeUnlockedIdentity(userId, ensuredIdentity);
+    await options.rememberUnlockedIdentity(userId, ensuredIdentity, options.password);
     await options.ensureRegisteredEncryptionDevice(options.session);
     await syncRecoverySnapshotBestEffort(
       options.session,
@@ -67,8 +80,13 @@ export async function ensureEncryptionReady(
     options.password
   );
   if (rememberedIdentity) {
-    options.writeUnlockedIdentity(userId, rememberedIdentity);
-    await options.rememberUnlockedIdentity(userId, rememberedIdentity, options.password);
+    const ensuredIdentity = await options.ensureAccountKeyPair(
+      userId,
+      rememberedIdentity,
+      options.password
+    );
+    options.writeUnlockedIdentity(userId, ensuredIdentity);
+    await options.rememberUnlockedIdentity(userId, ensuredIdentity, options.password);
     await options.ensureRegisteredEncryptionDevice(options.session);
     await syncRecoverySnapshotBestEffort(
       options.session,
@@ -82,6 +100,13 @@ export async function ensureEncryptionReady(
     options.password
   );
   if (restoredIdentity) {
+    const ensuredIdentity = await options.ensureAccountKeyPair(
+      userId,
+      restoredIdentity,
+      options.password
+    );
+    options.writeUnlockedIdentity(userId, ensuredIdentity);
+    await options.rememberUnlockedIdentity(userId, ensuredIdentity, options.password);
     await options.ensureRegisteredEncryptionDevice(options.session);
     await syncRecoverySnapshotBestEffort(
       options.session,
@@ -96,8 +121,13 @@ export async function ensureEncryptionReady(
   }
 
   const localVaultIdentity = options.createLocalVaultIdentity();
-  options.writeUnlockedIdentity(userId, localVaultIdentity);
-  await options.rememberUnlockedIdentity(userId, localVaultIdentity, options.password);
+  const ensuredIdentity = await options.ensureAccountKeyPair(
+    userId,
+    localVaultIdentity,
+    options.password
+  );
+  options.writeUnlockedIdentity(userId, ensuredIdentity);
+  await options.rememberUnlockedIdentity(userId, ensuredIdentity, options.password);
   await options.ensureRegisteredEncryptionDevice(options.session);
   await syncRecoverySnapshotBestEffort(
     options.session,
@@ -115,6 +145,11 @@ export async function resetEncryptionAfterPasswordReset(options: {
   clearStoredArchivedDecryptedMessageRecords: (userId: string) => Promise<void>;
   rememberRecoverySyncSession: (session: AuthResponse) => void;
   createLocalVaultIdentity: () => StoredLocalIdentity;
+  ensureAccountKeyPair: (
+    userId: string,
+    identity: StoredLocalIdentity,
+    password: string
+  ) => Promise<StoredLocalIdentity>;
   writeUnlockedIdentity: (userId: string, identity: StoredLocalIdentity) => void;
   rememberUnlockedIdentity: (
     userId: string,
@@ -141,8 +176,13 @@ export async function resetEncryptionAfterPasswordReset(options: {
   options.rememberRecoverySyncSession(options.session);
 
   const localVaultIdentity = options.createLocalVaultIdentity();
-  options.writeUnlockedIdentity(userId, localVaultIdentity);
-  await options.rememberUnlockedIdentity(userId, localVaultIdentity, options.password);
+  const ensuredIdentity = await options.ensureAccountKeyPair(
+    userId,
+    localVaultIdentity,
+    options.password
+  );
+  options.writeUnlockedIdentity(userId, ensuredIdentity);
+  await options.rememberUnlockedIdentity(userId, ensuredIdentity, options.password);
   await options.ensureRegisteredEncryptionDevice(options.session);
   await options.syncEncryptionRecoverySnapshot(options.session);
 }
@@ -163,14 +203,25 @@ export async function resecureLocalEncryptionStateForPasswordChange(options: {
     password: string
   ) => Promise<StoredLocalIdentity | null>;
   writeUnlockedIdentity: (userId: string, identity: StoredLocalIdentity) => void;
+  ensureAccountKeyPair: (
+    userId: string,
+    identity: StoredLocalIdentity,
+    password: string
+  ) => Promise<StoredLocalIdentity>;
 }) {
   options.ensureE2eeTransportStorageSchema();
 
   const unlockedIdentity = options.readUnlockedIdentity(options.userId);
   if (unlockedIdentity) {
-    await options.rememberUnlockedIdentity(
+    const ensuredIdentity = await options.ensureAccountKeyPair(
       options.userId,
       unlockedIdentity,
+      options.newPassword
+    );
+    options.writeUnlockedIdentity(options.userId, ensuredIdentity);
+    await options.rememberUnlockedIdentity(
+      options.userId,
+      ensuredIdentity,
       options.newPassword
     );
     return;
@@ -184,10 +235,15 @@ export async function resecureLocalEncryptionStateForPasswordChange(options: {
     throw new ApiError("Current password could not unlock encrypted chats", 400);
   }
 
-  options.writeUnlockedIdentity(options.userId, rememberedIdentity);
-  await options.rememberUnlockedIdentity(
+  const ensuredIdentity = await options.ensureAccountKeyPair(
     options.userId,
     rememberedIdentity,
+    options.newPassword
+  );
+  options.writeUnlockedIdentity(options.userId, ensuredIdentity);
+  await options.rememberUnlockedIdentity(
+    options.userId,
+    ensuredIdentity,
     options.newPassword
   );
 }

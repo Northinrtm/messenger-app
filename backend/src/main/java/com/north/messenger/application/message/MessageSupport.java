@@ -59,7 +59,9 @@ class MessageSupport {
     private static final List<String> REACTION_KEYS = List.of("LIKE", "DISLIKE", "EYES", "OK");
     private static final String DEVICE_TRANSPORT_SCHEME = "X3DH-DEVICE-AES-GCM";
     private static final String GROUP_SENDER_KEY_SCHEME = "GROUP-SENDER-KEY-AES-GCM";
+    private static final String CHAT_EPOCH_SCHEME = "CHAT-EPOCH-KEY-AES-GCM";
     private static final int GROUP_SHARED_ENVELOPE_AAD_VERSION = 1;
+    private static final int CHAT_EPOCH_ENVELOPE_AAD_VERSION = 1;
     private static final int MAX_DEVICE_COUNTER_ADVANCE = 4_096;
     private static final int MAX_GROUP_COUNTER_ADVANCE = 4_096;
 
@@ -434,6 +436,17 @@ class MessageSupport {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Encrypted payload is incomplete");
         }
 
+        if (CHAT_EPOCH_SCHEME.equals(payload.scheme())) {
+            ChatEpochEnvelope chatEpochEnvelope = parseChatEpochEnvelope(payload.sharedEnvelope(), room.getId());
+            if (!chatEpochEnvelope.senderUserId().equals(currentUser.getId())) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Encrypted chat epoch envelope sender must match current user"
+                );
+            }
+            return new ValidatedEncryptedPayload(Map.of(), List.of());
+        }
+
         Map<String, String> encryptedKeysByRecipientId = payload.encryptedKeysByRecipientId();
         if (encryptedKeysByRecipientId == null || encryptedKeysByRecipientId.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Encrypted payload keys are required");
@@ -790,6 +803,10 @@ class MessageSupport {
     }
 
     StoredEncryptedEnvelope extractStoredEnvelope(EncryptedMessagePayloadRequest payload) {
+        if (CHAT_EPOCH_SCHEME.equals(payload.scheme())) {
+            ChatEpochEnvelope chatEpochEnvelope = parseChatEpochEnvelope(payload.sharedEnvelope(), null);
+            return new StoredEncryptedEnvelope(payload.sharedEnvelope(), chatEpochEnvelope.iv());
+        }
         if (GROUP_SENDER_KEY_SCHEME.equals(payload.scheme())) {
             GroupSharedEnvelope groupSharedEnvelope = parseGroupSharedEnvelope(payload.sharedEnvelope(), null);
             return new StoredEncryptedEnvelope(payload.sharedEnvelope(), groupSharedEnvelope.iv());
@@ -909,6 +926,71 @@ class MessageSupport {
         }
     }
 
+    private ChatEpochEnvelope parseChatEpochEnvelope(String serializedEnvelope, UUID expectedChatId) {
+        if (serializedEnvelope == null || serializedEnvelope.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Encrypted chat epoch envelope is incomplete"
+            );
+        }
+
+        try {
+            JsonNode envelope = objectMapper.readTree(serializedEnvelope);
+            if (envelope.path("aadVersion").asInt(-1) != CHAT_EPOCH_ENVELOPE_AAD_VERSION) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Encrypted chat epoch envelope must use current authenticated format"
+                );
+            }
+
+            String chatId = envelope.path("chatId").asText();
+            String senderUserId = envelope.path("senderUserId").asText();
+            String historyKeyId = envelope.path("historyKeyId").asText();
+            String ciphertext = envelope.path("ciphertext").asText();
+            String iv = envelope.path("iv").asText();
+            if (chatId == null || chatId.isBlank()
+                    || senderUserId == null || senderUserId.isBlank()
+                    || historyKeyId == null || historyKeyId.isBlank()
+                    || ciphertext == null || ciphertext.isBlank()
+                    || iv == null || iv.isBlank()) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Encrypted chat epoch envelope is incomplete"
+                );
+            }
+
+            UUID parsedChatId = parseUuid(chatId, "Encrypted chat epoch envelope is malformed");
+            if (expectedChatId != null && !expectedChatId.equals(parsedChatId)) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Encrypted chat epoch envelope chat is invalid"
+                );
+            }
+
+            validateBase64(iv, "Encrypted chat epoch envelope is malformed");
+            validateBase64(ciphertext, "Encrypted chat epoch envelope is malformed");
+            if (Base64.getDecoder().decode(iv).length != 12) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Encrypted chat epoch envelope is malformed"
+                );
+            }
+
+            return new ChatEpochEnvelope(
+                    parsedChatId,
+                    parseUuid(senderUserId, "Encrypted chat epoch envelope is malformed"),
+                    parseUuid(historyKeyId, "Encrypted chat epoch envelope is malformed"),
+                    ciphertext,
+                    iv
+            );
+        } catch (JsonProcessingException exception) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Encrypted chat epoch envelope is malformed"
+            );
+        }
+    }
+
     private GroupSharedEnvelope parseGroupSharedEnvelope(String serializedEnvelope, UUID expectedChatId) {
         if (serializedEnvelope == null || serializedEnvelope.isBlank()) {
             throw new ResponseStatusException(
@@ -999,6 +1081,14 @@ class MessageSupport {
     private void validateBase64(String value, String message) {
         try {
             Base64.getDecoder().decode(value);
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
+        }
+    }
+
+    private UUID parseUuid(String value, String message) {
+        try {
+            return UUID.fromString(value);
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
         }
@@ -1190,7 +1280,19 @@ class MessageSupport {
                     && !encryptedKeysByRecipientId.isEmpty()) {
                 return new EncryptedMessagePayloadResponse(
                         message.getEncryptionScheme(),
-                        new LinkedHashMap<>(encryptedKeysByRecipientId)
+                        new LinkedHashMap<>(encryptedKeysByRecipientId),
+                        null,
+                        message.getHistoryEnvelopeJson()
+                );
+            }
+            if (matchingDevicePayloads.isEmpty()
+                    && message.getHistoryEnvelopeJson() != null
+                    && !message.getHistoryEnvelopeJson().isBlank()) {
+                return new EncryptedMessagePayloadResponse(
+                        message.getEncryptionScheme(),
+                        matchingDevicePayloads,
+                        null,
+                        message.getHistoryEnvelopeJson()
                 );
             }
             if (matchingDevicePayloads.isEmpty()) {
@@ -1199,7 +1301,21 @@ class MessageSupport {
 
             return new EncryptedMessagePayloadResponse(
                     message.getEncryptionScheme(),
-                    matchingDevicePayloads
+                    matchingDevicePayloads,
+                    null,
+                    message.getHistoryEnvelopeJson()
+            );
+        }
+
+        if (CHAT_EPOCH_SCHEME.equals(message.getEncryptionScheme())) {
+            if (message.getContent() == null || message.getContent().isBlank()) {
+                throw new IllegalStateException("Encrypted chat epoch envelope is missing");
+            }
+            return new EncryptedMessagePayloadResponse(
+                    message.getEncryptionScheme(),
+                    Map.of(),
+                    message.getContent(),
+                    message.getHistoryEnvelopeJson()
             );
         }
 
@@ -1260,7 +1376,8 @@ class MessageSupport {
                 continue;
             }
             if (DEVICE_TRANSPORT_SCHEME.equals(message.getEncryptionScheme())
-                    || GROUP_SENDER_KEY_SCHEME.equals(message.getEncryptionScheme())) {
+                    || GROUP_SENDER_KEY_SCHEME.equals(message.getEncryptionScheme())
+                    || CHAT_EPOCH_SCHEME.equals(message.getEncryptionScheme())) {
                 continue;
             }
 
@@ -1346,6 +1463,15 @@ class MessageSupport {
     record ValidatedEncryptedPayload(
             Map<String, String> encryptedKeysByRecipientId,
             List<StoredRecipientPayload> storedRecipientPayloads
+    ) {
+    }
+
+    private record ChatEpochEnvelope(
+            UUID chatId,
+            UUID senderUserId,
+            UUID historyKeyId,
+            String ciphertext,
+            String iv
     ) {
     }
 

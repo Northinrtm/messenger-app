@@ -23,6 +23,9 @@ public class UserEncryptionRecoverySnapshot {
     @Column(name = "wrapped_identity_record_json", nullable = false, columnDefinition = "text")
     private String wrappedIdentityRecordJson;
 
+    @Column(name = "account_public_key", columnDefinition = "text")
+    private String accountPublicKey;
+
     @Column(name = "wrapped_password_version", nullable = false)
     private long wrappedPasswordVersion;
 
@@ -40,6 +43,7 @@ public class UserEncryptionRecoverySnapshot {
             UUID userId,
             String snapshotPayloadJson,
             String wrappedIdentityRecordJson,
+            String accountPublicKey,
             long wrappedPasswordVersion,
             Instant createdAt,
             Instant updatedAt
@@ -48,6 +52,7 @@ public class UserEncryptionRecoverySnapshot {
         this.userId = userId;
         this.snapshotPayloadJson = snapshotPayloadJson;
         this.wrappedIdentityRecordJson = wrappedIdentityRecordJson;
+        this.accountPublicKey = accountPublicKey;
         this.wrappedPasswordVersion = Math.max(1L, wrappedPasswordVersion);
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
@@ -73,6 +78,10 @@ public class UserEncryptionRecoverySnapshot {
         return wrappedPasswordVersion;
     }
 
+    public String getAccountPublicKey() {
+        return accountPublicKey;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
@@ -84,11 +93,13 @@ public class UserEncryptionRecoverySnapshot {
     public void update(
             String snapshotPayloadJson,
             String wrappedIdentityRecordJson,
+            String accountPublicKey,
             long wrappedPasswordVersion,
             Instant updatedAt
     ) {
         this.snapshotPayloadJson = snapshotPayloadJson;
         this.wrappedIdentityRecordJson = wrappedIdentityRecordJson;
+        this.accountPublicKey = accountPublicKey;
         this.wrappedPasswordVersion = Math.max(1L, wrappedPasswordVersion);
         this.updatedAt = updatedAt;
     }

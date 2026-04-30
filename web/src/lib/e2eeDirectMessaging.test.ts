@@ -141,10 +141,16 @@ describe("e2eeDirectMessaging", () => {
 
   it("decrypts a direct message using the current device envelope", async () => {
     const content = await decryptDirectMessage({
-      payload: {
-        scheme: "X3DH-DEVICE-AES-GCM",
-        encryptedKeysByRecipientId: {
-          "self-device": "serialized-envelope",
+      message: {
+        chatId: "chat",
+        sender: {
+          id: "peer",
+        } as never,
+        encryptedPayload: {
+          scheme: "X3DH-DEVICE-AES-GCM",
+          encryptedKeysByRecipientId: {
+            "self-device": "serialized-envelope",
+          },
         },
       },
       userId: "self",
@@ -160,9 +166,80 @@ describe("e2eeDirectMessaging", () => {
     expect(content).toBe("secret hello");
   });
 
+  it("falls back to direct history when the current device envelope is missing", async () => {
+    const historyFallback = vi.fn(async () => "history plaintext");
+
+    await expect(
+      decryptDirectMessage({
+        message: {
+          chatId: "chat",
+          sender: {
+            id: "peer",
+          } as never,
+          encryptedPayload: {
+            scheme: "X3DH-DEVICE-AES-GCM",
+            encryptedKeysByRecipientId: {
+              "old-device": "serialized-envelope",
+            },
+            historyEnvelope: "{\"history\":true}",
+          },
+        },
+        userId: "self",
+        readOwnMaterial: vi.fn(async () => ({ deviceId: "self-device" })),
+        isOwnMaterialAvailable: (
+          material
+        ): material is {
+          deviceId: string;
+        } => Boolean(material?.deviceId),
+        decryptDirectRecipientEnvelope: vi.fn(async () => ({ content: "should not happen" })),
+        decryptDirectHistoryMessage: historyFallback,
+        isRecoverableHistoryFallbackError: () => false,
+      })
+    ).resolves.toBe("history plaintext");
+
+    expect(historyFallback).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to direct history when direct decrypt fails with a recoverable error", async () => {
+    const historyFallback = vi.fn(async () => "history plaintext");
+
+    await expect(
+      decryptDirectMessage({
+        message: {
+          chatId: "chat",
+          sender: {
+            id: "peer",
+          } as never,
+          encryptedPayload: {
+            scheme: "X3DH-DEVICE-AES-GCM",
+            encryptedKeysByRecipientId: {
+              "self-device": "serialized-envelope",
+            },
+            historyEnvelope: "{\"history\":true}",
+          },
+        },
+        userId: "self",
+        readOwnMaterial: vi.fn(async () => ({ deviceId: "self-device" })),
+        isOwnMaterialAvailable: (
+          material
+        ): material is {
+          deviceId: string;
+        } => Boolean(material?.deviceId),
+        decryptDirectRecipientEnvelope: vi.fn(async () => {
+          throw new Error("direct decrypt failed");
+        }),
+        decryptDirectHistoryMessage: historyFallback,
+        isRecoverableHistoryFallbackError: () => true,
+      })
+    ).resolves.toBe("history plaintext");
+
+    expect(historyFallback).toHaveBeenCalledTimes(1);
+  });
+
   it("encrypts a direct message for recipient and self devices", async () => {
     const payload = await encryptDirectDeviceMessage({
       token: "token",
+      chatId: "chat",
       currentUserId: "self",
       content: "secret",
       participants: [
@@ -223,6 +300,7 @@ describe("e2eeDirectMessaging", () => {
       ),
       writeDeviceSessions: vi.fn(),
       rememberDeviceSessions: vi.fn(async () => undefined),
+      createHistoryEnvelope: vi.fn(async () => "{\"history\":true}"),
     });
 
     expect(payload).toMatchObject({
@@ -231,6 +309,7 @@ describe("e2eeDirectMessaging", () => {
         "peer-device": expect.any(String),
         "self-device": expect.any(String),
       },
+      historyEnvelope: "{\"history\":true}",
     });
   });
 

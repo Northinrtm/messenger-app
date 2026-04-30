@@ -35,7 +35,7 @@ export async function resolveGroupHistoryKeyRecordFromServer<OwnMaterial extends
     chatId: string,
     deviceId: string
   ) => Promise<GroupHistoryKeyAccess[]>;
-  decryptDirectRecipientEnvelopeContent: (
+  decryptHistoryKeyGrantPayload: (
     wrappedKeyPayloadJson: string,
     userId: string,
     ownMaterial: OwnMaterial
@@ -54,7 +54,7 @@ export async function resolveGroupHistoryKeyRecordFromServer<OwnMaterial extends
       const decryptedPayload =
         access.serverGrantPayloadJson && access.serverGrantPayloadJson.trim()
           ? access.serverGrantPayloadJson
-          : await options.decryptDirectRecipientEnvelopeContent(
+          : await options.decryptHistoryKeyGrantPayload(
               access.wrappedKeyPayloadJson,
               options.userId,
               options.ownMaterial

@@ -6,6 +6,8 @@ public record UserEncryptionRecoverySnapshotRequest(
         @NotBlank
         String snapshotPayloadJson,
         @NotBlank
-        String wrappedIdentityRecordJson
+        String wrappedIdentityRecordJson,
+        @NotBlank
+        String accountPublicKey
 ) {
 }

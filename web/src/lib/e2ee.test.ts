@@ -19,6 +19,7 @@ vi.mock("./api", () => {
     getOwnGroupHistoryKeys: vi.fn(),
     getOwnEncryptionRecoverySnapshot: vi.fn(),
     listOwnEncryptionDevices: vi.fn(),
+    resolveEncryptionAccountKeys: vi.fn(),
     resolveEncryptionDeviceManifest: vi.fn(),
     resolveEncryptionDeviceBundles: vi.fn(),
     updateMessage: vi.fn(),
@@ -38,6 +39,7 @@ import {
   getOwnGroupHistoryKeys,
   getOwnEncryptionRecoverySnapshot,
   listOwnEncryptionDevices,
+  resolveEncryptionAccountKeys,
   resolveEncryptionDeviceManifest,
   resolveEncryptionDeviceBundles,
   upsertGroupHistoryKey,
@@ -114,9 +116,35 @@ function privateOkpJwk(curve: "X25519" | "Ed25519", publicSeed: string, privateS
   });
 }
 
+const validAccountPublicKey = JSON.stringify({
+  key_ops: ["encrypt"],
+  ext: true,
+  alg: "RSA-OAEP-256",
+  kty: "RSA",
+  n: "uxuOqicwBx9XS9P_Idp_N69zGRno7-JNZhy7FZWjD8mhOOsmrehqytj2DCzkTnynQw3PXwF4xtO6o5tR2pa7yTDwHjO8dbttxZRyjCLuuRL7kijBhpYT1vU0mCRmU0WfUyRSKOvHGAf2HcBjkDQRUoNhwrqEcVSkQkKNR5BNGbHAvFFk4JPiVBfFI53Pt6Nee9nWBmkKVtoOEqpKo_ONJpDoYuFuCbDZiTSe96qxWmGHWbC1culT1lDEKSx5vKay2XjxmOXZJ2oDaLo4X5RaFR1VQnkPyYNZjYgd0vZxGDyiN8h-8aqVVWGlGHg4WelovqNK_LSOgx-8WE7o99PIlQ",
+  e: "AQAB",
+});
+
+const validAccountPrivateKey = JSON.stringify({
+  key_ops: ["decrypt"],
+  ext: true,
+  alg: "RSA-OAEP-256",
+  kty: "RSA",
+  n: "uxuOqicwBx9XS9P_Idp_N69zGRno7-JNZhy7FZWjD8mhOOsmrehqytj2DCzkTnynQw3PXwF4xtO6o5tR2pa7yTDwHjO8dbttxZRyjCLuuRL7kijBhpYT1vU0mCRmU0WfUyRSKOvHGAf2HcBjkDQRUoNhwrqEcVSkQkKNR5BNGbHAvFFk4JPiVBfFI53Pt6Nee9nWBmkKVtoOEqpKo_ONJpDoYuFuCbDZiTSe96qxWmGHWbC1culT1lDEKSx5vKay2XjxmOXZJ2oDaLo4X5RaFR1VQnkPyYNZjYgd0vZxGDyiN8h-8aqVVWGlGHg4WelovqNK_LSOgx-8WE7o99PIlQ",
+  e: "AQAB",
+  d: "Rg8EdSulLRWMH0Vqw2dHuTcFlsF_2cpXhsN9PZDA9Jlft6s82WMsEXX5cwegGM9N5aqXGhC4A2KmALqYhItqFuQvFG_0wfSDHrb9yQEPd9bmwYxnIhixpww7PDhs5AMuq_ful4npC1N30R4HaahFUCsHgN1L2A-ETZcTxVb_t32WIT9-OLcj9Tq2-pDLdPpNBGLaeiZFxb8tgOct8wfHb-n1LovFaPPnU_QobZEx-CrqVfN3mwHFBidsSxqO6ObMMW5VF8v7n1XwrEw1NsXBf9_nmoaFPvzqp-W6CHLDpl2eYsKAVHM4XOQpDdnhqs-eE3nJTnZ1wZ5K6hfGiVSExQ",
+  p: "4TRcdrnaFL0c1VuYVEFKHG-2qpEsbWJusp0GwkM6T1bJcLy3nkzvKbgTwMsfes269h8KFHYXxIxwFOrdVDiaxD-0hoIq3WXqG3FiYIIw1ZRDZauYQVkngMScHyVFFaqMT1RInQMwZb-KMIeF094s6fQTvxfri0l9oZ43YlcMO6c",
+  q: "1LGN9-HrpwHKTyayk3Ld5S6DbkGkD7NCYFSiUvjp9KxoyDvg-R1wx-LJC06sCcUXS1VmzDw4_xJ_e0Dd3HwBnQm41Tn1sUPwrhMQLYvMJsW2EH0T3WTER1FaOVkr_Rj8S3-kXRYSpYL-y9_mU8jJbr7LYN40brWEYy-oVMKccWM",
+  dp: "QGqz0BoVMT1u0_ChP-h1BHFH9L4V0SwIsfqMhmCoey097YttklA7UNmgfNMdLAlQ4zm5rmShI81v-eu8Z2zRiDUYtCjjjfSq5DKoiyZyRYVlSd2tbXPNAt46MgZ9HldsTvyy0Iaq_0-sfXkmZJX2ju0MAOscqvjYgLQ671wq2Z0",
+  dq: "Dup0vlGFqSyi93ILS_PeQ9hDN1Q7IS69FOxahd8W6SW-I2yvlkjOQ_ZPiw91WSoNPCc9Ek2W4ax2bDpcVL4NjunDoJBz_n55PnvvwoHvSzjKT9W1su0CJs45uZPbVeCOsOy-phiKLjlFjR6ilHWcSrvun1h17N2l7x7Ee006k2k",
+  qi: "NWbeBkJLswHIMo8E7haRp6MI_vysqvWJnWI8eV2hnzD0xC17b6xhHROE19rwOwk_XrL06QLut-A7YO8fm7kyQlWO56JQvt6Xo02G3s3FCEXJfTAxaLVcq6KHz8vOXwTajsz6hMJDW9F-SJuJSjYJ9l_PQHTWXJrqMNPrCFlk0Ec",
+});
+
 const identity = {
   publicKey: '{"kty":"RSA","n":"public"}',
   privateKey: '{"kty":"RSA","d":"private"}',
+  accountPublicKey: validAccountPublicKey,
+  accountPrivateKey: validAccountPrivateKey,
 };
 
 const trustedDeviceRecord = {
@@ -367,6 +395,12 @@ describe("e2ee hardening", () => {
     );
     vi.mocked(listOwnEncryptionDevices).mockResolvedValue([]);
     vi.mocked(getOwnGroupHistoryKeys).mockResolvedValue([]);
+    vi.mocked(resolveEncryptionAccountKeys).mockImplementation(async (_token, userIds) =>
+      userIds.map((userId) => ({
+        userId,
+        publicKey: validAccountPublicKey,
+      }))
+    );
     vi.mocked(resolveEncryptionDeviceBundles).mockResolvedValue([]);
     vi.mocked(upsertGroupHistoryKey).mockResolvedValue({
       historyKeyId: "history-key-id",
@@ -804,10 +838,19 @@ describe("e2ee hardening", () => {
 
     expect(resolveEncryptionDeviceBundles).not.toHaveBeenCalled();
     expect(sendMessageRaw).toHaveBeenCalledTimes(1);
-    expect(
-      Object.keys(vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload?.encryptedKeysByRecipientId ?? {})
-        .sort()
-    ).toEqual(["device-id", "self-device", "self-device-two"]);
+    expect(vi.mocked(upsertGroupHistoryKey).mock.calls[0]?.[2]).toMatchObject({
+      historyKeyId: expect.any(String),
+      wrappedKeysByRecipientUserId: expect.objectContaining({
+        [USER_ID]: expect.any(String),
+        [REMOTE_USER_ID]: expect.any(String),
+      }),
+    });
+    expect(vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload).toMatchObject({
+      scheme: "CHAT-EPOCH-KEY-AES-GCM",
+      encryptedKeysByRecipientId: {},
+      sharedEnvelope: expect.any(String),
+      historyEnvelope: expect.any(String),
+    });
   });
 
   it("cold-send priming resolves remote manifests separately from own sibling devices", async () => {
@@ -1234,6 +1277,7 @@ describe("e2ee hardening", () => {
     };
 
     const remoteSnapshot = {
+      accountPublicKey: identity.accountPublicKey,
       snapshotPayloadJson: JSON.stringify({
         salt: utf8ToBase64("snapshot-salt"),
         iv: utf8ToBase64("snapshot-iv"),
@@ -1361,9 +1405,9 @@ describe("e2ee hardening", () => {
     });
   });
 
-  it("reports missing recipient devices without the stale upgrade wording", async () => {
+  it("reports missing participant account keys without stale device wording", async () => {
     window.sessionStorage.setItem(DEVICE_MATERIAL_KEY, JSON.stringify(localDeviceMaterial));
-    vi.mocked(resolveEncryptionDeviceBundles).mockResolvedValue([]);
+    vi.mocked(resolveEncryptionAccountKeys).mockResolvedValue([]);
 
     await expect(
       sendEncryptedMessage(
@@ -1376,8 +1420,7 @@ describe("e2ee hardening", () => {
         { currentUserId: USER_ID }
       )
     ).rejects.toMatchObject({
-      message:
-        "Encrypted chat is unavailable because some participants do not have an available encryption device yet",
+      message: "Encrypted chat is unavailable because some participants have not initialized account encryption yet",
       status: 409,
       details: ["Remote User"],
     });
@@ -1445,7 +1488,7 @@ describe("e2ee hardening", () => {
     });
   });
 
-  it("sends and decrypts direct messages with per-device envelopes", async () => {
+  it("sends and decrypts direct messages with chat epoch envelopes", async () => {
     vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
     vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
     vi.spyOn(window.crypto.subtle, "generateKey").mockResolvedValue({
@@ -1493,19 +1536,34 @@ describe("e2ee hardening", () => {
     );
 
     expect(sendMessageRaw).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload).toMatchObject({
-      scheme: "X3DH-DEVICE-AES-GCM",
-      encryptedKeysByRecipientId: expect.objectContaining({
-        "device-id": expect.any(String),
-        "self-device": expect.any(String),
+    expect(upsertGroupHistoryKey).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(upsertGroupHistoryKey).mock.calls[0]?.[2]).toMatchObject({
+      historyKeyId: expect.any(String),
+      wrappedKeysByRecipientUserId: expect.objectContaining({
+        [USER_ID]: expect.any(String),
+        [REMOTE_USER_ID]: expect.any(String),
       }),
     });
-    const firstRemoteEnvelope = JSON.parse(
-      vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload?.encryptedKeysByRecipientId[
-        "device-id"
-      ] ?? "{}"
-    ) as { recipientOneTimePrekeyId?: number | null };
-    expect(firstRemoteEnvelope.recipientOneTimePrekeyId).toBe(11);
+    expect(vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload).toMatchObject({
+      scheme: "CHAT-EPOCH-KEY-AES-GCM",
+      encryptedKeysByRecipientId: {},
+      sharedEnvelope: expect.any(String),
+      historyEnvelope: expect.any(String),
+    });
+    const firstSharedEnvelope = JSON.parse(
+      vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload?.sharedEnvelope ?? "{}"
+    ) as {
+      aadVersion?: number;
+      chatId?: string;
+      senderUserId?: string;
+      historyKeyId?: string;
+    };
+    expect(firstSharedEnvelope).toMatchObject({
+      aadVersion: 1,
+      chatId: "chat-id",
+      senderUserId: USER_ID,
+      historyKeyId: expect.any(String),
+    });
 
     const decrypted = await hydrateChatMessage(
       {
@@ -1537,374 +1595,11 @@ describe("e2ee hardening", () => {
     );
 
     expect(sendMessageRaw).toHaveBeenCalledTimes(2);
-    const secondRemoteEnvelope = JSON.parse(
-      vi.mocked(sendMessageRaw).mock.calls[1]?.[2].encryptedPayload?.encryptedKeysByRecipientId[
-        "device-id"
-      ] ?? "{}"
-    ) as { recipientOneTimePrekeyId?: number | null };
-    expect(secondRemoteEnvelope.recipientOneTimePrekeyId).toBeNull();
-  });
-
-  it("rebuilds a responder-established direct session before the first outgoing reply", async () => {
-    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
-    vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
-    vi.spyOn(window.crypto.subtle, "deriveBits").mockResolvedValue(new Uint8Array(32).buffer);
-    vi.spyOn(window.crypto.subtle, "encrypt").mockImplementation(
-      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
-    );
-    vi.mocked(resolveEncryptionDeviceBundles).mockResolvedValue([deviceBundle]);
-    vi.mocked(sendMessageRaw).mockImplementation(async (_token, chatId, request) => ({
-      id: "reply-message-id",
-      chatId,
-      sender: selfParticipant,
-      createdAt: "2026-04-09T10:31:00.000Z",
-      editedAt: null,
-      status: null,
-      clientMessageId: request.clientMessageId ?? null,
-      replyTo: null,
-      reactions: [],
-      encryptedPayload: request.encryptedPayload,
-    }));
-    window.sessionStorage.setItem(DEVICE_MATERIAL_KEY, JSON.stringify(localDeviceMaterial));
-    window.sessionStorage.setItem(
-      DEVICE_SESSION_KEY,
-      JSON.stringify({
-        [`${REMOTE_USER_ID}:device-id`]: {
-          sessionId: "responder-session-record",
-          peerUserId: REMOTE_USER_ID,
-          peerDeviceId: "device-id",
-          sessionOrigin: "responder",
-          ownMaterialId: localDeviceMaterial.materialId,
-          remoteIdentityKey: deviceBundle.identityKey,
-          remoteIdentitySignatureKey: deviceBundle.identitySignatureKey,
-          remoteSignedPrekeyId: localDeviceMaterial.signedPrekeyId,
-          remoteSignedPrekeyPublicKey: localDeviceMaterial.signedPrekeyPublicKey,
-          remoteOneTimePrekeyId: null,
-          initiatorEphemeralPublicKey: '{"kty":"OKP","crv":"X25519","x":"peer-initiator"}',
-          sendingRatchetPublicKey: '{"kty":"OKP","crv":"X25519","x":"local-ratchet"}',
-          sendingRatchetPrivateKey:
-            '{"kty":"OKP","crv":"X25519","d":"local-ratchet-private","x":"local-ratchet"}',
-          remoteRatchetPublicKey: '{"kty":"OKP","crv":"X25519","x":"peer-ratchet"}',
-          sendingRatchetUsed: false,
-          pendingSendingRatchetStep: true,
-          rootKey: utf8ToBase64("12345678901234567890123456789012"),
-          sendingChainKey: utf8ToBase64("abcdefghijklmnopqrstuvwx12345678"),
-          receivingChainKey: utf8ToBase64("zyxwvutsrqponmlkjihgfedcba876543"),
-          sendingCounter: 0,
-          receivingCounter: 0,
-          cachedMessageKeys: {},
-          establishedAt: "2026-04-09T10:00:00.000Z",
-        },
-      })
-    );
-
-    await sendEncryptedMessage(
-      "token",
-      "chat-id",
-      "reply over responder session",
-      [selfParticipant, participant],
-      "client-message-id-reply",
-      null,
-      { currentUserId: USER_ID }
-    );
-
-    expect(resolveEncryptionDeviceBundles).toHaveBeenCalledTimes(2);
-    expect(
-      vi.mocked(resolveEncryptionDeviceBundles).mock.calls.some(
-        ([, , request]) => request?.consumeOneTimePrekeys === true
-      )
-    ).toBe(true);
-    expect(sendMessageRaw).toHaveBeenCalledTimes(1);
-
-    const remoteEnvelope = JSON.parse(
-      vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload?.encryptedKeysByRecipientId[
-        "device-id"
-      ] ?? "{}"
-    ) as { recipientSignedPrekeyId?: number };
-    expect(remoteEnvelope.recipientSignedPrekeyId).toBe(deviceBundle.signedPrekeyId);
-  });
-
-  it("refreshes a remembered direct session before the first outgoing send after reload", async () => {
-    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
-    vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
-    vi.spyOn(window.crypto.subtle, "generateKey").mockResolvedValue({
-      publicKey: {} as CryptoKey,
-      privateKey: {} as CryptoKey,
-    } as CryptoKeyPair);
-    vi.spyOn(window.crypto.subtle, "exportKey").mockResolvedValue({
-      kty: "OKP",
-      crv: "X25519",
-      x: "generated",
-    } as JsonWebKey);
-    vi.spyOn(window.crypto.subtle, "deriveBits").mockResolvedValue(new Uint8Array(32).buffer);
-    vi.spyOn(window.crypto.subtle, "deriveKey").mockResolvedValue({} as CryptoKey);
-    vi.spyOn(window.crypto.subtle, "encrypt").mockImplementation(
-      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
-    );
-    vi.spyOn(window.crypto.subtle, "decrypt").mockImplementation(
-      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
-    );
-    vi.mocked(resolveEncryptionDeviceBundles).mockResolvedValue([consumableDeviceBundle]);
-    vi.mocked(sendMessageRaw).mockImplementation(async (_token, chatId, request) => ({
-      id: "message-id",
-      chatId,
-      sender: selfParticipant,
-      createdAt: "2026-04-09T10:31:00.000Z",
-      editedAt: null,
-      status: null,
-      clientMessageId: request.clientMessageId ?? null,
-      replyTo: null,
-      reactions: [],
-      encryptedPayload: request.encryptedPayload,
-    }));
-    window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(identity));
-    window.sessionStorage.setItem(DEVICE_MATERIAL_KEY, JSON.stringify(localDeviceMaterial));
-
-    await sendEncryptedMessage(
-      "token",
-      "chat-id",
-      "initial direct secret",
-      [selfParticipant, participant],
-      "client-message-id-initial",
-      null,
-      { currentUserId: USER_ID }
-    );
-
-    expect(window.localStorage.getItem(`north-messenger:remembered-device-session-e2ee:${USER_ID}`)).not.toBeNull();
-
-    window.sessionStorage.removeItem(DEVICE_SESSION_KEY);
-    vi.mocked(resolveEncryptionDeviceBundles).mockClear();
-    vi.mocked(sendMessageRaw).mockClear();
-
-    await sendEncryptedMessage(
-      "token",
-      "chat-id",
-      "restored direct secret",
-      [selfParticipant, participant],
-      "client-message-id-restored",
-      null,
-      { currentUserId: USER_ID }
-    );
-
-    expect(
-      vi.mocked(resolveEncryptionDeviceBundles).mock.calls.some(
-        ([, , request]) => request?.consumeOneTimePrekeys === true
-      )
-    ).toBe(true);
-    const restoredRemoteEnvelope = JSON.parse(
-      vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload?.encryptedKeysByRecipientId[
-        "device-id"
-      ] ?? "{}"
-    ) as { recipientOneTimePrekeyId?: number | null };
-    expect(restoredRemoteEnvelope.recipientOneTimePrekeyId).toBe(11);
-  });
-
-  it("refreshes a session-storage direct session only once after a fresh runtime reload", async () => {
-    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
-    vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
-    vi.spyOn(window.crypto.subtle, "generateKey").mockResolvedValue({
-      publicKey: {} as CryptoKey,
-      privateKey: {} as CryptoKey,
-    } as CryptoKeyPair);
-    vi.spyOn(window.crypto.subtle, "exportKey").mockResolvedValue({
-      kty: "OKP",
-      crv: "X25519",
-      x: "generated",
-    } as JsonWebKey);
-    vi.spyOn(window.crypto.subtle, "deriveBits").mockResolvedValue(new Uint8Array(32).buffer);
-    vi.spyOn(window.crypto.subtle, "deriveKey").mockResolvedValue({} as CryptoKey);
-    vi.spyOn(window.crypto.subtle, "encrypt").mockImplementation(
-      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
-    );
-    vi.spyOn(window.crypto.subtle, "decrypt").mockImplementation(
-      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
-    );
-    vi.mocked(resolveEncryptionDeviceBundles)
-      .mockResolvedValueOnce([deviceBundle])
-      .mockResolvedValueOnce([consumableDeviceBundle]);
-    vi.mocked(sendMessageRaw).mockImplementation(async (_token, chatId, request) => ({
-      id: "message-id",
-      chatId,
-      sender: selfParticipant,
-      createdAt: "2026-04-09T10:31:00.000Z",
-      editedAt: null,
-      status: null,
-      clientMessageId: request.clientMessageId ?? null,
-      replyTo: null,
-      reactions: [],
-      encryptedPayload: request.encryptedPayload,
-    }));
-    window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(identity));
-    window.sessionStorage.setItem(DEVICE_MATERIAL_KEY, JSON.stringify(localDeviceMaterial));
-
-    await sendEncryptedMessage(
-      "token",
-      "chat-id",
-      "initial direct secret",
-      [selfParticipant, participant],
-      "client-message-id-initial-runtime",
-      null,
-      { currentUserId: USER_ID }
-    );
-
-    const storedSessions = window.sessionStorage.getItem(DEVICE_SESSION_KEY);
-    expect(storedSessions).not.toBeNull();
-
-    clearUnlockedEncryptionState(USER_ID);
-    window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(identity));
-    window.sessionStorage.setItem(DEVICE_MATERIAL_KEY, JSON.stringify(localDeviceMaterial));
-    window.sessionStorage.setItem(DEVICE_SESSION_KEY, storedSessions ?? "{}");
-
-    vi.mocked(resolveEncryptionDeviceBundles).mockReset();
-    vi.mocked(resolveEncryptionDeviceBundles)
-      .mockResolvedValueOnce([deviceBundle])
-      .mockResolvedValueOnce([consumableDeviceBundle])
-      .mockResolvedValueOnce([deviceBundle]);
-    vi.mocked(sendMessageRaw).mockClear();
-
-    await sendEncryptedMessage(
-      "token",
-      "chat-id",
-      "restored session-storage secret",
-      [selfParticipant, participant],
-      "client-message-id-session-storage-restored",
-      null,
-      { currentUserId: USER_ID }
-    );
-
-    expect(
-      vi.mocked(resolveEncryptionDeviceBundles).mock.calls.some(
-        ([, , request]) => request?.consumeOneTimePrekeys === true
-      )
-    ).toBe(true);
-    const restoredRemoteEnvelope = JSON.parse(
-      vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload?.encryptedKeysByRecipientId[
-        "device-id"
-      ] ?? "{}"
-    ) as { recipientOneTimePrekeyId?: number | null };
-    expect(restoredRemoteEnvelope.recipientOneTimePrekeyId).toBe(11);
-
-    vi.mocked(resolveEncryptionDeviceBundles).mockClear();
-    vi.mocked(sendMessageRaw).mockClear();
-
-    await sendEncryptedMessage(
-      "token",
-      "chat-id",
-      "same runtime follow-up secret",
-      [selfParticipant, participant],
-      "client-message-id-session-storage-follow-up",
-      null,
-      { currentUserId: USER_ID }
-    );
-
-    expect(
-      vi.mocked(resolveEncryptionDeviceBundles).mock.calls.some(
-        ([, , request]) => request?.consumeOneTimePrekeys === true
-      )
-    ).toBe(false);
-  });
-
-  it("rebuilds a responder-established direct session when the remote signed prekey rotated", async () => {
-    const rotatedDeviceBundle = {
-      ...deviceBundle,
-      signedPrekeyId: 8,
-      signedPrekeyPublicKey: '{"kty":"OKP","crv":"X25519","x":"signed-prekey-rotated"}',
-    };
-    const rotatedConsumableDeviceBundle = {
-      ...rotatedDeviceBundle,
-      oneTimePrekey: {
-        keyId: 11,
-        publicKey: '{"kty":"OKP","crv":"X25519","x":"otp-rotated"}',
-      },
-    };
-    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
-    vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
-    vi.spyOn(window.crypto.subtle, "generateKey").mockResolvedValue({
-      publicKey: {} as CryptoKey,
-      privateKey: {} as CryptoKey,
-    } as CryptoKeyPair);
-    vi.spyOn(window.crypto.subtle, "exportKey").mockResolvedValue({
-      kty: "OKP",
-      crv: "X25519",
-      x: "generated",
-    } as JsonWebKey);
-    vi.spyOn(window.crypto.subtle, "deriveBits").mockResolvedValue(new Uint8Array(32).buffer);
-    vi.spyOn(window.crypto.subtle, "encrypt").mockImplementation(
-      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
-    );
-    vi.mocked(resolveEncryptionDeviceBundles)
-      .mockResolvedValueOnce([rotatedDeviceBundle])
-      .mockResolvedValueOnce([rotatedConsumableDeviceBundle])
-      .mockResolvedValueOnce([rotatedDeviceBundle]);
-    vi.mocked(sendMessageRaw).mockImplementation(async (_token, chatId, request) => ({
-      id: "reply-message-id",
-      chatId,
-      sender: selfParticipant,
-      createdAt: "2026-04-09T10:31:00.000Z",
-      editedAt: null,
-      status: null,
-      clientMessageId: request.clientMessageId ?? null,
-      replyTo: null,
-      reactions: [],
-      encryptedPayload: request.encryptedPayload,
-    }));
-    window.sessionStorage.setItem(DEVICE_MATERIAL_KEY, JSON.stringify(localDeviceMaterial));
-    window.sessionStorage.setItem(
-      DEVICE_SESSION_KEY,
-      JSON.stringify({
-        [`${REMOTE_USER_ID}:device-id`]: {
-          sessionId: "responder-session-record",
-          peerUserId: REMOTE_USER_ID,
-          peerDeviceId: "device-id",
-          sessionOrigin: "responder",
-          ownMaterialId: localDeviceMaterial.materialId,
-          remoteIdentityKey: rotatedDeviceBundle.identityKey,
-          remoteIdentitySignatureKey: rotatedDeviceBundle.identitySignatureKey,
-          remoteSignedPrekeyId: 7,
-          remoteSignedPrekeyPublicKey: deviceBundle.signedPrekeyPublicKey,
-          remoteOneTimePrekeyId: null,
-          initiatorEphemeralPublicKey: '{"kty":"OKP","crv":"X25519","x":"peer-initiator"}',
-          sendingRatchetPublicKey: '{"kty":"OKP","crv":"X25519","x":"local-ratchet"}',
-          sendingRatchetPrivateKey:
-            '{"kty":"OKP","crv":"X25519","d":"local-ratchet-private","x":"local-ratchet"}',
-          remoteRatchetPublicKey: '{"kty":"OKP","crv":"X25519","x":"peer-ratchet"}',
-          sendingRatchetUsed: false,
-          pendingSendingRatchetStep: true,
-          rootKey: utf8ToBase64("12345678901234567890123456789012"),
-          sendingChainKey: utf8ToBase64("abcdefghijklmnopqrstuvwx12345678"),
-          receivingChainKey: utf8ToBase64("zyxwvutsrqponmlkjihgfedcba876543"),
-          sendingCounter: 0,
-          receivingCounter: 0,
-          cachedMessageKeys: {},
-          establishedAt: "2026-04-09T10:00:00.000Z",
-        },
-      })
-    );
-
-    await sendEncryptedMessage(
-      "token",
-      "chat-id",
-      "reply after remote prekey rotation",
-      [selfParticipant, participant],
-      "client-message-id-rotated-reply",
-      null,
-      { currentUserId: USER_ID }
-    );
-
-    expect(resolveEncryptionDeviceBundles).toHaveBeenCalledTimes(3);
-    expect(
-      vi.mocked(resolveEncryptionDeviceBundles).mock.calls.some(
-        ([, , request]) => request?.consumeOneTimePrekeys === true
-      )
-    ).toBe(true);
-    expect(sendMessageRaw).toHaveBeenCalledTimes(1);
-
-    const remoteEnvelope = JSON.parse(
-      vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload?.encryptedKeysByRecipientId[
-        "device-id"
-      ] ?? "{}"
-    ) as { recipientSignedPrekeyId?: number; recipientOneTimePrekeyId?: number | null };
-    expect(remoteEnvelope.recipientSignedPrekeyId).toBe(8);
+    expect(upsertGroupHistoryKey).toHaveBeenCalledTimes(1);
+    const secondSharedEnvelope = JSON.parse(
+      vi.mocked(sendMessageRaw).mock.calls[1]?.[2].encryptedPayload?.sharedEnvelope ?? "{}"
+    ) as { historyKeyId?: string };
+    expect(secondSharedEnvelope.historyKeyId).toBe(firstSharedEnvelope.historyKeyId);
   });
 
   it("imports X25519 public device bundles without deriveBits key usage", async () => {
@@ -2033,13 +1728,18 @@ describe("e2ee hardening", () => {
 
     expect(sendMessageRaw).toHaveBeenCalledTimes(2);
     expect(resolveEncryptionDeviceBundles).toHaveBeenCalledTimes(4);
-
-    const firstRemoteEnvelope = JSON.parse(
-      vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload?.encryptedKeysByRecipientId[
-        "device-id"
-      ] ?? "{}"
-    ) as { recipientOneTimePrekeyId?: number | null };
-    expect(firstRemoteEnvelope.recipientOneTimePrekeyId).toBe(11);
+    expect(vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload).toMatchObject({
+      scheme: "CHAT-EPOCH-KEY-AES-GCM",
+      encryptedKeysByRecipientId: {},
+      sharedEnvelope: expect.any(String),
+      historyEnvelope: expect.any(String),
+    });
+    expect(vi.mocked(sendMessageRaw).mock.calls[1]?.[2].encryptedPayload).toMatchObject({
+      scheme: "CHAT-EPOCH-KEY-AES-GCM",
+      encryptedKeysByRecipientId: {},
+      sharedEnvelope: expect.any(String),
+      historyEnvelope: expect.any(String),
+    });
 
     expect(
       vi.mocked(resolveEncryptionDeviceBundles).mock.calls.filter(
@@ -2122,14 +1822,12 @@ describe("e2ee hardening", () => {
       deviceId: "self-device",
       materialId: expect.any(String),
     });
-
-    const retriedSelfEnvelope = JSON.parse(
-      vi.mocked(sendMessageRaw).mock.calls[1]?.[2].encryptedPayload?.encryptedKeysByRecipientId[
-        "self-device"
-      ] ?? "{}"
-    ) as { senderDeviceId?: string | null; recipientDeviceId?: string | null };
-    expect(retriedSelfEnvelope.senderDeviceId).toBe("self-device");
-    expect(retriedSelfEnvelope.recipientDeviceId).toBe("self-device");
+    expect(vi.mocked(sendMessageRaw).mock.calls[1]?.[2].encryptedPayload).toMatchObject({
+      scheme: "CHAT-EPOCH-KEY-AES-GCM",
+      encryptedKeysByRecipientId: {},
+      sharedEnvelope: expect.any(String),
+      historyEnvelope: expect.any(String),
+    });
   });
 
   it("keeps a confirmed own message readable even if its echoed direct envelope metadata is later tampered", async () => {
@@ -2657,7 +2355,9 @@ describe("e2ee hardening", () => {
     expect(vi.mocked(upsertOwnEncryptionRecoverySnapshot)).toHaveBeenCalledWith(
       "token",
       expect.objectContaining({
-        wrappedIdentityRecordJson: remoteSnapshot.wrappedIdentityRecordJson,
+        accountPublicKey: identity.accountPublicKey,
+        snapshotPayloadJson: expect.any(String),
+        wrappedIdentityRecordJson: expect.any(String),
       })
     );
 
@@ -4065,7 +3765,7 @@ describe("e2ee hardening", () => {
     expect(hydrated.content).toBe("[Encrypted message unavailable]");
   });
 
-  it("sends group messages with per-device envelopes for every participant device", async () => {
+  it("sends group messages with chat epoch envelopes for participant accounts", async () => {
     vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
     vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
     vi.spyOn(window.crypto.subtle, "generateKey").mockResolvedValue({
@@ -4132,14 +3832,34 @@ describe("e2ee hardening", () => {
         requesterDeviceId: "self-device",
       }
     );
-    expect(vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload).toMatchObject({
-      scheme: "GROUP-SENDER-KEY-AES-GCM",
-      sharedEnvelope: expect.any(String),
-      encryptedKeysByRecipientId: expect.objectContaining({
-        "device-id": expect.any(String),
-        "device-id-two": expect.any(String),
-        "self-device": expect.any(String),
+    expect(upsertGroupHistoryKey).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(upsertGroupHistoryKey).mock.calls[0]?.[2]).toMatchObject({
+      historyKeyId: expect.any(String),
+      wrappedKeysByRecipientUserId: expect.objectContaining({
+        [USER_ID]: expect.any(String),
+        [REMOTE_USER_ID]: expect.any(String),
+        [REMOTE_USER_ID_TWO]: expect.any(String),
       }),
+    });
+    expect(vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload).toMatchObject({
+      scheme: "CHAT-EPOCH-KEY-AES-GCM",
+      sharedEnvelope: expect.any(String),
+      historyEnvelope: expect.any(String),
+      encryptedKeysByRecipientId: {},
+    });
+    const sharedEnvelope = JSON.parse(
+      vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload?.sharedEnvelope ?? "{}"
+    ) as {
+      aadVersion?: number;
+      chatId?: string;
+      senderUserId?: string;
+      historyKeyId?: string;
+    };
+    expect(sharedEnvelope).toMatchObject({
+      aadVersion: 1,
+      chatId: "group-chat-id",
+      senderUserId: USER_ID,
+      historyKeyId: expect.any(String),
     });
 
     const decrypted = await hydrateChatMessage(
@@ -4159,80 +3879,6 @@ describe("e2ee hardening", () => {
     );
 
     expect(decrypted.content).toBe("group secret");
-  });
-
-  it("rotates a remembered outbound group sender chain before the first send after reload", async () => {
-    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
-    vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
-    vi.spyOn(window.crypto.subtle, "generateKey").mockResolvedValue({
-      publicKey: {} as CryptoKey,
-      privateKey: {} as CryptoKey,
-    } as CryptoKeyPair);
-    vi.spyOn(window.crypto.subtle, "exportKey").mockResolvedValue({
-      kty: "OKP",
-      crv: "X25519",
-      x: "generated",
-    } as JsonWebKey);
-    vi.spyOn(window.crypto.subtle, "deriveBits").mockResolvedValue(new Uint8Array(32).buffer);
-    vi.spyOn(window.crypto.subtle, "deriveKey").mockResolvedValue({} as CryptoKey);
-    vi.spyOn(window.crypto.subtle, "sign").mockResolvedValue(new Uint8Array([1, 2, 3]).buffer);
-    vi.spyOn(window.crypto.subtle, "encrypt").mockImplementation(
-      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
-    );
-    vi.spyOn(window.crypto.subtle, "decrypt").mockImplementation(
-      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
-    );
-    vi.mocked(resolveEncryptionDeviceBundles).mockResolvedValue([deviceBundle]);
-    vi.mocked(sendMessageRaw).mockImplementation(async (_token, chatId, request) => ({
-      id: "group-message-id",
-      chatId,
-      sender: selfParticipant,
-      createdAt: "2026-04-09T10:35:00.000Z",
-      editedAt: null,
-      status: null,
-      clientMessageId: request.clientMessageId ?? null,
-      replyTo: null,
-      reactions: [],
-      encryptedPayload: request.encryptedPayload,
-    }));
-    window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(identity));
-    window.sessionStorage.setItem(DEVICE_MATERIAL_KEY, JSON.stringify(localDeviceMaterial));
-
-    await sendEncryptedMessage(
-      "token",
-      "group-chat-id",
-      "initial group secret",
-      [selfParticipant, participant],
-      "group-client-message-id-initial",
-      null,
-      { currentUserId: USER_ID, isDirectChat: false }
-    );
-
-    const initialSharedEnvelope = JSON.parse(
-      vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload?.sharedEnvelope ?? "{}"
-    ) as { senderKeyId?: string; messageCounter?: number };
-    expect(window.localStorage.getItem(`north-messenger:group-sender-chain-e2ee:remembered:${USER_ID}`)).not.toBeNull();
-
-    window.sessionStorage.removeItem(DEVICE_SESSION_KEY);
-    window.sessionStorage.removeItem(GROUP_SENDER_CHAIN_KEY);
-    vi.mocked(resolveEncryptionDeviceBundles).mockClear();
-    vi.mocked(sendMessageRaw).mockClear();
-
-    await sendEncryptedMessage(
-      "token",
-      "group-chat-id",
-      "restored group secret",
-      [selfParticipant, participant],
-      "group-client-message-id-restored",
-      null,
-      { currentUserId: USER_ID, isDirectChat: false }
-    );
-
-    const restoredSharedEnvelope = JSON.parse(
-      vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload?.sharedEnvelope ?? "{}"
-    ) as { senderKeyId?: string; messageCounter?: number };
-    expect(restoredSharedEnvelope.messageCounter).toBe(0);
-    expect(restoredSharedEnvelope.senderKeyId).not.toBe(initialSharedEnvelope.senderKeyId);
   });
 
   it("reuses prepared device state for the first group send after priming", async () => {
@@ -4295,425 +3941,19 @@ describe("e2ee hardening", () => {
 
     expect(resolveEncryptionDeviceBundles).not.toHaveBeenCalled();
     expect(sendMessageRaw).toHaveBeenCalledTimes(1);
-    expect(
-      Object.keys(vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload?.encryptedKeysByRecipientId ?? {})
-        .sort()
-    ).toEqual(["device-id", "self-device", "self-device-two"]);
-  });
-
-  it("retries group sends after the backend rejects a stale outbound sender chain", async () => {
-    const retriedConsumableDeviceBundle = {
-      ...consumableDeviceBundle,
-      oneTimePrekey: {
-        keyId: 12,
-        publicKey: publicOkpJwk("X25519", "otp-retry"),
-      },
-    };
-    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
-    vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
-    vi.spyOn(window.crypto.subtle, "generateKey").mockResolvedValue({
-      publicKey: {} as CryptoKey,
-      privateKey: {} as CryptoKey,
-    } as CryptoKeyPair);
-    vi.spyOn(window.crypto.subtle, "exportKey").mockResolvedValue({
-      kty: "OKP",
-      crv: "X25519",
-      x: "generated",
-    } as JsonWebKey);
-    vi.spyOn(window.crypto.subtle, "deriveBits").mockResolvedValue(new Uint8Array(32).buffer);
-    vi.spyOn(window.crypto.subtle, "sign").mockResolvedValue(new Uint8Array([1, 2, 3]).buffer);
-    vi.spyOn(window.crypto.subtle, "encrypt").mockImplementation(
-      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
-    );
-    vi.mocked(resolveEncryptionDeviceBundles)
-      .mockResolvedValueOnce([deviceBundle])
-      .mockResolvedValueOnce([consumableDeviceBundle])
-      .mockResolvedValueOnce([deviceBundle])
-      .mockResolvedValueOnce([deviceBundle])
-      .mockResolvedValueOnce([retriedConsumableDeviceBundle]);
-    vi.mocked(sendMessageRaw)
-      .mockRejectedValueOnce(new ApiError("Encrypted group envelope must start at counter zero", 400))
-      .mockImplementationOnce(async (_token, chatId, request) => ({
-        id: "group-message-id",
-        chatId,
-        sender: selfParticipant,
-        createdAt: "2026-04-09T10:35:00.000Z",
-        editedAt: null,
-        status: null,
-        clientMessageId: request.clientMessageId ?? null,
-        replyTo: null,
-        reactions: [],
-        encryptedPayload: request.encryptedPayload,
-      }));
-    const freshSenderChainCreatedAt = new Date(
-      Date.now() - 6 * 24 * 60 * 60 * 1000
-    ).toISOString();
-    window.sessionStorage.setItem(DEVICE_MATERIAL_KEY, JSON.stringify(localDeviceMaterial));
-    window.sessionStorage.setItem(
-      GROUP_SENDER_CHAIN_KEY,
-      JSON.stringify({
-        outboundChains: {
-          "group-chat-id": {
-            chatId: "group-chat-id",
-            ownMaterialId: localDeviceMaterial.materialId,
-            senderDeviceId: localDeviceMaterial.deviceId,
-            senderKeyId: "stale-group-sender-key",
-            recipientDeviceSetHash: `${REMOTE_USER_ID}:device-id|${USER_ID}:self-device`,
-            chainKey: utf8ToBase64("stale-group-chain-key"),
-            nextMessageCounter: 5,
-            createdAt: freshSenderChainCreatedAt,
-          },
-        },
-        inboundChains: {},
-      })
-    );
-
-    await expect(
-      sendEncryptedMessage(
-        "token",
-        "group-chat-id",
-        "group secret retry",
-        [selfParticipant, participant],
-        "group-client-message-id",
-        null,
-        { currentUserId: USER_ID, isDirectChat: false }
-      )
-    ).resolves.toMatchObject({
-      id: "group-message-id",
-      clientMessageId: "group-client-message-id",
+    expect(vi.mocked(upsertGroupHistoryKey).mock.calls[0]?.[2]).toMatchObject({
+      historyKeyId: expect.any(String),
+      wrappedKeysByRecipientUserId: expect.objectContaining({
+        [USER_ID]: expect.any(String),
+        [REMOTE_USER_ID]: expect.any(String),
+      }),
     });
-
-    expect(sendMessageRaw).toHaveBeenCalledTimes(2);
-    expect(resolveEncryptionDeviceBundles).toHaveBeenCalledTimes(4);
-
-    const firstSharedEnvelope = JSON.parse(
-      vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload?.sharedEnvelope ?? "{}"
-    ) as { senderKeyId?: string; messageCounter?: number };
-    const retriedSharedEnvelope = JSON.parse(
-      vi.mocked(sendMessageRaw).mock.calls[1]?.[2].encryptedPayload?.sharedEnvelope ?? "{}"
-    ) as { senderKeyId?: string; messageCounter?: number };
-
-    expect(firstSharedEnvelope).toMatchObject({
-      senderKeyId: "stale-group-sender-key",
-      messageCounter: 5,
+    expect(vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload).toMatchObject({
+      scheme: "CHAT-EPOCH-KEY-AES-GCM",
+      encryptedKeysByRecipientId: {},
+      sharedEnvelope: expect.any(String),
+      historyEnvelope: expect.any(String),
     });
-    expect(retriedSharedEnvelope.messageCounter).toBe(0);
-    expect(retriedSharedEnvelope.senderKeyId).not.toBe("stale-group-sender-key");
-
-    const persistedGroupState = JSON.parse(
-      window.sessionStorage.getItem(GROUP_SENDER_CHAIN_KEY) ?? "{}"
-    ) as {
-      outboundChains?: Record<
-        string,
-        {
-          senderKeyId?: string;
-          nextMessageCounter?: number;
-        }
-      >;
-    };
-
-    expect(persistedGroupState.outboundChains?.["group-chat-id"]).toMatchObject({
-      senderKeyId: retriedSharedEnvelope.senderKeyId,
-      nextMessageCounter: 1,
-    });
-  });
-
-  it("restores a newer remembered outbound group sender chain before rotating on session repair", async () => {
-    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
-    vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
-    vi.spyOn(window.crypto.subtle, "generateKey").mockResolvedValue({
-      publicKey: {} as CryptoKey,
-      privateKey: {} as CryptoKey,
-    } as CryptoKeyPair);
-    vi.spyOn(window.crypto.subtle, "exportKey").mockResolvedValue({
-      kty: "OKP",
-      crv: "X25519",
-      x: "generated",
-    } as JsonWebKey);
-    vi.spyOn(window.crypto.subtle, "deriveBits").mockResolvedValue(new Uint8Array(32).buffer);
-    vi.spyOn(window.crypto.subtle, "deriveKey").mockResolvedValue({} as CryptoKey);
-    vi.spyOn(window.crypto.subtle, "sign").mockResolvedValue(new Uint8Array([1, 2, 3]).buffer);
-    vi.spyOn(window.crypto.subtle, "encrypt").mockImplementation(
-      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
-    );
-    vi.spyOn(window.crypto.subtle, "decrypt").mockImplementation(
-      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
-    );
-    vi.mocked(resolveEncryptionDeviceBundles).mockResolvedValue([deviceBundle]);
-    vi.mocked(sendMessageRaw).mockImplementationOnce(async (_token, chatId, request) => ({
-      id: "group-message-id-initial",
-      chatId,
-      sender: selfParticipant,
-      createdAt: "2026-04-09T10:35:00.000Z",
-      editedAt: null,
-      status: null,
-      clientMessageId: request.clientMessageId ?? null,
-      replyTo: null,
-      reactions: [],
-      encryptedPayload: request.encryptedPayload,
-    }));
-    window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(identity));
-    window.sessionStorage.setItem(DEVICE_MATERIAL_KEY, JSON.stringify(localDeviceMaterial));
-
-    await sendEncryptedMessage(
-      "token",
-      "group-chat-id",
-      "initial group secret",
-      [selfParticipant, participant],
-      "group-client-message-id-initial",
-      null,
-      { currentUserId: USER_ID, isDirectChat: false }
-    );
-
-    const initialSharedEnvelope = JSON.parse(
-      vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload?.sharedEnvelope ?? "{}"
-    ) as { senderKeyId?: string; messageCounter?: number };
-    const staleGroupState = JSON.parse(
-      window.sessionStorage.getItem(GROUP_SENDER_CHAIN_KEY) ?? "{}"
-    ) as {
-      outboundChains?: Record<
-        string,
-        {
-          senderKeyId?: string;
-          nextMessageCounter?: number;
-        }
-      >;
-    };
-    expect(window.localStorage.getItem(`north-messenger:group-sender-chain-e2ee:remembered:${USER_ID}`)).not.toBeNull();
-    staleGroupState.outboundChains = {
-      ...(staleGroupState.outboundChains ?? {}),
-      "group-chat-id": {
-        ...(staleGroupState.outboundChains?.["group-chat-id"] ?? {}),
-        nextMessageCounter: 0,
-      },
-    };
-    window.sessionStorage.setItem(GROUP_SENDER_CHAIN_KEY, JSON.stringify(staleGroupState));
-
-    vi.mocked(sendMessageRaw).mockReset();
-    vi.mocked(sendMessageRaw)
-      .mockRejectedValueOnce(new ApiError("Encrypted group envelope message counter is stale", 400))
-      .mockImplementationOnce(async (_token, chatId, request) => ({
-        id: "group-message-id-restored",
-        chatId,
-        sender: selfParticipant,
-        createdAt: "2026-04-09T10:36:00.000Z",
-        editedAt: null,
-        status: null,
-        clientMessageId: request.clientMessageId ?? null,
-        replyTo: null,
-        reactions: [],
-        encryptedPayload: request.encryptedPayload,
-      }));
-
-    await expect(
-      sendEncryptedMessage(
-        "token",
-        "group-chat-id",
-        "group secret after session restore",
-        [selfParticipant, participant],
-        "group-client-message-id-restored",
-        null,
-        { currentUserId: USER_ID, isDirectChat: false }
-      )
-    ).resolves.toMatchObject({
-      id: "group-message-id-restored",
-      clientMessageId: "group-client-message-id-restored",
-    });
-
-    expect(sendMessageRaw).toHaveBeenCalledTimes(2);
-
-    const staleSharedEnvelope = JSON.parse(
-      vi.mocked(sendMessageRaw).mock.calls[0]?.[2].encryptedPayload?.sharedEnvelope ?? "{}"
-    ) as { senderKeyId?: string; messageCounter?: number };
-    const restoredSharedEnvelope = JSON.parse(
-      vi.mocked(sendMessageRaw).mock.calls[1]?.[2].encryptedPayload?.sharedEnvelope ?? "{}"
-    ) as { senderKeyId?: string; messageCounter?: number };
-
-    expect(staleSharedEnvelope).toMatchObject({
-      senderKeyId: initialSharedEnvelope.senderKeyId,
-      messageCounter: 0,
-    });
-    expect(restoredSharedEnvelope).toMatchObject({
-      senderKeyId: initialSharedEnvelope.senderKeyId,
-      messageCounter: 1,
-    });
-
-    const persistedGroupState = JSON.parse(
-      window.sessionStorage.getItem(GROUP_SENDER_CHAIN_KEY) ?? "{}"
-    ) as {
-      outboundChains?: Record<
-        string,
-        {
-          senderKeyId?: string;
-          nextMessageCounter?: number;
-        }
-      >;
-    };
-
-    expect(persistedGroupState.outboundChains?.["group-chat-id"]).toMatchObject({
-      senderKeyId: initialSharedEnvelope.senderKeyId,
-      nextMessageCounter: 2,
-    });
-  });
-
-  it("retries group sends after the backend rejects a stale history-key recipient prekey", async () => {
-    const retriedConsumableDeviceBundle = {
-      ...consumableDeviceBundle,
-      oneTimePrekey: {
-        keyId: 13,
-        publicKey: publicOkpJwk("X25519", "otp-history-retry"),
-      },
-    };
-    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
-    vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
-    vi.spyOn(window.crypto.subtle, "generateKey").mockResolvedValue({
-      publicKey: {} as CryptoKey,
-      privateKey: {} as CryptoKey,
-    } as CryptoKeyPair);
-    vi.spyOn(window.crypto.subtle, "exportKey").mockResolvedValue({
-      kty: "OKP",
-      crv: "X25519",
-      x: "generated",
-    } as JsonWebKey);
-    vi.spyOn(window.crypto.subtle, "deriveBits").mockResolvedValue(new Uint8Array(32).buffer);
-    vi.spyOn(window.crypto.subtle, "sign").mockResolvedValue(new Uint8Array([1, 2, 3]).buffer);
-    vi.spyOn(window.crypto.subtle, "encrypt").mockImplementation(
-      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
-    );
-    vi.mocked(resolveEncryptionDeviceBundles)
-      .mockResolvedValueOnce([deviceBundle])
-      .mockResolvedValueOnce([consumableDeviceBundle])
-      .mockResolvedValueOnce([deviceBundle])
-      .mockResolvedValueOnce([deviceBundle])
-      .mockResolvedValueOnce([retriedConsumableDeviceBundle]);
-    vi.mocked(upsertGroupHistoryKey)
-      .mockRejectedValueOnce(new ApiError("Group history key recipient prekey is stale", 400))
-      .mockResolvedValueOnce({
-        historyKeyId: "history-key-id",
-        createdAt: "2026-04-20T10:00:00.000Z",
-      });
-    vi.mocked(sendMessageRaw).mockImplementationOnce(async (_token, chatId, request) => ({
-      id: "group-message-id",
-      chatId,
-      sender: selfParticipant,
-      createdAt: "2026-04-09T10:35:00.000Z",
-      editedAt: null,
-      status: null,
-      clientMessageId: request.clientMessageId ?? null,
-      replyTo: null,
-      reactions: [],
-      encryptedPayload: request.encryptedPayload,
-    }));
-    window.sessionStorage.setItem(DEVICE_MATERIAL_KEY, JSON.stringify(localDeviceMaterial));
-
-    await expect(
-      sendEncryptedMessage(
-        "token",
-        "group-chat-id",
-        "group secret retry",
-        [selfParticipant, participant],
-        "group-client-message-id",
-        null,
-        { currentUserId: USER_ID, isDirectChat: false }
-      )
-    ).resolves.toMatchObject({
-      id: "group-message-id",
-      clientMessageId: "group-client-message-id",
-    });
-
-    expect(upsertGroupHistoryKey).toHaveBeenCalledTimes(2);
-    expect(sendMessageRaw).toHaveBeenCalledTimes(1);
-    expect(resolveEncryptionDeviceBundles).toHaveBeenCalledTimes(4);
-
-    const retriedWrappedKeys = vi.mocked(upsertGroupHistoryKey).mock.calls[1]?.[2]
-      .wrappedKeysByRecipientDeviceId;
-    expect(retriedWrappedKeys).toEqual(
-      expect.objectContaining({
-        "device-id": expect.any(String),
-        "self-device": expect.any(String),
-      })
-    );
-  });
-
-  it("retries group sends after stale history-key access references unknown recipient devices", async () => {
-    const retriedConsumableDeviceBundle = {
-      ...consumableDeviceBundle,
-      oneTimePrekey: {
-        keyId: 14,
-        publicKey: publicOkpJwk("X25519", "otp-history-device-refresh"),
-      },
-    };
-    vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
-    vi.spyOn(window.crypto.subtle, "verify").mockResolvedValue(true);
-    vi.spyOn(window.crypto.subtle, "generateKey").mockResolvedValue({
-      publicKey: {} as CryptoKey,
-      privateKey: {} as CryptoKey,
-    } as CryptoKeyPair);
-    vi.spyOn(window.crypto.subtle, "exportKey").mockResolvedValue({
-      kty: "OKP",
-      crv: "X25519",
-      x: "generated",
-    } as JsonWebKey);
-    vi.spyOn(window.crypto.subtle, "deriveBits").mockResolvedValue(new Uint8Array(32).buffer);
-    vi.spyOn(window.crypto.subtle, "sign").mockResolvedValue(new Uint8Array([1, 2, 3]).buffer);
-    vi.spyOn(window.crypto.subtle, "encrypt").mockImplementation(
-      async (_algorithm, _key, data) => bufferSourceToArrayBuffer(data)
-    );
-    vi.mocked(resolveEncryptionDeviceBundles)
-      .mockResolvedValueOnce([deviceBundle])
-      .mockResolvedValueOnce([consumableDeviceBundle])
-      .mockResolvedValueOnce([deviceBundle])
-      .mockResolvedValueOnce([deviceBundle])
-      .mockResolvedValueOnce([retriedConsumableDeviceBundle]);
-    vi.mocked(upsertGroupHistoryKey)
-      .mockRejectedValueOnce(
-        new ApiError("Group history key access contains unknown recipient devices", 400)
-      )
-      .mockResolvedValueOnce({
-        historyKeyId: "history-key-id",
-        createdAt: "2026-04-20T10:00:00.000Z",
-      });
-    vi.mocked(sendMessageRaw).mockImplementationOnce(async (_token, chatId, request) => ({
-      id: "group-message-id",
-      chatId,
-      sender: selfParticipant,
-      createdAt: "2026-04-09T10:35:00.000Z",
-      editedAt: null,
-      status: null,
-      clientMessageId: request.clientMessageId ?? null,
-      replyTo: null,
-      reactions: [],
-      encryptedPayload: request.encryptedPayload,
-    }));
-    window.sessionStorage.setItem(DEVICE_MATERIAL_KEY, JSON.stringify(localDeviceMaterial));
-
-    await expect(
-      sendEncryptedMessage(
-        "token",
-        "group-chat-id",
-        "group secret retry after stale access",
-        [selfParticipant, participant],
-        "group-client-message-id",
-        null,
-        { currentUserId: USER_ID, isDirectChat: false }
-      )
-    ).resolves.toMatchObject({
-      id: "group-message-id",
-      clientMessageId: "group-client-message-id",
-    });
-
-    expect(upsertGroupHistoryKey).toHaveBeenCalledTimes(2);
-    expect(sendMessageRaw).toHaveBeenCalledTimes(1);
-    expect(resolveEncryptionDeviceBundles).toHaveBeenCalledTimes(4);
-
-    const retriedWrappedKeys = vi.mocked(upsertGroupHistoryKey).mock.calls[1]?.[2]
-      .wrappedKeysByRecipientDeviceId;
-    expect(retriedWrappedKeys).toEqual(
-      expect.objectContaining({
-        "device-id": expect.any(String),
-        "self-device": expect.any(String),
-      })
-    );
   });
 
   it("backfills all known group history keys for current participants after a membership change", async () => {

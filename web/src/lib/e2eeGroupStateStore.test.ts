@@ -108,8 +108,7 @@ describe("e2eeGroupStateStore", () => {
     expect(restored).toEqual(senderChainState);
   });
 
-  it("hydrates sender chain state from remembered storage and marks restored chats", async () => {
-    const restoredChats: Array<string[]> = [];
+  it("hydrates sender chain state from remembered storage", async () => {
     const sessionKey = (userId: string) => `group:${userId}`;
 
     const state = await readGroupSenderChainState({
@@ -122,12 +121,9 @@ describe("e2eeGroupStateStore", () => {
           state,
           getGroupSenderChainStorageKey: sessionKey,
         }),
-      markPersistentRestoredOutboundGroupChats: (_userId, state) =>
-        restoredChats.push(Object.keys(state.outboundChains)),
       removeGroupSenderChains: (userId) =>
         removeGroupSenderChains({
           userId,
-          clearPersistentRestoredOutboundGroupChats: vi.fn(),
           getGroupSenderChainStorageKey: sessionKey,
           getRememberedGroupSenderChainStorageKey: (value) =>
             `remembered-group:${value}`,
@@ -135,7 +131,6 @@ describe("e2eeGroupStateStore", () => {
     });
 
     expect(state).toEqual(senderChainState);
-    expect(restoredChats).toEqual([["chat-id"]]);
     expect(window.sessionStorage.getItem(sessionKey("self"))).toBeTruthy();
   });
 

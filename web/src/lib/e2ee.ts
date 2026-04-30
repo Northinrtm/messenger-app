@@ -5,6 +5,7 @@ import {
   getOwnGroupHistoryKeys,
   getOwnEncryptionRecoverySnapshot,
   listOwnEncryptionDevices,
+  resolveEncryptionAccountKeys,
   resolveEncryptionDeviceManifest,
   resolveEncryptionDeviceBundles,
   upsertGroupHistoryKey,
@@ -146,16 +147,13 @@ import {
   resolveLocalGroupHistoryKeyRecord as resolveLocalGroupHistoryKeyRecordInternal,
   writeGroupHistoryKeyState as writeGroupHistoryKeyStateInternal,
   writeGroupSenderChainState as writeGroupSenderChainStateInternal,
-  writeGroupSenderChains as writeGroupSenderChainsInternal,
 } from "./e2eeGroupStateStore";
 import {
   assertGroupDistributionSenderMatchesSharedEnvelope,
   buildGroupEnvelopeAdditionalData,
   buildGroupEnvelopeSignatureData,
   buildGroupHistoryEnvelopeAdditionalData,
-  buildRecipientDeviceSetHash,
   getGroupInboundSenderChainMapKey,
-  isGroupSenderChainRotationDue,
   parseGroupHistoryEnvelope,
   parseGroupHistoryKeyGrantPayload,
   parseGroupSenderKeyDistribution,
@@ -166,7 +164,6 @@ import {
   type GroupHistoryKeyRecord,
   type GroupHistoryKeyState,
   type GroupInboundSenderChainRecord,
-  type GroupSenderChainRecord,
   type GroupSenderChainState,
   type GroupSenderKeyDistribution,
   type GroupSharedEnvelope,
@@ -180,8 +177,6 @@ import {
   resolveGroupHistoryKeyRecordFromServer as resolveGroupHistoryKeyRecordFromServerInternal,
   upsertGroupHistoryKeyAccessForTargets as upsertGroupHistoryKeyAccessForTargetsInternal,
 } from "./e2eeGroupHistory";
-import { prepareGroupRecipientEncryptionContext as prepareGroupRecipientEncryptionContextInternal } from "./e2eeGroupRecipients";
-import { encryptGroupMessage as encryptGroupMessageInternal } from "./e2eeGroupMessaging";
 import { decryptGroupMessage as decryptGroupMessageInternal } from "./e2eeGroupDecryption";
 import {
   hydrateChatMessage as hydrateChatMessageInternal,
@@ -280,6 +275,7 @@ import { recordMessageHydrationDiagnostic } from "./messageHydrationDiagnostics"
 
 const MESSAGE_SCHEME_DEVICE = "X3DH-DEVICE-AES-GCM";
 const MESSAGE_SCHEME_GROUP_SENDER_KEY = "GROUP-SENDER-KEY-AES-GCM";
+const MESSAGE_SCHEME_CHAT_EPOCH = "CHAT-EPOCH-KEY-AES-GCM";
 const MESSAGE_CONTENT_ENVELOPE_TYPE = "north.message.v1";
 const KDF_ITERATIONS = 250_000;
 const UNLOCKED_IDENTITY_STORAGE_PREFIX = "north-messenger:unlocked-e2ee:";
@@ -301,6 +297,10 @@ const DECRYPTED_MESSAGE_ARCHIVE_DB_VERSION = 1;
 const DECRYPTED_MESSAGE_ARCHIVE_STORE_NAME = "messages";
 const DECRYPTED_MESSAGE_ARCHIVE_CHAT_INDEX_NAME = "by-user-chat-created-at";
 const TRUSTED_DEVICE_RP_NAME = "North Messenger";
+const ACCOUNT_KEY_ALGORITHM = "RSA-OAEP";
+const ACCOUNT_KEY_HASH = "SHA-256";
+const ACCOUNT_KEY_MODULUS_LENGTH = 2048;
+const ACCOUNT_KEY_PUBLIC_EXPONENT = new Uint8Array([1, 0, 1]);
 const DEVICE_AGREEMENT_KEY_ALGORITHM = "X25519";
 const DEVICE_SIGNATURE_KEY_ALGORITHM = "Ed25519";
 const DEVICE_ONE_TIME_PREKEY_COUNT = 16;
@@ -311,8 +311,10 @@ const DEVICE_KEY_ID_SPACE = 2_000_000_000 - DEVICE_ONE_TIME_PREKEY_COUNT - 32;
 const DEVICE_MAX_MESSAGE_GAP = 4_096;
 const MAX_ARCHIVED_DEVICE_SESSIONS_PER_PEER_DEVICE = 4;
 const GROUP_MAX_MESSAGE_GAP = 4_096;
-const GROUP_SENDER_KEY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const DIRECT_ENVELOPE_AAD_VERSION = 1;
+const DIRECT_HISTORY_ENVELOPE_AAD_VERSION = 1;
+const CHAT_EPOCH_ENVELOPE_AAD_VERSION = 1;
+const ACCOUNT_HISTORY_KEY_GRANT_AAD_VERSION = 1;
 const GROUP_SHARED_ENVELOPE_AAD_VERSION = 1;
 const GROUP_HISTORY_ENVELOPE_AAD_VERSION = 1;
 const GROUP_SENDER_DISTRIBUTION_AAD_VERSION = 1;
@@ -348,7 +350,6 @@ const preparedDeviceManifestStates = new Map<string, PreparedDeviceManifestState
 const restoredPersistentDeviceSessionKeysByUserId = new Map<string, Set<string>>();
 const hydratedRuntimeDeviceSessionsByUserId = new Set<string>();
 const runtimeWrittenDeviceSessionsByUserId = new Set<string>();
-const restoredPersistentOutboundGroupChatsByUserId = new Map<string, Set<string>>();
 const inFlightEncryptedConversationSendByKey = new Map<string, Promise<void>>();
 const inFlightMessageHydrationBatchByUserId = new Map<string, Promise<void>>();
 const inFlightMessageHydrationByUserId = new Map<string, Promise<void>>();
@@ -777,9 +778,9 @@ async function decryptDirectRecipientEnvelope(
   });
 }
 
-async function decryptDirectMessage(payload: EncryptedMessagePayload, userId: string) {
+async function decryptDirectMessage(message: ApiChatMessage, userId: string) {
   return decryptDirectMessageInternal({
-    payload,
+    message,
     userId,
     readOwnMaterial: async (currentUserId) => {
       const material = await readEncryptionDeviceMaterial(currentUserId);
@@ -788,6 +789,8 @@ async function decryptDirectMessage(payload: EncryptedMessagePayload, userId: st
     isOwnMaterialAvailable: isRegisteredEncryptionDeviceMaterialAvailable,
     decryptDirectRecipientEnvelope: (serializedEnvelope, currentUserId, ownMaterial) =>
       decryptDirectRecipientEnvelope(serializedEnvelope, currentUserId, ownMaterial),
+    decryptDirectHistoryMessage,
+    isRecoverableHistoryFallbackError: isRecoverableGroupHistoryFallbackError,
   });
 }
 
@@ -973,6 +976,8 @@ function clearLegacyE2eeTransportStorage(storage: Storage) {
 type LocalIdentity = {
   publicKey: string;
   privateKey: string;
+  accountPublicKey?: string;
+  accountPrivateKey?: string;
 };
 
 type DeviceOneTimePrekeyMaterial = {
@@ -1524,6 +1529,8 @@ export async function ensureEncryptionReady(session: AuthResponse, password: str
     readRememberedUnlockedIdentity: (userId, targetPassword) =>
       readRememberedUnlockedIdentity(userId, targetPassword),
     writeUnlockedIdentity,
+    ensureAccountKeyPair: (userId, identity, targetPassword) =>
+      ensureLocalIdentityHasAccountKeyPair(userId, identity, targetPassword),
     restoreEncryptionRecoverySnapshot: (targetSession, targetPassword) =>
       restoreEncryptionRecoverySnapshot(targetSession, targetPassword),
     listOwnEncryptionDevices,
@@ -1543,6 +1550,8 @@ export async function resetEncryptionAfterPasswordReset(session: AuthResponse, p
     clearStoredArchivedDecryptedMessageRecords,
     rememberRecoverySyncSession,
     createLocalVaultIdentity,
+    ensureAccountKeyPair: (userId, identity, targetPassword) =>
+      ensureLocalIdentityHasAccountKeyPair(userId, identity, targetPassword),
     writeUnlockedIdentity,
     rememberUnlockedIdentity: (userId, identity, targetPassword) =>
       rememberUnlockedIdentity(userId, identity, targetPassword),
@@ -1567,6 +1576,8 @@ export async function resecureLocalEncryptionStateForPasswordChange(
     readRememberedUnlockedIdentity: (targetUserId, targetPassword) =>
       readRememberedUnlockedIdentity(targetUserId, targetPassword),
     writeUnlockedIdentity,
+    ensureAccountKeyPair: (targetUserId, identity, targetPassword) =>
+      ensureLocalIdentityHasAccountKeyPair(targetUserId, identity, targetPassword),
   });
 }
 
@@ -1882,31 +1893,18 @@ export async function sendEncryptedMessage(
         });
       }
       recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:primeRecipients:start");
-      const primedConversationBundles = await prepareSendConversationDeviceBundles(
-        token,
-        currentUserId,
-        participants
-      );
+      await prepareSendConversationDeviceBundles(token, currentUserId, participants);
       recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:primeRecipients:end");
-      const dispatchMessage = async (conversationBundles: ConversationDeviceBundleResolution) => {
+      const dispatchMessage = async () => {
         const encryptedContent = serializeMessageContent(normalizedContent, attachments);
         recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:encrypt:start");
-        const encryptedPayload = options.isDirectChat === false
-          ? await encryptGroupMessage(
-              token,
-              chatId,
-              currentUserId,
-              encryptedContent,
-              participants,
-              conversationBundles
-            )
-          : await encryptDirectDeviceMessage(
-              token,
-              currentUserId,
-              encryptedContent,
-              participants,
-              conversationBundles
-            );
+        const encryptedPayload = await encryptChatEpochMessage(
+          token,
+          chatId,
+          currentUserId,
+          encryptedContent,
+          participants
+        );
         if (!resolvedClientMessageId) {
           throw new ApiError("Client message id is required", 400);
         }
@@ -1947,7 +1945,7 @@ export async function sendEncryptedMessage(
       };
 
       try {
-        return await dispatchMessage(primedConversationBundles);
+        return await dispatchMessage();
       } catch (error) {
         let recoverableRetryMode = getRecoverableEncryptedEnvelopeErrorMode(error);
         if (!recoverableRetryMode) {
@@ -1973,14 +1971,14 @@ export async function sendEncryptedMessage(
             discardRememberedState,
           });
           const forceRefresh = shouldForceRefreshPreparedRecipientsForError(retryError);
-          const retriedConversationBundles = await prepareSendConversationDeviceBundles(
+          await prepareSendConversationDeviceBundles(
             token,
             currentUserId,
             participants,
             forceRefresh
           );
           try {
-            return await dispatchMessage(retriedConversationBundles);
+            return await dispatchMessage();
           } catch (nextError) {
             const nextRetryMode = getRecoverableEncryptedEnvelopeErrorMode(nextError);
             const canEscalateSessionRecovery =
@@ -2045,29 +2043,16 @@ export async function updateEncryptedMessage(
       attachments,
       clientMessageId: null,
     });
-    const primedConversationBundles = await prepareSendConversationDeviceBundles(
-      token,
-      currentUserId,
-      participants
-    );
-    const dispatchUpdate = async (conversationBundles: ConversationDeviceBundleResolution) => {
+    await prepareSendConversationDeviceBundles(token, currentUserId, participants);
+    const dispatchUpdate = async () => {
       const encryptedContent = serializeMessageContent(normalizedContent, attachments);
-      const encryptedPayload = options?.isDirectChat === false
-        ? await encryptGroupMessage(
-            token,
-            chatId,
-            currentUserId,
-            encryptedContent,
-            participants,
-            conversationBundles
-          )
-        : await encryptDirectDeviceMessage(
-            token,
-            currentUserId,
-            encryptedContent,
-            participants,
-            conversationBundles
-          );
+      const encryptedPayload = await encryptChatEpochMessage(
+        token,
+        chatId,
+        currentUserId,
+        encryptedContent,
+        participants
+      );
       const response = await updateMessage(token, chatId, messageId, {
         encryptedPayload,
       });
@@ -2083,7 +2068,7 @@ export async function updateEncryptedMessage(
     };
 
     try {
-      return await dispatchUpdate(primedConversationBundles);
+      return await dispatchUpdate();
     } catch (error) {
       let recoverableRetryMode = getRecoverableEncryptedEnvelopeErrorMode(error);
       if (!recoverableRetryMode) {
@@ -2101,14 +2086,14 @@ export async function updateEncryptedMessage(
           discardRememberedState
         );
         const forceRefresh = shouldForceRefreshPreparedRecipientsForError(retryError);
-        const retriedConversationBundles = await prepareSendConversationDeviceBundles(
+        await prepareSendConversationDeviceBundles(
           token,
           currentUserId,
           participants,
           forceRefresh
         );
         try {
-          return await dispatchUpdate(retriedConversationBundles);
+          return await dispatchUpdate();
         } catch (nextError) {
           const nextRetryMode = getRecoverableEncryptedEnvelopeErrorMode(nextError);
           const canEscalateSessionRecovery =
@@ -2685,7 +2670,11 @@ async function decryptMessage(message: ApiChatMessage, userId: string) {
   }
 
   if (payload.scheme === MESSAGE_SCHEME_DEVICE) {
-    return decryptDirectMessage(payload, userId);
+    return decryptDirectMessage(message, userId);
+  }
+
+  if (payload.scheme === MESSAGE_SCHEME_CHAT_EPOCH) {
+    return decryptChatEpochMessage(message, userId);
   }
 
   if (payload.scheme === MESSAGE_SCHEME_GROUP_SENDER_KEY) {
@@ -2697,6 +2686,7 @@ async function decryptMessage(message: ApiChatMessage, userId: string) {
 
 async function encryptDirectDeviceMessage(
   token: string,
+  chatId: string,
   currentUserId: string,
   content: string,
   participants: Participant[],
@@ -2707,6 +2697,7 @@ async function encryptDirectDeviceMessage(
     DeviceSessionRecord
   >({
     token,
+    chatId,
     currentUserId,
     content,
     participants,
@@ -2739,87 +2730,56 @@ async function encryptDirectDeviceMessage(
     resolveEncryptionDeviceBundles,
     validateAndPinDeviceBundle,
     createDirectRecipientEnvelope,
+    createHistoryEnvelope: async (args) => {
+      const historyKeyRecord = await ensureGroupHistoryKeyRecord(
+        args.token,
+        args.chatId,
+        args.currentUserId,
+        args.ownMaterial,
+        args.targetBundles,
+        args.nextSessions
+      );
+      return JSON.stringify(
+        await createDirectHistoryEnvelope(
+          args.chatId,
+          args.currentUserId,
+          args.ownMaterial,
+          historyKeyRecord,
+          args.content
+        )
+      );
+    },
     writeDeviceSessions,
     rememberDeviceSessions,
   });
 }
 
-async function encryptGroupMessage(
+async function encryptChatEpochMessage(
   token: string,
   chatId: string,
   currentUserId: string,
   content: string,
-  participants: Participant[],
-  conversationBundles?: ConversationDeviceBundleResolution
+  participants: Participant[]
 ) {
-  return encryptGroupMessageInternal<RegisteredDeviceEncryptionMaterial, DeviceSessionRecord>({
+  const historyKeyRecord = await ensureChatHistoryKeyRecord(
     token,
     chatId,
     currentUserId,
-    content,
-    participants,
-    conversationBundles,
-    prepareGroupRecipientEncryptionContext,
-    readGroupSenderChainState,
-    wasOutboundGroupSenderChainRestoredFromPersistent,
-    buildRecipientDeviceSetHash,
-    isGroupSenderChainRotationDue: (senderChain) =>
-      isGroupSenderChainRotationDue(senderChain, GROUP_SENDER_KEY_MAX_AGE_MS),
-    createGroupSenderChain,
-    base64ToBytes,
-    bytesToBase64,
-    deriveMessageRatchetStep,
-    createGroupSharedEnvelope,
-    ensureGroupHistoryKeyRecord,
-    createGroupHistoryEnvelope,
-    groupSenderDistributionAadVersion: GROUP_SENDER_DISTRIBUTION_AAD_VERSION,
-    getDeviceSessionMapKey,
-    establishInitiatorDeviceSession,
-    setCurrentDeviceSessionRecord,
-    createDirectRecipientEnvelopeContent,
-    writeDeviceSessions,
-    rememberDeviceSessions,
-    writeGroupSenderChainState,
-    rememberGroupSenderChainState,
-    markOutboundGroupSenderChainAsReactivated,
-    messageSchemeGroupSenderKey: MESSAGE_SCHEME_GROUP_SENDER_KEY,
-  });
-}
-
-async function prepareGroupRecipientEncryptionContext(
-  token: string,
-  currentUserId: string,
-  participants: Participant[],
-  conversationBundles?: ConversationDeviceBundleResolution
-): Promise<{
-  ownMaterial: RegisteredDeviceEncryptionMaterial;
-  targetBundles: UserEncryptionDeviceBundle[];
-  nextSessions: Record<string, DeviceSessionRecord>;
-}> {
-  return prepareGroupRecipientEncryptionContextInternal<
-    RegisteredDeviceEncryptionMaterial,
-    DeviceSessionRecord
-  >({
-    token,
+    participants
+  );
+  const envelope = await createChatEpochEnvelope(
+    chatId,
     currentUserId,
-    participants,
-    conversationBundles,
-    readOwnMaterial: async (userId) => {
-      const material = await readEncryptionDeviceMaterial(userId);
-      return isRegisteredEncryptionDeviceMaterialAvailable(material) ? material : null;
-    },
-    resolveConversationDeviceBundles,
-    buildSelfDeviceBundle,
-    getDeviceBundleMapKey,
-    readCurrentDeviceSessions,
-    shouldEstablishDeviceSession,
-    wasCurrentDeviceSessionRestoredFromPersistent,
-    establishInitiatorDeviceSession,
-    setCurrentDeviceSessionRecord,
-    markCurrentDeviceSessionAsReactivated,
-    resolveEncryptionDeviceBundles,
-    validateAndPinDeviceBundle,
-  });
+    historyKeyRecord,
+    content
+  );
+  const serializedEnvelope = JSON.stringify(envelope);
+  return {
+    scheme: MESSAGE_SCHEME_CHAT_EPOCH,
+    encryptedKeysByRecipientId: {},
+    sharedEnvelope: serializedEnvelope,
+    historyEnvelope: serializedEnvelope,
+  } satisfies EncryptedMessagePayload;
 }
 
 export async function grantGroupHistoryAccessForParticipants(
@@ -2834,27 +2794,29 @@ export async function grantGroupHistoryAccessForParticipants(
     throw new ApiError("Encrypted chat is still initializing on this device. Try again.", 409);
   }
 
-  if (options.session && options.session.user.id === options.currentUserId) {
-    await waitForEncryptionDeviceRegistration(options.session);
-  }
-
   const currentUserId = options.currentUserId;
-  const { ownMaterial, targetBundles, nextSessions } = await prepareGroupRecipientEncryptionContext(
+  const ownIdentity = await ensureRuntimeAccountIdentity(currentUserId);
+
+  await resolveGroupHistoryKeyRecordFromServer(
     token,
     currentUserId,
-    participants
-  );
-  await resolveGroupHistoryKeyRecordFromServer(token, currentUserId, chatId, ownMaterial).catch(
-    () => null
-  );
+    chatId,
+    await requireRegisteredOwnMaterial(currentUserId)
+  ).catch(() => null);
   const historyKeyRecords = await readGroupHistoryKeyRecordsForChat(currentUserId, chatId);
   if (historyKeyRecords.length === 0) {
     return;
   }
+  const accountKeyDirectory = await resolveConversationAccountKeyDirectory(
+    token,
+    currentUserId,
+    participants,
+    ownIdentity
+  );
 
   const grantFingerprint = buildGroupHistoryAccessGrantFingerprint(
     chatId,
-    targetBundles,
+    Object.keys(accountKeyDirectory),
     historyKeyRecords
   );
   const grantFingerprintKey = getGroupHistoryAccessGrantFingerprintKey(currentUserId, chatId);
@@ -2867,13 +2829,11 @@ export async function grantGroupHistoryAccessForParticipants(
   }
 
   for (const historyKeyRecord of historyKeyRecords) {
-    await upsertGroupHistoryKeyAccessForTargets(
+    await upsertHistoryKeyAccessForUsers(
       token,
       chatId,
       currentUserId,
-      ownMaterial,
-      targetBundles,
-      nextSessions,
+      accountKeyDirectory,
       historyKeyRecord
     );
   }
@@ -2927,7 +2887,7 @@ async function resolveGroupHistoryKeyRecordFromServer(
     chatId,
     ownMaterial,
     getOwnGroupHistoryKeys,
-    decryptDirectRecipientEnvelopeContent,
+    decryptHistoryKeyGrantPayload: decryptDirectHistoryKeyGrantPayload,
     parseGroupHistoryKeyGrantPayload: (value) =>
       parseGroupHistoryKeyGrantPayload(value, GROUP_HISTORY_KEY_GRANT_AAD_VERSION),
     persistGroupHistoryKeyRecord,
@@ -3037,6 +2997,265 @@ async function createGroupHistoryEnvelope(
   };
 }
 
+async function requireRegisteredOwnMaterial(userId: string) {
+  const material = await readEncryptionDeviceMaterial(userId);
+  if (!isRegisteredEncryptionDeviceMaterialAvailable(material)) {
+    throw new ApiError("Encrypted chat is still initializing on this device. Try again.", 409);
+  }
+  return material;
+}
+
+async function resolveConversationAccountKeyDirectory(
+  token: string,
+  currentUserId: string,
+  participants: Participant[],
+  ownIdentity: LocalIdentity
+) {
+  if (!ownIdentity.accountPublicKey) {
+    throw new ApiError("Encrypted chat is still initializing on this device. Try again.", 409);
+  }
+
+  const participantIds = Array.from(new Set(participants.map((participant) => participant.id)));
+  const remoteParticipants = participantIds.filter((participantId) => participantId !== currentUserId);
+  const resolvedRemoteKeys = remoteParticipants.length
+    ? await resolveEncryptionAccountKeys(token, remoteParticipants)
+    : [];
+  const accountKeyDirectory = Object.fromEntries(
+    resolvedRemoteKeys.map((entry) => [entry.userId, entry.publicKey] as const)
+  ) as Record<string, string>;
+  accountKeyDirectory[currentUserId] = ownIdentity.accountPublicKey;
+
+  const missingParticipants = participantIds.filter((participantId) => !accountKeyDirectory[participantId]);
+  if (missingParticipants.length > 0) {
+    const missingDisplayNames = participants
+      .filter((participant) => missingParticipants.includes(participant.id))
+      .map((participant) => participant.displayName);
+    throw new ApiError(
+      "Encrypted chat is unavailable because some participants have not initialized account encryption yet",
+      409,
+      missingDisplayNames
+    );
+  }
+
+  return accountKeyDirectory;
+}
+
+type DirectHistoryEnvelope = {
+  aadVersion: number;
+  historyKeyId: string;
+  senderDeviceId: string;
+  ciphertext: string;
+  iv: string;
+};
+
+type AccountHistoryKeyGrantEnvelope = {
+  aadVersion: number;
+  ciphertext: string;
+};
+
+type ChatEpochEnvelope = {
+  aadVersion: number;
+  chatId: string;
+  senderUserId: string;
+  historyKeyId: string;
+  ciphertext: string;
+  iv: string;
+};
+
+function parseDirectHistoryEnvelope(
+  value: string,
+  expectedAadVersion: number
+): DirectHistoryEnvelope {
+  const parsed = JSON.parse(value) as Partial<DirectHistoryEnvelope>;
+  if (
+    parsed.aadVersion !== expectedAadVersion ||
+    typeof parsed.historyKeyId !== "string" ||
+    typeof parsed.senderDeviceId !== "string" ||
+    typeof parsed.ciphertext !== "string" ||
+    typeof parsed.iv !== "string"
+  ) {
+    throw new Error("Malformed direct history envelope");
+  }
+
+  return parsed as DirectHistoryEnvelope;
+}
+
+function buildDirectHistoryEnvelopeAdditionalData(
+  historyEnvelope: Omit<DirectHistoryEnvelope, "ciphertext">,
+  message: {
+    chatId: string;
+    senderUserId: string;
+  }
+) {
+  return textEncoder.encode(
+    JSON.stringify({
+      aadVersion: historyEnvelope.aadVersion,
+      historyKeyId: historyEnvelope.historyKeyId,
+      chatId: message.chatId,
+      senderUserId: message.senderUserId,
+      senderDeviceId: historyEnvelope.senderDeviceId,
+      iv: historyEnvelope.iv,
+    })
+  );
+}
+
+async function createDirectHistoryEnvelope(
+  chatId: string,
+  senderUserId: string,
+  ownMaterial: RegisteredDeviceEncryptionMaterial,
+  historyKeyRecord: GroupHistoryKeyRecord,
+  content: string
+): Promise<DirectHistoryEnvelope> {
+  const iv = randomBytes(12);
+  const historyEnvelopeMetadata: Omit<DirectHistoryEnvelope, "ciphertext"> = {
+    aadVersion: DIRECT_HISTORY_ENVELOPE_AAD_VERSION,
+    historyKeyId: historyKeyRecord.historyKeyId,
+    senderDeviceId: ownMaterial.deviceId,
+    iv: bytesToBase64(iv),
+  };
+  const historyKey = await window.crypto.subtle.importKey(
+    "raw",
+    toArrayBuffer(base64ToBytes(historyKeyRecord.keyMaterial)),
+    { name: "AES-GCM" },
+    false,
+    ["encrypt"]
+  );
+  const ciphertext = await window.crypto.subtle.encrypt(
+    {
+      name: "AES-GCM",
+      iv,
+      additionalData: buildDirectHistoryEnvelopeAdditionalData(historyEnvelopeMetadata, {
+        chatId,
+        senderUserId,
+      }),
+    },
+    historyKey,
+    textEncoder.encode(content)
+  );
+
+  return {
+    ...historyEnvelopeMetadata,
+    ciphertext: bytesToBase64(new Uint8Array(ciphertext)),
+  };
+}
+
+function parseAccountHistoryKeyGrantEnvelope(value: string) {
+  const parsed = JSON.parse(value) as Partial<AccountHistoryKeyGrantEnvelope>;
+  if (
+    parsed.aadVersion !== ACCOUNT_HISTORY_KEY_GRANT_AAD_VERSION ||
+    typeof parsed.ciphertext !== "string"
+  ) {
+    throw new Error("Malformed account history key grant envelope");
+  }
+
+  return parsed as AccountHistoryKeyGrantEnvelope;
+}
+
+async function createAccountHistoryKeyGrantEnvelope(
+  recipientPublicKey: string,
+  payload: string
+) {
+  const importedPublicKey = await importAccountPublicKey(recipientPublicKey);
+  const ciphertext = await window.crypto.subtle.encrypt(
+    {
+      name: ACCOUNT_KEY_ALGORITHM,
+    },
+    importedPublicKey,
+    textEncoder.encode(payload)
+  );
+
+  return {
+    aadVersion: ACCOUNT_HISTORY_KEY_GRANT_AAD_VERSION,
+    ciphertext: bytesToBase64(new Uint8Array(ciphertext)),
+  } satisfies AccountHistoryKeyGrantEnvelope;
+}
+
+async function decryptAccountHistoryKeyGrantEnvelope(
+  identity: LocalIdentity,
+  wrappedPayloadJson: string
+) {
+  if (!identity.accountPrivateKey) {
+    throw new Error("Encrypted account history key is not available in this browser");
+  }
+  const envelope = parseAccountHistoryKeyGrantEnvelope(wrappedPayloadJson);
+  const privateKey = await importAccountPrivateKey(identity.accountPrivateKey);
+  const plaintext = await window.crypto.subtle.decrypt(
+    {
+      name: ACCOUNT_KEY_ALGORITHM,
+    },
+    privateKey,
+    base64ToBytes(envelope.ciphertext)
+  );
+  return textDecoder.decode(plaintext);
+}
+
+function parseChatEpochEnvelope(value: string): ChatEpochEnvelope {
+  const parsed = JSON.parse(value) as Partial<ChatEpochEnvelope>;
+  if (
+    parsed.aadVersion !== CHAT_EPOCH_ENVELOPE_AAD_VERSION ||
+    typeof parsed.chatId !== "string" ||
+    typeof parsed.senderUserId !== "string" ||
+    typeof parsed.historyKeyId !== "string" ||
+    typeof parsed.ciphertext !== "string" ||
+    typeof parsed.iv !== "string"
+  ) {
+    throw new Error("Malformed chat epoch envelope");
+  }
+
+  return parsed as ChatEpochEnvelope;
+}
+
+function buildChatEpochEnvelopeAdditionalData(
+  envelope: Omit<ChatEpochEnvelope, "ciphertext">
+) {
+  return textEncoder.encode(
+    JSON.stringify({
+      aadVersion: envelope.aadVersion,
+      chatId: envelope.chatId,
+      senderUserId: envelope.senderUserId,
+      historyKeyId: envelope.historyKeyId,
+      iv: envelope.iv,
+    })
+  );
+}
+
+async function createChatEpochEnvelope(
+  chatId: string,
+  senderUserId: string,
+  historyKeyRecord: GroupHistoryKeyRecord,
+  content: string
+): Promise<ChatEpochEnvelope> {
+  const iv = randomBytes(12);
+  const envelopeMetadata: Omit<ChatEpochEnvelope, "ciphertext"> = {
+    aadVersion: CHAT_EPOCH_ENVELOPE_AAD_VERSION,
+    chatId,
+    senderUserId,
+    historyKeyId: historyKeyRecord.historyKeyId,
+    iv: bytesToBase64(iv),
+  };
+  const historyKey = await window.crypto.subtle.importKey(
+    "raw",
+    toArrayBuffer(base64ToBytes(historyKeyRecord.keyMaterial)),
+    { name: "AES-GCM" },
+    false,
+    ["encrypt"]
+  );
+  const ciphertext = await window.crypto.subtle.encrypt(
+    {
+      name: "AES-GCM",
+      iv,
+      additionalData: buildChatEpochEnvelopeAdditionalData(envelopeMetadata),
+    },
+    historyKey,
+    textEncoder.encode(content)
+  );
+
+  return {
+    ...envelopeMetadata,
+    ciphertext: bytesToBase64(new Uint8Array(ciphertext)),
+  };
+}
+
 function buildSelfDeviceBundle(
   ownMaterial: DeviceEncryptionMaterial,
   currentUserId: string
@@ -3093,6 +3312,58 @@ async function decryptGroupHistoryEnvelopeContent(
     },
     historyKey,
     base64ToBytes(historyEnvelope.ciphertext)
+  );
+
+  return textDecoder.decode(plaintext);
+}
+
+async function decryptDirectHistoryEnvelopeContent(
+  message: Pick<ApiChatMessage, "chatId" | "sender">,
+  historyEnvelope: DirectHistoryEnvelope,
+  historyKeyRecord: GroupHistoryKeyRecord
+) {
+  const historyKey = await window.crypto.subtle.importKey(
+    "raw",
+    toArrayBuffer(base64ToBytes(historyKeyRecord.keyMaterial)),
+    { name: "AES-GCM" },
+    false,
+    ["decrypt"]
+  );
+  const plaintext = await window.crypto.subtle.decrypt(
+    {
+      name: "AES-GCM",
+      iv: base64ToBytes(historyEnvelope.iv),
+      additionalData: buildDirectHistoryEnvelopeAdditionalData(historyEnvelope, {
+        chatId: message.chatId,
+        senderUserId: message.sender.id,
+      }),
+    },
+    historyKey,
+    base64ToBytes(historyEnvelope.ciphertext)
+  );
+
+  return textDecoder.decode(plaintext);
+}
+
+async function decryptChatEpochEnvelopeContent(
+  envelope: ChatEpochEnvelope,
+  historyKeyRecord: GroupHistoryKeyRecord
+) {
+  const historyKey = await window.crypto.subtle.importKey(
+    "raw",
+    toArrayBuffer(base64ToBytes(historyKeyRecord.keyMaterial)),
+    { name: "AES-GCM" },
+    false,
+    ["decrypt"]
+  );
+  const plaintext = await window.crypto.subtle.decrypt(
+    {
+      name: "AES-GCM",
+      iv: base64ToBytes(envelope.iv),
+      additionalData: buildChatEpochEnvelopeAdditionalData(envelope),
+    },
+    historyKey,
+    base64ToBytes(envelope.ciphertext)
   );
 
   return textDecoder.decode(plaintext);
@@ -3291,6 +3562,155 @@ async function decryptGroupHistoryMessage(
   });
 }
 
+async function decryptChatEpochMessage(message: ApiChatMessage, userId: string) {
+  const payload = message.encryptedPayload;
+  if (!payload?.sharedEnvelope) {
+    throw new Error("Encrypted chat epoch payload is not available");
+  }
+
+  const envelope = parseChatEpochEnvelope(payload.sharedEnvelope);
+  let historyKeyRecord = await resolveLocalGroupHistoryKeyRecord(
+    userId,
+    message.chatId,
+    envelope.historyKeyId
+  );
+  if (!historyKeyRecord) {
+    const ownMaterial = await requireRegisteredOwnMaterial(userId);
+    const session =
+      recoverySyncSessionByUserId.get(userId) ?? (await waitForRecoverySyncSession(userId));
+    if (!session) {
+      throw new Error("Encrypted chat history key is not available for this device");
+    }
+
+    historyKeyRecord = await resolveGroupHistoryKeyRecordFromServer(
+      session.token,
+      userId,
+      message.chatId,
+      ownMaterial
+    );
+  }
+  if (!historyKeyRecord || historyKeyRecord.historyKeyId !== envelope.historyKeyId) {
+    throw new Error("Encrypted chat history key is not available for this message");
+  }
+
+  return decryptChatEpochEnvelopeContent(envelope, historyKeyRecord);
+}
+
+async function upsertHistoryKeyAccessForUsers(
+  token: string,
+  chatId: string,
+  currentUserId: string,
+  accountKeyDirectory: Record<string, string>,
+  historyKeyRecord: GroupHistoryKeyRecord
+) {
+  const serializedGrantPayload = JSON.stringify({
+    aadVersion: GROUP_HISTORY_KEY_GRANT_AAD_VERSION,
+    chatId: historyKeyRecord.chatId,
+    historyKeyId: historyKeyRecord.historyKeyId,
+    historyKey: historyKeyRecord.keyMaterial,
+    createdAt: historyKeyRecord.createdAt,
+  } satisfies GroupHistoryKeyGrantPayload);
+  const wrappedKeysByRecipientUserId = Object.fromEntries(
+    await Promise.all(
+      Object.entries(accountKeyDirectory).map(async ([recipientUserId, publicKey]) => [
+        recipientUserId,
+        JSON.stringify(
+          await createAccountHistoryKeyGrantEnvelope(publicKey, serializedGrantPayload)
+        ),
+      ])
+    )
+  );
+
+  await upsertGroupHistoryKey(token, chatId, {
+    historyKeyId: historyKeyRecord.historyKeyId,
+    wrappedKeysByRecipientUserId,
+  });
+  await persistGroupHistoryKeyRecord(currentUserId, {
+    ...historyKeyRecord,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+async function ensureChatHistoryKeyRecord(
+  token: string,
+  chatId: string,
+  currentUserId: string,
+  participants: Participant[]
+) {
+  const localRecord = await readCurrentGroupHistoryKeyRecord(currentUserId, chatId);
+  if (localRecord) {
+    return localRecord;
+  }
+
+  const ownMaterial = await requireRegisteredOwnMaterial(currentUserId);
+  const remoteRecord = await resolveGroupHistoryKeyRecordFromServer(
+    token,
+    currentUserId,
+    chatId,
+    ownMaterial
+  );
+  if (remoteRecord) {
+    return remoteRecord;
+  }
+
+  const ownIdentity = await ensureRuntimeAccountIdentity(currentUserId);
+  const accountKeyDirectory = await resolveConversationAccountKeyDirectory(
+    token,
+    currentUserId,
+    participants,
+    ownIdentity
+  );
+  const createdRecord = createLocalGroupHistoryKeyRecord(chatId);
+  await upsertHistoryKeyAccessForUsers(
+    token,
+    chatId,
+    currentUserId,
+    accountKeyDirectory,
+    createdRecord
+  );
+  await persistGroupHistoryKeyRecord(currentUserId, createdRecord);
+  return createdRecord;
+}
+
+async function decryptDirectHistoryMessage(
+  message: Pick<ApiChatMessage, "chatId" | "sender" | "encryptedPayload">,
+  userId: string,
+  ownMaterial: RegisteredDeviceEncryptionMaterial
+) {
+  if (!message.encryptedPayload?.historyEnvelope) {
+    throw new Error("Encrypted direct history envelope is not available");
+  }
+
+  const historyEnvelope = parseDirectHistoryEnvelope(
+    message.encryptedPayload.historyEnvelope,
+    DIRECT_HISTORY_ENVELOPE_AAD_VERSION
+  );
+  let historyKeyRecord = await resolveLocalGroupHistoryKeyRecord(
+    userId,
+    message.chatId,
+    historyEnvelope.historyKeyId
+  );
+  if (!historyKeyRecord) {
+    const session =
+      recoverySyncSessionByUserId.get(userId) ?? (await waitForRecoverySyncSession(userId));
+    if (!session) {
+      throw new Error("Encrypted direct history key is not available for this device");
+    }
+
+    historyKeyRecord = await resolveGroupHistoryKeyRecordFromServer(
+      session.token,
+      userId,
+      message.chatId,
+      ownMaterial
+    );
+  }
+  if (!historyKeyRecord || historyKeyRecord.historyKeyId !== historyEnvelope.historyKeyId) {
+    throw new Error("Encrypted direct history key is not available for this message");
+  }
+
+  return decryptDirectHistoryEnvelopeContent(message, historyEnvelope, historyKeyRecord);
+}
+
 async function decryptDirectRecipientEnvelopeContent(
   serializedEnvelope: string,
   userId: string,
@@ -3298,6 +3718,23 @@ async function decryptDirectRecipientEnvelopeContent(
 ) {
   const { content } = await decryptDirectRecipientEnvelope(serializedEnvelope, userId, ownMaterial);
   return content;
+}
+
+async function decryptDirectHistoryKeyGrantPayload(
+  serializedEnvelope: string,
+  userId: string,
+  ownMaterial: RegisteredDeviceEncryptionMaterial
+) {
+  const identity = readUnlockedIdentity(userId);
+  if (identity?.accountPrivateKey) {
+    try {
+      return await decryptAccountHistoryKeyGrantEnvelope(identity, serializedEnvelope);
+    } catch {
+      // Fall through to legacy direct-envelope grants.
+    }
+  }
+
+  return decryptDirectRecipientEnvelopeContent(serializedEnvelope, userId, ownMaterial);
 }
 
 function buildDirectDecryptionAlgorithm(
@@ -3395,6 +3832,32 @@ async function importDevicePublicKey(
   }
 }
 
+async function importAccountPublicKey(serializedPublicKey: string) {
+  const cacheKey = `${ACCOUNT_KEY_ALGORITHM}:${serializedPublicKey}:encrypt`;
+  const cachedKey = importedDevicePublicKeyCache.get(cacheKey);
+  if (cachedKey) {
+    return cachedKey;
+  }
+
+  const importPromise = window.crypto.subtle.importKey(
+    "jwk",
+    JSON.parse(serializedPublicKey) as JsonWebKey,
+    {
+      name: ACCOUNT_KEY_ALGORITHM,
+      hash: ACCOUNT_KEY_HASH,
+    } satisfies RsaHashedImportParams,
+    false,
+    ["encrypt"]
+  );
+  importedDevicePublicKeyCache.set(cacheKey, importPromise);
+  try {
+    return await importPromise;
+  } catch (error) {
+    importedDevicePublicKeyCache.delete(cacheKey);
+    throw error;
+  }
+}
+
 async function importDevicePrivateKey(
   serializedPrivateKey: string,
   algorithm: string,
@@ -3406,6 +3869,19 @@ async function importDevicePrivateKey(
     { name: algorithm } as AlgorithmIdentifier,
     false,
     usages
+  );
+}
+
+async function importAccountPrivateKey(serializedPrivateKey: string) {
+  return window.crypto.subtle.importKey(
+    "jwk",
+    JSON.parse(serializedPrivateKey) as JsonWebKey,
+    {
+      name: ACCOUNT_KEY_ALGORITHM,
+      hash: ACCOUNT_KEY_HASH,
+    } satisfies RsaHashedImportParams,
+    false,
+    ["decrypt"]
   );
 }
 
@@ -3487,86 +3963,27 @@ function createLocalVaultIdentity(): LocalIdentity {
   });
 }
 
-function createGroupSenderChain(
-  chatId: string,
-  ownMaterial: DeviceEncryptionMaterial,
-  recipientDeviceSetHash: string
-): GroupSenderChainRecord {
-  if (!ownMaterial.deviceId) {
-    throw new ApiError("Encrypted chat is still initializing on this device. Try again.", 409);
-  }
-
-  return {
-    chatId,
-    ownMaterialId: ownMaterial.materialId,
-    senderDeviceId: ownMaterial.deviceId,
-    senderKeyId: window.crypto.randomUUID(),
-    recipientDeviceSetHash,
-    chainKey: bytesToBase64(randomBytes(32)),
-    nextMessageCounter: 0,
-    createdAt: new Date().toISOString(),
-  };
+function hasAccountKeyPair(
+  identity: LocalIdentity | null | undefined
+): identity is LocalIdentity & { accountPublicKey: string; accountPrivateKey: string } {
+  return Boolean(identity?.accountPublicKey && identity?.accountPrivateKey);
 }
 
-async function createGroupSharedEnvelope(
-  chatId: string,
-  senderUserId: string,
-  ownMaterial: DeviceEncryptionMaterial,
-  senderKeyId: string,
-  messageCounter: number,
-  messageKeyBytes: Uint8Array,
-  content: string
-): Promise<GroupSharedEnvelope> {
-  if (!ownMaterial.deviceId) {
-    throw new ApiError("Encrypted chat is still initializing on this device. Try again.", 409);
-  }
-
-  const iv = randomBytes(12);
-  const messageKey = await window.crypto.subtle.importKey(
-    "raw",
-    toArrayBuffer(messageKeyBytes),
+async function generateAccountKeyPair() {
+  const keyPair = (await window.crypto.subtle.generateKey(
     {
-      name: "AES-GCM",
-    },
-    false,
-    ["encrypt"]
-  );
-  const metadata: Omit<GroupSharedEnvelope, "ciphertext" | "signature"> = {
-    aadVersion: GROUP_SHARED_ENVELOPE_AAD_VERSION,
-    chatId,
-    senderUserId,
-    senderDeviceId: ownMaterial.deviceId,
-    senderKeyId,
-    messageCounter,
-    iv: bytesToBase64(iv),
-  };
-  const ciphertext = await window.crypto.subtle.encrypt(
-    {
-      name: "AES-GCM",
-      iv,
-      additionalData: buildGroupEnvelopeAdditionalData(metadata),
-    },
-    messageKey,
-    textEncoder.encode(content)
-  );
-  const signingKey = await importDevicePrivateKey(
-    ownMaterial.identitySignaturePrivateKey,
-    DEVICE_SIGNATURE_KEY_ALGORITHM,
-    ["sign"]
-  );
-  const envelopeWithoutSignature = {
-    ...metadata,
-    ciphertext: bytesToBase64(new Uint8Array(ciphertext)),
-  };
-  const signature = await window.crypto.subtle.sign(
-    { name: DEVICE_SIGNATURE_KEY_ALGORITHM } as AlgorithmIdentifier,
-    signingKey,
-    buildGroupEnvelopeSignatureData(envelopeWithoutSignature)
-  );
+      name: ACCOUNT_KEY_ALGORITHM,
+      hash: ACCOUNT_KEY_HASH,
+      modulusLength: ACCOUNT_KEY_MODULUS_LENGTH,
+      publicExponent: ACCOUNT_KEY_PUBLIC_EXPONENT,
+    } satisfies RsaHashedKeyGenParams,
+    true,
+    ["encrypt", "decrypt"]
+  )) as CryptoKeyPair;
 
   return {
-    ...envelopeWithoutSignature,
-    signature: bytesToBase64(new Uint8Array(signature)),
+    publicKey: await exportJsonWebKey(keyPair.publicKey),
+    privateKey: await exportJsonWebKey(keyPair.privateKey),
   };
 }
 
@@ -3639,6 +4056,43 @@ async function rememberUnlockedIdentity(
     writeRememberedUnlockedIdentityRecord: (targetUserId, record) =>
       writeRememberedUnlockedIdentityRecord(targetUserId, record),
   });
+}
+
+async function ensureLocalIdentityHasAccountKeyPair(
+  userId: string,
+  identity: LocalIdentity,
+  password: string
+) {
+  if (hasAccountKeyPair(identity)) {
+    return identity;
+  }
+
+  const accountKeyPair = await generateAccountKeyPair();
+  const upgradedIdentity: LocalIdentity = {
+    ...identity,
+    accountPublicKey: accountKeyPair.publicKey,
+    accountPrivateKey: accountKeyPair.privateKey,
+  };
+  writeUnlockedIdentity(userId, upgradedIdentity);
+  await rememberUnlockedIdentity(userId, upgradedIdentity, password);
+  return upgradedIdentity;
+}
+
+async function ensureRuntimeAccountIdentity(userId: string): Promise<LocalIdentity> {
+  const existingIdentity = readUnlockedIdentity(userId);
+  if (hasAccountKeyPair(existingIdentity)) {
+    return existingIdentity;
+  }
+
+  const baseIdentity = existingIdentity ?? createLocalVaultIdentity();
+  const accountKeyPair = await generateAccountKeyPair();
+  const upgradedIdentity: LocalIdentity = {
+    ...baseIdentity,
+    accountPublicKey: accountKeyPair.publicKey,
+    accountPrivateKey: accountKeyPair.privateKey,
+  };
+  writeUnlockedIdentity(userId, upgradedIdentity);
+  return upgradedIdentity;
 }
 
 async function restoreEncryptionRecoverySnapshot(
@@ -4190,13 +4644,8 @@ async function readGroupSenderChainState(userId: string): Promise<GroupSenderCha
     readRememberedGroupSenderChainState,
     writeGroupSenderChainState: (targetUserId, state) =>
       writeGroupSenderChainState(targetUserId, state),
-    markPersistentRestoredOutboundGroupChats,
     removeGroupSenderChains,
   });
-}
-
-async function readGroupSenderChains(userId: string): Promise<Record<string, GroupSenderChainRecord>> {
-  return (await readGroupSenderChainState(userId)).outboundChains;
 }
 
 function writeGroupSenderChainState(userId: string, state: GroupSenderChainState) {
@@ -4207,22 +4656,9 @@ function writeGroupSenderChainState(userId: string, state: GroupSenderChainState
   });
 }
 
-function writeGroupSenderChains(userId: string, chains: Record<string, GroupSenderChainRecord>) {
-  void writeGroupSenderChainsInternal({
-    userId,
-    chains,
-    readGroupSenderChainState,
-    writeGroupSenderChainState: (targetUserId, state) =>
-      writeGroupSenderChainState(targetUserId, state),
-    rememberGroupSenderChainState: (targetUserId, state) =>
-      rememberGroupSenderChainState(targetUserId, state),
-  });
-}
-
 function removeGroupSenderChains(userId: string) {
   return removeGroupSenderChainsInternal({
     userId,
-    clearPersistentRestoredOutboundGroupChats,
     getGroupSenderChainStorageKey,
     getRememberedGroupSenderChainStorageKey,
   });
@@ -4234,7 +4670,6 @@ function removeRuntimeGroupSenderChains(userId: string) {
   }
 
   try {
-    clearPersistentRestoredOutboundGroupChats(userId);
     window.sessionStorage.removeItem(getGroupSenderChainStorageKey(userId));
   } catch {
     return;
@@ -4367,11 +4802,11 @@ async function readGroupHistoryKeyRecordsForChat(userId: string, chatId: string)
 
 function buildGroupHistoryAccessGrantFingerprint(
   chatId: string,
-  targetBundles: UserEncryptionDeviceBundle[],
+  recipientUserIds: string[],
   historyKeyRecords: GroupHistoryKeyRecord[]
 ) {
-  const recipientFingerprint = targetBundles
-    .map((bundle) => getDeviceBundleMapKey(bundle.userId, bundle.deviceId))
+  const recipientFingerprint = recipientUserIds
+    .slice()
     .sort()
     .join(",");
   const historyKeyFingerprint = historyKeyRecords.map((record) => record.historyKeyId).sort().join(",");
@@ -4862,36 +5297,6 @@ function getGroupSenderChainStorageKey(userId: string) {
 
 function getGroupHistoryKeyStorageKey(userId: string) {
   return `${GROUP_HISTORY_KEY_STORAGE_PREFIX}${userId}`;
-}
-
-function markPersistentRestoredOutboundGroupChats(userId: string, state: GroupSenderChainState) {
-  const restoredChatIds = Object.keys(state.outboundChains);
-  if (restoredChatIds.length === 0) {
-    restoredPersistentOutboundGroupChatsByUserId.delete(userId);
-    return;
-  }
-
-  restoredPersistentOutboundGroupChatsByUserId.set(userId, new Set(restoredChatIds));
-}
-
-function wasOutboundGroupSenderChainRestoredFromPersistent(userId: string, chatId: string) {
-  return restoredPersistentOutboundGroupChatsByUserId.get(userId)?.has(chatId) ?? false;
-}
-
-function markOutboundGroupSenderChainAsReactivated(userId: string, chatId: string) {
-  const restoredChatIds = restoredPersistentOutboundGroupChatsByUserId.get(userId);
-  if (!restoredChatIds) {
-    return;
-  }
-
-  restoredChatIds.delete(chatId);
-  if (restoredChatIds.size === 0) {
-    restoredPersistentOutboundGroupChatsByUserId.delete(userId);
-  }
-}
-
-function clearPersistentRestoredOutboundGroupChats(userId: string) {
-  restoredPersistentOutboundGroupChatsByUserId.delete(userId);
 }
 
 function readPinnedDeviceBundleRecord(userId: string, deviceId: string): PinnedDeviceBundleRecord | null {

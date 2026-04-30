@@ -8,6 +8,7 @@ import com.north.messenger.application.chat.ChatService;
 import com.north.messenger.domain.model.ChatHistoryKey;
 import com.north.messenger.domain.model.ChatHistoryKeyAccess;
 import com.north.messenger.domain.model.ChatHistoryKeyEscrow;
+import com.north.messenger.domain.model.ChatHistoryKeyUserAccess;
 import com.north.messenger.domain.model.ChatParticipant;
 import com.north.messenger.domain.model.ChatPrejoinHistoryPolicy;
 import com.north.messenger.domain.model.ChatRoom;
@@ -17,6 +18,7 @@ import com.north.messenger.domain.model.UserEncryptionSignedPrekey;
 import com.north.messenger.domain.repository.ChatHistoryKeyAccessRepository;
 import com.north.messenger.domain.repository.ChatHistoryKeyEscrowRepository;
 import com.north.messenger.domain.repository.ChatHistoryKeyRepository;
+import com.north.messenger.domain.repository.ChatHistoryKeyUserAccessRepository;
 import com.north.messenger.domain.repository.ChatParticipantRepository;
 import com.north.messenger.domain.repository.UserEncryptionDeviceRepository;
 import com.north.messenger.domain.repository.UserEncryptionEnvelopeCounterRepository;
@@ -51,6 +53,7 @@ class ChatGroupHistoryKeyServiceTest {
     private ChatService chatService;
     private ChatHistoryKeyRepository chatHistoryKeyRepository;
     private ChatHistoryKeyAccessRepository chatHistoryKeyAccessRepository;
+    private ChatHistoryKeyUserAccessRepository chatHistoryKeyUserAccessRepository;
     private ChatHistoryKeyEscrowRepository chatHistoryKeyEscrowRepository;
     private ChatParticipantRepository chatParticipantRepository;
     private UserEncryptionDeviceRepository userEncryptionDeviceRepository;
@@ -67,6 +70,7 @@ class ChatGroupHistoryKeyServiceTest {
         chatService = mock(ChatService.class);
         chatHistoryKeyRepository = mock(ChatHistoryKeyRepository.class);
         chatHistoryKeyAccessRepository = mock(ChatHistoryKeyAccessRepository.class);
+        chatHistoryKeyUserAccessRepository = mock(ChatHistoryKeyUserAccessRepository.class);
         chatHistoryKeyEscrowRepository = mock(ChatHistoryKeyEscrowRepository.class);
         chatParticipantRepository = mock(ChatParticipantRepository.class);
         userEncryptionDeviceRepository = mock(UserEncryptionDeviceRepository.class);
@@ -84,6 +88,7 @@ class ChatGroupHistoryKeyServiceTest {
                 chatService,
                 chatHistoryKeyRepository,
                 chatHistoryKeyAccessRepository,
+                chatHistoryKeyUserAccessRepository,
                 chatHistoryKeyEscrowRepository,
                 chatParticipantRepository,
                 userEncryptionDeviceRepository,
@@ -97,6 +102,10 @@ class ChatGroupHistoryKeyServiceTest {
 
         when(chatHistoryKeyRepository.save(any(ChatHistoryKey.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(chatHistoryKeyAccessRepository.save(any(ChatHistoryKeyAccess.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(chatHistoryKeyUserAccessRepository.save(any(ChatHistoryKeyUserAccess.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(chatHistoryKeyUserAccessRepository.findAllByChatIdAndRecipientUserIdOrderByCreatedAtAsc(any(), any()))
+                .thenReturn(List.of());
         when(chatHistoryKeyAccessRepository.findByHistoryKeyIdAndRecipientDeviceId(any(), any())).thenReturn(Optional.empty());
         when(userEncryptionEnvelopeCounterRepository.findBySenderDeviceIdAndRecipientDeviceIdAndRatchetPublicKey(any(), any(), any()))
                 .thenReturn(Optional.empty());
@@ -176,6 +185,7 @@ class ChatGroupHistoryKeyServiceTest {
                                 senderDevice.getId().toString(), senderWrappedEnvelope,
                                 recipientDevice.getId().toString(), recipientWrappedEnvelope
                         ),
+                        null,
                         null
                 )
         );
@@ -351,6 +361,104 @@ class ChatGroupHistoryKeyServiceTest {
         assertThat(responses.get(0).historyKeyId()).isEqualTo(historyKeyId.toString());
         assertThat(responses.get(0).wrappedKeyPayloadJson()).isEmpty();
         assertThat(responses.get(0).serverGrantPayloadJson()).isEqualTo("{\"historyKey\":\"founding\"}");
+    }
+
+    @Test
+    void listOwnGroupHistoryKeysShouldReturnEscrowForDirectChat() throws Exception {
+        UserAccount member = testUserAccount(
+                UUID.randomUUID(),
+                "alice",
+                "alice@example.com",
+                "Alice",
+                null,
+                null,
+                "pw",
+                Instant.parse("2026-03-24T11:00:00Z")
+        );
+        UUID chatId = UUID.randomUUID();
+        UUID historyKeyId = UUID.randomUUID();
+        Instant joinedAt = Instant.parse("2026-04-30T06:04:36Z");
+
+        ChatRoom room = new ChatRoom(
+                chatId,
+                "Direct",
+                true,
+                Instant.parse("2026-03-24T11:00:00Z")
+        );
+        ChatParticipant membership = new ChatParticipant(
+                UUID.randomUUID(),
+                chatId,
+                member.getId(),
+                joinedAt
+        );
+        UserEncryptionDevice currentDevice = device(member.getId());
+        ChatHistoryKeyEscrow escrow = new ChatHistoryKeyEscrow(
+                UUID.randomUUID(),
+                historyKeyId,
+                chatId,
+                "{\"ciphertext\":\"server\"}",
+                joinedAt.plusSeconds(1),
+                joinedAt.plusSeconds(1)
+        );
+
+        when(authService.requireAuthenticatedUser("alice")).thenReturn(member);
+        when(chatService.requireChatMembership(chatId, member)).thenReturn(room);
+        when(chatParticipantRepository.findByChatIdAndUserId(chatId, member.getId()))
+                .thenReturn(Optional.of(membership));
+        when(userEncryptionDeviceRepository.findById(currentDevice.getId()))
+                .thenReturn(Optional.of(currentDevice));
+        when(chatHistoryKeyAccessRepository.findAllByChatIdAndRecipientUserIdAndRecipientDeviceIdOrderByCreatedAtAsc(
+                chatId,
+                member.getId(),
+                currentDevice.getId()
+        )).thenReturn(List.of());
+        when(chatHistoryKeyEscrowRepository.findAllByChatIdOrderByHistoryKeyCreatedAtAsc(chatId))
+                .thenReturn(List.of(escrow));
+        when(chatHistoryKeyEscrowCryptoService.decryptGrantPayload("{\"ciphertext\":\"server\"}"))
+                .thenReturn("{\"historyKey\":\"direct\"}");
+
+        var responses = chatGroupHistoryKeyService.listOwnGroupHistoryKeys(
+                "alice",
+                chatId,
+                currentDevice.getId().toString()
+        );
+
+        assertThat(responses).hasSize(1);
+        assertThat(responses.get(0).historyKeyId()).isEqualTo(historyKeyId.toString());
+        assertThat(responses.get(0).serverGrantPayloadJson()).isEqualTo("{\"historyKey\":\"direct\"}");
+        verify(chatHistoryKeyEscrowRepository).findAllByChatIdOrderByHistoryKeyCreatedAtAsc(chatId);
+        verify(chatHistoryKeyEscrowRepository, never())
+                .findAllByChatIdAndHistoryKeyCreatedAtOnOrAfterOrderByHistoryKeyCreatedAtAsc(any(), any());
+    }
+
+    @Test
+    void validateMessageHistoryEnvelopeShouldAllowDirectChat() {
+        UUID chatId = UUID.randomUUID();
+        UUID historyKeyId = UUID.randomUUID();
+        ChatRoom room = new ChatRoom(
+                chatId,
+                "Direct",
+                true,
+                Instant.parse("2026-03-24T11:00:00Z")
+        );
+        ChatHistoryKey historyKey = new ChatHistoryKey(
+                historyKeyId,
+                chatId,
+                UUID.randomUUID(),
+                Instant.parse("2026-03-24T11:00:00Z")
+        );
+        when(chatHistoryKeyRepository.findByIdAndChatId(historyKeyId, chatId))
+                .thenReturn(Optional.of(historyKey));
+
+        var validated = chatGroupHistoryKeyService.validateMessageHistoryEnvelope(
+                room,
+                """
+                {"aadVersion":1,"historyKeyId":"%s","senderDeviceId":"sender-device","ciphertext":"Y2lwaGVydGV4dA==","iv":"MDEyMzQ1Njc4OTAx"}
+                """.formatted(historyKeyId)
+        );
+
+        assertThat(validated).isNotNull();
+        assertThat(validated.historyKeyId()).isEqualTo(historyKeyId);
     }
 
     private UserEncryptionDevice device(UUID userId) throws Exception {

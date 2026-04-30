@@ -5,6 +5,8 @@ import type { TrustedDeviceUnlockRecord } from "./e2eeTrustedDevice";
 type StoredLocalIdentity = {
   publicKey: string;
   privateKey: string;
+  accountPublicKey?: string;
+  accountPrivateKey?: string;
 };
 
 export async function createTrustedDeviceCredential(options: {
@@ -235,6 +237,16 @@ export async function unlockWithTrustedDevice(options: {
     const identity = {
       publicKey: parsedIdentity.publicKey,
       privateKey: parsedIdentity.privateKey,
+      accountPublicKey:
+        typeof parsedIdentity.accountPublicKey === "string" &&
+        parsedIdentity.accountPublicKey.length > 0
+          ? parsedIdentity.accountPublicKey
+          : undefined,
+      accountPrivateKey:
+        typeof parsedIdentity.accountPrivateKey === "string" &&
+        parsedIdentity.accountPrivateKey.length > 0
+          ? parsedIdentity.accountPrivateKey
+          : undefined,
     };
     options.writeUnlockedIdentity(options.session.user.id, identity);
     await options.ensureRegisteredEncryptionDevice(options.session);

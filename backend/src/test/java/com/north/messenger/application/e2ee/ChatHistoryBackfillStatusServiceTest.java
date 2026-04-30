@@ -8,6 +8,7 @@ import com.north.messenger.domain.repository.ChatHistoryBackfillStatusRepository
 import com.north.messenger.domain.repository.ChatHistoryKeyAccessRepository;
 import com.north.messenger.domain.repository.ChatHistoryKeyEscrowRepository;
 import com.north.messenger.domain.repository.ChatHistoryKeyRepository;
+import com.north.messenger.domain.repository.ChatHistoryKeyUserAccessRepository;
 import com.north.messenger.domain.repository.ChatParticipantRepository;
 import com.north.messenger.domain.repository.ChatRoomRepository;
 import java.time.Instant;
@@ -31,6 +32,7 @@ class ChatHistoryBackfillStatusServiceTest {
     private ChatHistoryBackfillStatusRepository chatHistoryBackfillStatusRepository;
     private ChatHistoryKeyRepository chatHistoryKeyRepository;
     private ChatHistoryKeyAccessRepository chatHistoryKeyAccessRepository;
+    private ChatHistoryKeyUserAccessRepository chatHistoryKeyUserAccessRepository;
     private ChatHistoryKeyEscrowRepository chatHistoryKeyEscrowRepository;
     private ChatParticipantRepository chatParticipantRepository;
     private ChatRoomRepository chatRoomRepository;
@@ -42,6 +44,7 @@ class ChatHistoryBackfillStatusServiceTest {
         chatHistoryBackfillStatusRepository = mock(ChatHistoryBackfillStatusRepository.class);
         chatHistoryKeyRepository = mock(ChatHistoryKeyRepository.class);
         chatHistoryKeyAccessRepository = mock(ChatHistoryKeyAccessRepository.class);
+        chatHistoryKeyUserAccessRepository = mock(ChatHistoryKeyUserAccessRepository.class);
         chatHistoryKeyEscrowRepository = mock(ChatHistoryKeyEscrowRepository.class);
         chatParticipantRepository = mock(ChatParticipantRepository.class);
         chatRoomRepository = mock(ChatRoomRepository.class);
@@ -50,6 +53,7 @@ class ChatHistoryBackfillStatusServiceTest {
                 chatHistoryBackfillStatusRepository,
                 chatHistoryKeyRepository,
                 chatHistoryKeyAccessRepository,
+                chatHistoryKeyUserAccessRepository,
                 chatHistoryKeyEscrowRepository,
                 chatParticipantRepository,
                 chatRoomRepository,
@@ -58,6 +62,11 @@ class ChatHistoryBackfillStatusServiceTest {
 
         when(chatHistoryBackfillStatusRepository.save(any(ChatHistoryBackfillStatus.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
+        when(chatHistoryKeyUserAccessRepository.findDistinctHistoryKeyIdsByChatIdAndRecipientUserIdBeforeJoinedAt(
+                any(),
+                any(),
+                any()
+        )).thenReturn(List.of());
     }
 
     @Test

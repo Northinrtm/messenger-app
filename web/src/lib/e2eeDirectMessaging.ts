@@ -1,4 +1,5 @@
 import type {
+  ApiChatMessage,
   EncryptedMessagePayload,
   Participant,
   UserEncryptionDeviceBundle,
@@ -320,7 +321,7 @@ export async function decryptDirectRecipientEnvelope<
 export async function decryptDirectMessage<
   OwnMaterial extends DirectDecryptOwnMaterialLike,
 >(options: {
-  payload: EncryptedMessagePayload;
+  message: Pick<ApiChatMessage, "chatId" | "sender" | "encryptedPayload">;
   userId: string;
   readOwnMaterial: (userId: string) => Promise<OwnMaterial | null>;
   isOwnMaterialAvailable: (material: OwnMaterial | null) => material is OwnMaterial;
@@ -329,23 +330,55 @@ export async function decryptDirectMessage<
     userId: string,
     ownMaterial: OwnMaterial
   ) => Promise<{ content: string }>;
+  decryptDirectHistoryMessage?: (
+    message: Pick<ApiChatMessage, "chatId" | "sender" | "encryptedPayload">,
+    userId: string,
+    ownMaterial: OwnMaterial
+  ) => Promise<string>;
+  isRecoverableHistoryFallbackError?: (error: unknown) => boolean;
 }) {
+  const payload = options.message.encryptedPayload;
+  if (!payload) {
+    throw new Error("Encrypted direct payload is not available");
+  }
   const ownMaterial = await options.readOwnMaterial(options.userId);
   if (!options.isOwnMaterialAvailable(ownMaterial)) {
     throw new Error("Encrypted device session is not available in this browser");
   }
 
-  const serializedEnvelope = options.payload.encryptedKeysByRecipientId[ownMaterial.deviceId];
+  const serializedEnvelope = payload.encryptedKeysByRecipientId[ownMaterial.deviceId];
   if (!serializedEnvelope) {
+    if (payload.historyEnvelope && options.decryptDirectHistoryMessage) {
+      return options.decryptDirectHistoryMessage(
+        options.message,
+        options.userId,
+        ownMaterial
+      );
+    }
     throw new Error("Encrypted device envelope is not available for this device");
   }
 
-  const { content } = await options.decryptDirectRecipientEnvelope(
-    serializedEnvelope,
-    options.userId,
-    ownMaterial
-  );
-  return content;
+  try {
+    const { content } = await options.decryptDirectRecipientEnvelope(
+      serializedEnvelope,
+      options.userId,
+      ownMaterial
+    );
+    return content;
+  } catch (error) {
+    if (
+      payload.historyEnvelope &&
+      options.decryptDirectHistoryMessage &&
+      options.isRecoverableHistoryFallbackError?.(error)
+    ) {
+      return options.decryptDirectHistoryMessage(
+        options.message,
+        options.userId,
+        ownMaterial
+      );
+    }
+    throw error;
+  }
 }
 
 export async function encryptDirectDeviceMessage<
@@ -353,6 +386,7 @@ export async function encryptDirectDeviceMessage<
   SessionRecord,
 >(options: {
   token: string;
+  chatId: string;
   currentUserId: string;
   content: string;
   participants: Participant[];
@@ -417,6 +451,15 @@ export async function encryptDirectDeviceMessage<
     sessionRecord: SessionRecord,
     content: string
   ) => Promise<unknown>;
+  createHistoryEnvelope?: (args: {
+    token: string;
+    chatId: string;
+    currentUserId: string;
+    content: string;
+    ownMaterial: OwnMaterial;
+    targetBundles: UserEncryptionDeviceBundle[];
+    nextSessions: Record<string, SessionRecord>;
+  }) => Promise<string | null>;
   writeDeviceSessions: (userId: string, sessions: Record<string, SessionRecord>) => void;
   rememberDeviceSessions: (userId: string, sessions: Record<string, SessionRecord>) => Promise<void>;
 }) {
@@ -574,6 +617,17 @@ export async function encryptDirectDeviceMessage<
     throw options.createUnavailableError();
   }
 
+  const historyEnvelope =
+    (await options.createHistoryEnvelope?.({
+      token: options.token,
+      chatId: options.chatId,
+      currentUserId: options.currentUserId,
+      content: options.content,
+      ownMaterial,
+      targetBundles,
+      nextSessions,
+    })) ?? null;
+
   return {
     scheme: options.messageSchemeDevice,
     encryptedKeysByRecipientId: Object.fromEntries(
@@ -582,5 +636,6 @@ export async function encryptDirectDeviceMessage<
         JSON.stringify(envelope),
       ])
     ),
+    historyEnvelope,
   } satisfies EncryptedMessagePayload;
 }

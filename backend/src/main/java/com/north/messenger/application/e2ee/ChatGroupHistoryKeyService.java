@@ -11,6 +11,7 @@ import com.north.messenger.application.chat.ChatService;
 import com.north.messenger.domain.model.ChatHistoryKeyEscrow;
 import com.north.messenger.domain.model.ChatHistoryKey;
 import com.north.messenger.domain.model.ChatHistoryKeyAccess;
+import com.north.messenger.domain.model.ChatHistoryKeyUserAccess;
 import com.north.messenger.domain.model.ChatParticipant;
 import com.north.messenger.domain.model.ChatPrejoinHistoryPolicy;
 import com.north.messenger.domain.model.ChatRoom;
@@ -20,6 +21,7 @@ import com.north.messenger.domain.model.UserEncryptionSignedPrekey;
 import com.north.messenger.domain.repository.ChatHistoryKeyAccessRepository;
 import com.north.messenger.domain.repository.ChatHistoryKeyEscrowRepository;
 import com.north.messenger.domain.repository.ChatHistoryKeyRepository;
+import com.north.messenger.domain.repository.ChatHistoryKeyUserAccessRepository;
 import com.north.messenger.domain.repository.ChatParticipantRepository;
 import com.north.messenger.domain.repository.UserEncryptionDeviceRepository;
 import com.north.messenger.domain.repository.UserEncryptionSignedPrekeyRepository;
@@ -50,6 +52,7 @@ public class ChatGroupHistoryKeyService {
     private final ChatService chatService;
     private final ChatHistoryKeyRepository chatHistoryKeyRepository;
     private final ChatHistoryKeyAccessRepository chatHistoryKeyAccessRepository;
+    private final ChatHistoryKeyUserAccessRepository chatHistoryKeyUserAccessRepository;
     private final ChatHistoryKeyEscrowRepository chatHistoryKeyEscrowRepository;
     private final ChatParticipantRepository chatParticipantRepository;
     private final UserEncryptionDeviceRepository userEncryptionDeviceRepository;
@@ -65,6 +68,7 @@ public class ChatGroupHistoryKeyService {
             ChatService chatService,
             ChatHistoryKeyRepository chatHistoryKeyRepository,
             ChatHistoryKeyAccessRepository chatHistoryKeyAccessRepository,
+            ChatHistoryKeyUserAccessRepository chatHistoryKeyUserAccessRepository,
             ChatHistoryKeyEscrowRepository chatHistoryKeyEscrowRepository,
             ChatParticipantRepository chatParticipantRepository,
             UserEncryptionDeviceRepository userEncryptionDeviceRepository,
@@ -79,6 +83,7 @@ public class ChatGroupHistoryKeyService {
         this.chatService = chatService;
         this.chatHistoryKeyRepository = chatHistoryKeyRepository;
         this.chatHistoryKeyAccessRepository = chatHistoryKeyAccessRepository;
+        this.chatHistoryKeyUserAccessRepository = chatHistoryKeyUserAccessRepository;
         this.chatHistoryKeyEscrowRepository = chatHistoryKeyEscrowRepository;
         this.chatParticipantRepository = chatParticipantRepository;
         this.userEncryptionDeviceRepository = userEncryptionDeviceRepository;
@@ -97,12 +102,12 @@ public class ChatGroupHistoryKeyService {
     ) {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
         ChatRoom room = chatService.requireChatMembership(chatId, currentUser);
-        requireGroupChat(room);
 
         ChatParticipant membership = chatParticipantRepository.findByChatIdAndUserId(chatId, currentUser.getId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied for this chat"));
-        UserEncryptionDevice recipientDevice = requireOwnedHistoryLookupDevice(currentUser.getId(), deviceId);
         Map<UUID, GroupHistoryKeyAccessResponse> accessesByHistoryKeyId = new LinkedHashMap<>();
+        mergeUserHistoryKeyAccesses(accessesByHistoryKeyId, chatId, currentUser.getId());
+        UserEncryptionDevice recipientDevice = requireOwnedHistoryLookupDevice(currentUser.getId(), deviceId);
         chatHistoryKeyAccessRepository
                 .findAllByChatIdAndRecipientUserIdAndRecipientDeviceIdOrderByCreatedAtAsc(
                         chatId,
@@ -136,21 +141,37 @@ public class ChatGroupHistoryKeyService {
         AuthService.AuthenticatedSession authenticatedSession =
                 authService.requireAuthenticatedSession(username, accessToken);
         ChatRoom room = chatService.requireChatMembership(chatId, authenticatedSession.user());
-        requireGroupChat(room);
 
         UUID historyKeyId = parseUuid(request.historyKeyId(), "Group history key id is invalid");
         Instant now = Instant.now();
         List<UserAccount> participants = chatService.findParticipants(chatId);
+        Map<String, UserAccount> participantsByUserId = participants.stream()
+                .collect(Collectors.toMap(user -> user.getId().toString(), Function.identity()));
         Map<String, UserEncryptionDevice> knownDevicesById = visibleDevices(
                         userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(
                                 participants.stream().map(UserAccount::getId).toList()
                         )
                 ).stream()
                 .collect(Collectors.toMap(device -> device.getId().toString(), Function.identity()));
-        if (!knownDevicesById.keySet().containsAll(request.wrappedKeysByRecipientDeviceId().keySet())) {
+        Map<String, String> wrappedKeysByRecipientDeviceId = request.wrappedKeysByRecipientDeviceId() == null
+                ? Map.of()
+                : request.wrappedKeysByRecipientDeviceId();
+        Map<String, String> wrappedKeysByRecipientUserId = request.wrappedKeysByRecipientUserId() == null
+                ? Map.of()
+                : request.wrappedKeysByRecipientUserId();
+        if (wrappedKeysByRecipientDeviceId.isEmpty() && wrappedKeysByRecipientUserId.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Group history key access is required");
+        }
+        if (!knownDevicesById.keySet().containsAll(wrappedKeysByRecipientDeviceId.keySet())) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
                     "Group history key access contains unknown recipient devices"
+            );
+        }
+        if (!participantsByUserId.keySet().containsAll(wrappedKeysByRecipientUserId.keySet())) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Group history key access contains unknown recipient users"
             );
         }
 
@@ -166,10 +187,19 @@ public class ChatGroupHistoryKeyService {
                 })
                 .orElseGet(() -> {
                     Set<String> expectedRecipientDeviceIds = knownDevicesById.keySet();
-                    if (!request.wrappedKeysByRecipientDeviceId().keySet().equals(expectedRecipientDeviceIds)) {
+                    Set<String> expectedRecipientUserIds = participantsByUserId.keySet();
+                    if (!wrappedKeysByRecipientDeviceId.isEmpty()
+                            && !wrappedKeysByRecipientDeviceId.keySet().equals(expectedRecipientDeviceIds)) {
                         throw new ResponseStatusException(
                                 HttpStatus.BAD_REQUEST,
                                 "Initial group history key must include every active participant device"
+                        );
+                    }
+                    if (!wrappedKeysByRecipientUserId.isEmpty()
+                            && !wrappedKeysByRecipientUserId.keySet().equals(expectedRecipientUserIds)) {
+                        throw new ResponseStatusException(
+                                HttpStatus.BAD_REQUEST,
+                                "Initial group history key must include every participant user"
                         );
                     }
                     return chatHistoryKeyRepository.save(new ChatHistoryKey(
@@ -183,7 +213,8 @@ public class ChatGroupHistoryKeyService {
         UserEncryptionDevice senderDevice = null;
         Map<UUID, DeviceEnvelopeCounterService.EnvelopeCounterInput> envelopesByRecipientDeviceId = new LinkedHashMap<>();
         List<ChatHistoryKeyAccess> accessesToSave = new java.util.ArrayList<>();
-        for (Map.Entry<String, String> entry : new LinkedHashMap<>(request.wrappedKeysByRecipientDeviceId()).entrySet()) {
+        List<ChatHistoryKeyUserAccess> userAccessesToSave = new java.util.ArrayList<>();
+        for (Map.Entry<String, String> entry : new LinkedHashMap<>(wrappedKeysByRecipientDeviceId).entrySet()) {
             UserEncryptionDevice recipientDevice = knownDevicesById.get(entry.getKey());
             if (recipientDevice == null) {
                 throw new ResponseStatusException(
@@ -273,6 +304,36 @@ public class ChatGroupHistoryKeyService {
                     ));
             accessesToSave.add(access);
         }
+        for (Map.Entry<String, String> entry : new LinkedHashMap<>(wrappedKeysByRecipientUserId).entrySet()) {
+            UserAccount recipientUser = participantsByUserId.get(entry.getKey());
+            if (recipientUser == null) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Group history key access contains unknown recipient users"
+                );
+            }
+
+            ChatHistoryKeyUserAccess access = chatHistoryKeyUserAccessRepository
+                    .findByHistoryKeyIdAndRecipientUserId(historyKey.getId(), recipientUser.getId())
+                    .map(existing -> {
+                        existing.update(
+                                entry.getValue(),
+                                authenticatedSession.user().getId(),
+                                now
+                        );
+                        return existing;
+                    })
+                    .orElseGet(() -> new ChatHistoryKeyUserAccess(
+                            UUID.randomUUID(),
+                            historyKey.getId(),
+                            recipientUser.getId(),
+                            entry.getValue(),
+                            authenticatedSession.user().getId(),
+                            now,
+                            now
+                    ));
+            userAccessesToSave.add(access);
+        }
 
         if (senderDevice != null && !envelopesByRecipientDeviceId.isEmpty()) {
             deviceEnvelopeCounterService.validateAndAdvanceCounters(
@@ -283,11 +344,16 @@ public class ChatGroupHistoryKeyService {
         for (ChatHistoryKeyAccess access : accessesToSave) {
             chatHistoryKeyAccessRepository.save(access);
         }
+        for (ChatHistoryKeyUserAccess access : userAccessesToSave) {
+            chatHistoryKeyUserAccessRepository.save(access);
+        }
         upsertEscrowGrantPayload(chatId, historyKey, request.serverEscrowGrantPayloadJson(), now);
         chatHistoryBackfillStatusService.refreshCoverage(
                 chatId,
-                accessesToSave.stream()
-                        .map(ChatHistoryKeyAccess::getRecipientUserId)
+                java.util.stream.Stream.concat(
+                                accessesToSave.stream().map(ChatHistoryKeyAccess::getRecipientUserId),
+                                userAccessesToSave.stream().map(ChatHistoryKeyUserAccess::getRecipientUserId)
+                        )
                         .distinct()
                         .toList()
         );
@@ -303,7 +369,6 @@ public class ChatGroupHistoryKeyService {
         if (serializedEnvelope == null || serializedEnvelope.isBlank()) {
             return null;
         }
-        requireGroupChat(room);
 
         try {
             JsonNode envelope = objectMapper.readTree(serializedEnvelope);
@@ -369,13 +434,23 @@ public class ChatGroupHistoryKeyService {
         return device;
     }
 
-    private void requireGroupChat(ChatRoom room) {
-        if (room.isDirect()) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Group history keys are only supported for group chats"
-            );
-        }
+    private void mergeUserHistoryKeyAccesses(
+            Map<UUID, GroupHistoryKeyAccessResponse> accessesByHistoryKeyId,
+            UUID chatId,
+            UUID currentUserId
+    ) {
+        chatHistoryKeyUserAccessRepository
+                .findAllByChatIdAndRecipientUserIdOrderByCreatedAtAsc(chatId, currentUserId)
+                .forEach(access -> accessesByHistoryKeyId.put(
+                        access.getHistoryKeyId(),
+                        new GroupHistoryKeyAccessResponse(
+                                access.getHistoryKeyId().toString(),
+                                access.getWrappedKeyPayloadJson(),
+                                null,
+                                access.getCreatedAt(),
+                                access.getUpdatedAt()
+                        )
+                ));
     }
 
     private UUID parseUuid(String value, String errorMessage) {
@@ -526,7 +601,9 @@ public class ChatGroupHistoryKeyService {
             ChatParticipant membership
     ) {
         List<ChatHistoryKeyEscrow> escrowRecords;
-        if (room.getPrejoinHistoryPolicy() == ChatPrejoinHistoryPolicy.FULL_HISTORY
+        if (room.isDirect()) {
+            escrowRecords = chatHistoryKeyEscrowRepository.findAllByChatIdOrderByHistoryKeyCreatedAtAsc(chatId);
+        } else if (room.getPrejoinHistoryPolicy() == ChatPrejoinHistoryPolicy.FULL_HISTORY
                 || membership.getPrejoinHistoryAccessGrantedAt() != null) {
             escrowRecords = chatHistoryKeyEscrowRepository.findAllByChatIdOrderByHistoryKeyCreatedAtAsc(chatId);
         } else {

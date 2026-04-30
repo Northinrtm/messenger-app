@@ -1,6 +1,8 @@
 export type StoredLocalIdentity = {
   publicKey: string;
   privateKey: string;
+  accountPublicKey?: string;
+  accountPrivateKey?: string;
 };
 
 export type RememberedUnlockedIdentityRecord = {
@@ -32,6 +34,14 @@ function normalizeLocalIdentity(value: unknown): StoredLocalIdentity | null {
   return {
     publicKey: candidate.publicKey,
     privateKey: candidate.privateKey,
+    accountPublicKey:
+      typeof candidate.accountPublicKey === "string" && candidate.accountPublicKey.length > 0
+        ? candidate.accountPublicKey
+        : undefined,
+    accountPrivateKey:
+      typeof candidate.accountPrivateKey === "string" && candidate.accountPrivateKey.length > 0
+        ? candidate.accountPrivateKey
+        : undefined,
   };
 }
 

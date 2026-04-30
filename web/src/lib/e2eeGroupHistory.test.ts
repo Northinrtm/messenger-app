@@ -78,7 +78,7 @@ describe("e2eeGroupHistory", () => {
       chatId: "chat",
       ownMaterial: { deviceId: "self-device" },
       getOwnGroupHistoryKeys: async () => accesses,
-      decryptDirectRecipientEnvelopeContent: async (payload) => payload,
+      decryptHistoryKeyGrantPayload: async (payload: string) => payload,
       parseGroupHistoryKeyGrantPayload: (value) => {
         if (value === "wrong") {
           return {
