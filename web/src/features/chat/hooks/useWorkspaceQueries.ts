@@ -5,30 +5,41 @@ import {
   getArchivedChats,
   getArchivedVideoConferences,
   getBlockedUsers,
+  getChatOpen,
   getChats,
   getContacts,
+  getMessagesPage,
+  getPendingOutgoingMessages,
   getProfile,
   getSessions,
   getTypingParticipants,
   getVideoConferences,
-  listOwnEncryptionDevices,
-  searchUsers,
+  searchWorkspace,
 } from "../../../lib/api";
 import {
   isUnavailableEncryptedMessage,
 } from "../../../lib/e2eeShared";
 import {
-  E2EE_DEVICE_STATE_SYNCED_EVENT,
-  type E2eeDeviceStateSyncedDetail,
+  E2EE_ENCRYPTION_STATE_SYNCED_EVENT,
+  type E2eeEncryptionStateSyncedDetail,
 } from "../../../lib/e2eeEvents";
-import { recoverLocalPendingMessages, removeLocalPendingMessage, toRecoveredPendingChatMessage } from "../../../lib/localPendingMessages";
-import type { ApiChatMessage, ChatMessage, ChatSummary, UserProfile } from "../../../lib/types";
+import { deletePendingOutgoingMessage } from "../../../lib/api";
+import { toRecoveredPendingChatMessage } from "../../../lib/pendingOutgoingMessages";
+import type {
+  ApiChatMessage,
+  ChatMessage,
+  ChatSummary,
+  PendingOutgoingMessage,
+  UserProfile,
+  WorkspaceBootstrap,
+} from "../../../lib/types";
 import type { ConversationListTab, SidebarSheet } from "../chatUi";
 import {
   buildMessagesQueryKey,
   flattenMessagePages,
   MESSAGE_PAGE_SIZE,
   reconcileMessageInfiniteData,
+  upsertChat,
   updateMessageById,
 } from "../chatState";
 
@@ -38,12 +49,15 @@ type UseWorkspaceQueriesOptions = {
   isActiveChatOpen: boolean;
   activeListTab: ConversationListTab;
   activePendingOutgoingCount: number;
+  bootstrapReady: boolean;
+  contactSearchText: string;
   currentUser: UserProfile;
-  deferredContactSearch: string;
-  deferredSearch: string;
+  initialWorkspaceBootstrap: WorkspaceBootstrap | undefined;
+  initialWorkspaceBootstrapUpdatedAt: number | undefined;
   isRealtimeConnected: boolean;
   messageQueryGcTimeMs: number;
   searchQueryGcTimeMs: number;
+  searchText: string;
   sessionToken: string;
   sidebarSheet: SidebarSheet;
   typingQueryGcTimeMs: number;
@@ -56,6 +70,7 @@ const CONNECTED_CHATS_REFETCH_INTERVAL_MS = 60_000;
 const FALLBACK_CHATS_REFETCH_INTERVAL_MS = 15_000;
 const FALLBACK_TYPING_REFETCH_INTERVAL_MS = 5_000;
 const FALLBACK_MESSAGES_REFETCH_INTERVAL_MS = 10_000;
+const CHATS_QUERY_STALE_TIME_MS = 15_000;
 
 function isDocumentVisibleNow() {
   return typeof document === "undefined" || document.visibilityState === "visible";
@@ -102,13 +117,13 @@ export function resetMessageHydrationStateForChat(options: {
 }
 
 export type MessagePageCursor = {
-  beforeServerOrder: number | null;
+  cursor: string | null;
   limit: number;
 };
 
 export function createInitialMessagePageCursor(): MessagePageCursor {
   return {
-    beforeServerOrder: null,
+    cursor: null,
     limit: INITIAL_MESSAGE_PAGE_SIZE,
   };
 }
@@ -179,32 +194,15 @@ export function getConferenceQueryRefreshStrategy(isAggressiveRefresh: boolean) 
   } as const;
 }
 
-export function getNextMessagePageCursor(
-  lastPage: ChatMessage[],
-  lastPageParam: MessagePageCursor | null | undefined
-) {
-  const requestedLimit = lastPageParam?.limit ?? INITIAL_MESSAGE_PAGE_SIZE;
-  if (lastPage.length !== requestedLimit || !lastPage[0]) {
+export function getNextMessagePageCursor(nextCursor: string | null | undefined) {
+  if (!nextCursor) {
     return undefined;
   }
 
   return {
-    beforeServerOrder: lastPage[0].serverOrder ?? null,
+    cursor: nextCursor,
     limit: MESSAGE_PAGE_SIZE,
   } satisfies MessagePageCursor;
-}
-
-export function getCleanupEligiblePendingMessageClientIds(messages: ChatMessage[]) {
-  return new Set(
-    messages
-      .filter(
-        (message) =>
-          message.clientMessageId &&
-          message.id !== message.clientMessageId &&
-          !isUnavailableEncryptedMessage(message.content)
-      )
-      .map((message) => message.clientMessageId as string)
-  );
 }
 
 export function upsertRawMessagePage(
@@ -213,7 +211,7 @@ export function upsertRawMessagePage(
   pageParam: MessagePageCursor
 ): InfiniteData<ApiChatMessage[]> {
   const normalizedPageParam = {
-    beforeServerOrder: pageParam.beforeServerOrder ?? null,
+    cursor: pageParam.cursor ?? null,
     limit: pageParam.limit,
   } satisfies MessagePageCursor;
 
@@ -227,7 +225,7 @@ export function upsertRawMessagePage(
   const pageIndex = current.pageParams.findIndex((currentPageParam) => {
     const candidate = (currentPageParam ?? null) as MessagePageCursor | null;
     return (
-      (candidate?.beforeServerOrder ?? null) === normalizedPageParam.beforeServerOrder &&
+      (candidate?.cursor ?? null) === normalizedPageParam.cursor &&
       (candidate?.limit ?? INITIAL_MESSAGE_PAGE_SIZE) === normalizedPageParam.limit
     );
   });
@@ -245,6 +243,10 @@ export function upsertRawMessagePage(
       index === pageIndex ? normalizedPageParam : currentPageParam
     ),
   };
+}
+
+function buildMessagePageRequestKey(pageParam: MessagePageCursor | null | undefined) {
+  return `${pageParam?.cursor ?? "initial"}|${pageParam?.limit ?? INITIAL_MESSAGE_PAGE_SIZE}`;
 }
 
 export function mergeHydratedMessageSnapshot(
@@ -305,12 +307,15 @@ export function useWorkspaceQueries({
   isActiveChatOpen,
   activeListTab,
   activePendingOutgoingCount,
+  bootstrapReady,
+  contactSearchText,
   currentUser,
-  deferredContactSearch,
-  deferredSearch,
+  initialWorkspaceBootstrap,
+  initialWorkspaceBootstrapUpdatedAt,
   isRealtimeConnected,
   messageQueryGcTimeMs,
   searchQueryGcTimeMs,
+  searchText,
   sessionToken,
   sidebarSheet,
   typingQueryGcTimeMs,
@@ -325,11 +330,13 @@ export function useWorkspaceQueries({
   const messageHydrationWorkerRunningRef = useRef(false);
   const messageHydrationRetryCountRef = useRef(new Map<string, number>());
   const messageHydrationRetryTimeoutIdRef = useRef(new Map<string, number>());
+  const nextMessageCursorByRequestKeyRef = useRef(new Map<string, string | null>());
   const shouldFetchSessions = sidebarSheet === "sessions";
-  const shouldFetchEncryptionDevices = sidebarSheet === "sessions";
   const shouldAggressivelyRefreshConferences =
     activeListTab === "conferences" || Boolean(activeConferenceId);
   const shouldFetchArchivedConferences = sidebarSheet === "archive" || Boolean(activeConferenceId);
+  const normalizedSearchText = searchText.trim();
+  const normalizedContactSearchText = contactSearchText.trim();
 
   useEffect(() => {
     if (typeof document === "undefined") {
@@ -346,9 +353,19 @@ export function useWorkspaceQueries({
     };
   }, []);
 
+  useEffect(() => {
+    nextMessageCursorByRequestKeyRef.current.clear();
+  }, [activeChatId]);
+
   const chatsQuery = useQuery({
     queryKey: ["chats", sessionToken],
     queryFn: () => getChats(sessionToken),
+    enabled: bootstrapReady,
+    initialData: initialWorkspaceBootstrap?.chats,
+    initialDataUpdatedAt: initialWorkspaceBootstrap
+      ? initialWorkspaceBootstrapUpdatedAt
+      : undefined,
+    staleTime: CHATS_QUERY_STALE_TIME_MS,
     ...getChatsQueryRefreshStrategy({
       isRealtimeConnected,
       isDocumentVisible,
@@ -358,84 +375,96 @@ export function useWorkspaceQueries({
   const sessionsQuery = useQuery({
     queryKey: ["sessions", sessionToken],
     queryFn: () => getSessions(sessionToken),
-    enabled: shouldFetchSessions,
+    enabled: bootstrapReady && shouldFetchSessions,
     refetchInterval: shouldFetchSessions ? 60_000 : false,
     refetchIntervalInBackground: false,
     staleTime: 60_000,
   });
 
-  const encryptionDevicesQuery = useQuery({
-    queryKey: ["encryption-devices", sessionToken],
-    queryFn: () => listOwnEncryptionDevices(sessionToken),
-    enabled: shouldFetchEncryptionDevices,
-    refetchInterval: shouldFetchEncryptionDevices ? 60_000 : false,
-    refetchIntervalInBackground: false,
-    staleTime: 60_000,
-  });
-
-  const currentEncryptionDeviceQuery = useQuery({
-    queryKey: ["current-encryption-device", userId],
-    queryFn: async () => {
-      const { getCurrentEncryptionDeviceId } = await import("../../../lib/e2ee");
-      return getCurrentEncryptionDeviceId(userId);
-    },
-    enabled: shouldFetchEncryptionDevices,
-    staleTime: 15_000,
-  });
-
   const profileQuery = useQuery({
     queryKey: ["profile", sessionToken],
     queryFn: () => getProfile(sessionToken),
+    enabled: bootstrapReady,
+    initialData: initialWorkspaceBootstrap?.profile,
+    initialDataUpdatedAt: initialWorkspaceBootstrap
+      ? initialWorkspaceBootstrapUpdatedAt
+      : undefined,
     staleTime: 60_000,
   });
 
   const archivedChatsQuery = useQuery({
     queryKey: ["archived-chats", sessionToken],
     queryFn: () => getArchivedChats(sessionToken),
+    enabled: bootstrapReady,
+    initialData: initialWorkspaceBootstrap?.archivedChatIds,
+    initialDataUpdatedAt: initialWorkspaceBootstrap
+      ? initialWorkspaceBootstrapUpdatedAt
+      : undefined,
     staleTime: 60_000,
   });
 
   const contactsQuery = useQuery({
     queryKey: ["contacts", sessionToken],
     queryFn: () => getContacts(sessionToken),
+    enabled: bootstrapReady,
+    initialData: initialWorkspaceBootstrap?.contacts,
+    initialDataUpdatedAt: initialWorkspaceBootstrap
+      ? initialWorkspaceBootstrapUpdatedAt
+      : undefined,
     staleTime: 60_000,
   });
 
   const blockedUsersQuery = useQuery({
     queryKey: ["blocked-users", sessionToken],
     queryFn: () => getBlockedUsers(sessionToken),
+    enabled: bootstrapReady,
+    initialData: initialWorkspaceBootstrap?.blockedUsers,
+    initialDataUpdatedAt: initialWorkspaceBootstrap
+      ? initialWorkspaceBootstrapUpdatedAt
+      : undefined,
     staleTime: 60_000,
   });
 
   const conferencesQuery = useQuery({
     queryKey: ["video-conferences", sessionToken],
     queryFn: () => getVideoConferences(sessionToken),
+    enabled: bootstrapReady,
+    initialData: initialWorkspaceBootstrap?.conferences,
+    initialDataUpdatedAt: initialWorkspaceBootstrap
+      ? initialWorkspaceBootstrapUpdatedAt
+      : undefined,
     ...getConferenceQueryRefreshStrategy(shouldAggressivelyRefreshConferences),
   });
 
   const archivedConferencesQuery = useQuery({
     queryKey: ["video-conferences-archive", sessionToken],
     queryFn: () => getArchivedVideoConferences(sessionToken),
-    enabled: shouldFetchArchivedConferences,
+    enabled: bootstrapReady && shouldFetchArchivedConferences,
+    initialData: initialWorkspaceBootstrap?.archivedConferences,
+    initialDataUpdatedAt: initialWorkspaceBootstrap
+      ? initialWorkspaceBootstrapUpdatedAt
+      : undefined,
     refetchInterval: sidebarSheet === "archive" ? 60_000 : false,
     refetchIntervalInBackground: sidebarSheet === "archive",
     staleTime: 60_000,
   });
 
   const userSearchQuery = useQuery({
-    queryKey: ["user-search", sessionToken, deferredSearch],
-    queryFn: () => searchUsers(sessionToken, deferredSearch.trim()),
-    enabled: deferredSearch.trim().length > 0,
+    queryKey: ["workspace-search", sessionToken, normalizedSearchText],
+    queryFn: () => searchWorkspace(sessionToken, normalizedSearchText),
+    enabled: normalizedSearchText.length > 0,
     staleTime: 15_000,
     gcTime: searchQueryGcTimeMs,
+    placeholderData: (previous) => previous,
   });
 
   const contactsSearchQuery = useQuery({
-    queryKey: ["contact-search", sessionToken, deferredContactSearch],
-    queryFn: () => searchUsers(sessionToken, deferredContactSearch.trim()),
-    enabled: deferredContactSearch.trim().length > 0,
+    queryKey: ["workspace-search", sessionToken, "contacts", normalizedContactSearchText],
+    queryFn: () => searchWorkspace(sessionToken, normalizedContactSearchText),
+    enabled: normalizedContactSearchText.length > 0,
     staleTime: 15_000,
     gcTime: searchQueryGcTimeMs,
+    placeholderData: (previous) => previous,
   });
 
   const activeTypingQuery = useQuery({
@@ -456,23 +485,92 @@ export function useWorkspaceQueries({
   const activeChat = (chatsQuery.data ?? []).find((chat) => chat.id === activeChatId) ?? null;
   const pendingOutgoingMessagesQuery = useQuery({
     queryKey: ["pending-outgoing-messages", userId],
-    queryFn: () => recoverLocalPendingMessages(userId),
-    staleTime: Infinity,
+    queryFn: () => getPendingOutgoingMessages(sessionToken),
+    enabled: bootstrapReady,
+    initialData: initialWorkspaceBootstrap?.pendingOutgoingMessages,
+    initialDataUpdatedAt: initialWorkspaceBootstrap
+      ? initialWorkspaceBootstrapUpdatedAt
+      : undefined,
+    staleTime: 15_000,
   });
+
+  const applyConfirmedPendingOutgoingClientMessageIds = (clientMessageIds: string[]) => {
+    if (!clientMessageIds.length) {
+      return;
+    }
+
+    const recoveredMessages =
+      queryClient.getQueryData<PendingOutgoingMessage[]>([
+        "pending-outgoing-messages",
+        userId,
+      ]) ?? [];
+    const confirmedClientMessageIds = new Set(clientMessageIds);
+    const staleRecoveredMessages = recoveredMessages.filter((message) =>
+      confirmedClientMessageIds.has(message.clientMessageId)
+    );
+    if (!staleRecoveredMessages.length) {
+      return;
+    }
+
+    const staleClientMessageIds = new Set(
+      staleRecoveredMessages.map((message) => message.clientMessageId)
+    );
+    const nextRecoveredMessages = recoveredMessages.filter(
+      (message) => !staleClientMessageIds.has(message.clientMessageId)
+    );
+    queryClient.setQueryData(["pending-outgoing-messages", userId], nextRecoveredMessages);
+    staleRecoveredMessages.forEach((message) => {
+      void deletePendingOutgoingMessage(sessionToken, message.clientMessageId).catch(() => undefined);
+    });
+  };
 
   const messagesQuery = useInfiniteQuery({
     queryKey: buildMessagesQueryKey(userId, activeChat?.id),
     queryFn: async ({ pageParam }) => {
       const { getEncryptedMessagesSnapshot } = await import("../../../lib/e2ee");
       const resolvedPageParam = {
-        beforeServerOrder: pageParam?.beforeServerOrder ?? null,
+        cursor: pageParam?.cursor ?? null,
         limit: pageParam?.limit ?? INITIAL_MESSAGE_PAGE_SIZE,
       } satisfies MessagePageCursor;
+      const pageRequestKey = buildMessagePageRequestKey(resolvedPageParam);
+      const chatOpen =
+        resolvedPageParam.cursor == null
+          ? await getChatOpen(sessionToken, activeChat!.id, {
+              acknowledgeDelivered: false,
+              limit: resolvedPageParam.limit,
+            })
+          : null;
+      const messagePage =
+        chatOpen == null
+          ? await getMessagesPage(sessionToken, activeChat!.id, {
+              acknowledgeDelivered: false,
+              cursor: resolvedPageParam.cursor,
+              limit: resolvedPageParam.limit,
+            })
+          : null;
+      if (chatOpen) {
+        queryClient.setQueryData<ChatSummary[]>(["chats", sessionToken], (current) =>
+          upsertChat(current, chatOpen.chat)
+        );
+      }
+      nextMessageCursorByRequestKeyRef.current.set(
+        pageRequestKey,
+        chatOpen?.initialMessagesNextCursor ?? messagePage?.nextCursor ?? null
+      );
+      applyConfirmedPendingOutgoingClientMessageIds(
+        chatOpen?.confirmedPendingOutgoingClientMessageIds ??
+          messagePage?.confirmedPendingOutgoingClientMessageIds ??
+          []
+      );
       const { hydratedMessages, rawMessages } = await getEncryptedMessagesSnapshot(
         sessionToken,
         userId,
         activeChat!.id,
-        resolvedPageParam
+        {
+          limit: resolvedPageParam.limit,
+          prefetchedRawMessages: chatOpen?.initialMessages ?? messagePage?.messages,
+          prefetchedActiveGroupHistoryKeyAccess: chatOpen?.activeHistoryKeyAccess ?? null,
+        }
       );
 
       queryClient.setQueryData<InfiniteData<ApiChatMessage[]>>(
@@ -484,8 +582,12 @@ export function useWorkspaceQueries({
     },
     enabled: Boolean(activeChat?.id),
     initialPageParam: createInitialMessagePageCursor(),
-    getNextPageParam: (lastPage, _allPages, lastPageParam) =>
-      getNextMessagePageCursor(lastPage, lastPageParam),
+    getNextPageParam: (_lastPage, _allPages, lastPageParam) =>
+      getNextMessagePageCursor(
+        nextMessageCursorByRequestKeyRef.current.get(
+          buildMessagePageRequestKey(lastPageParam)
+        )
+      ),
     maxPages: 4,
     refetchInterval: getMessagesQueryRefetchInterval({
       activeChatId: activeChat?.id ?? null,
@@ -529,36 +631,12 @@ export function useWorkspaceQueries({
   );
 
   useEffect(() => {
-    const confirmedClientMessageIds = getCleanupEligiblePendingMessageClientIds(
-      flattenMessagePages(messagesQuery.data?.pages)
-    );
-
-    if (!confirmedClientMessageIds.size) {
-      return;
-    }
-
-    const recoveredMessages = pendingOutgoingMessagesQuery.data ?? [];
-    const staleRecoveredMessages = recoveredMessages.filter((message) =>
-      confirmedClientMessageIds.has(message.clientMessageId)
-    );
-    if (!staleRecoveredMessages.length) {
-      return;
-    }
-
-    let nextRecoveredMessages = recoveredMessages;
-    staleRecoveredMessages.forEach((message) => {
-      nextRecoveredMessages = removeLocalPendingMessage(userId, message.clientMessageId);
-    });
-    queryClient.setQueryData(["pending-outgoing-messages", userId], nextRecoveredMessages);
-  }, [messagesQuery.data?.pages, pendingOutgoingMessagesQuery.data, queryClient, userId]);
-
-  useEffect(() => {
     if (!activeChat?.id || typeof window === "undefined") {
       return;
     }
 
-    const handleEncryptionDeviceSync = (event: Event) => {
-      const detail = (event as CustomEvent<E2eeDeviceStateSyncedDetail>).detail;
+    const handleEncryptionStateSync = (event: Event) => {
+      const detail = (event as CustomEvent<E2eeEncryptionStateSyncedDetail>).detail;
       if (detail?.userId !== userId) {
         return;
       }
@@ -576,9 +654,9 @@ export function useWorkspaceQueries({
       });
     };
 
-    window.addEventListener(E2EE_DEVICE_STATE_SYNCED_EVENT, handleEncryptionDeviceSync);
+    window.addEventListener(E2EE_ENCRYPTION_STATE_SYNCED_EVENT, handleEncryptionStateSync);
     return () => {
-      window.removeEventListener(E2EE_DEVICE_STATE_SYNCED_EVENT, handleEncryptionDeviceSync);
+      window.removeEventListener(E2EE_ENCRYPTION_STATE_SYNCED_EVENT, handleEncryptionStateSync);
     };
   }, [activeChat?.id, queryClient, userId]);
 
@@ -720,9 +798,7 @@ export function useWorkspaceQueries({
     messages,
     messagesQuery,
     pendingOutgoingMessagesQuery,
-    currentEncryptionDeviceQuery,
     profileQuery,
-    encryptionDevicesQuery,
     sessionsQuery,
     userSearchQuery,
   };

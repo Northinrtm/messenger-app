@@ -8,17 +8,17 @@ import {
 } from "../../lib/e2eeShared";
 
 const PASSWORD_UNLOCK_FAILED_MESSAGE = "Current password could not unlock encrypted chats";
-const TRUSTED_DEVICE_NOT_CONFIGURED_MESSAGE =
-  "Secure device unlock is not configured in this browser yet";
-const TRUSTED_DEVICE_REENROLL_MESSAGE =
-  "Device unlock failed. Re-enter your password and trust this device again";
-const TRUSTED_DEVICE_UNSUPPORTED_MESSAGE =
-  "This browser does not support secure device unlock for encrypted chats yet";
-const TRUSTED_DEVICE_PRF_UNAVAILABLE_MESSAGE =
-  "This authenticator does not expose the secure PRF output required for device unlock";
-const TRUSTED_DEVICE_CANCELLED_MESSAGES = new Set([
-  "Device unlock setup was cancelled",
-  "Device unlock was cancelled",
+const TRUSTED_BROWSER_NOT_CONFIGURED_MESSAGE =
+  "Secure browser unlock is not configured in this browser yet";
+const TRUSTED_BROWSER_REENROLL_MESSAGE =
+  "Browser unlock failed. Re-enter your password and trust this browser again";
+const TRUSTED_BROWSER_UNSUPPORTED_MESSAGE =
+  "This browser does not support secure browser unlock for encrypted chats yet";
+const TRUSTED_BROWSER_PRF_UNAVAILABLE_MESSAGE =
+  "This authenticator does not expose the secure PRF output required for browser unlock";
+const TRUSTED_BROWSER_CANCELLED_MESSAGES = new Set([
+  "Browser unlock setup was cancelled",
+  "Browser unlock was cancelled",
 ]);
 
 export type UnlockErrorPresentation = {
@@ -28,27 +28,17 @@ export type UnlockErrorPresentation = {
   canReset: boolean;
 };
 
-type UnlockErrorPresentationOptions = {
-  encryptionDeviceCount: number;
-};
-
-function formatEncryptionDeviceCount(count: number) {
-  return count === 1 ? "1 registered encryption device" : `${count} registered encryption devices`;
-}
-
-function buildRecoveryDeviceDetailLines(
-  encryptionDeviceCount: number,
-  options?: { includeResetWarning?: boolean }
-) {
+function buildRecoveryDeviceDetailLines(options?: { includeResetWarning?: boolean }) {
   const lines: string[] = [];
 
-  if (encryptionDeviceCount > 0) {
-    lines.push(`Server shows ${formatEncryptionDeviceCount(encryptionDeviceCount)} for this account.`);
-    lines.push("If another device still opens encrypted chats, keep it signed in until recovery is finished.");
-  }
+  lines.push(
+    "If another browser session still opens encrypted chats, keep it signed in until recovery is finished."
+  );
 
   if (options?.includeResetWarning) {
-    lines.push("Use reset only after confirming that no device can still unlock the previous encrypted-chat key.");
+    lines.push(
+      "Use reset only after confirming that no other browser session can still unlock the previous encrypted-chat key."
+    );
   }
 
   return lines;
@@ -72,10 +62,7 @@ function withApiDetails(detailLines: string[], error: ApiError | null) {
   return detailLines;
 }
 
-export function buildUnlockErrorPresentation(
-  error: unknown,
-  options: UnlockErrorPresentationOptions
-): UnlockErrorPresentation | null {
+export function buildUnlockErrorPresentation(error: unknown): UnlockErrorPresentation | null {
   if (!error) {
     return null;
   }
@@ -86,10 +73,10 @@ export function buildUnlockErrorPresentation(
 
   if (message === ENCRYPTION_RECOVERY_PREVIOUS_PASSWORD_REQUIRED_MESSAGE) {
     return {
-      title: "This device still needs the previous password",
+      title: "This browser session still needs the previous password",
       description:
-        "Encrypted chats on this device are still wrapped with the password that was active before the last account-password change.",
-      detailLines: buildRecoveryDeviceDetailLines(options.encryptionDeviceCount, {
+        "Encrypted chats in this browser session are still wrapped with the password that was active before the last account-password change.",
+      detailLines: buildRecoveryDeviceDetailLines({
         includeResetWarning: true,
       }),
       canReset: true,
@@ -101,10 +88,10 @@ export function buildUnlockErrorPresentation(
     message === ENCRYPTION_RECOVERY_EXISTING_CHATS_MESSAGE
   ) {
     return {
-      title: "Encrypted chats could not be restored on this device",
+      title: "Encrypted chats could not be restored in this browser session",
       description:
         "This account session is active, but this browser could not restore the private key for the existing encrypted chats yet.",
-      detailLines: buildRecoveryDeviceDetailLines(options.encryptionDeviceCount, {
+      detailLines: buildRecoveryDeviceDetailLines({
         includeResetWarning: true,
       }),
       canReset: true,
@@ -119,7 +106,7 @@ export function buildUnlockErrorPresentation(
       title: "Encrypted-chat recovery data is unreadable",
       description:
         "Recovery data exists for this account, but it could not be used in this browser session.",
-      detailLines: buildRecoveryDeviceDetailLines(options.encryptionDeviceCount, {
+      detailLines: buildRecoveryDeviceDetailLines({
         includeResetWarning: true,
       }),
       canReset: true,
@@ -128,7 +115,7 @@ export function buildUnlockErrorPresentation(
 
   if (message === PASSWORD_UNLOCK_FAILED_MESSAGE) {
     return {
-      title: "This password did not unlock this device",
+      title: "This password did not unlock this browser session",
       description:
         "The account session is active, but the encrypted-chat key stored for this browser did not reopen with the password you entered.",
       detailLines: withApiDetails(
@@ -141,37 +128,37 @@ export function buildUnlockErrorPresentation(
     };
   }
 
-  if (message === TRUSTED_DEVICE_NOT_CONFIGURED_MESSAGE) {
+  if (message === TRUSTED_BROWSER_NOT_CONFIGURED_MESSAGE) {
     return {
-      title: "Trusted-device unlock is not configured here",
+      title: "Trusted-browser unlock is not configured here",
       description:
-        "Use the encrypted-chat password in this browser, then trust this device again if you want passwordless unlock later.",
+        "Use the encrypted-chat password in this browser, then trust this browser again if you want passwordless unlock later.",
       detailLines: [],
       canReset: false,
     };
   }
 
-  if (message === TRUSTED_DEVICE_REENROLL_MESSAGE) {
+  if (message === TRUSTED_BROWSER_REENROLL_MESSAGE) {
     return {
-      title: "Trusted-device unlock needs to be set up again",
+      title: "Trusted-browser unlock needs to be set up again",
       description:
-        "The saved trusted factor no longer matches this browser session. Unlock with password, then trust this device again.",
+        "The saved trusted factor no longer matches this browser session. Unlock with password, then trust this browser again.",
       detailLines: [],
       canReset: false,
     };
   }
 
-  if (message === TRUSTED_DEVICE_UNSUPPORTED_MESSAGE) {
+  if (message === TRUSTED_BROWSER_UNSUPPORTED_MESSAGE) {
     return {
-      title: "This browser cannot use trusted-device unlock",
+      title: "This browser cannot use trusted-browser unlock",
       description:
-        "Continue with the encrypted-chat password in this browser instead of the trusted-device flow.",
+        "Continue with the encrypted-chat password in this browser instead of the trusted-browser flow.",
       detailLines: [],
       canReset: false,
     };
   }
 
-  if (message === TRUSTED_DEVICE_PRF_UNAVAILABLE_MESSAGE) {
+  if (message === TRUSTED_BROWSER_PRF_UNAVAILABLE_MESSAGE) {
     return {
       title: "This authenticator cannot unlock encrypted chats here",
       description:
@@ -181,11 +168,11 @@ export function buildUnlockErrorPresentation(
     };
   }
 
-  if (TRUSTED_DEVICE_CANCELLED_MESSAGES.has(message)) {
+  if (TRUSTED_BROWSER_CANCELLED_MESSAGES.has(message)) {
     return {
-      title: "Trusted-device unlock was cancelled",
+      title: "Trusted-browser unlock was cancelled",
       description:
-        "No changes were made. Retry the trusted-device flow or use the encrypted-chat password instead.",
+        "No changes were made. Retry the trusted-browser flow or use the encrypted-chat password instead.",
       detailLines: [],
       canReset: false,
     };

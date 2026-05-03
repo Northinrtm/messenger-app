@@ -206,6 +206,7 @@ describe("ActiveChatConversation composer", () => {
     });
 
     expect(submitSpy).toHaveBeenCalledWith("qweeeee", []);
+    expect(composerChangeSpy).toHaveBeenLastCalledWith("");
     expect(textarea.value).toBe("");
     expect(document.activeElement).toBe(textarea);
   });

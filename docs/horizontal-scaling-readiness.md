@@ -20,12 +20,13 @@ APP_REALTIME_REDIS_ENABLED=true
 APP_AUTH_RATE_LIMIT_REDIS_ENABLED=true
 APP_REALTIME_REDIS_MAC_SECRET=<stable-random-secret>
 APP_JWT_SECRET=<stable-base64-secret>
+APP_E2EE_ESCROW_SECRET=<stable-base64-secret>
 APP_PUSH_VAPID_PUBLIC_KEY=<stable-vapid-public-key>
 APP_PUSH_VAPID_PRIVATE_KEY=<stable-vapid-private-key>
 ```
 
-Do not rely on generated JWT or VAPID secrets in production. Ephemeral secrets make restarts and
-future replica rollout behave differently from normal operation.
+Do not rely on generated JWT, escrow, or VAPID secrets in production. Ephemeral secrets make
+restarts and future replica rollout behave differently from normal operation.
 
 ## Already Prepared
 
@@ -35,6 +36,8 @@ future replica rollout behave differently from normal operation.
 - typing state can use Redis instead of JVM memory.
 - message send idempotency is enforced with `clientMessageId`.
 - message ordering is backed by the database `server_order`.
+- group/direct active history keys are server-managed and rotated outside the message hot path through maintenance outbox workers.
+- identity reset and account-key regrant fan out through the same backend maintenance pipeline instead of requiring another live client.
 - scheduled backend jobs use Postgres advisory locks.
 - conference activation/start/end and recording import are handled by scheduled maintenance jobs,
   not by list/download read request paths.
@@ -49,7 +52,8 @@ future replica rollout behave differently from normal operation.
 3. Confirm all stable secrets are set in `.env.prod`.
 4. Keep `APP_DB_MAX_POOL_SIZE` low enough that `BACKEND_REPLICAS * APP_DB_MAX_POOL_SIZE` fits
    Postgres headroom.
-5. Run a smoke test covering:
+5. Confirm restore rehearsal exists for PostgreSQL together with `APP_E2EE_ESCROW_SECRET`; DB backup alone is insufficient for managed E2EE history recovery.
+6. Run a smoke test covering:
    - health endpoint
    - login and refresh
    - direct chat creation
@@ -57,8 +61,8 @@ future replica rollout behave differently from normal operation.
    - typing indicator
    - delivered/read receipts
    - encrypted attachment upload and download
-6. Review websocket logs for `/ws` spikes and `429` responses.
-7. Review backend logs for slow message send or dispatch warnings.
+7. Review websocket logs for `/ws` spikes and `429` responses.
+8. Review backend logs for slow message send, outbox lag, or grant rotation warnings.
 
 ## First Replica Increase
 
@@ -96,3 +100,4 @@ These are useful before larger scale, but they are not required for staying at o
 
 - add an automated production smoke-test script
 - add a short websocket load-test script for pre-scale validation
+- add explicit load checks for message dispatch outbox and E2EE maintenance outbox lag

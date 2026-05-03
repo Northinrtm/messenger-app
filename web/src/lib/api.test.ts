@@ -3,7 +3,6 @@ import {
   register,
   requestPasswordReset,
   resendOwnEmailVerification,
-  resolveEncryptionDeviceManifest,
 } from "./api";
 
 describe("api request helpers", () => {
@@ -89,43 +88,6 @@ describe("api request helpers", () => {
       email: "north@example.com",
       displayName: "North",
       password: "riverlantern",
-    });
-  });
-
-  it("posts encryption device manifest requests with known device versions", async () => {
-    const fetchSpy = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          version: "manifest-version",
-          fullSync: false,
-          bundles: [],
-          removedDeviceIds: [],
-        }),
-        {
-          status: 200,
-          statusText: "OK",
-          headers: {
-            "content-type": "application/json",
-          },
-        }
-      )
-    );
-    vi.stubGlobal("fetch", fetchSpy);
-
-    await resolveEncryptionDeviceManifest("access-token", ["user-1"], {
-      knownVersion: "known-version",
-      knownDevices: [{ deviceId: "device-1", version: "device-version-1" }],
-    });
-
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const [requestUrl, requestInit] = fetchSpy.mock.calls[0] as [RequestInfo | URL, RequestInit];
-    expect(String(requestUrl)).toContain("/api/e2ee/devices/bundles/manifest");
-    expect(requestInit.method).toBe("POST");
-    expect(JSON.parse(String(requestInit.body))).toEqual({
-      userIds: ["user-1"],
-      deviceIds: undefined,
-      knownDevices: [{ deviceId: "device-1", version: "device-version-1" }],
-      knownVersion: "known-version",
     });
   });
 });

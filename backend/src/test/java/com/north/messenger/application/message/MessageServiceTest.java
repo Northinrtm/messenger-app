@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.north.messenger.api.dto.CreateMessageRequest;
 import com.north.messenger.api.dto.EncryptedMessagePayloadRequest;
 import com.north.messenger.api.dto.MessageDeliveryState;
+import com.north.messenger.api.dto.MessagePageResponse;
 import com.north.messenger.api.dto.MessageReceiptRequest;
 import com.north.messenger.api.dto.MessageResponse;
 import com.north.messenger.api.dto.ParticipantResponse;
@@ -11,44 +12,25 @@ import com.north.messenger.api.dto.ToggleMessageReactionRequest;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.chat.ChatService;
 import com.north.messenger.application.e2ee.ChatGroupHistoryKeyService;
-import com.north.messenger.application.e2ee.DeviceEnvelopeCounterService;
-import com.north.messenger.application.e2ee.DeviceKeyValidationService;
 import com.north.messenger.application.push.PushNotificationDeliveryService;
 import com.north.messenger.observability.MessengerTelemetry;
 import com.north.messenger.domain.model.ChatMessage;
-import com.north.messenger.domain.model.ChatMessageRecipientPayload;
 import com.north.messenger.domain.model.ChatParticipant;
 import com.north.messenger.domain.model.ChatRoom;
-import com.north.messenger.domain.model.ChatGroupSenderKeyCounter;
 import com.north.messenger.domain.model.MessageReceipt;
 import com.north.messenger.domain.model.MessageReaction;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.UserDeletedMessage;
-import com.north.messenger.domain.model.UserEncryptionDevice;
-import com.north.messenger.domain.model.UserEncryptionEnvelopeCounter;
-import com.north.messenger.domain.model.UserEncryptionOneTimePrekey;
-import com.north.messenger.domain.model.UserEncryptionSignedPrekey;
-import com.north.messenger.domain.repository.ChatGroupSenderKeyCounterRepository;
 import com.north.messenger.domain.repository.ChatMessageRepository;
-import com.north.messenger.domain.repository.ChatMessageRecipientPayloadRepository;
 import com.north.messenger.domain.repository.ChatParticipantRepository;
 import com.north.messenger.domain.repository.MessageReceiptRepository;
 import com.north.messenger.domain.repository.MessageReactionRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import com.north.messenger.domain.repository.UserDeletedMessageRepository;
-import com.north.messenger.domain.repository.UserEncryptionDeviceRepository;
-import com.north.messenger.domain.repository.UserEncryptionEnvelopeCounterRepository;
-import com.north.messenger.domain.repository.UserEncryptionOneTimePrekeyRepository;
-import com.north.messenger.domain.repository.UserEncryptionSignedPrekeyRepository;
 import jakarta.persistence.EntityManager;
 import java.time.Instant;
 import java.nio.charset.StandardCharsets;
-import java.security.KeyPair;
-import java.security.KeyPairGenerator;
-import java.security.Signature;
 import java.util.Base64;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -78,17 +60,11 @@ class MessageServiceTest {
     private AuthService authService;
     private ChatService chatService;
     private ChatMessageRepository chatMessageRepository;
-    private ChatMessageRecipientPayloadRepository chatMessageRecipientPayloadRepository;
     private ChatParticipantRepository chatParticipantRepository;
     private MessageReceiptRepository messageReceiptRepository;
     private MessageReactionRepository messageReactionRepository;
     private UserAccountRepository userAccountRepository;
     private UserDeletedMessageRepository userDeletedMessageRepository;
-    private UserEncryptionDeviceRepository userEncryptionDeviceRepository;
-    private UserEncryptionEnvelopeCounterRepository userEncryptionEnvelopeCounterRepository;
-    private UserEncryptionOneTimePrekeyRepository userEncryptionOneTimePrekeyRepository;
-    private UserEncryptionSignedPrekeyRepository userEncryptionSignedPrekeyRepository;
-    private ChatGroupSenderKeyCounterRepository chatGroupSenderKeyCounterRepository;
     private RealtimeMessagingGateway realtimeMessagingGateway;
     private ApplicationEventPublisher eventPublisher;
     private MessageDispatchOutboxService messageDispatchOutboxService;
@@ -96,26 +72,20 @@ class MessageServiceTest {
     private EntityManager entityManager;
     private ChatGroupHistoryKeyService chatGroupHistoryKeyService;
     private ChatAttachmentService chatAttachmentService;
+    private PendingOutgoingMessageService pendingOutgoingMessageService;
     private MessageService messageService;
     private ObjectMapper objectMapper;
-    private Map<UUID, KeyPair> deviceSignatureKeyPairs;
 
     @BeforeEach
     void setUp() {
         authService = mock(AuthService.class);
         chatService = mock(ChatService.class);
         chatMessageRepository = mock(ChatMessageRepository.class);
-        chatMessageRecipientPayloadRepository = mock(ChatMessageRecipientPayloadRepository.class);
         chatParticipantRepository = mock(ChatParticipantRepository.class);
         messageReceiptRepository = mock(MessageReceiptRepository.class);
         messageReactionRepository = mock(MessageReactionRepository.class);
         userAccountRepository = mock(UserAccountRepository.class);
         userDeletedMessageRepository = mock(UserDeletedMessageRepository.class);
-        userEncryptionDeviceRepository = mock(UserEncryptionDeviceRepository.class);
-        userEncryptionEnvelopeCounterRepository = mock(UserEncryptionEnvelopeCounterRepository.class);
-        userEncryptionOneTimePrekeyRepository = mock(UserEncryptionOneTimePrekeyRepository.class);
-        userEncryptionSignedPrekeyRepository = mock(UserEncryptionSignedPrekeyRepository.class);
-        chatGroupSenderKeyCounterRepository = mock(ChatGroupSenderKeyCounterRepository.class);
         realtimeMessagingGateway = mock(RealtimeMessagingGateway.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
         messageDispatchOutboxService = mock(MessageDispatchOutboxService.class);
@@ -123,27 +93,18 @@ class MessageServiceTest {
         entityManager = mock(EntityManager.class);
         chatGroupHistoryKeyService = mock(ChatGroupHistoryKeyService.class);
         chatAttachmentService = mock(ChatAttachmentService.class);
+        pendingOutgoingMessageService = mock(PendingOutgoingMessageService.class);
         objectMapper = new ObjectMapper();
-        deviceSignatureKeyPairs = new HashMap<>();
-        DeviceKeyValidationService deviceKeyValidationService = new DeviceKeyValidationService(objectMapper);
-        DeviceEnvelopeCounterService deviceEnvelopeCounterService =
-                new DeviceEnvelopeCounterService(userEncryptionEnvelopeCounterRepository);
 
         MessageSupport messageSupport = new MessageSupport(
                 authService,
                 chatMessageRepository,
-                chatMessageRecipientPayloadRepository,
                 messageReceiptRepository,
                 messageReactionRepository,
                 userAccountRepository,
-                userEncryptionDeviceRepository,
-                userEncryptionOneTimePrekeyRepository,
-                userEncryptionSignedPrekeyRepository,
-                chatGroupSenderKeyCounterRepository,
-                deviceEnvelopeCounterService,
-                deviceKeyValidationService,
                 telemetry,
-                objectMapper
+                objectMapper,
+                mock(EncryptedMessagePreviewService.class)
         );
         MessageReceiptService messageReceiptService = new MessageReceiptService(
                 authService,
@@ -197,6 +158,7 @@ class MessageServiceTest {
                 messageDispatchOutboxService,
                 chatGroupHistoryKeyService,
                 chatAttachmentService,
+                pendingOutgoingMessageService,
                 entityManager
         );
         messageService = new MessageService(
@@ -207,10 +169,6 @@ class MessageServiceTest {
         );
 
         when(chatMessageRepository.saveAndFlush(any(ChatMessage.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(chatMessageRecipientPayloadRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
-        when(chatMessageRecipientPayloadRepository.findAllByMessageIdIn(any())).thenReturn(List.of());
-        when(chatMessageRecipientPayloadRepository.findAllByMessageIdInAndRecipientUserId(any(), any()))
-                .thenReturn(List.of());
         when(messageReceiptRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(chatParticipantRepository.findByChatIdAndUserId(any(), any())).thenAnswer(invocation ->
                 Optional.of(new ChatParticipant(
@@ -219,39 +177,6 @@ class MessageServiceTest {
                         invocation.getArgument(1),
                         Instant.parse("2026-04-01T00:00:00Z")
                 )));
-        when(userEncryptionEnvelopeCounterRepository.findBySenderDeviceIdAndRecipientDeviceIdAndRatchetPublicKey(any(), any(), any()))
-                .thenReturn(Optional.empty());
-        when(userEncryptionEnvelopeCounterRepository.insertIfAbsent(any(), any(), any(), any(), any(), anyInt(), any(Instant.class)))
-                .thenReturn(1);
-        when(userEncryptionEnvelopeCounterRepository.save(any(UserEncryptionEnvelopeCounter.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-        when(userEncryptionSignedPrekeyRepository.findActiveByDeviceIdAndKeyId(any(UUID.class), anyInt(), any(Instant.class)))
-                .thenAnswer(invocation -> {
-                    UUID deviceId = invocation.getArgument(0);
-                    int keyId = invocation.getArgument(1);
-                    if (keyId != 7) {
-                        return Optional.empty();
-                    }
-                    return Optional.of(new UserEncryptionSignedPrekey(
-                            UUID.randomUUID(),
-                            deviceId,
-                            keyId,
-                            x25519PublicJwk("signed-" + deviceId),
-                            "signature",
-                            "X25519",
-                            Instant.parse("2026-03-24T11:00:00Z"),
-                            null,
-                            null
-                    ));
-                });
-        when(chatGroupSenderKeyCounterRepository.findByChatIdAndSenderDeviceIdAndSenderKeyId(any(), any(), any()))
-                .thenReturn(Optional.empty());
-        when(chatGroupSenderKeyCounterRepository.save(any(ChatGroupSenderKeyCounter.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-        when(userEncryptionOneTimePrekeyRepository.findByDeviceIdAndKeyId(any(), anyInt()))
-                .thenReturn(Optional.empty());
-        when(userEncryptionOneTimePrekeyRepository.save(any(UserEncryptionOneTimePrekey.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     @Test
@@ -259,36 +184,38 @@ class MessageServiceTest {
         UUID chatId = UUID.randomUUID();
         UserAccount currentUser = user("north");
         UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice recipientDevice = device(recipient, UUID.randomUUID(), "recipient-device");
+        String clientMessageId = clientMessageId();
+        String sharedEnvelope = chatEpochSharedEnvelope(
+                chatId,
+                currentUser.getId(),
+                clientMessageId,
+                "chat-ciphertext",
+                "iv-send"
+        );
         when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
         when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
                 new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
         );
         when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
         when(authService.toParticipant(currentUser)).thenReturn(participant(currentUser));
-        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(currentUser.getId(), recipient.getId())))
-                .thenReturn(List.of(currentDevice, recipientDevice));
-        when(userEncryptionDeviceRepository.findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDesc(currentUser.getId()))
-                .thenReturn(List.of(currentDevice));
 
         MessageResponse response = messageService.sendMessage(
                 chatId,
                 "north",
                 new CreateMessageRequest(
-                        clientMessageId(),
+                        clientMessageId,
                         null,
                         new EncryptedMessagePayloadRequest(
-                                "X3DH-DEVICE-AES-GCM",
-                                Map.of(
-                                        currentDevice.getId().toString(), deviceEnvelope(currentUser, currentDevice, currentDevice, "self", "iv-self"),
-                                        recipientDevice.getId().toString(), deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer", "iv-peer")
-                                )
+                                "CHAT-EPOCH-KEY-AES-GCM",
+                                sharedEnvelope
                         )
                 )
         );
 
         assertThat(response.sender().id()).isEqualTo(currentUser.getId());
+        assertThat(response.encryptedPayload()).isNotNull();
+        assertThat(response.encryptedPayload().scheme()).isEqualTo("CHAT-EPOCH-KEY-AES-GCM");
+        assertThat(response.encryptedPayload().sharedEnvelope()).isEqualTo(sharedEnvelope);
         assertThat(response.status()).isNotNull();
         assertThat(response.status().state()).isEqualTo(MessageDeliveryState.SENT);
         assertThat(response.status().recipientCount()).isEqualTo(1);
@@ -376,49 +303,55 @@ class MessageServiceTest {
         UUID chatId = UUID.randomUUID();
         UserAccount currentUser = user("north");
         UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice recipientDevice = device(recipient, UUID.randomUUID(), "recipient-device");
+        String clientMessageId = clientMessageId();
+        String sharedEnvelope = chatEpochSharedEnvelope(
+                chatId,
+                currentUser.getId(),
+                clientMessageId,
+                "chat-ciphertext",
+                "iv-store"
+        );
         when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
         when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
                 new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
         );
         when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
         when(authService.toParticipant(currentUser)).thenReturn(participant(currentUser));
-        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(currentUser.getId(), recipient.getId())))
-                .thenReturn(List.of(currentDevice, recipientDevice));
-        when(userEncryptionDeviceRepository.findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDesc(currentUser.getId()))
-                .thenReturn(List.of(currentDevice));
 
         MessageResponse response = messageService.sendMessage(
                 chatId,
                 "north",
                 new CreateMessageRequest(
-                        clientMessageId(),
+                        clientMessageId,
                         null,
                         new EncryptedMessagePayloadRequest(
-                                "X3DH-DEVICE-AES-GCM",
-                                Map.of(
-                                        currentDevice.getId().toString(), deviceEnvelope(currentUser, currentDevice, currentDevice, "self", "iv-self"),
-                                        recipientDevice.getId().toString(), deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer", "iv-peer")
-                                )
+                                "CHAT-EPOCH-KEY-AES-GCM",
+                                sharedEnvelope
                         )
                 )
         );
 
         assertThat(response.encryptedPayload()).isNotNull();
-        assertThat(response.encryptedPayload().encryptedKeysByRecipientId())
-                .containsEntry(currentDevice.getId().toString(), deviceEnvelope(currentUser, currentDevice, currentDevice, "self", "iv-self"));
+        assertThat(response.encryptedPayload().sharedEnvelope()).isEqualTo(sharedEnvelope);
+        verify(chatMessageRepository).saveAndFlush(argThat((ChatMessage message) ->
+                "CHAT-EPOCH-KEY-AES-GCM".equals(message.getEncryptionScheme())
+                        && sharedEnvelope.equals(message.getContent())
+        ));
     }
 
     @Test
-    void sendMessageShouldPersistRecipientPayloadRowsInNormalizedTable() {
+    void sendMessageShouldNotPersistRecipientPayloadRowsForChatEpochPayload() {
         UUID chatId = UUID.randomUUID();
         UserAccount currentUser = user("north");
         UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice recipientDevice = device(recipient, UUID.randomUUID(), "recipient-device");
-        String selfEnvelope = deviceEnvelope(currentUser, currentDevice, currentDevice, "self", "iv-self");
-        String recipientEnvelope = deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer", "iv-peer");
+        String clientMessageId = clientMessageId();
+        String sharedEnvelope = chatEpochSharedEnvelope(
+                chatId,
+                currentUser.getId(),
+                clientMessageId,
+                "chat-ciphertext",
+                "iv-normalized"
+        );
 
         when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
         when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
@@ -426,40 +359,22 @@ class MessageServiceTest {
         );
         when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
         when(authService.toParticipant(currentUser)).thenReturn(participant(currentUser));
-        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(currentUser.getId(), recipient.getId())))
-                .thenReturn(List.of(currentDevice, recipientDevice));
-        when(userEncryptionDeviceRepository.findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDesc(currentUser.getId()))
-                .thenReturn(List.of(currentDevice));
 
         messageService.sendMessage(
                 chatId,
                 "north",
                 new CreateMessageRequest(
-                        clientMessageId(),
+                        clientMessageId,
                         null,
                         new EncryptedMessagePayloadRequest(
-                                "X3DH-DEVICE-AES-GCM",
-                                Map.of(
-                                        currentDevice.getId().toString(), selfEnvelope,
-                                        recipientDevice.getId().toString(), recipientEnvelope
-                                )
+                                "CHAT-EPOCH-KEY-AES-GCM",
+                                sharedEnvelope
                         )
                 )
         );
 
         verify(chatMessageRepository).saveAndFlush(argThat((ChatMessage message) ->
-                message.getEncryptedKeysJson() == null
-        ));
-        verify(chatMessageRecipientPayloadRepository).saveAll(argThat(
-                (List<ChatMessageRecipientPayload> payloads) -> payloads.size() == 2
-                        && payloads.stream().anyMatch(payload ->
-                        payload.getRecipientUserId().equals(currentUser.getId())
-                                && payload.getRecipientDeviceId().equals(currentDevice.getId())
-                                && payload.getEncryptedPayload().equals(selfEnvelope))
-                        && payloads.stream().anyMatch(payload ->
-                        payload.getRecipientUserId().equals(recipient.getId())
-                                && payload.getRecipientDeviceId().equals(recipientDevice.getId())
-                                && payload.getEncryptedPayload().equals(recipientEnvelope))
+                "CHAT-EPOCH-KEY-AES-GCM".equals(message.getEncryptionScheme())
         ));
     }
 
@@ -468,8 +383,14 @@ class MessageServiceTest {
         UUID chatId = UUID.randomUUID();
         UserAccount currentUser = user("north");
         UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice recipientDevice = device(recipient, UUID.randomUUID(), "recipient-device");
+        String clientMessageId = clientMessageId();
+        String sharedEnvelope = chatEpochSharedEnvelope(
+                chatId,
+                currentUser.getId(),
+                clientMessageId,
+                "chat-ciphertext",
+                "iv-refresh"
+        );
         AtomicReference<ChatMessage> detachedMessage = new AtomicReference<>();
 
         when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
@@ -478,10 +399,6 @@ class MessageServiceTest {
         );
         when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
         when(authService.toParticipant(currentUser)).thenReturn(participant(currentUser));
-        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(currentUser.getId(), recipient.getId())))
-                .thenReturn(List.of(currentDevice, recipientDevice));
-        when(userEncryptionDeviceRepository.findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDesc(currentUser.getId()))
-                .thenReturn(List.of(currentDevice));
         when(chatMessageRepository.saveAndFlush(any(ChatMessage.class))).thenAnswer(invocation -> {
             ChatMessage original = invocation.getArgument(0);
             detachedMessage.set(original);
@@ -492,7 +409,7 @@ class MessageServiceTest {
                     original.getContent(),
                     original.getEncryptionScheme(),
                     original.getEncryptionIv(),
-                    original.getEncryptedKeysJson(),
+                    original.getHistoryKeyId(),
                     original.getClientMessageId(),
                     original.getReplyToMessageId(),
                     original.getCreatedAt()
@@ -510,14 +427,11 @@ class MessageServiceTest {
                 chatId,
                 "north",
                 new CreateMessageRequest(
-                        clientMessageId(),
+                        clientMessageId,
                         null,
                         new EncryptedMessagePayloadRequest(
-                                "X3DH-DEVICE-AES-GCM",
-                                Map.of(
-                                        currentDevice.getId().toString(), deviceEnvelope(currentUser, currentDevice, currentDevice, "self", "iv-self"),
-                                        recipientDevice.getId().toString(), deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer", "iv-peer")
-                                )
+                                "CHAT-EPOCH-KEY-AES-GCM",
+                                sharedEnvelope
                         )
                 )
         );
@@ -525,28 +439,32 @@ class MessageServiceTest {
         assertThat(response.status()).isNotNull();
         assertThat(response.status().state()).isEqualTo(MessageDeliveryState.SENT);
         assertThat(response.serverOrder()).isEqualTo(42L);
+        assertThat(response.encryptedPayload()).isNotNull();
+        assertThat(response.encryptedPayload().sharedEnvelope()).isEqualTo(sharedEnvelope);
         verify(entityManager).refresh(argThat(message -> message != detachedMessage.get()));
     }
 
     @Test
-    void sendMessageShouldReturnExistingDuplicateMessageAndPublishAckOnlyEvent() throws Exception {
+    void sendMessageShouldReturnExistingDuplicateMessageAndPublishAckOnlyEvent() {
         UUID chatId = UUID.randomUUID();
         UserAccount currentUser = user("north");
         UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice recipientDevice = device(recipient, UUID.randomUUID(), "recipient-device");
         String duplicateClientMessageId = clientMessageId();
+        String existingSharedEnvelope = chatEpochSharedEnvelope(
+                chatId,
+                currentUser.getId(),
+                duplicateClientMessageId,
+                "ciphertext-existing",
+                "iv-existing"
+        );
         ChatMessage existingMessage = withServerOrder(new ChatMessage(
                 UUID.randomUUID(),
                 chatId,
                 currentUser.getId(),
-                "ciphertext-existing",
-                "X3DH-DEVICE-AES-GCM",
+                existingSharedEnvelope,
+                "CHAT-EPOCH-KEY-AES-GCM",
                 "iv-existing",
-                objectMapper.writeValueAsString(Map.of(
-                        currentDevice.getId().toString(), deviceEnvelope(currentUser, currentDevice, currentDevice, "self-existing", "iv-self-existing"),
-                        recipientDevice.getId().toString(), deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer-existing", "iv-peer-existing")
-                )),
+                UUID.randomUUID(),
                 duplicateClientMessageId,
                 null,
                 Instant.parse("2026-03-24T12:00:00Z")
@@ -565,10 +483,6 @@ class MessageServiceTest {
         );
         when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
         when(authService.toParticipant(currentUser)).thenReturn(participant(currentUser));
-        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(currentUser.getId(), recipient.getId())))
-                .thenReturn(List.of(currentDevice, recipientDevice));
-        when(userEncryptionDeviceRepository.findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDesc(currentUser.getId()))
-                .thenReturn(List.of(currentDevice));
         when(chatMessageRepository.saveAndFlush(any(ChatMessage.class)))
                 .thenThrow(new DataIntegrityViolationException("duplicate client message id"));
         when(chatMessageRepository.findByChatIdAndSenderIdAndClientMessageId(chatId, currentUser.getId(), duplicateClientMessageId))
@@ -577,26 +491,6 @@ class MessageServiceTest {
                 .thenReturn(List.of(existingReceipt));
         when(messageReactionRepository.findAllByMessageIdIn(List.of(existingMessage.getId())))
                 .thenReturn(List.of());
-        when(chatMessageRecipientPayloadRepository.findAllByMessageIdIn(
-                argThat(messageIds -> messageIds != null
-                        && messageIds.size() == 1
-                        && messageIds.contains(existingMessage.getId()))
-        )).thenReturn(List.of(
-                new ChatMessageRecipientPayload(
-                        existingMessage.getId(),
-                        currentDevice.getId(),
-                        currentUser.getId(),
-                        deviceEnvelope(currentUser, currentDevice, currentDevice, "self-existing", "iv-self-existing"),
-                        existingMessage.getCreatedAt()
-                ),
-                new ChatMessageRecipientPayload(
-                        existingMessage.getId(),
-                        recipientDevice.getId(),
-                        recipient.getId(),
-                        deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer-existing", "iv-peer-existing"),
-                        existingMessage.getCreatedAt()
-                )
-        ));
 
         MessageResponse response = messageService.sendMessage(
                 chatId,
@@ -605,10 +499,13 @@ class MessageServiceTest {
                         duplicateClientMessageId,
                         null,
                         new EncryptedMessagePayloadRequest(
-                                "X3DH-DEVICE-AES-GCM",
-                                Map.of(
-                                        currentDevice.getId().toString(), deviceEnvelope(currentUser, currentDevice, currentDevice, "self-new", "iv-self-new"),
-                                        recipientDevice.getId().toString(), deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer-new", "iv-peer-new")
+                                "CHAT-EPOCH-KEY-AES-GCM",
+                                chatEpochSharedEnvelope(
+                                        chatId,
+                                        currentUser.getId(),
+                                        duplicateClientMessageId,
+                                        "ciphertext-new",
+                                        "iv-new"
                                 )
                         )
                 )
@@ -622,6 +519,9 @@ class MessageServiceTest {
         assertThat(response.serverOrder()).isEqualTo(77L);
         assertThat(response.status()).isNotNull();
         assertThat(response.status().state()).isEqualTo(MessageDeliveryState.SENT);
+        assertThat(response.encryptedPayload()).isNotNull();
+        assertThat(response.encryptedPayload().scheme()).isEqualTo("CHAT-EPOCH-KEY-AES-GCM");
+        assertThat(response.encryptedPayload().sharedEnvelope()).isEqualTo(existingSharedEnvelope);
         assertThat(eventCaptor.getValue()).isEqualTo(new MessageDispatchEvent(
                 chatId,
                 existingMessage.getId(),
@@ -667,14 +567,11 @@ class MessageServiceTest {
                         clientMessageId(),
                         null,
                         new EncryptedMessagePayloadRequest(
-                                "RSA-OAEP-256/AES-GCM",
-                                Map.of(
-                                        currentUser.getId().toString(), "sender-wrapped-key",
-                                        recipient.getId().toString(), "recipient-wrapped-key"
-                                )
+                                "UNSUPPORTED-SCHEME",
+                                null
                         )
                 )
-        )).hasMessageContaining("Direct chats must use current device transport");
+        )).hasMessageContaining("Only chat epoch encrypted payloads are supported");
     }
 
     @Test
@@ -695,1049 +592,15 @@ class MessageServiceTest {
                         clientMessageId(),
                         null,
                         new EncryptedMessagePayloadRequest(
-                                "RSA-OAEP-256/AES-GCM",
-                                Map.of(
-                                        currentUser.getId().toString(), "sender-wrapped-key",
-                                        recipient.getId().toString(), "recipient-wrapped-key"
-                                )
+                                "UNSUPPORTED-SCHEME",
+                                null
                         )
                 )
-        )).hasMessageContaining("Group chats must use current shared device transport");
+        )).hasMessageContaining("Only chat epoch encrypted payloads are supported");
     }
 
     @Test
-    void sendMessageShouldAcceptCurrentDeviceTransportForDirectChat() {
-        UUID chatId = UUID.randomUUID();
-        UserAccount currentUser = user("north");
-        UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice recipientDevice = device(recipient, UUID.randomUUID(), "recipient-device");
-        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
-        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
-                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
-        );
-        when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
-        when(authService.toParticipant(currentUser)).thenReturn(participant(currentUser));
-        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(currentUser.getId(), recipient.getId())))
-                .thenReturn(List.of(currentDevice, recipientDevice));
-        when(userEncryptionDeviceRepository.findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDesc(currentUser.getId()))
-                .thenReturn(List.of(currentDevice));
-
-        MessageResponse response = messageService.sendMessage(
-                chatId,
-                "north",
-                new CreateMessageRequest(
-                        clientMessageId(),
-                        null,
-                        new EncryptedMessagePayloadRequest(
-                                "X3DH-DEVICE-AES-GCM",
-                                Map.of(
-                                        currentDevice.getId().toString(), deviceEnvelope(currentUser, currentDevice, currentDevice, "self", "iv-self"),
-                                        recipientDevice.getId().toString(), deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer", "iv-peer")
-                                )
-                        )
-                )
-        );
-
-        assertThat(response.encryptedPayload()).isNotNull();
-        assertThat(response.encryptedPayload().scheme()).isEqualTo("X3DH-DEVICE-AES-GCM");
-        assertThat(response.encryptedPayload().encryptedKeysByRecipientId())
-                .containsOnlyKeys(currentDevice.getId().toString());
-    }
-
-    @Test
-    void sendMessageShouldAcceptCurrentSharedDeviceTransportForGroupChat() {
-        UUID chatId = UUID.randomUUID();
-        UserAccount currentUser = user("north");
-        UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice recipientDevice = device(recipient, UUID.randomUUID(), "recipient-device");
-        String sharedEnvelope = groupSharedEnvelope(
-                chatId,
-                currentUser,
-                currentDevice,
-                "group-ciphertext",
-                "group-iv"
-        );
-        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
-        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
-                new ChatRoom(chatId, null, false, Instant.parse("2026-03-24T11:00:00Z"))
-        );
-        when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
-        when(authService.toParticipant(currentUser)).thenReturn(participant(currentUser));
-        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(currentUser.getId(), recipient.getId())))
-                .thenReturn(List.of(currentDevice, recipientDevice));
-        when(userEncryptionDeviceRepository.findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDesc(currentUser.getId()))
-                .thenReturn(List.of(currentDevice));
-
-        MessageResponse response = messageService.sendMessage(
-                chatId,
-                "north",
-                new CreateMessageRequest(
-                        clientMessageId(),
-                        null,
-                        new EncryptedMessagePayloadRequest(
-                                "GROUP-SENDER-KEY-AES-GCM",
-                                Map.of(
-                                        currentDevice.getId().toString(), deviceEnvelope(currentUser, currentDevice, currentDevice, "self", "iv-self"),
-                                        recipientDevice.getId().toString(), deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer", "iv-peer")
-                                ),
-                                sharedEnvelope
-                        )
-                )
-        );
-
-        assertThat(response.encryptedPayload()).isNotNull();
-        assertThat(response.encryptedPayload().scheme()).isEqualTo("GROUP-SENDER-KEY-AES-GCM");
-        assertThat(response.encryptedPayload().sharedEnvelope()).isEqualTo(sharedEnvelope);
-        assertThat(response.encryptedPayload().encryptedKeysByRecipientId())
-                .containsOnlyKeys(currentDevice.getId().toString());
-    }
-
-    @Test
-    void sendMessageShouldRejectPayloadThatOmitsAnActiveParticipantDevice() {
-        UUID chatId = UUID.randomUUID();
-        UserAccount currentUser = user("north");
-        UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice recipientDevice = device(recipient, UUID.randomUUID(), "recipient-device");
-        UserEncryptionDevice recipientSecondDevice = device(recipient, UUID.randomUUID(), "recipient-device-2");
-        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
-        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
-                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
-        );
-        when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
-        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(currentUser.getId(), recipient.getId())))
-                .thenReturn(List.of(currentDevice, recipientDevice, recipientSecondDevice));
-
-        assertThatThrownBy(() -> messageService.sendMessage(
-                chatId,
-                "north",
-                new CreateMessageRequest(
-                        clientMessageId(),
-                        null,
-                        new EncryptedMessagePayloadRequest(
-                                "X3DH-DEVICE-AES-GCM",
-                                Map.of(
-                                        currentDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, currentDevice, currentDevice, "self", "iv-self"),
-                                        recipientDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer", "iv-peer")
-                                )
-                        )
-                )
-        )).hasMessageContaining("Encrypted payload must include every active participant device");
-    }
-
-    @Test
-    void sendMessageShouldRejectGroupPayloadWithInvalidSignature() {
-        UUID chatId = UUID.randomUUID();
-        UserAccount currentUser = user("north");
-        UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice recipientDevice = device(recipient, UUID.randomUUID(), "recipient-device");
-        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
-        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
-                new ChatRoom(chatId, "Group", false, Instant.parse("2026-03-24T11:00:00Z"))
-        );
-        when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
-        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(currentUser.getId(), recipient.getId())))
-                .thenReturn(List.of(currentDevice, recipientDevice));
-
-        assertThatThrownBy(() -> messageService.sendMessage(
-                chatId,
-                "north",
-                new CreateMessageRequest(
-                        clientMessageId(),
-                        null,
-                        new EncryptedMessagePayloadRequest(
-                                "GROUP-SENDER-KEY-AES-GCM",
-                                Map.of(
-                                        currentDevice.getId().toString(), deviceEnvelope(currentUser, currentDevice, currentDevice, "self", "iv-self"),
-                                        recipientDevice.getId().toString(), deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer", "iv-peer")
-                                ),
-                                groupSharedEnvelope(chatId, currentUser, currentDevice, "group-ciphertext", "group-iv")
-                                        .replace("\"signature\":\"", "\"signature\":\"AQID")
-                        )
-                )
-        )).hasMessageContaining("Encrypted group envelope signature is invalid");
-    }
-
-    @Test
-    void sendMessageShouldRejectGroupPayloadWithStaleMessageCounter() {
-        UUID chatId = UUID.randomUUID();
-        UserAccount currentUser = user("north");
-        UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice recipientDevice = device(recipient, UUID.randomUUID(), "recipient-device");
-        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
-        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
-                new ChatRoom(chatId, "Group", false, Instant.parse("2026-03-24T11:00:00Z"))
-        );
-        when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
-        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(currentUser.getId(), recipient.getId())))
-                .thenReturn(List.of(currentDevice, recipientDevice));
-        when(chatGroupSenderKeyCounterRepository.findByChatIdAndSenderDeviceIdAndSenderKeyId(
-                chatId,
-                currentDevice.getId(),
-                "sender-key-" + currentDevice.getId()
-        )).thenReturn(Optional.of(new ChatGroupSenderKeyCounter(
-                UUID.randomUUID(),
-                chatId,
-                currentDevice.getId(),
-                "sender-key-" + currentDevice.getId(),
-                1,
-                Instant.parse("2026-03-24T11:59:00Z")
-        )));
-
-        assertThatThrownBy(() -> messageService.sendMessage(
-                chatId,
-                "north",
-                new CreateMessageRequest(
-                        clientMessageId(),
-                        null,
-                        new EncryptedMessagePayloadRequest(
-                                "GROUP-SENDER-KEY-AES-GCM",
-                                Map.of(
-                                        currentDevice.getId().toString(), deviceEnvelope(currentUser, currentDevice, currentDevice, "self", "iv-self"),
-                                        recipientDevice.getId().toString(), deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer", "iv-peer")
-                                ),
-                                groupSharedEnvelope(chatId, currentUser, currentDevice, "group-ciphertext", "group-iv")
-                        )
-                )
-        )).hasMessageContaining("Encrypted group envelope message counter is stale");
-    }
-
-    @Test
-    void sendMessageShouldRejectDeviceEnvelopeWithoutAadVersion() {
-        UUID chatId = UUID.randomUUID();
-        UserAccount currentUser = user("north");
-        UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice recipientDevice = device(recipient, UUID.randomUUID(), "recipient-device");
-        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
-        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
-                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
-        );
-        when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
-        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(currentUser.getId(), recipient.getId())))
-                .thenReturn(List.of(currentDevice, recipientDevice));
-
-        assertThatThrownBy(() -> messageService.sendMessage(
-                chatId,
-                "north",
-                new CreateMessageRequest(
-                        clientMessageId(),
-                        null,
-                        new EncryptedMessagePayloadRequest(
-                                "X3DH-DEVICE-AES-GCM",
-                                Map.of(
-                                        currentDevice.getId().toString(), "{\"ciphertext\":\"self\",\"iv\":\"iv-self\"}",
-                                        recipientDevice.getId().toString(), "{\"ciphertext\":\"peer\",\"iv\":\"iv-peer\"}"
-                                )
-                        )
-                )
-        )).hasMessageContaining("Encrypted device envelope must use current authenticated format");
-    }
-
-    @Test
-    void sendMessageShouldRejectEnvelopeWithInvalidSenderDevice() {
-        UUID chatId = UUID.randomUUID();
-        UserAccount currentUser = user("north");
-        UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice recipientDevice = device(recipient, UUID.randomUUID(), "recipient-device");
-        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
-        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
-                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
-        );
-        when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
-        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(currentUser.getId(), recipient.getId())))
-                .thenReturn(List.of(currentDevice, recipientDevice));
-
-        assertThatThrownBy(() -> messageService.sendMessage(
-                chatId,
-                "north",
-                new CreateMessageRequest(
-                        clientMessageId(),
-                        null,
-                        new EncryptedMessagePayloadRequest(
-                                "X3DH-DEVICE-AES-GCM",
-                                Map.of(
-                                        recipientDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, recipientDevice, recipientDevice, "peer", "iv-peer")
-                                )
-                        )
-                )
-        )).hasMessageContaining("Encrypted device envelope sender device is invalid");
-    }
-
-    @Test
-    void sendMessageShouldRejectEnvelopeWithMalformedRatchetKey() {
-        UUID chatId = UUID.randomUUID();
-        UserAccount currentUser = user("north");
-        UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice recipientDevice = device(recipient, UUID.randomUUID(), "recipient-device");
-        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
-        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
-                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
-        );
-        when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
-        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(currentUser.getId(), recipient.getId())))
-                .thenReturn(List.of(currentDevice, recipientDevice));
-
-        assertThatThrownBy(() -> messageService.sendMessage(
-                chatId,
-                "north",
-                new CreateMessageRequest(
-                        clientMessageId(),
-                        null,
-                        new EncryptedMessagePayloadRequest(
-                                "X3DH-DEVICE-AES-GCM",
-                                Map.of(
-                                        recipientDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer", "iv-peer")
-                                                .replace(
-                                                        jsonEscape(deviceRatchetPublicKey(recipientDevice)),
-                                                        "not-a-jwk"
-                                                )
-                                )
-                        )
-                )
-        )).hasMessageContaining("Encrypted device envelope ratchet key is malformed");
-    }
-
-    @Test
-    void sendMessageShouldRejectEnvelopeWithInvalidIvEncoding() {
-        UUID chatId = UUID.randomUUID();
-        UserAccount currentUser = user("north");
-        UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice recipientDevice = device(recipient, UUID.randomUUID(), "recipient-device");
-        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
-        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
-                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
-        );
-        when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
-        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(currentUser.getId(), recipient.getId())))
-                .thenReturn(List.of(currentDevice, recipientDevice));
-
-        assertThatThrownBy(() -> messageService.sendMessage(
-                chatId,
-                "north",
-                new CreateMessageRequest(
-                        clientMessageId(),
-                        null,
-                        new EncryptedMessagePayloadRequest(
-                                "X3DH-DEVICE-AES-GCM",
-                                Map.of(
-                                        recipientDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer", "iv-peer")
-                                                .replace(base64Fixed("iv-peer", 12), "%%%")
-                                )
-                        )
-                )
-        )).hasMessageContaining("Encrypted device envelope is malformed");
-    }
-
-    @Test
-    void sendMessageShouldRejectEnvelopeWithStaleRecipientSignedPrekey() {
-        UUID chatId = UUID.randomUUID();
-        UserAccount currentUser = user("north");
-        UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice recipientDevice = device(recipient, UUID.randomUUID(), "recipient-device");
-        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
-        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
-                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
-        );
-        when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
-        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(currentUser.getId(), recipient.getId())))
-                .thenReturn(List.of(currentDevice, recipientDevice));
-
-        assertThatThrownBy(() -> messageService.sendMessage(
-                chatId,
-                "north",
-                new CreateMessageRequest(
-                        clientMessageId(),
-                        null,
-                        new EncryptedMessagePayloadRequest(
-                                "X3DH-DEVICE-AES-GCM",
-                                Map.of(
-                                        recipientDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer", "iv-peer")
-                                                .replace("\"recipientSignedPrekeyId\":7", "\"recipientSignedPrekeyId\":99")
-                                )
-                        )
-                )
-        )).hasMessageContaining("Encrypted device envelope recipient prekey is stale");
-    }
-
-    @Test
-    void sendMessageShouldRejectEnvelopeWithMismatchedRecipientDeviceId() {
-        UUID chatId = UUID.randomUUID();
-        UserAccount currentUser = user("north");
-        UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice recipientDevice = device(recipient, UUID.randomUUID(), "recipient-device");
-        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
-        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
-                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
-        );
-        when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
-        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(currentUser.getId(), recipient.getId())))
-                .thenReturn(List.of(currentDevice, recipientDevice));
-
-        assertThatThrownBy(() -> messageService.sendMessage(
-                chatId,
-                "north",
-                new CreateMessageRequest(
-                        clientMessageId(),
-                        null,
-                        new EncryptedMessagePayloadRequest(
-                                "X3DH-DEVICE-AES-GCM",
-                                Map.of(
-                                        recipientDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer", "iv-peer")
-                                                .replace(
-                                                        "\"recipientDeviceId\":\"" + recipientDevice.getId() + "\"",
-                                                        "\"recipientDeviceId\":\"" + currentDevice.getId() + "\""
-                                                )
-                                )
-                        )
-                )
-        )).hasMessageContaining("Encrypted device envelope recipient device is invalid");
-    }
-
-    @Test
-    void sendMessageShouldRejectEnvelopeWithNonBootstrapOneTimePrekey() {
-        UUID chatId = UUID.randomUUID();
-        UserAccount currentUser = user("north");
-        UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice recipientDevice = device(recipient, UUID.randomUUID(), "recipient-device");
-        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
-        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
-                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
-        );
-        when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
-        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(currentUser.getId(), recipient.getId())))
-                .thenReturn(List.of(currentDevice, recipientDevice));
-        when(userEncryptionDeviceRepository.findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDesc(currentUser.getId()))
-                .thenReturn(List.of(currentDevice));
-        when(userEncryptionEnvelopeCounterRepository.findBySenderDeviceIdAndRecipientDeviceIdAndRatchetPublicKey(any(), any(), any()))
-                .thenAnswer(invocation -> {
-                    UUID senderDeviceId = invocation.getArgument(0);
-                    UUID recipientDeviceId = invocation.getArgument(1);
-                    String ratchetPublicKey = invocation.getArgument(2);
-                    if (senderDeviceId.equals(currentDevice.getId())
-                            && recipientDeviceId.equals(recipientDevice.getId())
-                            && ratchetPublicKey.equals(deviceRatchetPublicKey(recipientDevice))) {
-                        return Optional.of(new UserEncryptionEnvelopeCounter(
-                                UUID.randomUUID(),
-                                currentDevice.getId(),
-                                recipientDevice.getId(),
-                                deviceRatchetPublicKey(recipientDevice),
-                                deviceInitiatorEphemeralPublicKey(recipientDevice),
-                                0,
-                                Instant.parse("2026-03-24T11:59:00Z")
-                        ));
-                    }
-                    return Optional.empty();
-                });
-        when(userEncryptionOneTimePrekeyRepository.findByDeviceIdAndKeyId(recipientDevice.getId(), 21))
-                .thenReturn(Optional.of(oneTimePrekey(
-                        recipientDevice,
-                        21,
-                        Instant.parse("2026-03-24T11:50:00Z"),
-                        currentDevice.getId(),
-                        null,
-                        null,
-                        null
-                )));
-
-        assertThatThrownBy(() -> messageService.sendMessage(
-                chatId,
-                "north",
-                new CreateMessageRequest(
-                        clientMessageId(),
-                        null,
-                        new EncryptedMessagePayloadRequest(
-                                "X3DH-DEVICE-AES-GCM",
-                                Map.of(
-                                        currentDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, currentDevice, currentDevice, "self", "iv-self"),
-                                        recipientDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer", "iv-peer")
-                                                .replace("\"recipientOneTimePrekeyId\":null", "\"recipientOneTimePrekeyId\":21")
-                                                .replace("\"messageCounter\":0", "\"messageCounter\":1")
-                                )
-                        )
-                )
-        )).hasMessageContaining("Encrypted device envelope one-time prekey is only allowed on bootstrap");
-    }
-
-    @Test
-    void sendMessageShouldRejectEnvelopeWithInvalidRecipientOneTimePrekey() {
-        UUID chatId = UUID.randomUUID();
-        UserAccount currentUser = user("north");
-        UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice recipientDevice = device(recipient, UUID.randomUUID(), "recipient-device");
-        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
-        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
-                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
-        );
-        when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
-        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(currentUser.getId(), recipient.getId())))
-                .thenReturn(List.of(currentDevice, recipientDevice));
-        when(userEncryptionOneTimePrekeyRepository.findByDeviceIdAndKeyId(recipientDevice.getId(), 21))
-                .thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> messageService.sendMessage(
-                chatId,
-                "north",
-                new CreateMessageRequest(
-                        clientMessageId(),
-                        null,
-                        new EncryptedMessagePayloadRequest(
-                                "X3DH-DEVICE-AES-GCM",
-                                Map.of(
-                                        currentDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, currentDevice, currentDevice, "self", "iv-self"),
-                                        recipientDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer", "iv-peer")
-                                                .replace("\"recipientOneTimePrekeyId\":null", "\"recipientOneTimePrekeyId\":21")
-                                )
-                        )
-                )
-        )).hasMessageContaining("Encrypted device envelope recipient one-time prekey is invalid");
-    }
-
-    @Test
-    void sendMessageShouldRejectEnvelopeWithRecipientOneTimePrekeyBoundToAnotherSenderDevice() {
-        UUID chatId = UUID.randomUUID();
-        UserAccount currentUser = user("north");
-        UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice otherCurrentDevice = device(currentUser, UUID.randomUUID(), "other-current-device");
-        UserEncryptionDevice recipientDevice = device(recipient, UUID.randomUUID(), "recipient-device");
-        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
-        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
-                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
-        );
-        when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
-        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(currentUser.getId(), recipient.getId())))
-                .thenReturn(List.of(currentDevice, otherCurrentDevice, recipientDevice));
-        when(userEncryptionOneTimePrekeyRepository.findByDeviceIdAndKeyId(recipientDevice.getId(), 21))
-                .thenReturn(Optional.of(oneTimePrekey(
-                        recipientDevice,
-                        21,
-                        Instant.parse("2026-03-24T11:50:00Z"),
-                        otherCurrentDevice.getId(),
-                        null,
-                        null,
-                        null
-                )));
-
-        assertThatThrownBy(() -> messageService.sendMessage(
-                chatId,
-                "north",
-                new CreateMessageRequest(
-                        clientMessageId(),
-                        null,
-                        new EncryptedMessagePayloadRequest(
-                                "X3DH-DEVICE-AES-GCM",
-                                Map.of(
-                                        currentDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, currentDevice, currentDevice, "self", "iv-self"),
-                                        recipientDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer", "iv-peer")
-                                                .replace("\"recipientOneTimePrekeyId\":null", "\"recipientOneTimePrekeyId\":21")
-                                )
-                        )
-                )
-        )).hasMessageContaining("Encrypted device envelope recipient one-time prekey sender is invalid");
-    }
-
-    @Test
-    void sendMessageShouldRejectEnvelopeWhenRecipientOneTimePrekeyWasAlreadyAcceptedForAnotherChain() {
-        UUID chatId = UUID.randomUUID();
-        UserAccount currentUser = user("north");
-        UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice recipientDevice = device(recipient, UUID.randomUUID(), "recipient-device");
-        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
-        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
-                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
-        );
-        when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
-        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(currentUser.getId(), recipient.getId())))
-                .thenReturn(List.of(currentDevice, recipientDevice));
-        when(userEncryptionOneTimePrekeyRepository.findByDeviceIdAndKeyId(recipientDevice.getId(), 21))
-                .thenReturn(Optional.of(oneTimePrekey(
-                        recipientDevice,
-                        21,
-                        Instant.parse("2026-03-24T11:50:00Z"),
-                        currentDevice.getId(),
-                        Instant.parse("2026-03-24T11:51:00Z"),
-                        deviceInitiatorEphemeralPublicKey(recipientDevice),
-                        x25519PublicJwk("accepted-ratchet")
-                )));
-
-        assertThatThrownBy(() -> messageService.sendMessage(
-                chatId,
-                "north",
-                new CreateMessageRequest(
-                        clientMessageId(),
-                        null,
-                        new EncryptedMessagePayloadRequest(
-                                "X3DH-DEVICE-AES-GCM",
-                                Map.of(
-                                        currentDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, currentDevice, currentDevice, "self", "iv-self"),
-                                        recipientDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer", "iv-peer")
-                                                .replace("\"recipientOneTimePrekeyId\":null", "\"recipientOneTimePrekeyId\":21")
-                                )
-                        )
-                )
-        )).hasMessageContaining("Encrypted device envelope recipient one-time prekey was already used");
-    }
-
-    @Test
-    void sendMessageShouldPersistAcceptedBootstrapChainForRecipientOneTimePrekey() {
-        UUID chatId = UUID.randomUUID();
-        UserAccount currentUser = user("north");
-        UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice recipientDevice = device(recipient, UUID.randomUUID(), "recipient-device");
-        UserEncryptionOneTimePrekey oneTimePrekey = oneTimePrekey(
-                recipientDevice,
-                21,
-                Instant.parse("2026-03-24T11:50:00Z"),
-                currentDevice.getId(),
-                null,
-                null,
-                null
-        );
-        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
-        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
-                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
-        );
-        when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
-        when(authService.toParticipant(currentUser)).thenReturn(participant(currentUser));
-        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(currentUser.getId(), recipient.getId())))
-                .thenReturn(List.of(currentDevice, recipientDevice));
-        when(userEncryptionDeviceRepository.findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDesc(currentUser.getId()))
-                .thenReturn(List.of(currentDevice));
-        when(userEncryptionOneTimePrekeyRepository.findByDeviceIdAndKeyId(recipientDevice.getId(), 21))
-                .thenReturn(Optional.of(oneTimePrekey));
-
-        messageService.sendMessage(
-                chatId,
-                "north",
-                new CreateMessageRequest(
-                        clientMessageId(),
-                        null,
-                        new EncryptedMessagePayloadRequest(
-                                "X3DH-DEVICE-AES-GCM",
-                                Map.of(
-                                        currentDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, currentDevice, currentDevice, "self", "iv-self"),
-                                        recipientDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer", "iv-peer")
-                                                .replace("\"recipientOneTimePrekeyId\":null", "\"recipientOneTimePrekeyId\":21")
-                                )
-                        )
-                )
-        );
-
-        assertThat(oneTimePrekey.getAcceptedAt()).isNotNull();
-        assertThat(oneTimePrekey.getAcceptedInitiatorEphemeralPublicKey())
-                .isEqualTo(deviceInitiatorEphemeralPublicKey(recipientDevice));
-        assertThat(oneTimePrekey.getAcceptedRatchetPublicKey())
-                .isEqualTo(deviceRatchetPublicKey(recipientDevice));
-        verify(userEncryptionOneTimePrekeyRepository).save(oneTimePrekey);
-    }
-
-    @Test
-    void sendMessageShouldAcceptEnvelopeFromDifferentAuthenticatedSessionForSameUserDevice() {
-        UUID chatId = UUID.randomUUID();
-        UserAccount currentUser = user("north");
-        UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice recipientDevice = device(recipient, UUID.randomUUID(), "recipient-device");
-        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
-        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
-                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
-        );
-        when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
-        when(authService.toParticipant(currentUser)).thenReturn(participant(currentUser));
-        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(currentUser.getId(), recipient.getId())))
-                .thenReturn(List.of(currentDevice, recipientDevice));
-        when(userEncryptionDeviceRepository.findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDesc(currentUser.getId()))
-                .thenReturn(List.of(currentDevice));
-
-        MessageResponse response = messageService.sendMessage(
-                chatId,
-                "north",
-                new CreateMessageRequest(
-                        clientMessageId(),
-                        null,
-                        new EncryptedMessagePayloadRequest(
-                                "X3DH-DEVICE-AES-GCM",
-                                Map.of(
-                                        currentDevice.getId().toString(), deviceEnvelope(currentUser, currentDevice, currentDevice, "self", "iv-self"),
-                                        recipientDevice.getId().toString(), deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer", "iv-peer")
-                                )
-                        )
-                )
-        );
-
-        assertThat(response.encryptedPayload()).isNotNull();
-        assertThat(response.encryptedPayload().scheme()).isEqualTo("X3DH-DEVICE-AES-GCM");
-    }
-
-    @Test
-    void sendMessageShouldRejectEnvelopeWithStaleMessageCounter() {
-        UUID chatId = UUID.randomUUID();
-        UserAccount currentUser = user("north");
-        UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice recipientDevice = device(recipient, UUID.randomUUID(), "recipient-device");
-        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
-        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
-                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
-        );
-        when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
-        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(currentUser.getId(), recipient.getId())))
-                .thenReturn(List.of(currentDevice, recipientDevice));
-        when(userEncryptionDeviceRepository.findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDesc(currentUser.getId()))
-                .thenReturn(List.of(currentDevice));
-        when(userEncryptionEnvelopeCounterRepository.findBySenderDeviceIdAndRecipientDeviceIdAndRatchetPublicKey(any(), any(), any()))
-                .thenAnswer(invocation -> {
-                    UUID senderDeviceId = invocation.getArgument(0);
-                    UUID recipientDeviceId = invocation.getArgument(1);
-                    String ratchetPublicKey = invocation.getArgument(2);
-                    if (senderDeviceId.equals(currentDevice.getId())
-                            && recipientDeviceId.equals(recipientDevice.getId())
-                            && ratchetPublicKey.equals(deviceRatchetPublicKey(recipientDevice))) {
-                        return Optional.of(new UserEncryptionEnvelopeCounter(
-                                UUID.randomUUID(),
-                                currentDevice.getId(),
-                                recipientDevice.getId(),
-                                deviceRatchetPublicKey(recipientDevice),
-                                deviceInitiatorEphemeralPublicKey(recipientDevice),
-                                1,
-                                Instant.parse("2026-03-24T11:59:00Z")
-                        ));
-                    }
-                    return Optional.empty();
-                });
-
-        assertThatThrownBy(() -> messageService.sendMessage(
-                chatId,
-                "north",
-                new CreateMessageRequest(
-                        clientMessageId(),
-                        null,
-                        new EncryptedMessagePayloadRequest(
-                                "X3DH-DEVICE-AES-GCM",
-                                Map.of(
-                                        currentDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, currentDevice, currentDevice, "self", "iv-self"),
-                                        recipientDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer", "iv-peer")
-                                )
-                        )
-                )
-        )).hasMessageContaining("Encrypted device envelope message counter is stale");
-    }
-
-    @Test
-    void sendMessageShouldRejectNewRatchetChainWithoutCounterZero() {
-        UUID chatId = UUID.randomUUID();
-        UserAccount currentUser = user("north");
-        UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice recipientDevice = device(recipient, UUID.randomUUID(), "recipient-device");
-        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
-        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
-                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
-        );
-        when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
-        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(currentUser.getId(), recipient.getId())))
-                .thenReturn(List.of(currentDevice, recipientDevice));
-
-        assertThatThrownBy(() -> messageService.sendMessage(
-                chatId,
-                "north",
-                new CreateMessageRequest(
-                        clientMessageId(),
-                        null,
-                        new EncryptedMessagePayloadRequest(
-                                "X3DH-DEVICE-AES-GCM",
-                                Map.of(
-                                        currentDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, currentDevice, currentDevice, "self", "iv-self")
-                                                .replace("\"messageCounter\":0", "\"messageCounter\":2"),
-                                        recipientDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer", "iv-peer")
-                                                .replace("\"messageCounter\":0", "\"messageCounter\":2")
-                                )
-                        )
-                )
-        )).hasMessageContaining("Encrypted device envelope must start at counter zero");
-    }
-
-    @Test
-    void sendMessageShouldRejectEnvelopeWithExcessiveCounterJump() {
-        UUID chatId = UUID.randomUUID();
-        UserAccount currentUser = user("north");
-        UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice recipientDevice = device(recipient, UUID.randomUUID(), "recipient-device");
-        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
-        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
-                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
-        );
-        when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
-        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(currentUser.getId(), recipient.getId())))
-                .thenReturn(List.of(currentDevice, recipientDevice));
-        when(userEncryptionEnvelopeCounterRepository.findBySenderDeviceIdAndRecipientDeviceIdAndRatchetPublicKey(any(), any(), any()))
-                .thenAnswer(invocation -> {
-                    UUID senderDeviceId = invocation.getArgument(0);
-                    UUID recipientDeviceId = invocation.getArgument(1);
-                    String ratchetPublicKey = invocation.getArgument(2);
-                    if (senderDeviceId.equals(currentDevice.getId())
-                            && recipientDeviceId.equals(recipientDevice.getId())
-                            && ratchetPublicKey.equals(deviceRatchetPublicKey(recipientDevice))) {
-                        return Optional.of(new UserEncryptionEnvelopeCounter(
-                                UUID.randomUUID(),
-                                currentDevice.getId(),
-                                recipientDevice.getId(),
-                                deviceRatchetPublicKey(recipientDevice),
-                                deviceInitiatorEphemeralPublicKey(recipientDevice),
-                                1,
-                                Instant.parse("2026-03-24T11:59:00Z")
-                        ));
-                    }
-                    return Optional.empty();
-                });
-
-        assertThatThrownBy(() -> messageService.sendMessage(
-                chatId,
-                "north",
-                new CreateMessageRequest(
-                        clientMessageId(),
-                        null,
-                        new EncryptedMessagePayloadRequest(
-                                "X3DH-DEVICE-AES-GCM",
-                                Map.of(
-                                        currentDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, currentDevice, currentDevice, "self", "iv-self"),
-                                        recipientDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer", "iv-peer")
-                                                .replace("\"messageCounter\":0", "\"messageCounter\":5000")
-                                )
-                        )
-                )
-        )).hasMessageContaining("Encrypted device envelope message counter advanced too far");
-    }
-
-    @Test
-    void sendMessageShouldRejectEnvelopeWhenChainInitiatorKeyChanges() {
-        UUID chatId = UUID.randomUUID();
-        UserAccount currentUser = user("north");
-        UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice recipientDevice = device(recipient, UUID.randomUUID(), "recipient-device");
-        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
-        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
-                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
-        );
-        when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
-        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(currentUser.getId(), recipient.getId())))
-                .thenReturn(List.of(currentDevice, recipientDevice));
-        when(userEncryptionEnvelopeCounterRepository.findBySenderDeviceIdAndRecipientDeviceIdAndRatchetPublicKey(any(), any(), any()))
-                .thenAnswer(invocation -> {
-                    UUID senderDeviceId = invocation.getArgument(0);
-                    UUID recipientDeviceId = invocation.getArgument(1);
-                    String ratchetPublicKey = invocation.getArgument(2);
-                    if (senderDeviceId.equals(currentDevice.getId())
-                            && recipientDeviceId.equals(recipientDevice.getId())
-                            && ratchetPublicKey.equals(deviceRatchetPublicKey(recipientDevice))) {
-                        return Optional.of(new UserEncryptionEnvelopeCounter(
-                                UUID.randomUUID(),
-                                currentDevice.getId(),
-                                recipientDevice.getId(),
-                                deviceRatchetPublicKey(recipientDevice),
-                                x25519PublicJwk("other-initiator"),
-                                1,
-                                Instant.parse("2026-03-24T11:59:00Z")
-                        ));
-                    }
-                    return Optional.empty();
-                });
-
-        assertThatThrownBy(() -> messageService.sendMessage(
-                chatId,
-                "north",
-                new CreateMessageRequest(
-                        clientMessageId(),
-                        null,
-                        new EncryptedMessagePayloadRequest(
-                                "X3DH-DEVICE-AES-GCM",
-                                Map.of(
-                                        currentDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, currentDevice, currentDevice, "self", "iv-self"),
-                                        recipientDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer", "iv-peer")
-                                                .replace("\"messageCounter\":0", "\"messageCounter\":2")
-                                )
-                        )
-                )
-        )).hasMessageContaining("Encrypted device envelope chain metadata is invalid");
-    }
-
-    @Test
-    void sendMessageShouldBackfillMissingCounterInitiatorKey() {
-        UUID chatId = UUID.randomUUID();
-        UserAccount currentUser = user("north");
-        UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice recipientDevice = device(recipient, UUID.randomUUID(), "recipient-device");
-        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
-        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
-                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
-        );
-        when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
-        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(currentUser.getId(), recipient.getId())))
-                .thenReturn(List.of(currentDevice, recipientDevice));
-        when(userEncryptionDeviceRepository.findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDesc(currentUser.getId()))
-                .thenReturn(List.of(currentDevice));
-        UserEncryptionEnvelopeCounter staleCounter = new UserEncryptionEnvelopeCounter(
-                UUID.randomUUID(),
-                currentDevice.getId(),
-                recipientDevice.getId(),
-                deviceRatchetPublicKey(recipientDevice),
-                null,
-                1,
-                Instant.parse("2026-03-24T11:59:00Z")
-        );
-        when(userEncryptionEnvelopeCounterRepository.findBySenderDeviceIdAndRecipientDeviceIdAndRatchetPublicKey(any(), any(), any()))
-                .thenAnswer(invocation -> {
-                    UUID senderDeviceId = invocation.getArgument(0);
-                    UUID recipientDeviceId = invocation.getArgument(1);
-                    String ratchetPublicKey = invocation.getArgument(2);
-                    if (senderDeviceId.equals(currentDevice.getId())
-                            && recipientDeviceId.equals(recipientDevice.getId())
-                            && ratchetPublicKey.equals(deviceRatchetPublicKey(recipientDevice))) {
-                        return Optional.of(staleCounter);
-                    }
-                    return Optional.empty();
-                });
-
-        messageService.sendMessage(
-                chatId,
-                "north",
-                new CreateMessageRequest(
-                        clientMessageId(),
-                        null,
-                        new EncryptedMessagePayloadRequest(
-                                "X3DH-DEVICE-AES-GCM",
-                                Map.of(
-                                        currentDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, currentDevice, currentDevice, "self", "iv-self"),
-                                        recipientDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer", "iv-peer")
-                                                .replace("\"messageCounter\":0", "\"messageCounter\":2")
-                                )
-                        )
-                )
-        );
-
-        assertThat(staleCounter.getInitiatorEphemeralPublicKey())
-                .isEqualTo(deviceInitiatorEphemeralPublicKey(recipientDevice));
-        verify(userEncryptionEnvelopeCounterRepository).save(staleCounter);
-    }
-
-    @Test
-    void sendMessageShouldRejectConcurrentBootstrapCounterReuseAfterConflictingInsert() {
-        UUID chatId = UUID.randomUUID();
-        UserAccount currentUser = user("north");
-        UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice recipientDevice = device(recipient, UUID.randomUUID(), "recipient-device");
-        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
-        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
-                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
-        );
-        when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
-        when(userEncryptionDeviceRepository.findAllByUserIdInAndRetiredAtIsNull(List.of(currentUser.getId(), recipient.getId())))
-                .thenReturn(List.of(currentDevice, recipientDevice));
-        when(userEncryptionDeviceRepository.findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDesc(currentUser.getId()))
-                .thenReturn(List.of(currentDevice));
-
-        int[] conflictingReads = {0};
-        when(userEncryptionEnvelopeCounterRepository.findBySenderDeviceIdAndRecipientDeviceIdAndRatchetPublicKey(any(), any(), any()))
-                .thenAnswer(invocation -> {
-                    UUID senderDeviceId = invocation.getArgument(0);
-                    UUID recipientDeviceId = invocation.getArgument(1);
-                    String ratchetPublicKey = invocation.getArgument(2);
-                    if (senderDeviceId.equals(currentDevice.getId())
-                            && recipientDeviceId.equals(recipientDevice.getId())
-                            && ratchetPublicKey.equals(deviceRatchetPublicKey(recipientDevice))) {
-                        conflictingReads[0] += 1;
-                        if (conflictingReads[0] == 1) {
-                            return Optional.empty();
-                        }
-                        return Optional.of(new UserEncryptionEnvelopeCounter(
-                                UUID.randomUUID(),
-                                currentDevice.getId(),
-                                recipientDevice.getId(),
-                                deviceRatchetPublicKey(recipientDevice),
-                                deviceInitiatorEphemeralPublicKey(recipientDevice),
-                                0,
-                                Instant.parse("2026-03-24T11:59:00Z")
-                        ));
-                    }
-                    return Optional.empty();
-                });
-        when(userEncryptionEnvelopeCounterRepository.insertIfAbsent(any(), any(), any(), any(), any(), anyInt(), any(Instant.class)))
-                .thenAnswer(invocation -> {
-                    UUID recipientDeviceId = invocation.getArgument(2);
-                    String ratchetPublicKey = invocation.getArgument(3);
-                    if (recipientDeviceId.equals(recipientDevice.getId())
-                            && ratchetPublicKey.equals(deviceRatchetPublicKey(recipientDevice))) {
-                        return 0;
-                    }
-                    return 1;
-                });
-
-        assertThatThrownBy(() -> messageService.sendMessage(
-                chatId,
-                "north",
-                new CreateMessageRequest(
-                        clientMessageId(),
-                        null,
-                        new EncryptedMessagePayloadRequest(
-                                "X3DH-DEVICE-AES-GCM",
-                                Map.of(
-                                        currentDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, currentDevice, currentDevice, "self", "iv-self"),
-                                        recipientDevice.getId().toString(),
-                                        deviceEnvelope(currentUser, currentDevice, recipientDevice, "peer", "iv-peer")
-                                )
-                        )
-                )
-        )).hasMessageContaining("Encrypted device envelope message counter is stale");
-    }
-
-    @Test
-    void listMessagesShouldReturnMalformedEncryptedMessagesWithoutPayload() throws Exception {
+    void listMessagesShouldRejectMalformedEncryptedMessages() throws Exception {
         UUID chatId = UUID.randomUUID();
         UserAccount currentUser = user("alice");
         UserAccount sender = user("north");
@@ -1745,23 +608,24 @@ class MessageServiceTest {
                 UUID.randomUUID(),
                 chatId,
                 sender.getId(),
-                "ciphertext-malformed",
-                "RSA-OAEP-256/AES-GCM",
+                "",
+                "CHAT-EPOCH-KEY-AES-GCM",
                 "iv-malformed",
-                objectMapper.writeValueAsString(Map.of(sender.getId().toString(), "sender-only-key")),
+                UUID.randomUUID(),
+                null,
+                null,
                 Instant.parse("2026-03-24T12:00:00Z")
         ), 10L);
         ChatMessage validMessage = withServerOrder(new ChatMessage(
                 UUID.randomUUID(),
                 chatId,
                 sender.getId(),
-                "ciphertext-valid",
-                "RSA-OAEP-256/AES-GCM",
-                "iv-valid",
-                objectMapper.writeValueAsString(Map.of(
-                        sender.getId().toString(), "sender-key",
-                        currentUser.getId().toString(), "recipient-key"
-                )),
+                chatEpochSharedEnvelope(chatId, sender.getId(), "ciphertext-valid", "iv-valid"),
+                "CHAT-EPOCH-KEY-AES-GCM",
+                base64Fixed("iv-valid", 12),
+                UUID.randomUUID(),
+                null,
+                null,
                 Instant.parse("2026-03-24T12:01:00Z")
         ), 20L);
 
@@ -1777,18 +641,9 @@ class MessageServiceTest {
         when(messageReceiptRepository.findAllByUserIdAndChatIdAndMessageIdIn(eq(currentUser.getId()), eq(chatId), any()))
                 .thenReturn(List.of());
         when(authService.toParticipant(sender)).thenReturn(participant(sender));
-        List<MessageResponse> response = messageService.listMessages(chatId, "alice", null, 50, true);
-
-        assertThat(response).hasSize(2);
-        assertThat(response).extracting(MessageResponse::id)
-                .containsExactly(malformedMessage.getId(), validMessage.getId());
-        assertThat(response.get(0).encryptedPayload()).isNull();
-        assertThat(response.get(1).encryptedPayload()).isNotNull();
-        verify(messageReceiptRepository).findAllByUserIdAndChatIdAndMessageIdIn(
-                currentUser.getId(),
-                chatId,
-                List.of(malformedMessage.getId(), validMessage.getId())
-        );
+        assertThatThrownBy(() -> messageService.listMessages(chatId, "alice", null, 50, true))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Encrypted chat epoch envelope is missing");
     }
 
     @Test
@@ -1801,26 +656,24 @@ class MessageServiceTest {
                 UUID.fromString("00000000-0000-0000-0000-0000000000b0"),
                 chatId,
                 sender.getId(),
-                "ciphertext-b",
-                "RSA-OAEP-256/AES-GCM",
-                "iv-b",
-                objectMapper.writeValueAsString(Map.of(
-                        sender.getId().toString(), "sender-key-b",
-                        currentUser.getId().toString(), "recipient-key-b"
-                )),
+                chatEpochSharedEnvelope(chatId, sender.getId(), "ciphertext-b", "iv-b"),
+                "CHAT-EPOCH-KEY-AES-GCM",
+                base64Fixed("iv-b", 12),
+                UUID.randomUUID(),
+                null,
+                null,
                 createdAt
         ), 20L);
         ChatMessage lowerOrderMessage = withServerOrder(new ChatMessage(
                 UUID.fromString("00000000-0000-0000-0000-0000000000a0"),
                 chatId,
                 sender.getId(),
-                "ciphertext-a",
-                "RSA-OAEP-256/AES-GCM",
-                "iv-a",
-                objectMapper.writeValueAsString(Map.of(
-                        sender.getId().toString(), "sender-key-a",
-                        currentUser.getId().toString(), "recipient-key-a"
-                )),
+                chatEpochSharedEnvelope(chatId, sender.getId(), "ciphertext-a", "iv-a"),
+                "CHAT-EPOCH-KEY-AES-GCM",
+                base64Fixed("iv-a", 12),
+                UUID.randomUUID(),
+                null,
+                null,
                 createdAt
         ), 10L);
 
@@ -1847,29 +700,32 @@ class MessageServiceTest {
     }
 
     @Test
-    void listMessagesShouldLoadVisibleRecipientDevicesOncePerPage() throws Exception {
+    void listMessagesShouldReturnChatEpochMessagesWithoutLoadingVisibleDevices() {
         UUID chatId = UUID.randomUUID();
         UserAccount currentUser = user("alice");
         UserAccount sender = user("north");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
         ChatMessage firstMessage = withServerOrder(new ChatMessage(
                 UUID.fromString("00000000-0000-0000-0000-0000000000a1"),
                 chatId,
                 sender.getId(),
-                "ciphertext-a",
-                "X3DH-DEVICE-AES-GCM",
+                "chat-epoch-envelope-a",
+                "CHAT-EPOCH-KEY-AES-GCM",
                 "iv-a",
-                objectMapper.writeValueAsString(Map.of(currentDevice.getId().toString(), "recipient-device-payload-a")),
+                UUID.randomUUID(),
+                null,
+                null,
                 Instant.parse("2026-03-24T12:00:00Z")
         ), 10L);
         ChatMessage secondMessage = withServerOrder(new ChatMessage(
                 UUID.fromString("00000000-0000-0000-0000-0000000000a2"),
                 chatId,
                 sender.getId(),
-                "ciphertext-b",
-                "X3DH-DEVICE-AES-GCM",
+                "chat-epoch-envelope-b",
+                "CHAT-EPOCH-KEY-AES-GCM",
                 "iv-b",
-                objectMapper.writeValueAsString(Map.of(currentDevice.getId().toString(), "recipient-device-payload-b")),
+                UUID.randomUUID(),
+                null,
+                null,
                 Instant.parse("2026-03-24T12:00:01Z")
         ), 20L);
 
@@ -1883,161 +739,30 @@ class MessageServiceTest {
         when(messageReceiptRepository.findAllByMessageIdIn(any())).thenReturn(List.of());
         when(messageReactionRepository.findAllByMessageIdIn(any())).thenReturn(List.of());
         when(authService.toParticipant(sender)).thenReturn(participant(sender));
-        when(userEncryptionDeviceRepository.findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDesc(currentUser.getId()))
-                .thenReturn(List.of(currentDevice));
 
         List<MessageResponse> response = messageService.listMessages(chatId, "alice", null, 50, false);
 
         assertThat(response).extracting(MessageResponse::id)
                 .containsExactly(firstMessage.getId(), secondMessage.getId());
-        verify(userEncryptionDeviceRepository, times(1))
-                .findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDesc(currentUser.getId());
+        assertThat(response)
+                .extracting(message -> message.encryptedPayload().sharedEnvelope())
+                .containsExactly("chat-epoch-envelope-a", "chat-epoch-envelope-b");
     }
 
     @Test
-    void listMessagesShouldReadEncryptedPayloadFromNormalizedRecipientRows() {
-        UUID chatId = UUID.randomUUID();
-        UserAccount currentUser = user("alice");
-        UserAccount sender = user("north");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        ChatMessage message = withServerOrder(new ChatMessage(
-                UUID.fromString("00000000-0000-0000-0000-0000000000d1"),
-                chatId,
-                sender.getId(),
-                "ciphertext-a",
-                "X3DH-DEVICE-AES-GCM",
-                "iv-a",
-                "",
-                Instant.parse("2026-03-24T12:00:00Z")
-        ), 10L);
-
-        when(authService.requireAuthenticatedUser("alice")).thenReturn(currentUser);
-        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
-                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
-        );
-        when(chatMessageRepository.findVisibleEncryptedByChatIdOrderByServerOrderDesc(eq(chatId), eq(currentUser.getId()), any()))
-                .thenReturn(List.of(message));
-        when(userAccountRepository.findAllByIdIn(any())).thenReturn(List.of(sender));
-        when(messageReceiptRepository.findAllByMessageIdIn(any())).thenReturn(List.of());
-        when(messageReactionRepository.findAllByMessageIdIn(any())).thenReturn(List.of());
-        when(authService.toParticipant(sender)).thenReturn(participant(sender));
-        when(userEncryptionDeviceRepository.findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDesc(currentUser.getId()))
-                .thenReturn(List.of(currentDevice));
-        when(chatMessageRecipientPayloadRepository.findAllByMessageIdInAndRecipientUserId(
-                argThat(messageIds -> messageIds != null
-                        && messageIds.size() == 1
-                        && messageIds.contains(message.getId())),
-                eq(currentUser.getId())
-        )).thenReturn(List.of(
-                new ChatMessageRecipientPayload(
-                        message.getId(),
-                        currentDevice.getId(),
-                        currentUser.getId(),
-                        "normalized-recipient-payload",
-                        message.getCreatedAt()
-                )
-        ));
-
-        List<MessageResponse> response = messageService.listMessages(chatId, "alice", null, 50, false);
-
-        assertThat(response).hasSize(1);
-        assertThat(response.get(0).encryptedPayload()).isNotNull();
-        assertThat(response.get(0).encryptedPayload().encryptedKeysByRecipientId())
-                .hasSize(1)
-                .containsEntry(currentDevice.getId().toString(), "normalized-recipient-payload");
-    }
-
-    @Test
-    void listMessagesShouldIgnoreLegacyEncryptedKeysJsonWithoutNormalizedRows() throws Exception {
-        UUID chatId = UUID.randomUUID();
-        UserAccount currentUser = user("alice");
-        UserAccount sender = user("north");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        ChatMessage message = withServerOrder(new ChatMessage(
-                UUID.fromString("00000000-0000-0000-0000-0000000000d2"),
-                chatId,
-                sender.getId(),
-                "ciphertext-a",
-                "X3DH-DEVICE-AES-GCM",
-                "iv-a",
-                objectMapper.writeValueAsString(Map.of(currentDevice.getId().toString(), "legacy-json-payload")),
-                Instant.parse("2026-03-24T12:00:00Z")
-        ), 10L);
-
-        when(authService.requireAuthenticatedUser("alice")).thenReturn(currentUser);
-        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
-                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
-        );
-        when(chatMessageRepository.findVisibleEncryptedByChatIdOrderByServerOrderDesc(eq(chatId), eq(currentUser.getId()), any()))
-                .thenReturn(List.of(message));
-        when(userAccountRepository.findAllByIdIn(any())).thenReturn(List.of(sender));
-        when(messageReceiptRepository.findAllByMessageIdIn(any())).thenReturn(List.of());
-        when(messageReactionRepository.findAllByMessageIdIn(any())).thenReturn(List.of());
-        when(authService.toParticipant(sender)).thenReturn(participant(sender));
-        when(userEncryptionDeviceRepository.findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDesc(currentUser.getId()))
-                .thenReturn(List.of(currentDevice));
-
-        List<MessageResponse> response = messageService.listMessages(chatId, "alice", null, 50, false);
-
-        assertThat(response).hasSize(1);
-        assertThat(response.get(0).encryptedPayload()).isNull();
-    }
-
-    @Test
-    void listMessagesShouldKeepDirectMessagesWhenOnlyHistoricalRecipientDevicesMatch() throws Exception {
-        UUID chatId = UUID.randomUUID();
-        UserAccount currentUser = user("alice");
-        UserAccount sender = user("north");
-        UUID historicalDeviceId = UUID.randomUUID();
-        ChatMessage historicalDirectMessage = withServerOrder(new ChatMessage(
-                UUID.fromString("00000000-0000-0000-0000-0000000000c1"),
-                chatId,
-                sender.getId(),
-                "ciphertext-historical",
-                "X3DH-DEVICE-AES-GCM",
-                "iv-historical",
-                objectMapper.writeValueAsString(Map.of(
-                        historicalDeviceId.toString(),
-                        "recipient-device-payload-historical"
-                )),
-                Instant.parse("2026-03-24T12:00:00Z")
-        ), 10L);
-
-        when(authService.requireAuthenticatedUser("alice")).thenReturn(currentUser);
-        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
-                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
-        );
-        when(chatMessageRepository.findVisibleEncryptedByChatIdOrderByServerOrderDesc(eq(chatId), eq(currentUser.getId()), any()))
-                .thenReturn(List.of(historicalDirectMessage));
-        when(userAccountRepository.findAllByIdIn(any())).thenReturn(List.of(sender));
-        when(messageReceiptRepository.findAllByMessageIdIn(any())).thenReturn(List.of());
-        when(messageReactionRepository.findAllByMessageIdIn(any())).thenReturn(List.of());
-        when(authService.toParticipant(sender)).thenReturn(participant(sender));
-        when(userEncryptionDeviceRepository.findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDesc(currentUser.getId()))
-                .thenReturn(List.of());
-
-        List<MessageResponse> response = messageService.listMessages(chatId, "alice", null, 50, false);
-
-        assertThat(response).hasSize(1);
-        assertThat(response.get(0).id()).isEqualTo(historicalDirectMessage.getId());
-        assertThat(response.get(0).encryptedPayload()).isNull();
-    }
-
-    @Test
-    void listMessagesShouldReturnHistoricalOwnDirectPayloadsAfterDeviceRotation() {
+    void listMessagesShouldReturnChatEpochPayloadWithoutRecipientRows() {
         UUID chatId = UUID.randomUUID();
         UserAccount currentUser = user("north");
-        UserAccount recipient = user("alice");
-        UserEncryptionDevice currentDevice = device(currentUser, UUID.randomUUID(), "current-device");
-        UserEncryptionDevice historicalSelfDevice = device(currentUser, UUID.randomUUID(), "historical-self-device");
         ChatMessage message = withServerOrder(new ChatMessage(
                 UUID.fromString("00000000-0000-0000-0000-0000000000d3"),
                 chatId,
                 currentUser.getId(),
-                "ciphertext-own-historical",
-                "X3DH-DEVICE-AES-GCM",
+                "chat-epoch-envelope-own",
+                "CHAT-EPOCH-KEY-AES-GCM",
                 "iv-own-historical",
-                "",
+                UUID.randomUUID(),
+                null,
+                null,
                 Instant.parse("2026-03-24T12:00:00Z")
         ), 10L);
 
@@ -2051,29 +776,12 @@ class MessageServiceTest {
         when(messageReceiptRepository.findAllByMessageIdIn(any())).thenReturn(List.of());
         when(messageReactionRepository.findAllByMessageIdIn(any())).thenReturn(List.of());
         when(authService.toParticipant(currentUser)).thenReturn(participant(currentUser));
-        when(userEncryptionDeviceRepository.findAllByUserIdAndRetiredAtIsNullOrderByLastSeenAtDesc(currentUser.getId()))
-                .thenReturn(List.of(currentDevice));
-        when(chatMessageRecipientPayloadRepository.findAllByMessageIdInAndRecipientUserId(
-                argThat(messageIds -> messageIds != null
-                        && messageIds.size() == 1
-                        && messageIds.contains(message.getId())),
-                eq(currentUser.getId())
-        )).thenReturn(List.of(
-                new ChatMessageRecipientPayload(
-                        message.getId(),
-                        historicalSelfDevice.getId(),
-                        currentUser.getId(),
-                        "historical-self-payload",
-                        message.getCreatedAt()
-                )
-        ));
 
         List<MessageResponse> response = messageService.listMessages(chatId, "north", null, 50, false);
 
         assertThat(response).hasSize(1);
         assertThat(response.get(0).encryptedPayload()).isNotNull();
-        assertThat(response.get(0).encryptedPayload().encryptedKeysByRecipientId())
-                .containsEntry(historicalSelfDevice.getId().toString(), "historical-self-payload");
+        assertThat(response.get(0).encryptedPayload().sharedEnvelope()).isEqualTo("chat-epoch-envelope-own");
     }
 
     @Test
@@ -2113,6 +821,61 @@ class MessageServiceTest {
                 any(),
                 org.mockito.ArgumentMatchers.any(org.springframework.data.domain.Pageable.class)
         );
+    }
+
+    @Test
+    void listMessagePageShouldReturnServerOwnedCursorAndConfirmedClientMessageIds() {
+        UUID chatId = UUID.randomUUID();
+        UserAccount currentUser = user("north");
+        ChatMessage olderMessage = withServerOrder(new ChatMessage(
+                UUID.fromString("00000000-0000-0000-0000-0000000000f1"),
+                chatId,
+                currentUser.getId(),
+                "chat-epoch-envelope-own-older",
+                "CHAT-EPOCH-KEY-AES-GCM",
+                "iv-own-older",
+                UUID.randomUUID(),
+                "client-message-1",
+                null,
+                Instant.parse("2026-03-24T12:00:00Z")
+        ), 10L);
+        ChatMessage newerMessage = withServerOrder(new ChatMessage(
+                UUID.fromString("00000000-0000-0000-0000-0000000000f2"),
+                chatId,
+                currentUser.getId(),
+                "chat-epoch-envelope-own-newer",
+                "CHAT-EPOCH-KEY-AES-GCM",
+                "iv-own-newer",
+                UUID.randomUUID(),
+                "client-message-2",
+                null,
+                Instant.parse("2026-03-24T12:00:01Z")
+        ), 20L);
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
+        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(
+                new ChatRoom(chatId, null, true, Instant.parse("2026-03-24T11:00:00Z"))
+        );
+        when(chatMessageRepository.findVisibleEncryptedByChatIdOrderByServerOrderDesc(eq(chatId), eq(currentUser.getId()), any()))
+                .thenReturn(List.of(newerMessage, olderMessage));
+        when(userAccountRepository.findAllByIdIn(any())).thenReturn(List.of(currentUser));
+        when(messageReceiptRepository.findAllByMessageIdIn(any())).thenReturn(List.of());
+        when(messageReactionRepository.findAllByMessageIdIn(any())).thenReturn(List.of());
+        when(authService.toParticipant(currentUser)).thenReturn(participant(currentUser));
+
+        MessagePageResponse response = messageService.listMessagePage(
+                chatId,
+                "north",
+                null,
+                2,
+                false
+        );
+
+        assertThat(response.nextCursor()).isEqualTo("10");
+        assertThat(response.confirmedPendingOutgoingClientMessageIds())
+                .containsExactly("client-message-1", "client-message-2");
+        assertThat(response.messages()).extracting(MessageResponse::id)
+                .containsExactly(olderMessage.getId(), newerMessage.getId());
     }
 
     @Test
@@ -2331,178 +1094,33 @@ class MessageServiceTest {
         return "client-" + UUID.randomUUID();
     }
 
-    private UserEncryptionDevice device(UserAccount user, UUID sessionId, String deviceName) {
-        try {
-            UUID deviceId = UUID.randomUUID();
-            KeyPair signatureKeyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-            deviceSignatureKeyPairs.put(deviceId, signatureKeyPair);
-            String signedPrekeyPublicKey = x25519PublicJwk("signed-" + deviceId);
-            Signature signer = Signature.getInstance("Ed25519");
-            signer.initSign(signatureKeyPair.getPrivate());
-            signer.update(signedPrekeySignaturePayload(x25519RawBytes("signed-" + deviceId)));
-            return new UserEncryptionDevice(
-                    deviceId,
-                    user.getId(),
-                    deviceName,
-                    x25519PublicJwk("identity-" + deviceId),
-                    "X25519",
-                    ed25519PublicJwk(signatureKeyPair),
-                    "Ed25519",
-                    7,
-                    signedPrekeyPublicKey,
-                    Base64.getEncoder().encodeToString(signer.sign()),
-                    "X25519",
-                    Instant.parse("2026-03-24T11:00:00Z"),
-                    Instant.parse("2026-03-24T11:00:00Z"),
-                    null
-            );
-        } catch (Exception exception) {
-            throw new IllegalStateException("Failed to create test encryption device", exception);
-        }
+    private String chatEpochSharedEnvelope(UUID chatId, UUID senderUserId, String ciphertext, String iv) {
+        return chatEpochSharedEnvelope(chatId, senderUserId, UUID.randomUUID().toString(), ciphertext, iv);
     }
 
-    private UserEncryptionOneTimePrekey oneTimePrekey(
-            UserEncryptionDevice device,
-            int keyId,
-            Instant claimedAt,
-            UUID claimedBySenderDeviceId,
-            Instant acceptedAt,
-            String acceptedInitiatorEphemeralPublicKey,
-            String acceptedRatchetPublicKey
-    ) {
-        return new UserEncryptionOneTimePrekey(
-                UUID.randomUUID(),
-                device.getId(),
-                keyId,
-                "{\"kty\":\"OKP\",\"crv\":\"X25519\",\"x\":\"otp\"}",
-                Instant.parse("2026-03-24T11:00:00Z"),
-                claimedAt,
-                claimedBySenderDeviceId,
-                acceptedAt,
-                acceptedInitiatorEphemeralPublicKey,
-                acceptedRatchetPublicKey
-        );
-    }
-
-    private String deviceEnvelope(
-            UserAccount senderUser,
-            UserEncryptionDevice senderDevice,
-            UserEncryptionDevice recipientDevice,
-            String ciphertext,
-            String iv
-    ) {
-        return """
-                {"aadVersion":1,"senderUserId":"%s","senderDeviceId":"%s","recipientDeviceId":"%s","senderIdentityKey":"%s","senderIdentitySignatureKey":"%s","initiatorEphemeralPublicKey":"%s","ratchetPublicKey":"%s","recipientSignedPrekeyId":%s,"recipientOneTimePrekeyId":null,"messageCounter":0,"ciphertext":"%s","iv":"%s"}
-                """
-                .formatted(
-                        senderUser.getId(),
-                        senderDevice.getId(),
-                        recipientDevice.getId(),
-                        jsonEscape(senderDevice.getIdentityKey()),
-                        jsonEscape(senderDevice.getIdentitySignatureKey()),
-                        jsonEscape(deviceInitiatorEphemeralPublicKey(recipientDevice)),
-                        jsonEscape(deviceRatchetPublicKey(recipientDevice)),
-                        recipientDevice.getSignedPrekeyId(),
-                        jsonEscape(base64(ciphertext)),
-                        jsonEscape(base64Fixed(iv, 12))
-                )
-                .replace("\n", "")
-                .trim();
-    }
-
-    private String groupSharedEnvelope(
+    private String chatEpochSharedEnvelope(
             UUID chatId,
-            UserAccount senderUser,
-            UserEncryptionDevice senderDevice,
+            UUID senderUserId,
+            String messageRefId,
             String ciphertext,
             String iv
     ) {
-        try {
-            String senderKeyId = "sender-key-" + senderDevice.getId();
-            String encodedCiphertext = base64(ciphertext);
-            String encodedIv = base64Fixed(iv, 12);
-            Map<String, Object> signaturePayload = new LinkedHashMap<>();
-            signaturePayload.put("aadVersion", 1);
-            signaturePayload.put("chatId", chatId);
-            signaturePayload.put("senderUserId", senderUser.getId());
-            signaturePayload.put("senderDeviceId", senderDevice.getId());
-            signaturePayload.put("senderKeyId", senderKeyId);
-            signaturePayload.put("messageCounter", 0);
-            signaturePayload.put("iv", encodedIv);
-            signaturePayload.put("ciphertext", encodedCiphertext);
-
-            Signature signer = Signature.getInstance("Ed25519");
-            signer.initSign(deviceSignatureKeyPairs.get(senderDevice.getId()).getPrivate());
-            signer.update(objectMapper.writeValueAsBytes(signaturePayload));
-            String signature = Base64.getEncoder().encodeToString(signer.sign());
-
-            return """
-                    {"aadVersion":1,"chatId":"%s","senderUserId":"%s","senderDeviceId":"%s","senderKeyId":"%s","messageCounter":0,"ciphertext":"%s","iv":"%s","signature":"%s"}
-                    """
-                    .formatted(
-                            chatId,
-                            senderUser.getId(),
-                            senderDevice.getId(),
-                            senderKeyId,
-                            jsonEscape(encodedCiphertext),
-                            jsonEscape(encodedIv),
-                            jsonEscape(signature)
-                    )
-                    .replace("\n", "")
-                    .trim();
-        } catch (Exception exception) {
-            throw new IllegalStateException("Failed to create signed group envelope for test", exception);
-        }
-    }
-
-    private String deviceInitiatorEphemeralPublicKey(UserEncryptionDevice recipientDevice) {
-        return x25519PublicJwk("initiator-" + recipientDevice.getId());
-    }
-
-    private String deviceRatchetPublicKey(UserEncryptionDevice recipientDevice) {
-        return x25519PublicJwk("ratchet-" + recipientDevice.getId());
-    }
-
-    private String x25519PublicJwk(String seed) {
-        byte[] bytes = x25519RawBytes(seed);
         return """
-                {"kty":"OKP","crv":"X25519","x":"%s"}
-                """.formatted(Base64.getUrlEncoder().withoutPadding().encodeToString(bytes))
-                .replace("\n", "")
-                .trim();
-    }
-
-    private byte[] x25519RawBytes(String seed) {
-        byte[] bytes = new byte[32];
-        byte[] source = seed.getBytes(StandardCharsets.UTF_8);
-        for (int index = 0; index < bytes.length; index += 1) {
-            bytes[index] = source[index % source.length];
-        }
-        return bytes;
-    }
-
-    private String ed25519PublicJwk(KeyPair keyPair) {
-        byte[] encoded = keyPair.getPublic().getEncoded();
-        byte[] raw = new byte[32];
-        System.arraycopy(encoded, encoded.length - raw.length, raw, 0, raw.length);
-        return """
-                {"kty":"OKP","crv":"Ed25519","x":"%s"}
-                """.formatted(Base64.getUrlEncoder().withoutPadding().encodeToString(raw))
+                {"aadVersion":1,"context":"north.chat-message.v1","chatId":"%s","senderUserId":"%s","historyKeyId":"%s","membershipVersion":0,"messageRefId":"%s","createdAt":"2026-03-24T12:00:00Z","contentType":"text/plain","ciphertext":"%s","iv":"%s"}
+                """.formatted(
+                        chatId,
+                        senderUserId,
+                        UUID.randomUUID(),
+                        messageRefId,
+                        base64(ciphertext),
+                        base64Fixed(iv, 12)
+                )
                 .replace("\n", "")
                 .trim();
     }
 
     private String base64(String value) {
         return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
-    }
-
-    private byte[] signedPrekeySignaturePayload(byte[] rawPublicKey) {
-        byte[] context = "north-signed-prekey-v1".getBytes(StandardCharsets.UTF_8);
-        byte[] payload = new byte[context.length + 1 + rawPublicKey.length];
-        System.arraycopy(context, 0, payload, 0, context.length);
-        payload[context.length] = 0;
-        System.arraycopy(rawPublicKey, 0, payload, context.length + 1, rawPublicKey.length);
-        return payload;
     }
 
     private String base64Fixed(String value, int length) {
@@ -2513,12 +1131,10 @@ class MessageServiceTest {
         }
         return Base64.getEncoder().encodeToString(bytes);
     }
-
-    private String jsonEscape(String value) {
-        return value
-                .replace("\\", "\\\\")
-                .replace("\"", "\\\"");
-    }
+
 }
+
+
+
 
 

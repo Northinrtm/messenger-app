@@ -1,4 +1,5 @@
 import {
+  type QueryClient,
   type InfiniteData,
   useMutation,
   useQueryClient,
@@ -7,12 +8,15 @@ import { type Dispatch, type SetStateAction, useEffect, useRef } from "react";
 import {
   ApiError,
   createDirectChat,
+  deleteChatDraft,
   deleteChat as deleteChatRequest,
   deleteMessage as deleteMessageRequest,
   deleteMessages as deleteMessagesRequest,
+  deletePendingOutgoingMessage,
   describeError,
   isAbortError,
   toggleMessageReaction as toggleMessageReactionRequest,
+  upsertPendingOutgoingMessage,
   updatePinnedMessage as updatePinnedMessageRequest,
 } from "../../../lib/api";
 import {
@@ -23,16 +27,12 @@ import {
 } from "../../../lib/sendDiagnostics";
 import { buildNormalizedSendFailure } from "../../../lib/sendFailureDiagnostics";
 import type { AttachmentUploadProgress } from "../../../lib/e2ee";
-import {
-  type LocalPendingMessage,
-  removeLocalPendingMessage,
-  upsertLocalPendingMessage,
-} from "../../../lib/localPendingMessages";
 import type {
   AuthResponse,
   ChatMessage,
   ChatMessageAttachment,
   ChatSummary,
+  PendingOutgoingMessage,
   MessageReaction,
   MessageSnippet,
   Participant,
@@ -106,7 +106,7 @@ type UseMessageActionsOptions = {
   isRealtimeConnected: boolean;
   onOpenChat: (chatId: string, preferredTab?: ConversationListTab) => void;
   onOpenForwardSheet: () => void;
-  pendingOutgoingMessages: LocalPendingMessage[];
+  pendingOutgoingMessages: PendingOutgoingMessage[];
   refreshChatPreviewFromServer: (chatId: string) => Promise<unknown> | void;
   rememberRealtimeMessage: (messageId: string) => void;
   scheduleDraftSave: (chatId: string, value: string) => void;
@@ -157,11 +157,8 @@ export function useMessageActions({
   const queryClient = useQueryClient();
   const nextLocalMessageOrderRef = useRef(0);
   const inFlightSendClientMessageIdsRef = useRef(new Set<string>());
-  const lastAutoResendAttemptAtRef = useRef(new Map<string, number>());
-  const autoResendTimeoutIdsRef = useRef(new Map<string, number>());
   const discardedLocalClientMessageIdsRef = useRef(new Set<string>());
   const getMessagesKey = (chatId: string) => buildMessagesQueryKey(currentUser.id, chatId);
-  const AUTO_RESEND_DELAY_MS = 1_500;
   const SEND_ATTEMPT_TIMEOUT_MS = 90_000;
 
   const sendMessageMutation = useMutation<
@@ -174,6 +171,19 @@ export function useMessageActions({
       recordSendDiagnosticStep(input.clientMessageId, "mutationFn:start");
       const { sendEncryptedMessage } = await import("../../../lib/e2ee");
       const targetChat = chats.find((chat) => chat.id === input.chatId) ?? activeChat;
+      await upsertPendingOutgoingMessage(sessionToken, input.clientMessageId, {
+        chatId: input.chatId,
+        content: input.content,
+        createdAt: new Date().toISOString(),
+        localOrder: input.localOrder,
+        recipientCount: Math.max(0, input.participants.length - 1),
+        replyTo: input.replyTo ?? null,
+        status: "SENDING",
+        attachments: input.attachments ?? [],
+      });
+      if (input.clearDraftOnMutate) {
+        await deleteChatDraft(sessionToken, input.chatId).catch(() => undefined);
+      }
       return withSendAttemptTimeout(sendEncryptedMessage(
         sessionToken,
         input.chatId,
@@ -186,6 +196,8 @@ export function useMessageActions({
           isDirectChat: targetChat?.direct,
           session,
           attachments: input.attachments ?? [],
+          membershipVersion: targetChat?.membershipVersion,
+          prejoinHistoryPolicy: targetChat?.prejoinHistoryPolicy ?? null,
         },
       ), SEND_ATTEMPT_TIMEOUT_MS);
     },
@@ -195,7 +207,7 @@ export function useMessageActions({
       void queryClient.cancelQueries({ queryKey: getMessagesKey(input.chatId) });
       const previousChats = queryClient.getQueryData<ChatSummary[]>(["chats", sessionToken]);
       const optimisticMessage = createOptimisticOutgoingMessage(currentUser, input);
-      const nextPendingMessages = upsertLocalPendingMessage(currentUser.id, {
+      const nextPendingMessages = upsertPendingMessagesCache(queryClient, currentUser.id, {
         chatId: input.chatId,
         clientMessageId: input.clientMessageId,
         content: input.content,
@@ -209,7 +221,6 @@ export function useMessageActions({
       recordSendDiagnosticStep(input.clientMessageId, "onMutate:pendingPersisted", {
         pendingCount: nextPendingMessages.length,
       });
-      queryClient.setQueryData(["pending-outgoing-messages", currentUser.id], nextPendingMessages);
       applyServerChatPreviewMessage(optimisticMessage, "clear");
       if (input.clearDraftOnMutate) {
         setDraftsByChatId((current) => {
@@ -217,7 +228,6 @@ export function useMessageActions({
           delete next[input.chatId];
           return next;
         });
-        clearDraftForChat(input.chatId);
         recordSendDiagnosticStep(input.clientMessageId, "onMutate:draftCleared");
       }
       queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
@@ -231,15 +241,11 @@ export function useMessageActions({
     },
     onSuccess: (message, input) => {
       if (discardedLocalClientMessageIdsRef.current.has(input.clientMessageId)) {
-        const nextPendingMessages = removeLocalPendingMessage(currentUser.id, input.clientMessageId);
-        queryClient.setQueryData(["pending-outgoing-messages", currentUser.id], nextPendingMessages);
+        removePendingMessagesFromCache(queryClient, currentUser.id, input.clientMessageId);
         return;
       }
       const nextMessage = ensureOwnMessageStatus(message, currentUser);
-      const nextPendingMessages = removeLocalPendingMessage(currentUser.id, input.clientMessageId);
-      clearAutoResendTimer(input.clientMessageId);
-      lastAutoResendAttemptAtRef.current.delete(input.clientMessageId);
-      queryClient.setQueryData(["pending-outgoing-messages", currentUser.id], nextPendingMessages);
+      removePendingMessagesFromCache(queryClient, currentUser.id, input.clientMessageId);
       rememberRealtimeMessage(nextMessage.id);
       queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
         getMessagesKey(input.chatId),
@@ -247,6 +253,9 @@ export function useMessageActions({
       );
       applyChatPreviewMessage(nextMessage);
       applyServerChatPreviewMessage(nextMessage, "clear");
+      if (input.clearDraftOnMutate) {
+        clearDraftForChat(input.chatId);
+      }
       if (input.replyTo) {
         clearComposerContext("reply");
       }
@@ -258,8 +267,7 @@ export function useMessageActions({
     },
     onError: (error, input, context) => {
       if (discardedLocalClientMessageIdsRef.current.has(input.clientMessageId)) {
-        const nextPendingMessages = removeLocalPendingMessage(currentUser.id, input.clientMessageId);
-        queryClient.setQueryData(["pending-outgoing-messages", currentUser.id], nextPendingMessages);
+        removePendingMessagesFromCache(queryClient, currentUser.id, input.clientMessageId);
         queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
           getMessagesKey(input.chatId),
           (current) => removeMessageByClientMessageId(current, input.clientMessageId),
@@ -282,12 +290,8 @@ export function useMessageActions({
         stage: normalizedFailure.stage,
         details: error instanceof ApiError ? error.details : [],
       });
-      const nextPendingStatus = transientFailure ? "SENDING" : "FAILED";
-      if (!transientFailure) {
-        clearAutoResendTimer(input.clientMessageId);
-        lastAutoResendAttemptAtRef.current.delete(input.clientMessageId);
-      }
-      const nextPendingMessages = upsertLocalPendingMessage(currentUser.id, {
+      const nextPendingStatus = "FAILED";
+      upsertPendingMessagesCache(queryClient, currentUser.id, {
         chatId: input.chatId,
         clientMessageId: input.clientMessageId,
         content: input.content,
@@ -298,29 +302,16 @@ export function useMessageActions({
         status: nextPendingStatus,
         attachments: input.attachments ?? [],
       });
-      queryClient.setQueryData(["pending-outgoing-messages", currentUser.id], nextPendingMessages);
-      if (transientFailure) {
-        queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
-          getMessagesKey(input.chatId),
-          (current) =>
-            updateMessageByClientMessageId(current, input.clientMessageId, (message) => ({
-              ...(message.serverOrder != null || message.id !== input.clientMessageId
-                ? message
-                : {
-                    ...message,
-                    status: {
-                      ...(message.status ?? {
-                        recipientCount: Math.max(0, input.participants.length - 1),
-                        deliveredCount: 0,
-                        readCount: 0,
-                      }),
-                      state: "SENDING",
-                    },
-                  }),
-            })),
-        );
-        return;
-      }
+      void upsertPendingOutgoingMessage(sessionToken, input.clientMessageId, {
+        chatId: input.chatId,
+        content: input.content,
+        createdAt: new Date().toISOString(),
+        localOrder: input.localOrder,
+        recipientCount: Math.max(0, input.participants.length - 1),
+        replyTo: input.replyTo ?? null,
+        status: nextPendingStatus,
+        attachments: input.attachments ?? [],
+      }).catch(() => undefined);
       queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
         getMessagesKey(input.chatId),
         (current) =>
@@ -370,104 +361,61 @@ export function useMessageActions({
       participantCount: input.participants.length,
     });
     recordSendDiagnosticStep(input.clientMessageId, "sendOutgoingMessage:accepted");
-    clearAutoResendTimer(input.clientMessageId);
     inFlightSendClientMessageIdsRef.current.add(input.clientMessageId);
     sendMessageMutation.mutate(input);
     return true;
   };
 
-  const clearAutoResendTimer = (clientMessageId: string) => {
-    const timeoutId = autoResendTimeoutIdsRef.current.get(clientMessageId);
-    if (timeoutId === undefined) {
-      return;
-    }
-    window.clearTimeout(timeoutId);
-    autoResendTimeoutIdsRef.current.delete(clientMessageId);
-  };
-
   useEffect(() => {
-    if (!isRealtimeConnected || pendingOutgoingMessages.length === 0) {
+    if (pendingOutgoingMessages.length === 0) {
       return;
     }
 
-    const now = Date.now();
-    pendingOutgoingMessages.forEach((message) => {
-      if (message.status !== "SENDING") {
-        return;
-      }
+    const staleSendingMessages = pendingOutgoingMessages.filter(
+      (message) =>
+        message.status === "SENDING" &&
+        !inFlightSendClientMessageIdsRef.current.has(message.clientMessageId)
+    );
+    if (staleSendingMessages.length === 0) {
+      return;
+    }
 
-      if (inFlightSendClientMessageIdsRef.current.has(message.clientMessageId)) {
-        return;
-      }
-
-      const updatedAt = Date.parse(message.updatedAt);
-      const lastAttemptAt = lastAutoResendAttemptAtRef.current.get(message.clientMessageId) ?? 0;
-      const newestActivityAt = Math.max(
-        Number.isNaN(updatedAt) ? 0 : updatedAt,
-        lastAttemptAt
-      );
-      if (newestActivityAt > 0 && now - newestActivityAt < AUTO_RESEND_DELAY_MS) {
-        if (!autoResendTimeoutIdsRef.current.has(message.clientMessageId)) {
-          const retryAfterMs = AUTO_RESEND_DELAY_MS - (now - newestActivityAt);
-          const timeoutId = window.setTimeout(() => {
-            autoResendTimeoutIdsRef.current.delete(message.clientMessageId);
-            const currentPendingMessages =
-              queryClient.getQueryData<LocalPendingMessage[]>([
-                "pending-outgoing-messages",
-                currentUser.id,
-              ]) ?? [];
-            const currentPendingMessage = currentPendingMessages.find(
-              (candidate) =>
-                candidate.clientMessageId === message.clientMessageId &&
-                candidate.status === "SENDING"
-            );
-            const currentTargetChat = chats.find((chat) => chat.id === message.chatId);
-            if (!currentPendingMessage || !currentTargetChat) {
-              return;
-            }
-            if (inFlightSendClientMessageIdsRef.current.has(message.clientMessageId)) {
-              return;
-            }
-            lastAutoResendAttemptAtRef.current.set(message.clientMessageId, Date.now());
-            sendOutgoingMessage({
-              chatId: currentTargetChat.id,
-              clientMessageId: currentPendingMessage.clientMessageId,
-              content: currentPendingMessage.content,
-              localOrder: currentPendingMessage.localOrder ?? ++nextLocalMessageOrderRef.current,
-              participants: currentTargetChat.members,
-              replyTo: currentPendingMessage.replyTo,
-              attachments: currentPendingMessage.attachments ?? [],
-            });
-          }, Math.max(0, retryAfterMs));
-          autoResendTimeoutIdsRef.current.set(message.clientMessageId, timeoutId);
-        }
-        return;
-      }
-
-      const targetChat = chats.find((chat) => chat.id === message.chatId);
-      if (!targetChat) {
-        return;
-      }
-
-      lastAutoResendAttemptAtRef.current.set(message.clientMessageId, now);
-      sendOutgoingMessage({
-        chatId: targetChat.id,
-        clientMessageId: message.clientMessageId,
-        content: message.content,
-        localOrder: message.localOrder ?? ++nextLocalMessageOrderRef.current,
-        participants: targetChat.members,
-        replyTo: message.replyTo,
-        attachments: message.attachments ?? [],
+    staleSendingMessages.forEach((message) => {
+      upsertPendingMessagesCache(queryClient, currentUser.id, {
+        ...message,
+        status: "FAILED",
       });
+      queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
+        getMessagesKey(message.chatId),
+        (current) =>
+          updateMessageByClientMessageId(current, message.clientMessageId, (chatMessage) => ({
+            ...(chatMessage.serverOrder != null || chatMessage.id !== message.clientMessageId
+              ? chatMessage
+              : {
+                  ...chatMessage,
+                  status: {
+                    ...(chatMessage.status ?? {
+                      recipientCount: message.recipientCount,
+                      deliveredCount: 0,
+                      readCount: 0,
+                    }),
+                    state: "FAILED",
+                  },
+                }),
+          })),
+      );
+      void upsertPendingOutgoingMessage(sessionToken, message.clientMessageId, {
+        chatId: message.chatId,
+        content: message.content,
+        createdAt: message.createdAt,
+        localOrder: message.localOrder,
+        recipientCount: message.recipientCount,
+        replyTo: message.replyTo ?? null,
+        status: "FAILED",
+        attachments: message.attachments ?? [],
+      }).catch(() => undefined);
     });
-  }, [chats, currentUser.id, isRealtimeConnected, pendingOutgoingMessages, queryClient]);
-
-  useEffect(() => {
-    return () => {
-      autoResendTimeoutIdsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
-      autoResendTimeoutIdsRef.current.clear();
-    };
-  }, []);
+  }, [currentUser.id, pendingOutgoingMessages, queryClient, sessionToken]);
 
   const deleteChatMutation = useMutation({
     mutationFn: (chatId: string) => deleteChatRequest(sessionToken, chatId),
@@ -628,6 +576,8 @@ export function useMessageActions({
           isDirectChat: activeChat?.direct,
           session,
           attachments: attachments ?? [],
+          membershipVersion: activeChat?.membershipVersion,
+          prejoinHistoryPolicy: activeChat?.prejoinHistoryPolicy ?? null,
         }
       );
     },
@@ -691,6 +641,8 @@ export function useMessageActions({
             currentUserId: currentUser.id,
             isDirectChat: targetChat.direct,
             session,
+            membershipVersion: targetChat.membershipVersion,
+            prejoinHistoryPolicy: targetChat.prejoinHistoryPolicy ?? null,
           },
         );
         sentMessages.push(sentMessage);
@@ -772,7 +724,7 @@ export function useMessageActions({
   ) => {
     setContextMenu(null);
     const pendingMessages =
-      queryClient.getQueryData<LocalPendingMessage[]>(["pending-outgoing-messages", currentUser.id]) ??
+      queryClient.getQueryData<PendingOutgoingMessage[]>(["pending-outgoing-messages", currentUser.id]) ??
       pendingOutgoingMessages;
     const pendingMessage = pendingMessages.find((message) => message.clientMessageId === messageId);
     if (pendingMessage) {
@@ -784,10 +736,8 @@ export function useMessageActions({
       }
 
       discardedLocalClientMessageIdsRef.current.add(messageId);
-      clearAutoResendTimer(messageId);
-      lastAutoResendAttemptAtRef.current.delete(messageId);
-      const nextPendingMessages = removeLocalPendingMessage(currentUser.id, messageId);
-      queryClient.setQueryData(["pending-outgoing-messages", currentUser.id], nextPendingMessages);
+      removePendingMessagesFromCache(queryClient, currentUser.id, messageId);
+      void deletePendingOutgoingMessage(sessionToken, messageId).catch(() => undefined);
       queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
         getMessagesKey(chatId),
         (current) => removeMessageByClientMessageId(current, messageId),
@@ -827,7 +777,7 @@ export function useMessageActions({
 
   const deleteMessageForSelf = (chatId: string, messageId: string) => {
     const localPendingMessages =
-      queryClient.getQueryData<LocalPendingMessage[]>(["pending-outgoing-messages", currentUser.id]) ??
+      queryClient.getQueryData<PendingOutgoingMessage[]>(["pending-outgoing-messages", currentUser.id]) ??
       pendingOutgoingMessages;
     const localPendingMessage = localPendingMessages.find(
       (message) => message.clientMessageId === messageId
@@ -842,7 +792,7 @@ export function useMessageActions({
     return;
     setContextMenu(null);
     const pendingMessages =
-      queryClient.getQueryData<LocalPendingMessage[]>(["pending-outgoing-messages", currentUser.id]) ??
+      queryClient.getQueryData<PendingOutgoingMessage[]>(["pending-outgoing-messages", currentUser.id]) ??
       pendingOutgoingMessages;
     const pendingMessage = pendingMessages.find((message) => message.clientMessageId === messageId);
     if (pendingMessage) {
@@ -851,10 +801,8 @@ export function useMessageActions({
       }
 
       discardedLocalClientMessageIdsRef.current.add(messageId);
-      clearAutoResendTimer(messageId);
-      lastAutoResendAttemptAtRef.current.delete(messageId);
-      const nextPendingMessages = removeLocalPendingMessage(currentUser.id, messageId);
-      queryClient.setQueryData(["pending-outgoing-messages", currentUser.id], nextPendingMessages);
+      removePendingMessagesFromCache(queryClient, currentUser.id, messageId);
+      void deletePendingOutgoingMessage(sessionToken, messageId).catch(() => undefined);
       queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
         getMessagesKey(chatId),
         (current) => removeMessageByClientMessageId(current, messageId),
@@ -892,7 +840,7 @@ export function useMessageActions({
 
     setContextMenu(null);
     const pendingMessages =
-      queryClient.getQueryData<LocalPendingMessage[]>(["pending-outgoing-messages", currentUser.id]) ??
+      queryClient.getQueryData<PendingOutgoingMessage[]>(["pending-outgoing-messages", currentUser.id]) ??
       pendingOutgoingMessages;
     const pendingMessageIdSet = new Set(
       pendingMessages.map((pendingMessage) => pendingMessage.clientMessageId),
@@ -1113,6 +1061,56 @@ export function useMessageActions({
     toggleReactionFromContextMenu,
     copyMessageText,
   };
+}
+
+function upsertPendingMessagesCache(
+  queryClient: QueryClient,
+  userId: string,
+  message: Omit<PendingOutgoingMessage, "updatedAt"> &
+    Partial<Pick<PendingOutgoingMessage, "updatedAt">>
+) {
+  const queryKey = ["pending-outgoing-messages", userId] as const;
+  const current =
+    queryClient.getQueryData<PendingOutgoingMessage[]>(queryKey) ?? [];
+  const currentByClientMessageId = new Map(
+    current.map((pendingMessage) => [pendingMessage.clientMessageId, pendingMessage] as const)
+  );
+  const existingMessage = currentByClientMessageId.get(message.clientMessageId);
+  currentByClientMessageId.set(message.clientMessageId, {
+    ...existingMessage,
+    ...message,
+    createdAt: existingMessage?.createdAt ?? message.createdAt,
+    localOrder: message.localOrder ?? existingMessage?.localOrder ?? null,
+    attachments: message.attachments ?? existingMessage?.attachments ?? [],
+    updatedAt: new Date().toISOString(),
+  });
+  const nextPendingMessages = [...currentByClientMessageId.values()].sort((left, right) => {
+    const createdAtComparison = left.createdAt.localeCompare(right.createdAt);
+    if (createdAtComparison !== 0) {
+      return createdAtComparison;
+    }
+    if (left.localOrder !== right.localOrder) {
+      return (left.localOrder ?? 0) - (right.localOrder ?? 0);
+    }
+    return left.clientMessageId.localeCompare(right.clientMessageId);
+  });
+  queryClient.setQueryData(queryKey, nextPendingMessages);
+  return nextPendingMessages;
+}
+
+function removePendingMessagesFromCache(
+  queryClient: QueryClient,
+  userId: string,
+  clientMessageId: string
+) {
+  const queryKey = ["pending-outgoing-messages", userId] as const;
+  const current =
+    queryClient.getQueryData<PendingOutgoingMessage[]>(queryKey) ?? [];
+  const nextPendingMessages = current.filter(
+    (message) => message.clientMessageId !== clientMessageId
+  );
+  queryClient.setQueryData(queryKey, nextPendingMessages);
+  return nextPendingMessages;
 }
 
 function isTransientSendFailure(error: unknown) {

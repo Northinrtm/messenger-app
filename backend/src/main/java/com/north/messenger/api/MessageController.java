@@ -2,6 +2,7 @@ package com.north.messenger.api;
 
 import com.north.messenger.api.dto.MessageReceiptRequest;
 import com.north.messenger.api.dto.MessageReactionEventResponse;
+import com.north.messenger.api.dto.MessagePageResponse;
 import com.north.messenger.api.dto.MessageResponse;
 import com.north.messenger.api.dto.ToggleMessageReactionRequest;
 import com.north.messenger.api.dto.UpdateMessageRequest;
@@ -54,6 +55,23 @@ public class MessageController {
                 chatId,
                 authentication.getName(),
                 beforeServerOrder,
+                limit,
+                acknowledgeDelivered
+        );
+    }
+
+    @GetMapping("/page")
+    public MessagePageResponse listMessagePage(
+            Authentication authentication,
+            @PathVariable UUID chatId,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "50") int limit,
+            @RequestParam(defaultValue = "true") boolean acknowledgeDelivered
+    ) {
+        return messageService.listMessagePage(
+                chatId,
+                authentication.getName(),
+                cursor,
                 limit,
                 acknowledgeDelivered
         );

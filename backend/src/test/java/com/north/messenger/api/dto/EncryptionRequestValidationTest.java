@@ -4,9 +4,7 @@ import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -22,67 +20,9 @@ class EncryptionRequestValidationTest {
     }
 
     @Test
-    void shouldRejectNestedInvalidOneTimePrekey() {
-        UserEncryptionDeviceRequest request = new UserEncryptionDeviceRequest(
-                UUID.randomUUID(),
-                "jwk-identity",
-                "X25519",
-                "jwk-signature",
-                "Ed25519",
-                1,
-                "jwk-signed-prekey",
-                "signature",
-                "X25519",
-                List.of(new UserEncryptionOneTimePrekeyRequest(1, ""))
-        );
-
-        Set<ConstraintViolation<UserEncryptionDeviceRequest>> violations = validator.validate(request);
-
-        assertThat(violations)
-                .extracting(ConstraintViolation::getPropertyPath)
-                .map(Object::toString)
-                .anyMatch(path -> path.contains("oneTimePrekeys"));
-    }
-
-    @Test
-    void shouldRejectTooManyOneTimePrekeys() {
-        List<UserEncryptionOneTimePrekeyRequest> prekeys = java.util.stream.IntStream.range(0, 257)
-                .mapToObj(index -> new UserEncryptionOneTimePrekeyRequest(index, "jwk-" + index))
-                .toList();
-        UserEncryptionDeviceRequest request = new UserEncryptionDeviceRequest(
-                UUID.randomUUID(),
-                "jwk-identity",
-                "X25519",
-                "jwk-signature",
-                "Ed25519",
-                1,
-                "jwk-signed-prekey",
-                "signature",
-                "X25519",
-                prekeys
-        );
-
-        Set<ConstraintViolation<UserEncryptionDeviceRequest>> violations = validator.validate(request);
-
-        assertThat(violations)
-                .extracting(ConstraintViolation::getPropertyPath)
-                .map(Object::toString)
-                .contains("oneTimePrekeys");
-    }
-
-    @Test
-    void shouldRejectTooManyBundleTargets() {
-        List<UUID> userIds = java.util.stream.Stream.generate(UUID::randomUUID)
-                .limit(101)
-                .toList();
-        ResolveEncryptionDeviceBundlesRequest request = new ResolveEncryptionDeviceBundlesRequest(
-                userIds,
-                List.of(),
-                Boolean.FALSE,
-                null
-        );
-
-        Set<ConstraintViolation<ResolveEncryptionDeviceBundlesRequest>> violations = validator.validate(request);
+    void shouldRejectEmptyAccountKeyResolveTargets() {
+        ResolveEncryptionAccountKeysRequest request = new ResolveEncryptionAccountKeysRequest(List.of());
+        Set<ConstraintViolation<ResolveEncryptionAccountKeysRequest>> violations = validator.validate(request);
 
         assertThat(violations)
                 .extracting(ConstraintViolation::getPropertyPath)
@@ -91,16 +31,39 @@ class EncryptionRequestValidationTest {
     }
 
     @Test
-    void shouldRejectTooManyEncryptedRecipientPayloads() {
-        Map<String, String> encryptedKeysByRecipientId = java.util.stream.IntStream.range(0, 513)
-                .boxed()
-                .collect(java.util.stream.Collectors.toMap(
-                        index -> UUID.randomUUID().toString(),
-                        index -> "payload-" + index
-                ));
+    void shouldRejectBlankAccountKeyPayload() {
+        UserEncryptionAccountKeyRequest request = new UserEncryptionAccountKeyRequest(
+                " ",
+                0,
+                0,
+                " ",
+                " ",
+                " ",
+                " ",
+                " "
+        );
+        Set<ConstraintViolation<UserEncryptionAccountKeyRequest>> violations = validator.validate(request);
+
+        assertThat(violations)
+                .extracting(ConstraintViolation::getPropertyPath)
+                .map(Object::toString)
+                .contains(
+                        "publicKey",
+                        "accountKeyVersion",
+                        "identityGeneration",
+                        "identitySigningPublicKey",
+                        "identityKeyAlgorithm",
+                        "accountKeyAlgorithm",
+                        "signedAt",
+                        "signature"
+                );
+    }
+
+    @Test
+    void shouldRejectOversizedSharedEnvelope() {
         EncryptedMessagePayloadRequest request = new EncryptedMessagePayloadRequest(
-                "X3DH-DEVICE-AES-GCM",
-                encryptedKeysByRecipientId
+                "CHAT-EPOCH-KEY-AES-GCM",
+                "x".repeat(20_001)
         );
 
         Set<ConstraintViolation<EncryptedMessagePayloadRequest>> violations = validator.validate(request);
@@ -108,6 +71,6 @@ class EncryptionRequestValidationTest {
         assertThat(violations)
                 .extracting(ConstraintViolation::getPropertyPath)
                 .map(Object::toString)
-                .contains("encryptedKeysByRecipientId");
+                .contains("sharedEnvelope");
     }
 }

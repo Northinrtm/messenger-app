@@ -5,7 +5,6 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../lib/api", () => ({
-  listOwnEncryptionDevices: vi.fn(async () => []),
   logout: vi.fn(async () => undefined),
 }));
 
@@ -13,9 +12,9 @@ vi.mock("../../lib/e2ee", () => ({
   lockUnlockedEncryptionState: vi.fn(),
 }));
 
-vi.mock("../../lib/e2eeTrustedDevice", () => ({
-  hasTrustedDeviceUnlock: vi.fn(() => false),
-  isTrustedDeviceUnlockSupported: vi.fn(() => false),
+vi.mock("../../lib/e2eeTrustedBrowser", () => ({
+  hasTrustedBrowserUnlock: vi.fn(() => false),
+  isTrustedBrowserUnlockSupported: vi.fn(() => false),
 }));
 
 import { logout } from "../../lib/api";

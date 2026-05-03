@@ -25,7 +25,7 @@ export type MessageHydrationDiagnosticRecord = {
   outcome: MessageHydrationDiagnosticOutcome;
   encrypted: boolean;
   scheme: string | null;
-  hasHistoryEnvelope: boolean;
+  hasSharedEnvelope: boolean;
   mirrorHit: boolean;
   archiveHit: boolean;
   remoteArchiveRefreshAttempted: boolean;
@@ -75,7 +75,7 @@ export function recordMessageHydrationDiagnostic(input: {
     outcome: input.outcome,
     encrypted: Boolean(input.message.encryptedPayload),
     scheme: input.message.encryptedPayload?.scheme ?? null,
-    hasHistoryEnvelope: Boolean(input.message.encryptedPayload?.historyEnvelope),
+    hasSharedEnvelope: Boolean(input.message.encryptedPayload?.sharedEnvelope),
     mirrorHit: input.mirrorHit,
     archiveHit: input.archiveHit,
     remoteArchiveRefreshAttempted: input.remoteArchiveRefreshAttempted ?? false,

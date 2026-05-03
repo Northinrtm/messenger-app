@@ -6,7 +6,7 @@ import type { ConversationListTab } from "../chatUi";
 
 type UseWorkspaceStatusOptions = {
   activeListTab: ConversationListTab;
-  deferredContactSearch: string;
+  contactSearch: string;
   errors: unknown[];
   normalizedSearch: string;
   onUnauthorized: () => void;
@@ -34,7 +34,7 @@ export function resolveTabChatsEmptyText(
 
 export function useWorkspaceStatus({
   activeListTab,
-  deferredContactSearch,
+  contactSearch,
   errors,
   normalizedSearch,
   onUnauthorized,
@@ -53,7 +53,7 @@ export function useWorkspaceStatus({
       ? [requestError.message, ...requestError.details].filter(Boolean).join(". ")
       : null;
 
-  const showContactSearchResults = deferredContactSearch.trim().length > 0;
+  const showContactSearchResults = contactSearch.trim().length > 0;
   const tabChats = resolveTabChats(activeListTab, visibleChats);
   const tabChatsEmptyText = resolveTabChatsEmptyText(activeListTab, normalizedSearch);
 

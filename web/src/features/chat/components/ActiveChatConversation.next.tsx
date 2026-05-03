@@ -291,6 +291,7 @@ export function ActiveChatConversation({
       if (submitted) {
         setComposerValue("");
         setSelectedFiles([]);
+        onComposerChange("");
       }
     } finally {
       if (uploadAbortControllerRef.current === uploadAbortController) {

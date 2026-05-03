@@ -194,6 +194,12 @@ services:
       context: ./backend
       provenance: false
       sbom: false
+    develop:
+      watch:
+        - action: rebuild
+          path: ./backend/pom.xml
+        - action: rebuild
+          path: ./backend/src
     container_name: messenger-backend
     environment:
       SPRING_PROFILES_ACTIVE: dev
@@ -206,6 +212,8 @@ services:
       APP_REALTIME_REDIS_ENABLED: ${APP_REALTIME_REDIS_ENABLED:-false}
       APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
       APP_JWT_SECRET: ${APP_JWT_SECRET:-MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}
+      APP_E2EE_ESCROW_SECRET: ${APP_E2EE_ESCROW_SECRET:-bWVzc2VuZ2VyLWRldi1lc2Nyb3ctc2VjcmV0LTMyISE=}
+      APP_E2EE_ESCROW_GENERATE_SECRET_IF_MISSING: ${APP_E2EE_ESCROW_GENERATE_SECRET_IF_MISSING:-false}
       APP_JWT_REFRESH_TOKEN_TTL: P30D
       APP_AUTH_REGISTRATION_ALLOWED_EMAIL_DOMAINS: ${APP_AUTH_REGISTRATION_ALLOWED_EMAIL_DOMAINS:-gmail.com,googlemail.com,outlook.com,hotmail.com,live.com,msn.com,yahoo.com,icloud.com,me.com,mac.com,yandex.ru,yandex.com,ya.ru,mail.ru,bk.ru,inbox.ru,list.ru}
       APP_AUTH_EMAIL_VERIFICATION_ENABLED: ${APP_AUTH_EMAIL_VERIFICATION_ENABLED:-true}
@@ -242,6 +250,12 @@ services:
         condition: service_started
     ports:
       - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 90s
     volumes:
       - conference_recordings_archive:/app/storage/conference-recordings
       - message_attachments:/app/storage/message-attachments
@@ -254,14 +268,39 @@ services:
       sbom: false
       args:
         VITE_API_URL: ""
+        VITE_APP_REVISION: ${WEB_APP_REVISION:-dev}
         VITE_WS_URL: ""
         VITE_JITSI_BASE_URL: ${JITSI_PUBLIC_URL:-http://localhost:8090}
+    develop:
+      watch:
+        - action: rebuild
+          path: ./web/package.json
+        - action: rebuild
+          path: ./web/package-lock.json
+        - action: rebuild
+          path: ./web/index.html
+        - action: rebuild
+          path: ./web/vite.config.ts
+        - action: rebuild
+          path: ./web/public
+        - action: rebuild
+          path: ./web/scripts
+        - action: rebuild
+          path: ./web/src
+        - action: rebuild
+          path: ./web/nginx/default.conf
     container_name: messenger-web
     depends_on:
       - backend
       - jitsi-web
     ports:
       - "3000:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 volumes:
   postgres_data:

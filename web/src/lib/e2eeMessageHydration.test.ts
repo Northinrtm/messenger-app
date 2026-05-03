@@ -26,8 +26,7 @@ const baseMessage = (overrides: Partial<ApiChatMessage> = {}): ApiChatMessage =>
   replyTo: null,
   reactions: [],
   encryptedPayload: {
-    scheme: "X3DH-DEVICE-AES-GCM",
-    encryptedKeysByRecipientId: {},
+    scheme: "CHAT-EPOCH-KEY-AES-GCM",
   },
   ...overrides,
 });
@@ -53,13 +52,8 @@ const buildHydratedChatMessage = (
 });
 
 describe("e2eeMessageHydration", () => {
-  it("builds a snapshot from archived decrypted content before consulting the mirror", async () => {
+  it("builds a snapshot from archived decrypted content", async () => {
     const recordMessageHydrationDiagnostic = vi.fn();
-    const readOutgoingMessageMirror = vi.fn(() => ({
-      content: "mirror",
-      editedAt: null,
-      attachments: [],
-    }));
 
     const hydrated = await hydrateChatMessageSnapshot({
       message: baseMessage(),
@@ -70,13 +64,11 @@ describe("e2eeMessageHydration", () => {
         editedAt: null,
         attachments: [],
       })),
-      readOutgoingMessageMirror,
       buildHydratedChatMessage,
       recordMessageHydrationDiagnostic,
     });
 
     expect(hydrated.content).toBe("archived");
-    expect(readOutgoingMessageMirror).not.toHaveBeenCalled();
     expect(recordMessageHydrationDiagnostic).toHaveBeenCalledWith(
       expect.objectContaining({
         phase: "snapshot",
@@ -87,8 +79,7 @@ describe("e2eeMessageHydration", () => {
     );
   });
 
-  it("stores a successfully decrypted own message in the mirror and archive", async () => {
-    const rememberOutgoingMessageMirror = vi.fn();
+  it("stores a successfully decrypted own message in the archive", async () => {
     const rememberArchivedDecryptedMessage = vi.fn(async () => undefined);
     const recordMessageHydrationDiagnostic = vi.fn();
 
@@ -98,20 +89,14 @@ describe("e2eeMessageHydration", () => {
       serializeMessageHydration: async (_userId, action) => action(),
       ensureE2eeTransportStorageSchema: vi.fn(),
       readArchivedDecryptedMessageRecord: vi.fn(async () => null),
-      readOutgoingMessageMirror: vi.fn(() => null),
       buildHydratedChatMessage,
       recordMessageHydrationDiagnostic,
       decryptMessage: vi.fn(async () => "decrypted"),
-      rememberOutgoingMessageMirror,
       rememberArchivedDecryptedMessage,
       refreshArchivedMessagesFromRemoteRecoverySnapshot: vi.fn(async () => false),
     });
 
     expect(hydrated.content).toBe("decrypted");
-    expect(rememberOutgoingMessageMirror).toHaveBeenCalledWith(
-      "self-user",
-      expect.objectContaining({ content: "decrypted" })
-    );
     expect(rememberArchivedDecryptedMessage).toHaveBeenCalledWith(
       "self-user",
       expect.objectContaining({ content: "decrypted" })
@@ -141,13 +126,11 @@ describe("e2eeMessageHydration", () => {
       serializeMessageHydration: async (_userId, action) => action(),
       ensureE2eeTransportStorageSchema: vi.fn(),
       readArchivedDecryptedMessageRecord,
-      readOutgoingMessageMirror: vi.fn(() => null),
       buildHydratedChatMessage,
       recordMessageHydrationDiagnostic,
       decryptMessage: vi.fn(async () => {
         throw new Error("decrypt failed");
       }),
-      rememberOutgoingMessageMirror: vi.fn(),
       rememberArchivedDecryptedMessage: vi.fn(async () => undefined),
       refreshArchivedMessagesFromRemoteRecoverySnapshot: vi.fn(async () => true),
     });

@@ -11,6 +11,7 @@ import com.north.messenger.domain.repository.ChatRoomRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import com.north.messenger.domain.repository.UserBlockRepository;
 import com.north.messenger.domain.repository.UserContactRepository;
+import com.north.messenger.domain.repository.UserEncryptionAccountKeyRepository;
 import com.north.messenger.domain.repository.UserEncryptionRecoverySnapshotRepository;
 import com.north.messenger.domain.repository.UserSessionRepository;
 import com.north.messenger.security.JwtService;
@@ -47,6 +48,7 @@ class AuthServiceTest {
     private UserContactRepository userContactRepository;
     private UserBlockRepository userBlockRepository;
     private UserSessionRepository userSessionRepository;
+    private UserEncryptionAccountKeyRepository userEncryptionAccountKeyRepository;
     private UserEncryptionRecoverySnapshotRepository userEncryptionRecoverySnapshotRepository;
     private ChatRoomRepository chatRoomRepository;
     private PasswordEncoder passwordEncoder;
@@ -63,6 +65,7 @@ class AuthServiceTest {
         userContactRepository = mock(UserContactRepository.class);
         userBlockRepository = mock(UserBlockRepository.class);
         userSessionRepository = mock(UserSessionRepository.class);
+        userEncryptionAccountKeyRepository = mock(UserEncryptionAccountKeyRepository.class);
         userEncryptionRecoverySnapshotRepository = mock(UserEncryptionRecoverySnapshotRepository.class);
         chatRoomRepository = mock(ChatRoomRepository.class);
         passwordEncoder = mock(PasswordEncoder.class);
@@ -76,6 +79,7 @@ class AuthServiceTest {
                 userContactRepository,
                 userBlockRepository,
                 userSessionRepository,
+                userEncryptionAccountKeyRepository,
                 userEncryptionRecoverySnapshotRepository,
                 chatRoomRepository,
                 passwordEncoder,

@@ -4,6 +4,13 @@ import java.util.UUID;
 
 public record UserEncryptionAccountKeyResolveResponse(
         UUID userId,
-        String publicKey
+        String publicKey,
+        long accountKeyVersion,
+        long identityGeneration,
+        String identitySigningPublicKey,
+        String identityKeyAlgorithm,
+        String accountKeyAlgorithm,
+        String signedAt,
+        String signature
 ) {
 }

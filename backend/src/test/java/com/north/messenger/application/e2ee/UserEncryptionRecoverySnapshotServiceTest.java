@@ -53,7 +53,6 @@ class UserEncryptionRecoverySnapshotServiceTest {
                 userId,
                 "{\"messages\":[]}",
                 "{\"salt\":\"salt\"}",
-                "account-public-key",
                 1L,
                 Instant.parse("2026-04-10T10:00:00Z"),
                 Instant.parse("2026-04-10T10:05:00Z")
@@ -67,7 +66,6 @@ class UserEncryptionRecoverySnapshotServiceTest {
 
         assertThat(response.snapshotPayloadJson()).isEqualTo("{\"messages\":[]}");
         assertThat(response.wrappedIdentityRecordJson()).isEqualTo("{\"salt\":\"salt\"}");
-        assertThat(response.accountPublicKey()).isEqualTo("account-public-key");
         assertThat(response.wrappedPasswordVersion()).isEqualTo(1L);
         assertThat(response.updatedAt()).isEqualTo(Instant.parse("2026-04-10T10:05:00Z"));
     }
@@ -112,14 +110,12 @@ class UserEncryptionRecoverySnapshotServiceTest {
                         "token",
                         new UserEncryptionRecoverySnapshotRequest(
                                 "{\"messages\":[1]}",
-                                "{\"salt\":\"next\"}",
-                                "account-public-key"
+                                "{\"salt\":\"next\"}"
                         )
                 );
 
         assertThat(response.snapshotPayloadJson()).isEqualTo("{\"messages\":[1]}");
         assertThat(response.wrappedIdentityRecordJson()).isEqualTo("{\"salt\":\"next\"}");
-        assertThat(response.accountPublicKey()).isEqualTo("account-public-key");
         assertThat(response.wrappedPasswordVersion()).isEqualTo(user.getPasswordVersion());
         verify(userEncryptionRecoverySnapshotRepository).save(any(UserEncryptionRecoverySnapshot.class));
     }
@@ -140,7 +136,6 @@ class UserEncryptionRecoverySnapshotServiceTest {
                 userId,
                 "{\"messages\":[]}",
                 "{\"salt\":\"old\"}",
-                "account-public-key-old",
                 1L,
                 Instant.parse("2026-04-10T10:00:00Z"),
                 Instant.parse("2026-04-10T10:05:00Z")
@@ -157,18 +152,15 @@ class UserEncryptionRecoverySnapshotServiceTest {
                         "token",
                         new UserEncryptionRecoverySnapshotRequest(
                                 "{\"messages\":[2]}",
-                                "{\"salt\":\"new\"}",
-                                "account-public-key-new"
+                                "{\"salt\":\"new\"}"
                         )
                 );
 
         assertThat(response.snapshotPayloadJson()).isEqualTo("{\"messages\":[2]}");
         assertThat(response.wrappedIdentityRecordJson()).isEqualTo("{\"salt\":\"new\"}");
-        assertThat(response.accountPublicKey()).isEqualTo("account-public-key-new");
         assertThat(response.wrappedPasswordVersion()).isEqualTo(user.getPasswordVersion());
         assertThat(existingSnapshot.getSnapshotPayloadJson()).isEqualTo("{\"messages\":[2]}");
         assertThat(existingSnapshot.getWrappedIdentityRecordJson()).isEqualTo("{\"salt\":\"new\"}");
-        assertThat(existingSnapshot.getAccountPublicKey()).isEqualTo("account-public-key-new");
         assertThat(existingSnapshot.getWrappedPasswordVersion()).isEqualTo(user.getPasswordVersion());
         verify(userEncryptionRecoverySnapshotRepository).save(existingSnapshot);
     }

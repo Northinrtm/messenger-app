@@ -6,6 +6,10 @@ type StoredLocalIdentity = {
   privateKey: string;
   accountPublicKey?: string;
   accountPrivateKey?: string;
+  accountKeyVersion?: number;
+  identityGeneration?: number;
+  identitySigningPublicKey?: string;
+  identitySigningPrivateKey?: string;
 };
 
 type EnsureEncryptionReadyOptions = {
@@ -19,7 +23,6 @@ type EnsureEncryptionReadyOptions = {
     identity: StoredLocalIdentity,
     password: string
   ) => Promise<void>;
-  ensureRegisteredEncryptionDevice: (session: AuthResponse) => Promise<void>;
   syncEncryptionRecoverySnapshot: (session: AuthResponse) => Promise<void>;
   readRememberedUnlockedIdentity: (
     userId: string,
@@ -35,9 +38,7 @@ type EnsureEncryptionReadyOptions = {
     session: AuthResponse,
     password: string
   ) => Promise<StoredLocalIdentity | null>;
-  listOwnEncryptionDevices: (token: string) => Promise<Array<unknown>>;
   createLocalVaultIdentity: () => StoredLocalIdentity;
-  encryptionRecoveryExistingChatsMessage: string;
 };
 
 async function syncRecoverySnapshotBestEffort(
@@ -67,7 +68,6 @@ export async function ensureEncryptionReady(
     );
     options.writeUnlockedIdentity(userId, ensuredIdentity);
     await options.rememberUnlockedIdentity(userId, ensuredIdentity, options.password);
-    await options.ensureRegisteredEncryptionDevice(options.session);
     await syncRecoverySnapshotBestEffort(
       options.session,
       options.syncEncryptionRecoverySnapshot
@@ -87,7 +87,6 @@ export async function ensureEncryptionReady(
     );
     options.writeUnlockedIdentity(userId, ensuredIdentity);
     await options.rememberUnlockedIdentity(userId, ensuredIdentity, options.password);
-    await options.ensureRegisteredEncryptionDevice(options.session);
     await syncRecoverySnapshotBestEffort(
       options.session,
       options.syncEncryptionRecoverySnapshot
@@ -107,17 +106,11 @@ export async function ensureEncryptionReady(
     );
     options.writeUnlockedIdentity(userId, ensuredIdentity);
     await options.rememberUnlockedIdentity(userId, ensuredIdentity, options.password);
-    await options.ensureRegisteredEncryptionDevice(options.session);
     await syncRecoverySnapshotBestEffort(
       options.session,
       options.syncEncryptionRecoverySnapshot
     );
     return;
-  }
-
-  const existingDevices = await options.listOwnEncryptionDevices(options.session.token);
-  if (existingDevices.length > 0) {
-    throw new ApiError(options.encryptionRecoveryExistingChatsMessage, 409);
   }
 
   const localVaultIdentity = options.createLocalVaultIdentity();
@@ -128,7 +121,6 @@ export async function ensureEncryptionReady(
   );
   options.writeUnlockedIdentity(userId, ensuredIdentity);
   await options.rememberUnlockedIdentity(userId, ensuredIdentity, options.password);
-  await options.ensureRegisteredEncryptionDevice(options.session);
   await syncRecoverySnapshotBestEffort(
     options.session,
     options.syncEncryptionRecoverySnapshot
@@ -140,8 +132,7 @@ export async function resetEncryptionAfterPasswordReset(options: {
   password: string;
   ensureE2eeTransportStorageSchema: () => void;
   clearUnlockedEncryptionState: (userId?: string) => void;
-  removeTrustedDeviceUnlockRecord: (userId: string) => void;
-  clearPinnedDeviceBundleRecords: (userId: string) => void;
+  removeTrustedBrowserUnlockRecord: (userId: string) => void;
   clearStoredArchivedDecryptedMessageRecords: (userId: string) => Promise<void>;
   rememberRecoverySyncSession: (session: AuthResponse) => void;
   createLocalVaultIdentity: () => StoredLocalIdentity;
@@ -156,7 +147,6 @@ export async function resetEncryptionAfterPasswordReset(options: {
     identity: StoredLocalIdentity,
     password: string
   ) => Promise<void>;
-  ensureRegisteredEncryptionDevice: (session: AuthResponse) => Promise<void>;
   syncEncryptionRecoverySnapshot: (session: AuthResponse) => Promise<void>;
 }) {
   if (!options.password.trim()) {
@@ -170,8 +160,7 @@ export async function resetEncryptionAfterPasswordReset(options: {
   const userId = options.session.user.id;
 
   options.clearUnlockedEncryptionState(userId);
-  options.removeTrustedDeviceUnlockRecord(userId);
-  options.clearPinnedDeviceBundleRecords(userId);
+  options.removeTrustedBrowserUnlockRecord(userId);
   await options.clearStoredArchivedDecryptedMessageRecords(userId);
   options.rememberRecoverySyncSession(options.session);
 
@@ -183,7 +172,6 @@ export async function resetEncryptionAfterPasswordReset(options: {
   );
   options.writeUnlockedIdentity(userId, ensuredIdentity);
   await options.rememberUnlockedIdentity(userId, ensuredIdentity, options.password);
-  await options.ensureRegisteredEncryptionDevice(options.session);
   await options.syncEncryptionRecoverySnapshot(options.session);
 }
 

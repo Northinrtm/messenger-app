@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   getRealtimeUnreadMode,
-  shouldGrantRealtimeGroupHistoryAccess,
+  shouldInvalidateActiveHistoryKeyCacheOnRealtimeChatUpdate,
   shouldRefreshActiveChatOnRealtimeChatUpdate,
   shouldRefreshChatListOnRealtimeConnect,
   shouldRefreshActiveChatOnRealtimeConnect,
@@ -94,28 +94,6 @@ describe("getRealtimeUnreadMode", () => {
   });
 });
 
-describe("shouldGrantRealtimeGroupHistoryAccess", () => {
-  const groupChat = {
-    id: "chat-1",
-    direct: false,
-    members: [
-      { id: "user-1" },
-      { id: "user-2" },
-    ],
-  } as ChatSummary;
-
-  it("grants for group chat updates where the current user is a member", () => {
-    expect(shouldGrantRealtimeGroupHistoryAccess(groupChat, "user-1")).toBe(true);
-  });
-
-  it("skips direct chats and unrelated chat updates", () => {
-    expect(
-      shouldGrantRealtimeGroupHistoryAccess({ ...groupChat, direct: true }, "user-1")
-    ).toBe(false);
-    expect(shouldGrantRealtimeGroupHistoryAccess(groupChat, "user-3")).toBe(false);
-  });
-});
-
 describe("shouldRefreshActiveChatOnRealtimeChatUpdate", () => {
   const groupChat = {
     id: "chat-1",
@@ -166,6 +144,32 @@ describe("shouldRefreshActiveChatOnRealtimeChatUpdate", () => {
           pageParams: [null],
         },
       })
+    ).toBe(false);
+  });
+});
+
+describe("shouldInvalidateActiveHistoryKeyCacheOnRealtimeChatUpdate", () => {
+  it("invalidates when the active history key pointer changes for an existing chat", () => {
+    expect(
+      shouldInvalidateActiveHistoryKeyCacheOnRealtimeChatUpdate(
+        { activeHistoryKeyId: "history-1" } as ChatSummary,
+        { activeHistoryKeyId: "history-2" } as ChatSummary
+      )
+    ).toBe(true);
+  });
+
+  it("skips invalidation for new chats and unchanged pointers", () => {
+    expect(
+      shouldInvalidateActiveHistoryKeyCacheOnRealtimeChatUpdate(
+        null,
+        { activeHistoryKeyId: "history-1" } as ChatSummary
+      )
+    ).toBe(false);
+    expect(
+      shouldInvalidateActiveHistoryKeyCacheOnRealtimeChatUpdate(
+        { activeHistoryKeyId: "history-1" } as ChatSummary,
+        { activeHistoryKeyId: "history-1" } as ChatSummary
+      )
     ).toBe(false);
   });
 });

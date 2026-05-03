@@ -33,6 +33,9 @@ public interface ChatRoomRepository extends JpaRepository<ChatRoom, UUID> {
             UUID directUserHighId
     );
 
+    @Query("select room.membershipVersion from ChatRoom room where room.id = :chatId")
+    Optional<Long> findMembershipVersionByChatId(@Param("chatId") UUID chatId);
+
     @Modifying
     @Query(
             value = """

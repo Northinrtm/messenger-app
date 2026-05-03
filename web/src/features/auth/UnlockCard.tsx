@@ -1,8 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { listOwnEncryptionDevices, logout } from "../../lib/api";
+import { logout } from "../../lib/api";
 import { isResettableEncryptionRecoveryError } from "../../lib/e2eeShared";
-import { hasTrustedDeviceUnlock, isTrustedDeviceUnlockSupported } from "../../lib/e2eeTrustedDevice";
+import {
+  hasTrustedBrowserUnlock,
+  isTrustedBrowserUnlockSupported,
+} from "../../lib/e2eeTrustedBrowser";
 import type { AuthResponse } from "../../lib/types";
 import { buildUnlockErrorPresentation } from "./unlockErrorPresentation";
 
@@ -25,14 +28,8 @@ export function UnlockCard({
   const autoTrustedUnlockAttemptedRef = useRef(false);
   const passwordInputRef = useRef<HTMLInputElement | null>(null);
   const queryClient = useQueryClient();
-  const canTrustThisDevice = isTrustedDeviceUnlockSupported();
-  const hasTrustedUnlock = canTrustThisDevice && hasTrustedDeviceUnlock(session.user.id);
-  const encryptionDevicesQuery = useQuery({
-    queryKey: ["unlock-encryption-devices", session.token],
-    queryFn: () => listOwnEncryptionDevices(session.token),
-    staleTime: 60_000,
-    retry: false,
-  });
+  const canTrustThisBrowser = isTrustedBrowserUnlockSupported();
+  const hasTrustedUnlock = canTrustThisBrowser && hasTrustedBrowserUnlock(session.user.id);
 
   const finalizeUnlock = async (nextSession: AuthResponse) => {
     await Promise.all([
@@ -50,12 +47,12 @@ export function UnlockCard({
       return session;
     },
     onSuccess: async (nextSession) => {
-      if (canTrustThisDevice && !hasTrustedUnlock) {
+      if (canTrustThisBrowser && !hasTrustedUnlock) {
         try {
-          const { trustCurrentDeviceUnlock } = await import("../../lib/e2ee");
-          await trustCurrentDeviceUnlock(nextSession);
+          const { trustCurrentBrowserUnlock } = await import("../../lib/e2ee");
+          await trustCurrentBrowserUnlock(nextSession);
         } catch {
-          // Keep password-based unlock as the fallback when device enrollment is skipped or canceled.
+          // Keep password-based unlock as the fallback when browser enrollment is skipped or canceled.
         }
       }
       await finalizeUnlock(nextSession);
@@ -64,8 +61,8 @@ export function UnlockCard({
 
   const trustedUnlockMutation = useMutation({
     mutationFn: async () => {
-      const { unlockWithTrustedDevice } = await import("../../lib/e2ee");
-      await unlockWithTrustedDevice(session);
+      const { unlockWithTrustedBrowser } = await import("../../lib/e2ee");
+      await unlockWithTrustedBrowser(session);
       return session;
     },
     onSuccess: async (nextSession) => {
@@ -78,9 +75,9 @@ export function UnlockCard({
 
   const trustThisDeviceMutation = useMutation({
     mutationFn: async () => {
-      const { ensureEncryptionReady, trustCurrentDeviceUnlock } = await import("../../lib/e2ee");
+      const { ensureEncryptionReady, trustCurrentBrowserUnlock } = await import("../../lib/e2ee");
       await ensureEncryptionReady(session, password);
-      await trustCurrentDeviceUnlock(session);
+      await trustCurrentBrowserUnlock(session);
       return session;
     },
     onSuccess: async (nextSession) => {
@@ -118,17 +115,14 @@ export function UnlockCard({
     isResettableEncryptionRecoveryError(item)
   );
   const visibleError = [resetRecoveryMutation.error, ...unlockErrors].find(Boolean);
-  const encryptionDeviceCount = encryptionDevicesQuery.data?.length ?? 0;
-  const unlockErrorPresentation = buildUnlockErrorPresentation(visibleError, {
-    encryptionDeviceCount,
-  });
+  const unlockErrorPresentation = buildUnlockErrorPresentation(visibleError);
   const isOverlay = variant === "overlay";
-  const shouldShowDeviceFirst = hasTrustedUnlock;
-  const shouldShowPasswordForm = !shouldShowDeviceFirst || showPasswordFallback;
+  const shouldShowTrustedBrowserFirst = hasTrustedUnlock;
+  const shouldShowPasswordForm = !shouldShowTrustedBrowserFirst || showPasswordFallback;
   const canResetRecovery =
     (Boolean(resettableRecoveryError) || Boolean(unlockErrorPresentation?.canReset)) &&
     shouldShowPasswordForm;
-  const shouldRenderCompactTrustedUnlock = shouldShowDeviceFirst && !showPasswordFallback;
+  const shouldRenderCompactTrustedUnlock = shouldShowTrustedBrowserFirst && !showPasswordFallback;
   const containerClassName = isOverlay ? "unlock-overlay" : "auth-shell";
   const cardClassName = [
     "auth-card",
@@ -141,19 +135,12 @@ export function UnlockCard({
   const description = isOverlay
     ? "Your session is active, but this browser tab does not have the private key for message decryption unlocked yet."
     : "Your session was restored, but the private key for message decryption is locked in this browser tab.";
-  const encryptionDeviceSummary = encryptionDevicesQuery.isLoading
-    ? "Checking registered encryption devices for this account..."
-    : encryptionDeviceCount > 0
-      ? `This account currently has ${encryptionDeviceCount} registered encryption device${
-          encryptionDeviceCount === 1 ? "" : "s"
-        }. If another device still opens encrypted chats, keep it signed in until recovery is finished.`
-      : "No registered encryption devices are currently visible for this account yet.";
+  const encryptionDeviceSummary =
+    "If another browser session still opens encrypted chats, keep it signed in until recovery is finished.";
   const resetConsequencesCopy =
-    "Reset starts a new encrypted-chat key for future recovery on this account. Messages that only the previous key could decrypt will stay unavailable on this device.";
+    "Reset starts a new encrypted-chat key for future recovery on this account. Messages that only the previous key could decrypt will stay unavailable in this browser session.";
   const resetGuidanceCopy =
-    encryptionDeviceCount > 0
-      ? "If any other device can still unlock the previous key, stop here and recover from that device instead of resetting."
-      : "Use reset only if you are sure no device can still unlock the previous encrypted-chat key.";
+    "If any other browser session can still unlock the previous key, stop here and recover from that session instead of resetting.";
 
   useEffect(() => {
     if (!hasTrustedUnlock || autoTrustedUnlockAttemptedRef.current) {
@@ -179,7 +166,7 @@ export function UnlockCard({
         <h1>{shouldRenderCompactTrustedUnlock ? "Restoring encrypted chats." : "Unlock encrypted chats."}</h1>
         <p className="auth-copy">
           {shouldRenderCompactTrustedUnlock
-            ? "Using the trusted device factor for this browser session."
+            ? "Using the trusted browser factor for this browser session."
             : description}
         </p>
         {hasTrustedUnlock ? (
@@ -215,10 +202,10 @@ export function UnlockCard({
                   }}
                   disabled={trustedUnlockMutation.isPending}
                 >
-                  {trustedUnlockMutation.isPending ? "Unlocking with device..." : "Unlock with device"}
+                  {trustedUnlockMutation.isPending ? "Unlocking with browser..." : "Unlock with browser"}
                 </button>
                 <p className="auth-device-note">
-                  Use a passkey, Windows Hello, Touch ID, or another trusted device factor instead of
+                  Use a passkey, Windows Hello, Touch ID, or another trusted browser factor instead of
                   re-entering your chat password.
                 </p>
               </>
@@ -251,7 +238,7 @@ export function UnlockCard({
             </label>
 
             <p className="auth-field-hint">
-              If your account password changed recently, encrypted chats on this device may still
+              If your account password changed recently, encrypted chats in this browser session may still
               require the previous password until recovery is reset or re-secured.
             </p>
 
@@ -283,7 +270,7 @@ export function UnlockCard({
               >
                 {unlockMutation.isPending ? "Unlocking..." : "Unlock with password"}
               </button>
-              {canTrustThisDevice && !hasTrustedUnlock ? (
+              {canTrustThisBrowser && !hasTrustedUnlock ? (
                 <button
                   type="button"
                   className="primary-button auth-trust-button"
@@ -296,8 +283,8 @@ export function UnlockCard({
                   }
                 >
                   {trustThisDeviceMutation.isPending
-                    ? "Enabling device unlock..."
-                    : "Unlock and trust this device"}
+                    ? "Enabling browser unlock..."
+                    : "Unlock and trust this browser"}
                 </button>
               ) : null}
               {canResetRecovery ? (

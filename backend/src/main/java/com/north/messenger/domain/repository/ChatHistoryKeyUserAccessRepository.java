@@ -1,6 +1,7 @@
 package com.north.messenger.domain.repository;
 
 import com.north.messenger.domain.model.ChatHistoryKeyUserAccess;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -11,6 +12,16 @@ import org.springframework.data.repository.query.Param;
 public interface ChatHistoryKeyUserAccessRepository extends JpaRepository<ChatHistoryKeyUserAccess, UUID> {
 
     List<ChatHistoryKeyUserAccess> findAllByHistoryKeyId(UUID historyKeyId);
+
+    List<ChatHistoryKeyUserAccess> findAllByHistoryKeyIdAndRecipientUserIdIn(
+            UUID historyKeyId,
+            Collection<UUID> recipientUserIds
+    );
+
+    List<ChatHistoryKeyUserAccess> findAllByRecipientUserIdAndHistoryKeyIdIn(
+            UUID recipientUserId,
+            Collection<UUID> historyKeyIds
+    );
 
     @Query("""
             select access
@@ -23,6 +34,21 @@ public interface ChatHistoryKeyUserAccessRepository extends JpaRepository<ChatHi
     List<ChatHistoryKeyUserAccess> findAllByChatIdAndRecipientUserIdOrderByCreatedAtAsc(
             @Param("chatId") UUID chatId,
             @Param("recipientUserId") UUID recipientUserId
+    );
+
+    @Query("""
+            select access
+            from ChatHistoryKeyUserAccess access
+            join ChatHistoryKey historyKey on historyKey.id = access.historyKeyId
+            where historyKey.chatId = :chatId
+              and access.recipientUserId = :recipientUserId
+              and access.updatedAt >= :updatedAt
+            order by access.updatedAt asc, access.historyKeyId asc
+            """)
+    List<ChatHistoryKeyUserAccess> findAllByChatIdAndRecipientUserIdAndUpdatedAtOnOrAfterOrderByUpdatedAtAscHistoryKeyIdAsc(
+            @Param("chatId") UUID chatId,
+            @Param("recipientUserId") UUID recipientUserId,
+            @Param("updatedAt") java.time.Instant updatedAt
     );
 
     @Query("""

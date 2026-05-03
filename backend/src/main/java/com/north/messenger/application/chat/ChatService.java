@@ -11,6 +11,9 @@ import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.api.dto.UpdateGroupChatRequest;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.e2ee.ChatHistoryBackfillStatusService;
+import com.north.messenger.application.e2ee.GroupHistoryAccessBackfillRequestedEvent;
+import com.north.messenger.application.e2ee.GroupHistoryKeyRotationRequestedEvent;
+import com.north.messenger.application.message.EncryptedMessagePreviewService;
 import com.north.messenger.application.message.RealtimeMessagingGateway;
 import com.north.messenger.observability.MessengerTelemetry;
 import com.north.messenger.domain.model.ChatMessage;
@@ -59,8 +62,6 @@ import org.springframework.web.server.ResponseStatusException;
 @Transactional(readOnly = true)
 public class ChatService {
 
-    private static final String ENCRYPTED_MESSAGE_PLACEHOLDER = "Encrypted message";
-
     private final AuthService authService;
     private final ChatRoomRepository chatRoomRepository;
     private final ChatRoomBanRepository chatRoomBanRepository;
@@ -77,6 +78,7 @@ public class ChatService {
     private final DirectChatCreationLockService directChatCreationLockService;
     private final ApplicationEventPublisher eventPublisher;
     private final ChatHistoryBackfillStatusService chatHistoryBackfillStatusService;
+    private final EncryptedMessagePreviewService encryptedMessagePreviewService;
 
     public ChatService(
             AuthService authService,
@@ -94,7 +96,8 @@ public class ChatService {
             MessengerTelemetry telemetry,
             DirectChatCreationLockService directChatCreationLockService,
             ApplicationEventPublisher eventPublisher,
-            ChatHistoryBackfillStatusService chatHistoryBackfillStatusService
+            ChatHistoryBackfillStatusService chatHistoryBackfillStatusService,
+            EncryptedMessagePreviewService encryptedMessagePreviewService
     ) {
         this.authService = authService;
         this.chatRoomRepository = chatRoomRepository;
@@ -112,6 +115,7 @@ public class ChatService {
         this.directChatCreationLockService = directChatCreationLockService;
         this.eventPublisher = eventPublisher;
         this.chatHistoryBackfillStatusService = chatHistoryBackfillStatusService;
+        this.encryptedMessagePreviewService = encryptedMessagePreviewService;
     }
 
     public List<ChatSummaryResponse> listChats(String username) {
@@ -208,6 +212,7 @@ public class ChatService {
         }
 
         authService.assertUsersCanCommunicate(currentUser, participant);
+        authService.assertUsersHavePublishedAccountKeys(List.of(currentUser, participant));
 
         DirectChatPair directChatPair = DirectChatPair.of(currentUser.getId(), participant.getId());
         directChatCreationLockService.lockForPair(directChatPair.lowUserId(), directChatPair.highUserId());
@@ -233,6 +238,7 @@ public class ChatService {
         List<UserAccount> participants = normalizedUsernames.stream()
                 .map(authService::requireExistingUser)
                 .toList();
+        authService.assertUsersHavePublishedAccountKeys(buildDistinctUserAudience(currentUser, participants));
 
         ChatRoom room = new ChatRoom(
                 UUID.randomUUID(),
@@ -243,6 +249,8 @@ public class ChatService {
         room.updateOwnerUserId(currentUser.getId());
         chatRoomRepository.save(room);
         addParticipants(room, currentUser, participants);
+        persistMembershipVersionIncrement(room);
+        publishGroupHistoryRotationRequest(room.getId(), currentUser.getId());
         scheduleChatUpdated(room.getId());
         return getChatSummaryForUser(room.getId(), currentUser);
     }
@@ -281,6 +289,9 @@ public class ChatService {
                 .map(authService::requireExistingUser)
                 .toList();
         participants.forEach(participant -> requireGroupNotBanned(chatId, participant));
+        authService.assertUsersHavePublishedAccountKeys(
+                buildDistinctUserAudience(findParticipants(chatId), participants)
+        );
 
         Instant joinedAt = Instant.now();
         participants.forEach(participant -> {
@@ -289,6 +300,13 @@ public class ChatService {
             chatParticipantRepository.save(membership);
             syncParticipantHistoryAccessStatus(room, membership, currentUser.getId());
         });
+        persistMembershipVersionIncrement(room);
+        publishGroupHistoryBackfillRequest(
+                chatId,
+                participants.stream().map(UserAccount::getId).collect(Collectors.toSet()),
+                currentUser.getId()
+        );
+        publishGroupHistoryRotationRequest(chatId, currentUser.getId());
         scheduleChatUpdated(chatId);
         return getChatSummaryForUser(chatId, currentUser);
     }
@@ -323,6 +341,11 @@ public class ChatService {
                 }
                 syncParticipantHistoryAccessStatus(room, membership, currentUser.getId());
             });
+            publishGroupHistoryBackfillRequest(
+                    chatId,
+                    memberships.stream().map(ChatParticipant::getUserId).collect(Collectors.toSet()),
+                    currentUser.getId()
+            );
             chatHistoryBackfillStatusService.refreshCoverage(chatId);
         }
         scheduleChatUpdated(chatId);
@@ -364,8 +387,10 @@ public class ChatService {
                 chatRoomModeratorRepository.deleteByChatIdAndUserId(chatId, nextOwnerUserId);
             }
         }
+        persistMembershipVersionIncrement(room);
 
         scheduleChatRemoval(chatId, List.of(currentUser.getUsername()));
+        publishGroupHistoryRotationRequest(chatId, currentUser.getId());
         scheduleChatUpdated(chatId);
     }
 
@@ -390,7 +415,7 @@ public class ChatService {
         if (room.isDirect()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Direct chat does not support bans");
         }
-        GroupRole currentRole = requireGroupModeratorOrOwner(room, currentUser);
+        GroupRole currentRole = resolveGroupModeratorRoleOrThrow(room, currentUser);
 
         UserAccount bannedUser = authService.requireExistingUser(bannedUsername);
         assertCanModerateTarget(room, currentUser, currentRole, bannedUser, "ban");
@@ -407,7 +432,9 @@ public class ChatService {
             chatRoomModeratorRepository.deleteByChatIdAndUserId(chatId, bannedUser.getId());
             userArchivedChatRepository.deleteByUserIdAndChatId(bannedUser.getId(), chatId);
             userDeletedChatRepository.deleteByUserIdAndChatId(bannedUser.getId(), chatId);
+            persistMembershipVersionIncrement(room);
             scheduleChatRemoval(chatId, List.of(bannedUser.getUsername()));
+            publishGroupHistoryRotationRequest(chatId, currentUser.getId());
             scheduleChatUpdated(chatId);
         }
     }
@@ -467,7 +494,7 @@ public class ChatService {
         if (room.isDirect()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Direct chat does not support participant removal");
         }
-        GroupRole currentRole = requireGroupModeratorOrOwner(room, currentUser);
+        GroupRole currentRole = resolveGroupModeratorRoleOrThrow(room, currentUser);
 
         UserAccount participant = authService.requireExistingUser(participantUsername);
         assertCanModerateTarget(room, currentUser, currentRole, participant, "remove");
@@ -477,7 +504,9 @@ public class ChatService {
         chatRoomModeratorRepository.deleteByChatIdAndUserId(chatId, participant.getId());
         userArchivedChatRepository.deleteByUserIdAndChatId(participant.getId(), chatId);
         userDeletedChatRepository.deleteByUserIdAndChatId(participant.getId(), chatId);
+        persistMembershipVersionIncrement(room);
         scheduleChatRemoval(chatId, List.of(participant.getUsername()));
+        publishGroupHistoryRotationRequest(chatId, currentUser.getId());
         scheduleChatUpdated(chatId);
     }
 
@@ -493,11 +522,20 @@ public class ChatService {
 
         boolean alreadyMember = chatParticipantRepository.existsByChatIdAndUserId(chatId, currentUser.getId());
         if (!alreadyMember) {
+            authService.assertUsersHavePublishedAccountKeys(
+                    buildDistinctUserAudience(findParticipants(chatId), List.of(currentUser))
+            );
             Instant joinedAt = Instant.now();
             ChatParticipant membership = new ChatParticipant(UUID.randomUUID(), chatId, currentUser.getId(), joinedAt);
             grantPrejoinHistoryAccessIfEnabled(room, membership, joinedAt);
             chatParticipantRepository.save(membership);
             syncParticipantHistoryAccessStatus(room, membership, room.getOwnerUserId());
+            persistMembershipVersionIncrement(room);
+            publishGroupHistoryBackfillRequest(chatId, Set.of(currentUser.getId()), room.getOwnerUserId());
+            publishGroupHistoryRotationRequest(
+                    chatId,
+                    room.getOwnerUserId() != null ? room.getOwnerUserId() : currentUser.getId()
+            );
         }
 
         restoreDeletedChatStateForUsers(chatId, List.of(currentUser.getId()));
@@ -529,7 +567,7 @@ public class ChatService {
         if (room.isDirect()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Direct chat links are not supported");
         }
-        requireGroupModeratorOrOwner(room, currentUser);
+        requireGroupModeratorOrOwnerAccess(room, currentUser);
         return room;
     }
 
@@ -681,6 +719,8 @@ public class ChatService {
         );
         chatRoomRepository.save(room);
         addParticipants(room, currentUser, List.of(participant));
+        persistMembershipVersionIncrement(room);
+        publishGroupHistoryRotationRequest(room.getId(), currentUser.getId());
         scheduleChatUpdated(room.getId());
         return getChatSummaryForUser(room.getId(), currentUser);
     }
@@ -811,6 +851,8 @@ public class ChatService {
                 lastMessage != null ? lastMessage.getServerOrder() : null,
                 updatedAt,
                 unreadCount,
+                room.getMembershipVersion(),
+                room.getActiveHistoryKeyId(),
                 pinnedMessage,
                 room.isDirect() ? null : historyAccessStatus,
                 room.isDirect() ? null : room.getPrejoinHistoryPolicy().name()
@@ -964,7 +1006,7 @@ public class ChatService {
     }
 
     private String summarizeLastMessage(ChatMessage lastMessage) {
-        return ENCRYPTED_MESSAGE_PLACEHOLDER;
+        return encryptedMessagePreviewService.summarizeMessagePreview(lastMessage);
     }
 
     private Map<UUID, Integer> loadUnreadCounts(Collection<UUID> chatIds, UUID userId) {
@@ -1024,6 +1066,39 @@ public class ChatService {
         eventPublisher.publishEvent(new ChatUpdatedDeferredEvent(chatId));
     }
 
+    private void persistMembershipVersionIncrement(ChatRoom room) {
+        if (room == null) {
+            return;
+        }
+
+        room.incrementMembershipVersion();
+        chatRoomRepository.save(room);
+    }
+
+    private void publishGroupHistoryBackfillRequest(
+            UUID chatId,
+            Set<UUID> recipientUserIds,
+            UUID primaryGrantorUserId
+    ) {
+        if (chatId == null || recipientUserIds == null || recipientUserIds.isEmpty()) {
+            return;
+        }
+
+        eventPublisher.publishEvent(new GroupHistoryAccessBackfillRequestedEvent(
+                chatId,
+                recipientUserIds,
+                primaryGrantorUserId
+        ));
+    }
+
+    private void publishGroupHistoryRotationRequest(UUID chatId, UUID primaryGrantorUserId) {
+        if (chatId == null) {
+            return;
+        }
+
+        eventPublisher.publishEvent(new GroupHistoryKeyRotationRequestedEvent(chatId, primaryGrantorUserId));
+    }
+
     private void scheduleChatRemoval(UUID chatId, Collection<String> usernames) {
         if (usernames == null || usernames.isEmpty()) {
             return;
@@ -1061,7 +1136,11 @@ public class ChatService {
         }
     }
 
-    private GroupRole requireGroupModeratorOrOwner(ChatRoom room, UserAccount currentUser) {
+    public void requireGroupModeratorOrOwnerAccess(ChatRoom room, UserAccount currentUser) {
+        resolveGroupModeratorRoleOrThrow(room, currentUser);
+    }
+
+    private GroupRole resolveGroupModeratorRoleOrThrow(ChatRoom room, UserAccount currentUser) {
         UUID ownerUserId = resolveGroupOwnerUserId(
                 room,
                 chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(room.getId())
@@ -1166,6 +1245,37 @@ public class ChatService {
 
         return userAccountRepository.findAllByIdIn(ids).stream()
                 .collect(Collectors.toMap(UserAccount::getId, Function.identity()));
+    }
+
+    private List<UserAccount> buildDistinctUserAudience(UserAccount currentUser, List<UserAccount> participants) {
+        LinkedHashMap<UUID, UserAccount> usersById = new LinkedHashMap<>();
+        if (currentUser != null) {
+            usersById.put(currentUser.getId(), currentUser);
+        }
+        if (participants != null) {
+            participants.stream()
+                    .filter(Objects::nonNull)
+                    .forEach(user -> usersById.putIfAbsent(user.getId(), user));
+        }
+        return List.copyOf(usersById.values());
+    }
+
+    private List<UserAccount> buildDistinctUserAudience(
+            List<UserAccount> existingParticipants,
+            List<UserAccount> additionalParticipants
+    ) {
+        LinkedHashMap<UUID, UserAccount> usersById = new LinkedHashMap<>();
+        if (existingParticipants != null) {
+            existingParticipants.stream()
+                    .filter(Objects::nonNull)
+                    .forEach(user -> usersById.putIfAbsent(user.getId(), user));
+        }
+        if (additionalParticipants != null) {
+            additionalParticipants.stream()
+                    .filter(Objects::nonNull)
+                    .forEach(user -> usersById.putIfAbsent(user.getId(), user));
+        }
+        return List.copyOf(usersById.values());
     }
 
     private String normalizeUsername(String username) {

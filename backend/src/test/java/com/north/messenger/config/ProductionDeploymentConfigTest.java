@@ -19,6 +19,7 @@ class ProductionDeploymentConfigTest {
                 .contains("APP_REALTIME_REDIS_ENABLED: ${APP_REALTIME_REDIS_ENABLED:-true}")
                 .contains("APP_AUTH_RATE_LIMIT_REDIS_ENABLED: ${APP_AUTH_RATE_LIMIT_REDIS_ENABLED:-true}")
                 .contains("APP_REALTIME_REDIS_MAC_SECRET: ${APP_REALTIME_REDIS_MAC_SECRET:-}")
+                .contains("APP_E2EE_ESCROW_SECRET: ${APP_E2EE_ESCROW_SECRET:?APP_E2EE_ESCROW_SECRET must be set}")
                 .doesNotContain("container_name: messenger-backend")
                 .doesNotContain("container_name: messenger-web")
                 .contains("APP_ACTUATOR_SCRAPE_USERNAME: ${APP_ACTUATOR_SCRAPE_USERNAME:-}")
@@ -65,16 +66,20 @@ class ProductionDeploymentConfigTest {
     }
 
     @Test
-    void docsShouldNotDescribeWeakPrometheusFallbackOrLegacyCryptoScheme() throws Exception {
+    void docsShouldDescribeChatEpochCryptoAndAvoidWeakPrometheusFallback() throws Exception {
         String readme = readRepoFile("README.md");
         String productionRunbook = readRepoFile("deploy", "PRODUCTION.md");
 
         assertThat(readme)
-                .contains("X3DH-DEVICE-AES-GCM")
-                .contains("GROUP-SENDER-KEY-AES-GCM")
-                .doesNotContain("RSA-OAEP + AES-GCM")
+                .contains("CHAT-EPOCH-KEY-AES-GCM")
+                .contains("account-level encryption keys")
+                .contains("chat history epoch keys")
+                .contains("APP_E2EE_ESCROW_SECRET")
                 .doesNotContain("prometheus/prometheus");
-        assertThat(productionRunbook).doesNotContain("prometheus/prometheus");
+        assertThat(productionRunbook)
+                .contains("shared-envelope coverage")
+                .contains("APP_E2EE_ESCROW_SECRET")
+                .doesNotContain("prometheus/prometheus");
     }
 
     private String readRepoFile(String first, String... more) throws IOException {

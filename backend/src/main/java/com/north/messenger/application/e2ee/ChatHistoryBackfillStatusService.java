@@ -8,7 +8,6 @@ import com.north.messenger.domain.model.ChatParticipant;
 import com.north.messenger.domain.model.ChatPrejoinHistoryPolicy;
 import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.repository.ChatHistoryBackfillStatusRepository;
-import com.north.messenger.domain.repository.ChatHistoryKeyAccessRepository;
 import com.north.messenger.domain.repository.ChatHistoryKeyEscrowRepository;
 import com.north.messenger.domain.repository.ChatHistoryKeyRepository;
 import com.north.messenger.domain.repository.ChatHistoryKeyUserAccessRepository;
@@ -32,7 +31,6 @@ public class ChatHistoryBackfillStatusService {
 
     private final ChatHistoryBackfillStatusRepository chatHistoryBackfillStatusRepository;
     private final ChatHistoryKeyRepository chatHistoryKeyRepository;
-    private final ChatHistoryKeyAccessRepository chatHistoryKeyAccessRepository;
     private final ChatHistoryKeyUserAccessRepository chatHistoryKeyUserAccessRepository;
     private final ChatHistoryKeyEscrowRepository chatHistoryKeyEscrowRepository;
     private final ChatParticipantRepository chatParticipantRepository;
@@ -42,7 +40,6 @@ public class ChatHistoryBackfillStatusService {
     public ChatHistoryBackfillStatusService(
             ChatHistoryBackfillStatusRepository chatHistoryBackfillStatusRepository,
             ChatHistoryKeyRepository chatHistoryKeyRepository,
-            ChatHistoryKeyAccessRepository chatHistoryKeyAccessRepository,
             ChatHistoryKeyUserAccessRepository chatHistoryKeyUserAccessRepository,
             ChatHistoryKeyEscrowRepository chatHistoryKeyEscrowRepository,
             ChatParticipantRepository chatParticipantRepository,
@@ -51,7 +48,6 @@ public class ChatHistoryBackfillStatusService {
     ) {
         this.chatHistoryBackfillStatusRepository = chatHistoryBackfillStatusRepository;
         this.chatHistoryKeyRepository = chatHistoryKeyRepository;
-        this.chatHistoryKeyAccessRepository = chatHistoryKeyAccessRepository;
         this.chatHistoryKeyUserAccessRepository = chatHistoryKeyUserAccessRepository;
         this.chatHistoryKeyEscrowRepository = chatHistoryKeyEscrowRepository;
         this.chatParticipantRepository = chatParticipantRepository;
@@ -190,13 +186,6 @@ public class ChatHistoryBackfillStatusService {
 
     private int resolveAccessibleHistoryKeyCount(UUID chatId, UUID recipientUserId, Instant joinedAt) {
         Set<UUID> accessibleHistoryKeyIds = new LinkedHashSet<>(
-                chatHistoryKeyAccessRepository.findDistinctHistoryKeyIdsByChatIdAndRecipientUserIdBeforeJoinedAt(
-                        chatId,
-                        recipientUserId,
-                        joinedAt
-                )
-        );
-        accessibleHistoryKeyIds.addAll(
                 chatHistoryKeyUserAccessRepository.findDistinctHistoryKeyIdsByChatIdAndRecipientUserIdBeforeJoinedAt(
                         chatId,
                         recipientUserId,

@@ -53,6 +53,7 @@ class MessageCommandService {
     private final MessageDispatchOutboxService messageDispatchOutboxService;
     private final ChatGroupHistoryKeyService chatGroupHistoryKeyService;
     private final ChatAttachmentService chatAttachmentService;
+    private final PendingOutgoingMessageService pendingOutgoingMessageService;
     private final EntityManager entityManager;
 
     MessageCommandService(
@@ -68,6 +69,7 @@ class MessageCommandService {
             MessageDispatchOutboxService messageDispatchOutboxService,
             ChatGroupHistoryKeyService chatGroupHistoryKeyService,
             ChatAttachmentService chatAttachmentService,
+            PendingOutgoingMessageService pendingOutgoingMessageService,
             EntityManager entityManager
     ) {
         this.authService = authService;
@@ -82,6 +84,7 @@ class MessageCommandService {
         this.messageDispatchOutboxService = messageDispatchOutboxService;
         this.chatGroupHistoryKeyService = chatGroupHistoryKeyService;
         this.chatAttachmentService = chatAttachmentService;
+        this.pendingOutgoingMessageService = pendingOutgoingMessageService;
         this.entityManager = entityManager;
     }
 
@@ -108,6 +111,7 @@ class MessageCommandService {
                         MessageDispatchMode.ACK_ONLY
                 ));
             }
+            pendingOutgoingMessageService.deleteByUserIdAndClientMessageId(currentUser.getId(), clientMessageId);
             telemetry.recordMessageSend(
                     telemetrySample,
                     room,
@@ -140,34 +144,25 @@ class MessageCommandService {
                 encryptedPayload,
                 room,
                 currentUser,
-                participants
+                clientMessageId
         );
-        MessageSupport.StoredEncryptedEnvelope storedEnvelope = messageSupport.extractStoredEnvelope(encryptedPayload);
-        ChatGroupHistoryKeyService.ValidatedGroupMessageHistoryEnvelope historyEnvelope =
-                chatGroupHistoryKeyService.validateMessageHistoryEnvelope(room, encryptedPayload.historyEnvelope());
+        chatGroupHistoryKeyService.validateMessageHistoryKey(room, validatedEncryptedPayload.historyKeyId());
 
         try {
             ChatMessage message = new ChatMessage(
                     UUID.randomUUID(),
                     chatId,
                     currentUser.getId(),
-                    storedEnvelope.ciphertext(),
+                    validatedEncryptedPayload.sharedEnvelope(),
                     encryptedPayload.scheme(),
-                    storedEnvelope.iv(),
-                    null,
-                    historyEnvelope == null ? null : historyEnvelope.historyKeyId(),
-                    historyEnvelope == null ? null : historyEnvelope.serializedEnvelope(),
+                    validatedEncryptedPayload.iv(),
+                    validatedEncryptedPayload.historyKeyId(),
                     clientMessageId,
                     replyToMessageId,
                     Instant.now()
             );
             ChatMessage persistedMessage = chatMessageRepository.saveAndFlush(message);
             entityManager.refresh(persistedMessage);
-            messageSupport.storeRecipientPayloads(
-                    persistedMessage.getId(),
-                    persistedMessage.getCreatedAt(),
-                    validatedEncryptedPayload.storedRecipientPayloads()
-            );
             chatAttachmentService.attachUploadedAttachments(
                     currentUser,
                     chatId,
@@ -200,10 +195,7 @@ class MessageCommandService {
                     Map.of(currentUser.getId(), currentUser)
             ).get(persistedMessage.getId());
             var responsePayload = messageSupport.toEncryptedPayload(
-                    persistedMessage,
-                    currentUser.getId(),
-                    validatedEncryptedPayload.encryptedKeysByRecipientId(),
-                    messageSupport.loadVisibleDeviceIds(currentUser.getId())
+                    persistedMessage
             );
             MessageResponse responseForSender = messageSupport.toResponse(
                     persistedMessage,
@@ -228,6 +220,7 @@ class MessageCommandService {
                     clientMessageId,
                     currentUser.getId()
             ));
+            pendingOutgoingMessageService.deleteByUserIdAndClientMessageId(currentUser.getId(), clientMessageId);
             telemetry.recordMessageSend(
                     telemetrySample,
                     room,
@@ -251,6 +244,7 @@ class MessageCommandService {
                             MessageDispatchMode.ACK_ONLY
                     ));
                 }
+                pendingOutgoingMessageService.deleteByUserIdAndClientMessageId(currentUser.getId(), clientMessageId);
                 telemetry.recordMessageSend(
                         telemetrySample,
                         room,
@@ -454,26 +448,17 @@ class MessageCommandService {
                 encryptedPayload,
                 room,
                 currentUser,
-                participants
+                messageId.toString()
         );
-        MessageSupport.StoredEncryptedEnvelope storedEnvelope = messageSupport.extractStoredEnvelope(encryptedPayload);
-        ChatGroupHistoryKeyService.ValidatedGroupMessageHistoryEnvelope historyEnvelope =
-                chatGroupHistoryKeyService.validateMessageHistoryEnvelope(room, encryptedPayload.historyEnvelope());
+        chatGroupHistoryKeyService.validateMessageHistoryKey(room, validatedEncryptedPayload.historyKeyId());
         message.updateEncryptedContent(
-                storedEnvelope.ciphertext(),
+                validatedEncryptedPayload.sharedEnvelope(),
                 encryptedPayload.scheme(),
-                storedEnvelope.iv(),
-                null,
-                historyEnvelope == null ? null : historyEnvelope.historyKeyId(),
-                historyEnvelope == null ? null : historyEnvelope.serializedEnvelope(),
+                validatedEncryptedPayload.iv(),
+                validatedEncryptedPayload.historyKeyId(),
                 Instant.now()
         );
         chatMessageRepository.saveAndFlush(message);
-        messageSupport.replaceRecipientPayloads(
-                message.getId(),
-                message.getCreatedAt(),
-                validatedEncryptedPayload.storedRecipientPayloads()
-        );
         messageDispatchOutboxService.enqueue(new MessageDispatchEvent(
                 chatId,
                 message.getId(),
@@ -487,10 +472,7 @@ class MessageCommandService {
         MessageSnippetResponse replyTo = messageSupport.loadReplySnippetsByMessageId(List.of(message), Map.of(sender.getId(), sender))
                 .get(message.getId());
         var responsePayload = messageSupport.toEncryptedPayload(
-                message,
-                currentUser.getId(),
-                validatedEncryptedPayload.encryptedKeysByRecipientId(),
-                messageSupport.loadVisibleDeviceIds(currentUser.getId())
+                message
         );
         return messageSupport.toResponse(message, sender, currentUser.getId(), summary, List.of(), null, replyTo, responsePayload);
     }

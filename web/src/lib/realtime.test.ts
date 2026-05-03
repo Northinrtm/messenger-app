@@ -25,12 +25,24 @@ vi.mock("./e2ee", () => ({
     replyTo: message.replyTo ?? null,
     reactions: message.reactions ?? [],
   })),
+  hydrateOwnActiveGroupHistoryKeyAccess: vi.fn(async () => undefined),
 }));
 
-import { hydrateChatMessage } from "./e2ee";
+import {
+  hydrateChatMessage,
+  hydrateOwnActiveGroupHistoryKeyAccess,
+} from "./e2ee";
 import { publishTypingEvent, sendMessageRaw, subscribeToChats } from "./realtime";
 
 const stompClients: MockClient[] = [];
+const CHAT_EPOCH_SHARED_ENVELOPE = JSON.stringify({
+  aadVersion: 1,
+  chatId: "chat-1",
+  senderUserId: "user-1",
+  historyKeyId: "history-key-id",
+  ciphertext: "cGF5bG9hZA==",
+  iv: "MDEyMzQ1Njc4OTAx",
+});
 
 vi.mock("@stomp/stompjs", () => {
   class Client {
@@ -311,8 +323,7 @@ describe("realtime reconnect protection", () => {
       replyTo: null,
       reactions: [],
       encryptedPayload: {
-        scheme: "X3DH-DEVICE-AES-GCM",
-        encryptedKeysByRecipientId: {},
+        scheme: "CHAT-EPOCH-KEY-AES-GCM",
       },
     };
 
@@ -333,6 +344,34 @@ describe("realtime reconnect protection", () => {
     dispose();
   });
 
+  it("hydrates active group history key grants pushed over realtime", async () => {
+    const dispose = createSubscription();
+    const client = stompClients[0];
+    client.connected = true;
+    client.onConnect();
+
+    const activeKeyEvent = {
+      chatId: "chat-id",
+      historyKeyId: "history-key-id",
+      wrappedKeyPayloadJson: "{\"wrapped\":\"grant\"}",
+      serverGrantPayloadJson: null,
+      createdAt: "2026-04-13T12:00:00.000Z",
+      updatedAt: "2026-04-13T12:00:00.000Z",
+    };
+
+    emitFrame(client, "/user/queue/group-history-active-keys", activeKeyEvent);
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.dynamicImportSettled();
+
+    expect(vi.mocked(hydrateOwnActiveGroupHistoryKeyAccess)).toHaveBeenCalledWith(
+      "user-1",
+      activeKeyEvent
+    );
+
+    dispose();
+  });
+
   it("sends messages over websocket and resolves from explicit sender ack", async () => {
     const dispose = createSubscription();
     const client = stompClients[0];
@@ -342,8 +381,7 @@ describe("realtime reconnect protection", () => {
     const sendPromise = sendMessageRaw("ignored", "chat-1", {
       clientMessageId: "client-1",
       encryptedPayload: {
-        scheme: "X3DH-DEVICE-AES-GCM",
-        encryptedKeysByRecipientId: {},
+        scheme: "CHAT-EPOCH-KEY-AES-GCM",
       },
     });
 
@@ -355,8 +393,7 @@ describe("realtime reconnect protection", () => {
           replyToMessageId: null,
           attachmentIds: [],
           encryptedPayload: {
-            scheme: "X3DH-DEVICE-AES-GCM",
-            encryptedKeysByRecipientId: {},
+            scheme: "CHAT-EPOCH-KEY-AES-GCM",
           },
         }),
       },
@@ -382,8 +419,7 @@ describe("realtime reconnect protection", () => {
       replyTo: null,
       reactions: [],
       encryptedPayload: {
-        scheme: "X3DH-DEVICE-AES-GCM",
-        encryptedKeysByRecipientId: {},
+        scheme: "CHAT-EPOCH-KEY-AES-GCM",
       },
     };
 
@@ -402,8 +438,7 @@ describe("realtime reconnect protection", () => {
     const sendPromise = sendMessageRaw("ignored", "chat-1", {
       clientMessageId: "client-2",
       encryptedPayload: {
-        scheme: "X3DH-DEVICE-AES-GCM",
-        encryptedKeysByRecipientId: {},
+        scheme: "CHAT-EPOCH-KEY-AES-GCM",
       },
     });
 
@@ -432,8 +467,7 @@ describe("realtime reconnect protection", () => {
     const failedSend = sendMessageRaw("ignored", "chat-1", {
       clientMessageId: "client-retry",
       encryptedPayload: {
-        scheme: "X3DH-DEVICE-AES-GCM",
-        encryptedKeysByRecipientId: {},
+        scheme: "CHAT-EPOCH-KEY-AES-GCM",
       },
     });
 
@@ -453,8 +487,7 @@ describe("realtime reconnect protection", () => {
     const retriedSend = sendMessageRaw("ignored", "chat-1", {
       clientMessageId: "client-retry",
       encryptedPayload: {
-        scheme: "X3DH-DEVICE-AES-GCM",
-        encryptedKeysByRecipientId: {},
+        scheme: "CHAT-EPOCH-KEY-AES-GCM",
       },
     });
 
@@ -478,8 +511,7 @@ describe("realtime reconnect protection", () => {
       replyTo: null,
       reactions: [],
       encryptedPayload: {
-        scheme: "X3DH-DEVICE-AES-GCM",
-        encryptedKeysByRecipientId: {},
+        scheme: "CHAT-EPOCH-KEY-AES-GCM",
       },
     });
 
@@ -517,16 +549,14 @@ describe("realtime reconnect protection", () => {
       replyTo: null,
       reactions: [],
       encryptedPayload: {
-        scheme: "X3DH-DEVICE-AES-GCM",
-        encryptedKeysByRecipientId: {},
+        scheme: "CHAT-EPOCH-KEY-AES-GCM",
       },
     });
 
     const sendPromise = sendMessageRaw("test-token", "chat-1", {
       clientMessageId: "client-ws-error-fallback",
       encryptedPayload: {
-        scheme: "X3DH-DEVICE-AES-GCM",
-        encryptedKeysByRecipientId: {},
+        scheme: "CHAT-EPOCH-KEY-AES-GCM",
       },
     });
 
@@ -548,8 +578,7 @@ describe("realtime reconnect protection", () => {
       replyToMessageId: null,
       attachmentIds: [],
       encryptedPayload: {
-        scheme: "X3DH-DEVICE-AES-GCM",
-        encryptedKeysByRecipientId: {},
+        scheme: "CHAT-EPOCH-KEY-AES-GCM",
       },
     });
     dispose();
@@ -580,16 +609,14 @@ describe("realtime reconnect protection", () => {
       replyTo: null,
       reactions: [],
       encryptedPayload: {
-        scheme: "X3DH-DEVICE-AES-GCM",
-        encryptedKeysByRecipientId: {},
+        scheme: "CHAT-EPOCH-KEY-AES-GCM",
       },
     });
 
     const sendPromise = sendMessageRaw("ignored", "chat-1", {
       clientMessageId: "client-3",
       encryptedPayload: {
-        scheme: "X3DH-DEVICE-AES-GCM",
-        encryptedKeysByRecipientId: {},
+        scheme: "CHAT-EPOCH-KEY-AES-GCM",
       },
     });
 
@@ -604,8 +631,7 @@ describe("realtime reconnect protection", () => {
       replyToMessageId: null,
       attachmentIds: [],
       encryptedPayload: {
-        scheme: "X3DH-DEVICE-AES-GCM",
-        encryptedKeysByRecipientId: {},
+        scheme: "CHAT-EPOCH-KEY-AES-GCM",
       },
     });
     dispose();
@@ -623,8 +649,7 @@ describe("realtime reconnect protection", () => {
     const sendPromise = sendMessageRaw("ignored", "chat-1", {
       clientMessageId: "client-auth-fail",
       encryptedPayload: {
-        scheme: "X3DH-DEVICE-AES-GCM",
-        encryptedKeysByRecipientId: {},
+        scheme: "CHAT-EPOCH-KEY-AES-GCM",
       },
     });
 
@@ -672,8 +697,7 @@ describe("realtime reconnect protection", () => {
       replyTo: null,
       reactions: [],
       encryptedPayload: {
-        scheme: "X3DH-DEVICE-AES-GCM",
-        encryptedKeysByRecipientId: {},
+        scheme: "CHAT-EPOCH-KEY-AES-GCM",
       },
     });
 
@@ -681,8 +705,7 @@ describe("realtime reconnect protection", () => {
       sendMessageRaw("test-token", "chat-1", {
         clientMessageId: "client-closing",
         encryptedPayload: {
-          scheme: "X3DH-DEVICE-AES-GCM",
-          encryptedKeysByRecipientId: {},
+          scheme: "CHAT-EPOCH-KEY-AES-GCM",
         },
       })
     ).resolves.toMatchObject({
@@ -696,8 +719,7 @@ describe("realtime reconnect protection", () => {
       replyToMessageId: null,
       attachmentIds: [],
       encryptedPayload: {
-        scheme: "X3DH-DEVICE-AES-GCM",
-        encryptedKeysByRecipientId: {},
+        scheme: "CHAT-EPOCH-KEY-AES-GCM",
       },
     });
     expect(connectionChange).toHaveBeenCalledWith(false);
@@ -727,8 +749,7 @@ describe("realtime reconnect protection", () => {
       replyTo: null,
       reactions: [],
       encryptedPayload: {
-        scheme: "X3DH-DEVICE-AES-GCM",
-        encryptedKeysByRecipientId: {},
+        scheme: "CHAT-EPOCH-KEY-AES-GCM",
       },
     });
 
@@ -736,8 +757,7 @@ describe("realtime reconnect protection", () => {
       sendMessageRaw("test-token", "chat-1", {
         clientMessageId: "client-http-no-ws",
         encryptedPayload: {
-          scheme: "X3DH-DEVICE-AES-GCM",
-          encryptedKeysByRecipientId: {},
+          scheme: "CHAT-EPOCH-KEY-AES-GCM",
         },
       })
     ).resolves.toMatchObject({
@@ -750,13 +770,12 @@ describe("realtime reconnect protection", () => {
       replyToMessageId: null,
       attachmentIds: [],
       encryptedPayload: {
-        scheme: "X3DH-DEVICE-AES-GCM",
-        encryptedKeysByRecipientId: {},
+        scheme: "CHAT-EPOCH-KEY-AES-GCM",
       },
     });
   });
 
-  it("sends group sender key payloads over websocket when realtime is connected", async () => {
+  it("sends shared chat epoch payloads over websocket when realtime is connected", async () => {
     const connectionChange = vi.fn();
     const dispose = createSubscription({
       onConnectionChange: connectionChange,
@@ -784,22 +803,16 @@ describe("realtime reconnect protection", () => {
       replyTo: null,
       reactions: [],
       encryptedPayload: {
-        scheme: "GROUP-SENDER-KEY-AES-GCM",
-        encryptedKeysByRecipientId: {
-          "device-1": "{}",
-        },
-        sharedEnvelope: "{\"senderKeyId\":\"group-key\"}",
+        scheme: "CHAT-EPOCH-KEY-AES-GCM",
+        sharedEnvelope: CHAT_EPOCH_SHARED_ENVELOPE,
       },
     };
 
     const sendPromise = sendMessageRaw("test-token", "chat-1", {
       clientMessageId: "client-group-ws",
       encryptedPayload: {
-        scheme: "GROUP-SENDER-KEY-AES-GCM",
-        encryptedKeysByRecipientId: {
-          "device-1": "{}",
-        },
-        sharedEnvelope: "{\"senderKeyId\":\"group-key\"}",
+        scheme: "CHAT-EPOCH-KEY-AES-GCM",
+        sharedEnvelope: CHAT_EPOCH_SHARED_ENVELOPE,
       },
     });
 
@@ -811,11 +824,8 @@ describe("realtime reconnect protection", () => {
           replyToMessageId: null,
           attachmentIds: [],
           encryptedPayload: {
-            scheme: "GROUP-SENDER-KEY-AES-GCM",
-            encryptedKeysByRecipientId: {
-              "device-1": "{}",
-            },
-            sharedEnvelope: "{\"senderKeyId\":\"group-key\"}",
+            scheme: "CHAT-EPOCH-KEY-AES-GCM",
+            sharedEnvelope: CHAT_EPOCH_SHARED_ENVELOPE,
           },
         }),
       },
@@ -858,22 +868,16 @@ describe("realtime reconnect protection", () => {
       replyTo: null,
       reactions: [],
       encryptedPayload: {
-        scheme: "GROUP-SENDER-KEY-AES-GCM",
-        encryptedKeysByRecipientId: {
-          "device-1": "{}",
-        },
-        sharedEnvelope: "{\"senderKeyId\":\"group-key\"}",
+        scheme: "CHAT-EPOCH-KEY-AES-GCM",
+        sharedEnvelope: CHAT_EPOCH_SHARED_ENVELOPE,
       },
     });
 
     const sendPromise = sendMessageRaw("test-token", "chat-1", {
       clientMessageId: "client-timeout-fallback",
       encryptedPayload: {
-        scheme: "GROUP-SENDER-KEY-AES-GCM",
-        encryptedKeysByRecipientId: {
-          "device-1": "{}",
-        },
-        sharedEnvelope: "{\"senderKeyId\":\"group-key\"}",
+        scheme: "CHAT-EPOCH-KEY-AES-GCM",
+        sharedEnvelope: CHAT_EPOCH_SHARED_ENVELOPE,
       },
     });
 
@@ -898,11 +902,8 @@ describe("realtime reconnect protection", () => {
       replyToMessageId: null,
       attachmentIds: [],
       encryptedPayload: {
-        scheme: "GROUP-SENDER-KEY-AES-GCM",
-        encryptedKeysByRecipientId: {
-          "device-1": "{}",
-        },
-        sharedEnvelope: "{\"senderKeyId\":\"group-key\"}",
+        scheme: "CHAT-EPOCH-KEY-AES-GCM",
+        sharedEnvelope: CHAT_EPOCH_SHARED_ENVELOPE,
       },
     });
     dispose();
@@ -927,3 +928,4 @@ describe("realtime reconnect protection", () => {
   });
 
 });
+

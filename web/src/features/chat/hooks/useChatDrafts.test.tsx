@@ -4,8 +4,28 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEffect } from "react";
 
-import { readLocalDrafts } from "../../../lib/localDrafts";
+import type { ChatDraft } from "../../../lib/types";
 import { useChatDrafts } from "./useChatDrafts";
+
+const draftsStore = new Map<string, ChatDraft>();
+
+vi.mock("../../../lib/api", () => ({
+  getChatDrafts: vi.fn(async () =>
+    [...draftsStore.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+  ),
+  upsertChatDraft: vi.fn(async (_token: string, chatId: string, content: string) => {
+    const nextDraft = {
+      chatId,
+      content,
+      updatedAt: new Date().toISOString(),
+    } satisfies ChatDraft;
+    draftsStore.set(chatId, nextDraft);
+    return nextDraft;
+  }),
+  deleteChatDraft: vi.fn(async (_token: string, chatId: string) => {
+    draftsStore.delete(chatId);
+  }),
+}));
 
 type ReactActEnvironment = typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean;
@@ -26,9 +46,9 @@ type HarnessProps = {
 function Harness({ activeChatId, onReady, queryClient }: HarnessProps) {
   const draftState = useChatDrafts({
     activeChatId,
+    bootstrapReady: true,
     queryClient,
     token: "session-token",
-    userId: "user-1",
   });
 
   useEffect(() => {
@@ -51,7 +71,7 @@ describe("useChatDrafts reload recovery", () => {
   beforeEach(() => {
     (globalThis as ReactActEnvironment).IS_REACT_ACT_ENVIRONMENT = true;
     vi.useFakeTimers();
-    window.localStorage.clear();
+    draftsStore.clear();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = null;
@@ -66,7 +86,7 @@ describe("useChatDrafts reload recovery", () => {
     (globalThis as ReactActEnvironment).IS_REACT_ACT_ENVIRONMENT = false;
     vi.clearAllTimers();
     vi.useRealTimers();
-    window.localStorage.clear();
+    draftsStore.clear();
   });
 
   it("persists the exact per-chat draft on pagehide before the debounce fires", async () => {
@@ -101,25 +121,19 @@ describe("useChatDrafts reload recovery", () => {
       await flushMicrotasks();
     });
 
-    const latestDraftState = latestDraftStateRef.current;
-    if (!latestDraftState) {
+    if (!latestDraftStateRef.current) {
       throw new Error("Draft state was not initialized");
     }
-    expect(latestDraftState.activeDraft).toBe("reload-safe draft");
 
-    act(() => {
+    await act(async () => {
       window.dispatchEvent(new Event("pagehide"));
+      await flushMicrotasks();
       root?.unmount();
+      await flushMicrotasks();
     });
     root = null;
-    expect(window.localStorage.getItem("north-messenger-local-drafts:user-1")).toContain(
-      "reload-safe draft"
-    );
-    expect(window.localStorage.getItem("north-messenger-local-drafts:user-1")).toContain(
-      "other chat draft"
-    );
     const persistedDrafts = Object.fromEntries(
-      readLocalDrafts("user-1").map((draft) => [draft.chatId, draft.content])
+      [...draftsStore.values()].map((draft) => [draft.chatId, draft.content])
     );
     expect(persistedDrafts).toEqual({
       "chat-1": "reload-safe draft",
@@ -158,22 +172,17 @@ describe("useChatDrafts reload recovery", () => {
       await flushMicrotasks();
     });
 
-    expect(latestDraftStateRef.current?.activeDraft).toBe("stale draft");
-
     await act(async () => {
       latestDraftStateRef.current?.handleComposerChange("chat-1", "");
       await flushMicrotasks();
     });
-
-    expect(latestDraftStateRef.current?.activeDraft).toBe("");
 
     await act(async () => {
       vi.advanceTimersByTime(500);
       await flushMicrotasks();
     });
 
-    expect(latestDraftStateRef.current?.activeDraft).toBe("");
-    expect(readLocalDrafts("user-1")).toEqual([]);
+    expect([...draftsStore.values()]).toEqual([]);
   });
 
   it("does not restore a cleared draft on pagehide while an older debounce was still pending", async () => {
@@ -214,7 +223,6 @@ describe("useChatDrafts reload recovery", () => {
     });
     root = null;
 
-    expect(readLocalDrafts("user-1")).toEqual([]);
-    expect(window.localStorage.getItem("north-messenger-local-drafts:user-1")).toBe("{}");
+    expect([...draftsStore.values()]).toEqual([]);
   });
 });

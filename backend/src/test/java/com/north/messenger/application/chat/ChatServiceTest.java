@@ -7,6 +7,8 @@ import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.api.dto.UpdateGroupChatRequest;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.e2ee.ChatHistoryBackfillStatusService;
+import com.north.messenger.application.e2ee.GroupHistoryKeyRotationRequestedEvent;
+import com.north.messenger.application.message.EncryptedMessagePreviewService;
 import com.north.messenger.application.message.RealtimeMessagingGateway;
 import com.north.messenger.observability.MessengerTelemetry;
 import com.north.messenger.domain.model.ChatMessage;
@@ -69,6 +71,7 @@ class ChatServiceTest {
     private DirectChatCreationLockService directChatCreationLockService;
     private ApplicationEventPublisher eventPublisher;
     private ChatHistoryBackfillStatusService chatHistoryBackfillStatusService;
+    private EncryptedMessagePreviewService encryptedMessagePreviewService;
     private ChatService chatService;
 
     @BeforeEach
@@ -89,6 +92,7 @@ class ChatServiceTest {
         directChatCreationLockService = mock(DirectChatCreationLockService.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
         chatHistoryBackfillStatusService = mock(ChatHistoryBackfillStatusService.class);
+        encryptedMessagePreviewService = mock(EncryptedMessagePreviewService.class);
         chatService = new ChatService(
                 authService,
                 chatRoomRepository,
@@ -105,8 +109,11 @@ class ChatServiceTest {
                 telemetry,
                 directChatCreationLockService,
                 eventPublisher,
-                chatHistoryBackfillStatusService
+                chatHistoryBackfillStatusService,
+                encryptedMessagePreviewService
         );
+        when(encryptedMessagePreviewService.summarizeMessagePreview(any(ChatMessage.class)))
+                .thenReturn("Encrypted message");
         when(userArchivedChatRepository.save(any(UserArchivedChat.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(userDeletedChatRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(chatRoomModeratorRepository.findAllByChatId(any(UUID.class))).thenReturn(List.of());
@@ -213,9 +220,8 @@ class ChatServiceTest {
                 chatId,
                 peer.getId(),
                 "ciphertext-value",
-                "RSA-OAEP-256/AES-GCM",
+                "CHAT-EPOCH-KEY-AES-GCM",
                 "iv-value",
-                "{\"dummy\":\"wrapped\"}",
                 Instant.parse("2026-03-22T12:00:00Z")
         );
 
@@ -406,9 +412,8 @@ class ChatServiceTest {
                 chatId,
                 peer.getId(),
                 "ciphertext-latest",
-                "RSA-OAEP-256/AES-GCM",
+                "CHAT-EPOCH-KEY-AES-GCM",
                 "iv-latest",
-                "{\"wrapped\":\"latest\"}",
                 Instant.parse("2026-03-22T12:00:00Z")
         ), 42L);
 
@@ -467,9 +472,8 @@ class ChatServiceTest {
                 chatId,
                 user.getId(),
                 "ciphertext-latest",
-                "RSA-OAEP-256/AES-GCM",
+                "CHAT-EPOCH-KEY-AES-GCM",
                 "iv-latest",
-                "{\"wrapped\":\"latest\"}",
                 Instant.parse("2026-03-22T12:01:00Z")
         ), 42L);
         ChatMessage previousMessage = withServerOrder(new ChatMessage(
@@ -477,9 +481,8 @@ class ChatServiceTest {
                 chatId,
                 user.getId(),
                 "ciphertext-previous",
-                "RSA-OAEP-256/AES-GCM",
+                "CHAT-EPOCH-KEY-AES-GCM",
                 "iv-previous",
-                "{\"wrapped\":\"previous\"}",
                 Instant.parse("2026-03-22T12:00:00Z")
         ), 41L);
 
@@ -588,6 +591,7 @@ class ChatServiceTest {
         assertThat(response.id()).isEqualTo(chatId);
         assertThat(response.members()).extracting(com.north.messenger.api.dto.ParticipantResponse::username)
                 .containsExactly("alice", "north");
+        assertThat(room.getMembershipVersion()).isEqualTo(1L);
         verify(userArchivedChatRepository).deleteByUserIdAndChatId(invitedUser.getId(), chatId);
         verify(userDeletedChatRepository).deleteByChatIdAndUserIdIn(chatId, List.of(invitedUser.getId()));
         verify(eventPublisher).publishEvent(new ChatUpdatedDeferredEvent(chatId));
@@ -678,7 +682,90 @@ class ChatServiceTest {
         verify(chatRoomRepository).findByDirectIsTrueAndDirectUserLowIdAndDirectUserHighId(lowUserId, highUserId);
         verify(chatRoomRepository, never()).findDirectChatByParticipantIds(currentUser.getId(), peer.getId());
         verify(chatRoomRepository, never()).save(any(ChatRoom.class));
+        verify(authService).assertUsersHavePublishedAccountKeys(List.of(currentUser, peer));
         verify(eventPublisher).publishEvent(new ChatUpdatedDeferredEvent(chatId));
+    }
+
+    @Test
+    void createDirectChatShouldBootstrapManagedHistoryKeyWhenCreatingNewRoom() {
+        UserAccount currentUser = testUserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UserAccount peer = testUserAccount(
+                UUID.randomUUID(),
+                "alice",
+                "Alice",
+                "password-hash",
+                Instant.parse("2026-03-20T12:05:00Z")
+        );
+        ParticipantResponse currentParticipant = new ParticipantResponse(
+                currentUser.getId(),
+                currentUser.getUsername(),
+                currentUser.getDisplayName(),
+                currentUser.getAvatarUrl(),
+                true
+        );
+        ParticipantResponse peerParticipant = new ParticipantResponse(
+                peer.getId(),
+                peer.getUsername(),
+                peer.getDisplayName(),
+                peer.getAvatarUrl(),
+                true
+        );
+        var savedRoom = new java.util.concurrent.atomic.AtomicReference<ChatRoom>();
+        var memberships = new ArrayList<ChatParticipant>();
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
+        when(authService.requireExistingUser("alice")).thenReturn(peer);
+        when(chatRoomRepository.findByDirectIsTrueAndDirectUserLowIdAndDirectUserHighId(any(UUID.class), any(UUID.class)))
+                .thenReturn(Optional.empty());
+        when(chatRoomRepository.findDirectChatByParticipantIds(currentUser.getId(), peer.getId()))
+                .thenReturn(Optional.empty());
+        when(chatRoomRepository.save(any(ChatRoom.class))).thenAnswer(invocation -> {
+            ChatRoom room = invocation.getArgument(0);
+            savedRoom.set(room);
+            return room;
+        });
+        when(chatRoomRepository.findById(any(UUID.class))).thenAnswer(invocation ->
+                Optional.ofNullable(savedRoom.get()).filter(room -> room.getId().equals(invocation.getArgument(0))));
+        when(chatParticipantRepository.save(any(ChatParticipant.class))).thenAnswer(invocation -> {
+            ChatParticipant membership = invocation.getArgument(0);
+            memberships.add(membership);
+            return membership;
+        });
+        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(any(UUID.class))).thenAnswer(invocation ->
+                memberships.stream()
+                        .filter(membership -> membership.getChatId().equals(invocation.getArgument(0)))
+                        .toList());
+        when(chatParticipantRepository.existsByChatIdAndUserId(any(UUID.class), eq(currentUser.getId()))).thenReturn(true);
+        when(userAccountRepository.findAllByIdIn(List.of(currentUser.getId(), peer.getId())))
+                .thenReturn(List.of(currentUser, peer));
+        when(authService.resolveOnlineByUserIds(List.of(currentUser.getId(), peer.getId())))
+                .thenReturn(java.util.Map.of(currentUser.getId(), true, peer.getId(), true));
+        when(messageReceiptRepository.countUnreadByChatId(any(UUID.class))).thenReturn(List.of());
+        when(messageReceiptRepository.countUnreadByUserIdAndChatIdIn(any(UUID.class), any())).thenReturn(List.of());
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(any(UUID.class), eq(currentUser.getId()), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(any(UUID.class), eq(peer.getId()), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(authService.toParticipant(currentUser, true)).thenReturn(currentParticipant);
+        when(authService.toParticipant(peer, true)).thenReturn(peerParticipant);
+
+        var response = chatService.createDirectChat("north", new com.north.messenger.api.dto.CreateDirectChatRequest("alice"));
+
+        assertThat(response.direct()).isTrue();
+        assertThat(savedRoom.get()).isNotNull();
+        assertThat(savedRoom.get().getMembershipVersion()).isEqualTo(1L);
+        verify(authService).assertUsersHavePublishedAccountKeys(List.of(currentUser, peer));
+        verify(eventPublisher).publishEvent(new GroupHistoryKeyRotationRequestedEvent(
+                savedRoom.get().getId(),
+                currentUser.getId()
+        ));
+        verify(eventPublisher).publishEvent(new ChatUpdatedDeferredEvent(savedRoom.get().getId()));
     }
 
     @Test
@@ -735,6 +822,7 @@ class ChatServiceTest {
         assertThat(response.members()).containsExactly(currentParticipant);
         assertThat(memberships).hasSize(1);
         assertThat(memberships.get(0).getUserId()).isEqualTo(currentUser.getId());
+        assertThat(savedRoom.get().getMembershipVersion()).isEqualTo(1L);
         verify(eventPublisher).publishEvent(new ChatUpdatedDeferredEvent(savedRoom.get().getId()));
     }
 
@@ -813,6 +901,7 @@ class ChatServiceTest {
         assertThat(memberships.get(0).getJoinedAt()).isEqualTo(memberships.get(1).getJoinedAt());
         assertThat(memberships.stream().map(ChatParticipant::getUserId))
                 .containsExactly(currentUser.getId(), invitedUser.getId());
+        assertThat(savedRoom.get().getMembershipVersion()).isEqualTo(1L);
     }
 
     @Test
@@ -861,6 +950,7 @@ class ChatServiceTest {
 
         chatService.banGroupParticipant("north", chatId, "alice");
 
+        assertThat(room.getMembershipVersion()).isEqualTo(1L);
         verify(chatRoomBanRepository).save(any());
         verify(chatParticipantRepository).deleteByChatIdAndUserId(chatId, member.getId());
         verify(eventPublisher).publishEvent(new ChatRemovalDeferredEvent(chatId, List.of("alice")));
@@ -1080,6 +1170,7 @@ class ChatServiceTest {
 
         chatService.removeGroupParticipant("north", chatId, "alice");
 
+        assertThat(room.getMembershipVersion()).isEqualTo(1L);
         verify(chatParticipantRepository).deleteByChatIdAndUserId(chatId, member.getId());
         verify(eventPublisher).publishEvent(new ChatRemovalDeferredEvent(chatId, List.of("alice")));
         verify(eventPublisher).publishEvent(new ChatUpdatedDeferredEvent(chatId));
@@ -1240,3 +1331,4 @@ class ChatServiceTest {
         };
     }
 }
+

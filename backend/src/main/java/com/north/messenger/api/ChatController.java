@@ -1,13 +1,18 @@
 package com.north.messenger.api;
 
 import com.north.messenger.api.dto.AddGroupParticipantsRequest;
+import com.north.messenger.api.dto.ChatDraftResponse;
+import com.north.messenger.api.dto.ChatOpenResponse;
 import com.north.messenger.api.dto.ChatSummaryResponse;
 import com.north.messenger.api.dto.CreateDirectChatRequest;
 import com.north.messenger.api.dto.CreateGroupChatRequest;
 import com.north.messenger.api.dto.GroupParticipantActionRequest;
+import com.north.messenger.api.dto.UpsertChatDraftRequest;
 import com.north.messenger.api.dto.UpdateGroupChatRequest;
 import com.north.messenger.api.dto.UpdateArchivedChatRequest;
 import com.north.messenger.api.dto.UpdatePinnedMessageRequest;
+import com.north.messenger.application.chat.ChatOpenService;
+import com.north.messenger.application.chat.ChatDraftService;
 import com.north.messenger.application.chat.ChatService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -21,6 +26,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -29,9 +35,17 @@ import org.springframework.web.bind.annotation.RestController;
 public class ChatController {
 
     private final ChatService chatService;
+    private final ChatDraftService chatDraftService;
+    private final ChatOpenService chatOpenService;
 
-    public ChatController(ChatService chatService) {
+    public ChatController(
+            ChatService chatService,
+            ChatDraftService chatDraftService,
+            ChatOpenService chatOpenService
+    ) {
         this.chatService = chatService;
+        this.chatDraftService = chatDraftService;
+        this.chatOpenService = chatOpenService;
     }
 
     @GetMapping
@@ -42,6 +56,21 @@ public class ChatController {
     @GetMapping("/archive")
     public List<UUID> listArchivedChatIds(Authentication authentication) {
         return chatService.listArchivedChatIds(authentication.getName());
+    }
+
+    @GetMapping("/drafts")
+    public List<ChatDraftResponse> listDrafts(Authentication authentication) {
+        return chatDraftService.listOwnDrafts(authentication.getName());
+    }
+
+    @GetMapping("/{chatId}/open")
+    public ChatOpenResponse openChat(
+            Authentication authentication,
+            @PathVariable UUID chatId,
+            @RequestParam(defaultValue = "30") int limit,
+            @RequestParam(defaultValue = "false") boolean acknowledgeDelivered
+    ) {
+        return chatOpenService.openChat(authentication.getName(), chatId, limit, acknowledgeDelivered);
     }
 
     @PostMapping("/direct")
@@ -144,6 +173,21 @@ public class ChatController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteChatForSelf(Authentication authentication, @PathVariable UUID chatId) {
         chatService.deleteChatForSelf(authentication.getName(), chatId);
+    }
+
+    @PutMapping("/{chatId}/draft")
+    public ChatDraftResponse upsertDraft(
+            Authentication authentication,
+            @PathVariable UUID chatId,
+            @Valid @RequestBody UpsertChatDraftRequest request
+    ) {
+        return chatDraftService.upsertOwnDraft(authentication.getName(), chatId, request.content());
+    }
+
+    @DeleteMapping("/{chatId}/draft")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteDraft(Authentication authentication, @PathVariable UUID chatId) {
+        chatDraftService.deleteOwnDraft(authentication.getName(), chatId);
     }
 
     @PutMapping("/{chatId}/pin")

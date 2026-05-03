@@ -1,39 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { ApiError } from "./api";
-import type { GroupHistoryKeyAccess, UserEncryptionDeviceBundle } from "./types";
-import type { GroupHistoryKeyRecord, GroupSharedEnvelope } from "./e2eeGroupEngine";
+import type { GroupHistoryKeyAccess } from "./types";
+import type { GroupHistoryKeyRecord } from "./e2eeGroupEngine";
 import {
-  buildGroupHistoryKeyAccessEnvelopes,
   createLocalGroupHistoryKeyRecord,
-  decryptGroupHistoryMessage,
-  ensureGroupHistoryKeyRecord,
-  isRecoverableGroupHistoryFallbackError,
+  resolveActiveGroupHistoryKeyRecordFromServer,
   resolveGroupHistoryKeyRecordFromServer,
 } from "./e2eeGroupHistory";
-
-const bundle = (userId: string, deviceId: string): UserEncryptionDeviceBundle => ({
-  userId,
-  deviceId,
-  deviceName: `${deviceId}-name`,
-  identityKey: `${deviceId}-identity`,
-  identityKeyAlgorithm: "X25519",
-  identitySignatureKey: `${deviceId}-signature-identity`,
-  identitySignatureKeyAlgorithm: "Ed25519",
-  signedPrekeyId: 1,
-  signedPrekeyPublicKey: `${deviceId}-signed-prekey`,
-  signedPrekeySignature: `${deviceId}-signature`,
-  signedPrekeyAlgorithm: "X25519",
-  oneTimePrekey: null,
-  registeredAt: "2026-01-01T00:00:00.000Z",
-  lastSeenAt: "2026-01-01T00:00:00.000Z",
-  deviceVersion: "v1",
-});
 
 describe("e2eeGroupHistory", () => {
   it("creates local history-key records with deterministic helpers", () => {
     expect(
       createLocalGroupHistoryKeyRecord("chat", {
+        membershipVersion: 4,
+        historyPolicy: "FULL_HISTORY",
         createHistoryKeyId: () => "history-id",
         createKeyMaterial: () => "key-material",
         now: () => "2026-01-01T00:00:00.000Z",
@@ -42,6 +22,8 @@ describe("e2eeGroupHistory", () => {
       historyKeyId: "history-id",
       chatId: "chat",
       keyMaterial: "key-material",
+      membershipVersion: 4,
+      historyPolicy: "FULL_HISTORY",
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
@@ -68,33 +50,38 @@ describe("e2eeGroupHistory", () => {
         updatedAt: "2026-01-01T00:00:02.000Z",
       },
     ];
-    const persist = vi.fn<(_userId: string, _record: GroupHistoryKeyRecord) => Promise<void>>(
-      async () => undefined
-    );
+    const persist = vi.fn<
+      (_userId: string, _record: GroupHistoryKeyRecord) => Promise<void>
+    >(async () => undefined);
 
     const record = await resolveGroupHistoryKeyRecordFromServer({
       token: "token",
       userId: "self",
       chatId: "chat",
-      ownMaterial: { deviceId: "self-device" },
       getOwnGroupHistoryKeys: async () => accesses,
       decryptHistoryKeyGrantPayload: async (payload: string) => payload,
       parseGroupHistoryKeyGrantPayload: (value) => {
         if (value === "wrong") {
           return {
             aadVersion: 1,
+            context: "north.group-history-key-grant.v1",
             chatId: "other-chat",
             historyKeyId: "wrong",
             historyKey: "wrong-key",
+            membershipVersion: 2,
+            historyPolicy: "JOIN_ONLY",
             createdAt: "2026-01-01T00:00:00.000Z",
           };
         }
 
         return {
           aadVersion: 1,
+          context: "north.group-history-key-grant.v1",
           chatId: "chat",
           historyKeyId: value === "payload-1" ? "history-1" : "history-2",
           historyKey: value === "payload-1" ? "key-1" : "key-2",
+          membershipVersion: 4,
+          historyPolicy: "FULL_HISTORY",
           createdAt: "2026-01-01T00:00:00.000Z",
         };
       },
@@ -105,205 +92,105 @@ describe("e2eeGroupHistory", () => {
       historyKeyId: "history-2",
       chatId: "chat",
       keyMaterial: "key-2",
+      membershipVersion: 4,
+      historyPolicy: "FULL_HISTORY",
       updatedAt: "2026-01-01T00:00:02.000Z",
     });
     expect(persist).toHaveBeenCalledTimes(2);
   });
 
-  it("builds wrapped history-key access envelopes for all target devices", async () => {
-    const nextSessions: Record<string, { sessionId: string }> = {};
-    const envelopes = await buildGroupHistoryKeyAccessEnvelopes({
-      currentUserId: "self",
-      ownMaterial: { deviceId: "self-device" },
-      targetBundles: [bundle("peer", "peer-device"), bundle("self", "self-device")],
-      nextSessions,
-      historyKeyRecord: {
-        historyKeyId: "history-id",
-        chatId: "chat",
-        keyMaterial: "key-material",
+  it("uses a stored cursor only after the chat was fully synced", async () => {
+    const persist = vi.fn<
+      (_userId: string, _record: GroupHistoryKeyRecord) => Promise<void>
+    >(async () => undefined);
+    const getOwnGroupHistoryKeys = vi.fn(async () => [
+      {
+        historyKeyId: "history-3",
+        wrappedKeyPayloadJson: "payload-3",
         createdAt: "2026-01-01T00:00:00.000Z",
-        updatedAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:03.000Z",
       },
-      serializeGrantPayload: (record) => JSON.stringify({ historyKeyId: record.historyKeyId }),
-      getDeviceSessionMapKey: (userId, deviceId) => `${userId}:${deviceId}`,
-      establishInitiatorDeviceSession: async (_userId, _ownMaterial, targetBundle) => ({
-        sessionId: `${targetBundle.userId}:${targetBundle.deviceId}`,
+    ]);
+    const writeGroupHistorySyncState = vi.fn<
+      (
+        _userId: string,
+        _chatId: string,
+        _state: { cursor: string | null; fullySynced: boolean }
+      ) => Promise<void>
+    >(async () => undefined);
+
+    await resolveGroupHistoryKeyRecordFromServer({
+      token: "token",
+      userId: "self",
+      chatId: "chat",
+      getOwnGroupHistoryKeys,
+      decryptHistoryKeyGrantPayload: async (payload: string) => payload,
+      parseGroupHistoryKeyGrantPayload: () => ({
+        aadVersion: 1,
+        context: "north.group-history-key-grant.v1",
+        chatId: "chat",
+        historyKeyId: "history-3",
+        historyKey: "key-3",
+        membershipVersion: 6,
+        historyPolicy: "FULL_HISTORY",
+        createdAt: "2026-01-01T00:00:00.000Z",
       }),
-      setCurrentDeviceSessionRecord: (sessions, sessionRecord) => {
-        sessions[sessionRecord.sessionId] = sessionRecord;
-      },
-      createDirectRecipientEnvelopeContent: async (_userId, _ownMaterial, sessionRecord, content) => ({
-        sessionId: sessionRecord.sessionId,
-        content,
+      persistGroupHistoryKeyRecord: persist,
+      readGroupHistorySyncState: async () => ({
+        cursor: "2026-01-01T00:00:02.000Z|history-2",
+        fullySynced: true,
       }),
+      writeGroupHistorySyncState,
     });
 
-    expect(Object.keys(envelopes).sort()).toEqual(["peer-device", "self-device"]);
-    expect(JSON.parse(envelopes["peer-device"] ?? "{}")).toMatchObject({
-      sessionId: "peer:peer-device",
+    expect(getOwnGroupHistoryKeys).toHaveBeenCalledWith(
+      "token",
+      "chat",
+      "2026-01-01T00:00:02.000Z|history-2"
+    );
+    expect(writeGroupHistorySyncState).toHaveBeenCalledWith("self", "chat", {
+      cursor: "2026-01-01T00:00:03.000Z|history-3",
+      fullySynced: true,
     });
   });
 
-  it("creates and persists a local history key when neither local nor remote record exists", async () => {
-    const createdRecord: GroupHistoryKeyRecord = {
-      historyKeyId: "created-history",
-      chatId: "chat",
-      keyMaterial: "key-material",
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-    };
-    const persist = vi.fn<(_userId: string, _record: GroupHistoryKeyRecord) => Promise<void>>(
-      async () => undefined
-    );
-    const upsert = vi.fn(
-      async (
-        _token: string,
-        _chatId: string,
-        _currentUserId: string,
-        _ownMaterial: { deviceId: string },
-        _targetBundles: UserEncryptionDeviceBundle[],
-        _nextSessions: Record<string, { sessionId: string }>,
-        _historyKeyRecord: GroupHistoryKeyRecord
-      ) => undefined
-    );
+  it("resolves a server-selected active history-key record", async () => {
+    const persist = vi.fn<
+      (_userId: string, _record: GroupHistoryKeyRecord) => Promise<void>
+    >(async () => undefined);
 
-    const record = await ensureGroupHistoryKeyRecord({
+    const record = await resolveActiveGroupHistoryKeyRecordFromServer({
       token: "token",
+      userId: "self",
       chatId: "chat",
-      currentUserId: "self",
-      ownMaterial: { deviceId: "self-device" },
-      targetBundles: [bundle("peer", "peer-device")],
-      nextSessions: {},
-      readCurrentGroupHistoryKeyRecord: async () => null,
-      resolveGroupHistoryKeyRecordFromServer: async () => null,
-      createLocalGroupHistoryKeyRecord: () => createdRecord,
-      upsertGroupHistoryKeyAccessForTargets: upsert,
+      getOwnActiveGroupHistoryKey: async () => ({
+        historyKeyId: "history-2",
+        wrappedKeyPayloadJson: "payload-2",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:02.000Z",
+      }),
+      decryptHistoryKeyGrantPayload: async (payload: string) => payload,
+      parseGroupHistoryKeyGrantPayload: () => ({
+        aadVersion: 1,
+        context: "north.group-history-key-grant.v1",
+        chatId: "chat",
+        historyKeyId: "history-2",
+        historyKey: "key-2",
+        membershipVersion: 5,
+        historyPolicy: "JOIN_ONLY",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      }),
       persistGroupHistoryKeyRecord: persist,
     });
 
-    expect(record).toBe(createdRecord);
-    expect(upsert).toHaveBeenCalledTimes(1);
-    expect(persist).toHaveBeenCalledWith("self", createdRecord);
-  });
-
-  it("identifies recoverable fallback errors for group history decryption", () => {
-    expect(
-      isRecoverableGroupHistoryFallbackError(
-        new Error("Encrypted message key is no longer available for this session")
-      )
-    ).toBe(true);
-    expect(isRecoverableGroupHistoryFallbackError(new Error("other"))).toBe(true);
-    expect(
-      isRecoverableGroupHistoryFallbackError(new ApiError("identity changed", 409))
-    ).toBe(false);
-  });
-
-  it("decrypts group history messages from a local or remotely recovered history key", async () => {
-    const sharedEnvelope: GroupSharedEnvelope = {
-      aadVersion: 1,
+    expect(record).toMatchObject({
+      historyKeyId: "history-2",
       chatId: "chat",
-      senderUserId: "sender",
-      senderDeviceId: "device",
-      senderKeyId: "sender-key",
-      messageCounter: 5,
-      ciphertext: "ciphertext",
-      iv: "iv",
-      signature: "sig",
-    };
-    const parseGroupHistoryEnvelope = () => ({
-      aadVersion: 1,
-      historyKeyId: "history-id",
-      ciphertext: "ciphertext",
-      iv: "iv",
+      keyMaterial: "key-2",
+      membershipVersion: 5,
+      historyPolicy: "JOIN_ONLY",
+      updatedAt: "2026-01-01T00:00:02.000Z",
     });
-    const decryptContent = vi.fn(async () => "plaintext");
-
-    await expect(
-      decryptGroupHistoryMessage({
-        message: {
-          id: "message-id",
-          chatId: "chat",
-          sender: {
-            id: "sender",
-            username: "sender",
-            displayName: "Sender",
-            profession: null,
-            avatarUrl: null,
-            online: true,
-          },
-          createdAt: "2026-01-01T00:00:00.000Z",
-          editedAt: null,
-          status: null,
-          clientMessageId: null,
-          replyTo: null,
-          reactions: [],
-          encryptedPayload: {
-            scheme: "GROUP-SENDER-KEY-AES-GCM",
-            encryptedKeysByRecipientId: {},
-            sharedEnvelope: "{}",
-            historyEnvelope: "{}",
-          },
-        },
-        userId: "self",
-        ownMaterial: { deviceId: "self-device" },
-        sharedEnvelope,
-        parseGroupHistoryEnvelope,
-        resolveLocalGroupHistoryKeyRecord: async () => ({
-          historyKeyId: "history-id",
-          chatId: "chat",
-          keyMaterial: "local-key",
-          createdAt: "2026-01-01T00:00:00.000Z",
-          updatedAt: "2026-01-01T00:00:00.000Z",
-        }),
-        getRecoverySyncSession: async () => null,
-        resolveGroupHistoryKeyRecordFromServer: async () => null,
-        decryptGroupHistoryEnvelopeContent: decryptContent,
-      })
-    ).resolves.toBe("plaintext");
-
-    expect(decryptContent).toHaveBeenCalledTimes(1);
-
-    await expect(
-      decryptGroupHistoryMessage({
-        message: {
-          id: "message-id",
-          chatId: "chat",
-          sender: {
-            id: "sender",
-            username: "sender",
-            displayName: "Sender",
-            profession: null,
-            avatarUrl: null,
-            online: true,
-          },
-          createdAt: "2026-01-01T00:00:00.000Z",
-          editedAt: null,
-          status: null,
-          clientMessageId: null,
-          replyTo: null,
-          reactions: [],
-          encryptedPayload: {
-            scheme: "GROUP-SENDER-KEY-AES-GCM",
-            encryptedKeysByRecipientId: {},
-            sharedEnvelope: "{}",
-            historyEnvelope: "{}",
-          },
-        },
-        userId: "self",
-        ownMaterial: { deviceId: "self-device" },
-        sharedEnvelope,
-        parseGroupHistoryEnvelope,
-        resolveLocalGroupHistoryKeyRecord: async () => null,
-        getRecoverySyncSession: async () => ({ token: "token" }),
-        resolveGroupHistoryKeyRecordFromServer: async () => ({
-          historyKeyId: "history-id",
-          chatId: "chat",
-          keyMaterial: "remote-key",
-          createdAt: "2026-01-01T00:00:00.000Z",
-          updatedAt: "2026-01-01T00:00:00.000Z",
-        }),
-        decryptGroupHistoryEnvelopeContent: decryptContent,
-      })
-    ).resolves.toBe("plaintext");
+    expect(persist).toHaveBeenCalledTimes(1);
   });
 });

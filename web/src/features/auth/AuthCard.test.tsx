@@ -283,7 +283,7 @@ describe("AuthCard auth flow", () => {
     const authenticatedSpy = vi.fn();
     vi.mocked(login).mockResolvedValueOnce(response);
     vi.mocked(ensureEncryptionReady).mockRejectedValueOnce(
-      new ApiError("Current password could not restore encrypted chats on this device", 409)
+      new ApiError("Current password could not restore encrypted chats in this browser session", 409)
     );
 
     await act(async () => {
@@ -320,7 +320,7 @@ describe("AuthCard auth flow", () => {
     expect(ensureEncryptionReady).toHaveBeenCalledWith(response, "newriverlantern");
     expect(authenticatedSpy).toHaveBeenCalledWith(response);
     expect(container.textContent).not.toContain(
-      "Current password could not restore encrypted chats on this device"
+      "Current password could not restore encrypted chats in this browser session"
     );
   });
 

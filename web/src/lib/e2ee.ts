@@ -2,102 +2,41 @@ import {
   ApiError,
   downloadEncryptedChatAttachment,
   getMessagesRaw,
+  getOwnActiveGroupHistoryKey,
+  getOwnEncryptionAccountKey,
   getOwnGroupHistoryKeys,
   getOwnEncryptionRecoverySnapshot,
-  listOwnEncryptionDevices,
+  resetOwnEncryptionIdentity,
   resolveEncryptionAccountKeys,
-  resolveEncryptionDeviceManifest,
-  resolveEncryptionDeviceBundles,
-  upsertGroupHistoryKey,
+  upsertOwnEncryptionAccountKey,
   upsertOwnEncryptionRecoverySnapshot,
-  upsertOwnEncryptionDevice,
   uploadEncryptedChatAttachment,
   updateMessage,
 } from "./api";
 import { sendMessageRaw } from "./realtime";
 import type {
+  ActiveGroupHistoryKeyEvent,
   ApiChatMessage,
   AuthResponse,
+  ChatPrejoinHistoryPolicy,
   ChatMessage,
   ChatMessageAttachment,
   EncryptedMessagePayload,
+  GroupHistoryKeyAccess,
   Participant,
-  UserEncryptionDevice,
-  UserEncryptionDeviceBundle,
+  UserEncryptionAccountKey,
   UserEncryptionRecoverySnapshot,
 } from "./types";
 import {
-  ENCRYPTION_IDENTITY_CHANGED_MESSAGE,
+  ENCRYPTION_INITIALIZING_MESSAGE,
   ENCRYPTION_RECOVERY_EXISTING_CHATS_MESSAGE,
   ENCRYPTION_RECOVERY_PASSWORD_RESTORE_FAILED_MESSAGE,
   ENCRYPTION_RECOVERY_PREVIOUS_PASSWORD_REQUIRED_MESSAGE,
   ENCRYPTION_RECOVERY_SNAPSHOT_DECRYPT_FAILED_MESSAGE,
   ENCRYPTION_RECOVERY_SNAPSHOT_INVALID_MESSAGE,
-  PINNED_DEVICE_BUNDLE_STORAGE_PREFIX,
-  clearPinnedEncryptionIdentity,
-  isEncryptionIdentityChangedError,
   isResettableEncryptionRecoveryError,
   isUnavailableEncryptedMessage,
 } from "./e2eeShared";
-import {
-  getRecoverableEncryptedEnvelopeErrorMode,
-  shouldForceRefreshPreparedRecipientsForError,
-} from "./e2eeRecoveryPolicy";
-import {
-  buildConversationDeviceBundleResolution,
-  getDeviceBundleMapKey,
-  mergePreparedConversationDeviceBundles,
-  type ConversationDeviceBundleResolution,
-  type PreparedConversationDeviceState,
-  type PreparedDeviceManifestState,
-} from "./e2eeDeviceDirectory";
-import {
-  buildDevicePreparationKey as buildDevicePreparationKeyInternal,
-  prepareSendConversationDeviceBundles as prepareSendConversationDeviceBundlesInternal,
-  primeDeviceBundles as primeDeviceBundlesInternal,
-  resolveConversationDeviceBundles as resolveConversationDeviceBundlesInternal,
-} from "./e2eeDevicePreparation";
-import {
-  clearCompletedDevicePreparation as clearCompletedDevicePreparationInternal,
-  clearPreparedConversationDeviceState as clearPreparedConversationDeviceStateInternal,
-  clearPreparedDeviceManifestState as clearPreparedDeviceManifestStateInternal,
-  clearPreparedOwnSiblingDeviceState as clearPreparedOwnSiblingDeviceStateInternal,
-  readPreparedConversationDeviceState as readPreparedConversationDeviceStateInternal,
-  readPreparedDeviceManifestState as readPreparedDeviceManifestStateInternal,
-  readPreparedOwnSiblingDeviceState as readPreparedOwnSiblingDeviceStateInternal,
-  rememberPreparedConversationDeviceState as rememberPreparedConversationDeviceStateInternal,
-  rememberPreparedDeviceManifestState as rememberPreparedDeviceManifestStateInternal,
-  rememberPreparedOwnSiblingDeviceState as rememberPreparedOwnSiblingDeviceStateInternal,
-} from "./e2eeDevicePreparationStore";
-import {
-  buildOwnSiblingDevicePreparationKey as buildOwnSiblingDevicePreparationKeyInternal,
-  listPreparedOwnSiblingDeviceBundles as listPreparedOwnSiblingDeviceBundlesInternal,
-} from "./e2eeOwnSiblingDevices";
-import {
-  discardUnusableRegisteredEncryptionDeviceMaterial as discardUnusableRegisteredEncryptionDeviceMaterialInternal,
-  ensureRegisteredEncryptionDeviceInternal as ensureRegisteredEncryptionDeviceInternalExternal,
-  findOwnEncryptionDevice as findOwnEncryptionDeviceInternal,
-  forceRegisterEncryptionDevice as forceRegisterEncryptionDeviceInternal,
-  isRegisteredEncryptionDeviceMaterialAvailable as isRegisteredEncryptionDeviceMaterialAvailableInternal,
-  isRegisteredEncryptionDeviceMaterialUsable as isRegisteredEncryptionDeviceMaterialUsableInternal,
-  isRegistrationSyncFresh as isRegistrationSyncFreshInternal,
-  isSignedPrekeyRotationDue as isSignedPrekeyRotationDueInternal,
-  recoverRegisteredEncryptionDeviceMaterial as recoverRegisteredEncryptionDeviceMaterialInternal,
-  waitForEncryptionDeviceRegistration as waitForEncryptionDeviceRegistrationInternal,
-} from "./e2eeOwnDeviceRegistration";
-import {
-  decryptRememberedEncryptionDeviceMaterial as decryptRememberedEncryptionDeviceMaterialInternal,
-  encryptRememberedEncryptionDeviceMaterial as encryptRememberedEncryptionDeviceMaterialInternal,
-  normalizeDeviceEncryptionMaterial as normalizeDeviceEncryptionMaterialInternal,
-  pruneRetiredOneTimePrekeys as pruneRetiredOneTimePrekeysInternal,
-  pruneRetiredSignedPrekeys as pruneRetiredSignedPrekeysInternal,
-  readEncryptionDeviceMaterial as readEncryptionDeviceMaterialInternal,
-  readRememberedEncryptionDeviceMaterial as readRememberedEncryptionDeviceMaterialInternal,
-  rememberEncryptionDeviceMaterial as rememberEncryptionDeviceMaterialInternal,
-  removeEncryptionDeviceMaterial as removeEncryptionDeviceMaterialInternal,
-  removeRememberedEncryptionDeviceMaterial as removeRememberedEncryptionDeviceMaterialInternal,
-  writeEncryptionDeviceMaterial as writeEncryptionDeviceMaterialInternal,
-} from "./e2eeOwnDeviceMaterialStore";
 import {
   decryptRememberedUnlockedIdentityRecord as decryptRememberedUnlockedIdentityRecordInternal,
   normalizeRememberedUnlockedIdentityRecord as normalizeRememberedUnlockedIdentityRecordInternal,
@@ -133,119 +72,38 @@ import {
   syncEncryptionRecoverySnapshotInternal as syncEncryptionRecoverySnapshotInternalExternal,
 } from "./e2eeRecoverySnapshotLifecycle";
 import {
-  decryptRememberedGroupSenderChainState as decryptRememberedGroupSenderChainStateInternal,
-  encryptRememberedGroupSenderChainState as encryptRememberedGroupSenderChainStateInternal,
+  clearCurrentGroupHistoryKeyRecord as clearCurrentGroupHistoryKeyRecordInternal,
   persistGroupHistoryKeyRecord as persistGroupHistoryKeyRecordInternal,
   readCurrentGroupHistoryKeyRecord as readCurrentGroupHistoryKeyRecordInternal,
+  readGroupHistorySyncState as readGroupHistorySyncStateInternal,
   readGroupHistoryKeyState as readGroupHistoryKeyStateInternal,
-  readGroupSenderChainState as readGroupSenderChainStateInternal,
-  readRememberedGroupSenderChainState as readRememberedGroupSenderChainStateInternal,
-  rememberGroupSenderChainState as rememberGroupSenderChainStateInternal,
   removeGroupHistoryKeys as removeGroupHistoryKeysInternal,
-  removeGroupSenderChains as removeGroupSenderChainsInternal,
-  removeRememberedGroupSenderChainState as removeRememberedGroupSenderChainStateInternal,
   resolveLocalGroupHistoryKeyRecord as resolveLocalGroupHistoryKeyRecordInternal,
+  writeGroupHistorySyncState as writeGroupHistorySyncStateInternal,
   writeGroupHistoryKeyState as writeGroupHistoryKeyStateInternal,
-  writeGroupSenderChainState as writeGroupSenderChainStateInternal,
 } from "./e2eeGroupStateStore";
 import {
-  assertGroupDistributionSenderMatchesSharedEnvelope,
-  buildGroupEnvelopeAdditionalData,
-  buildGroupEnvelopeSignatureData,
-  buildGroupHistoryEnvelopeAdditionalData,
-  getGroupInboundSenderChainMapKey,
-  parseGroupHistoryEnvelope,
   parseGroupHistoryKeyGrantPayload,
-  parseGroupSenderKeyDistribution,
-  parseGroupSharedEnvelope,
-  resolveInboundGroupSenderChainRecord,
-  type GroupHistoryEnvelope,
   type GroupHistoryKeyGrantPayload,
   type GroupHistoryKeyRecord,
   type GroupHistoryKeyState,
-  type GroupInboundSenderChainRecord,
-  type GroupSenderChainState,
-  type GroupSenderKeyDistribution,
-  type GroupSharedEnvelope,
 } from "./e2eeGroupEngine";
 import {
-  buildGroupHistoryKeyAccessEnvelopes as buildGroupHistoryKeyAccessEnvelopesInternal,
   createLocalGroupHistoryKeyRecord as createLocalGroupHistoryKeyRecordInternal,
-  decryptGroupHistoryMessage as decryptGroupHistoryMessageInternal,
-  ensureGroupHistoryKeyRecord as ensureGroupHistoryKeyRecordInternal,
-  isRecoverableGroupHistoryFallbackError,
+  resolveActiveGroupHistoryKeyRecordFromServer as resolveActiveGroupHistoryKeyRecordFromServerInternal,
+  resolveGroupHistoryKeyRecordsFromAccesses as resolveGroupHistoryKeyRecordsFromAccessesInternal,
   resolveGroupHistoryKeyRecordFromServer as resolveGroupHistoryKeyRecordFromServerInternal,
-  upsertGroupHistoryKeyAccessForTargets as upsertGroupHistoryKeyAccessForTargetsInternal,
 } from "./e2eeGroupHistory";
-import { decryptGroupMessage as decryptGroupMessageInternal } from "./e2eeGroupDecryption";
 import {
   hydrateChatMessage as hydrateChatMessageInternal,
   hydrateChatMessageSnapshot as hydrateChatMessageSnapshotInternal,
   hydrateLatestUnavailableMessageSnapshots,
 } from "./e2eeMessageHydration";
 import {
-  buildDirectEnvelopeAdditionalData as buildDirectEnvelopeAdditionalDataInternal,
-  createDirectRecipientEnvelopeContent as createDirectRecipientEnvelopeContentInternal,
-  encryptDirectDeviceMessage as encryptDirectDeviceMessageInternal,
-  decryptDirectMessage as decryptDirectMessageInternal,
-  decryptDirectRecipientEnvelope as decryptDirectRecipientEnvelopeInternal,
-  parseDirectDeviceEnvelope as parseDirectDeviceEnvelopeInternal,
-  shouldReestablishResponderDeviceSession as shouldReestablishResponderDeviceSessionInternal,
-} from "./e2eeDirectMessaging";
-import {
-  bootstrapDeviceSessions as bootstrapDeviceSessionsInternal,
-  shouldEstablishDeviceSession as shouldEstablishDeviceSessionInternal,
-  validateAndPinDeviceBundle as validateAndPinDeviceBundleInternal,
-} from "./e2eeDirectBootstrap";
-import {
   createE2eeMessageReadbackStore,
   type RememberedDecryptedMessageArchiveRecord,
 } from "./e2eeMessageReadbackStore";
-import {
-  clearPersistentRestoredCurrentDeviceSessions as clearPersistentRestoredCurrentDeviceSessionsInternal,
-  filterDeviceSessionsForOwnMaterial,
-  findDeviceSessionEntryForEnvelope,
-  getDeviceSessionArchiveKey,
-  getDeviceSessionArchivePrefix,
-  getDeviceSessionMapKey,
-  isDeviceSessionCompatibleWithDirectEnvelope,
-  listCurrentDeviceSessionKeys,
-  listDeviceSessionEntriesForPeer,
-  markCurrentDeviceSessionAsReactivated as markCurrentDeviceSessionAsReactivatedInternal,
-  markPersistentRestoredCurrentDeviceSessions as markPersistentRestoredCurrentDeviceSessionsInternal,
-  pruneArchivedDeviceSessions,
-  sanitizeStoredDeviceSessions as sanitizeStoredDeviceSessionsInternal,
-  setCurrentDeviceSessionRecord as setCurrentDeviceSessionRecordInternal,
-  wasCurrentDeviceSessionRestoredFromPersistent as wasCurrentDeviceSessionRestoredFromPersistentInternal,
-} from "./e2eeSessionStore";
-import { dispatchE2eeDeviceStateSynced } from "./e2eeEvents";
-import {
-  decryptRememberedDeviceSessions as decryptRememberedDeviceSessionsInternal,
-  encryptRememberedDeviceSessions as encryptRememberedDeviceSessionsInternal,
-  readRememberedDeviceSessions as readRememberedDeviceSessionsInternal,
-  rememberDeviceSessions as rememberDeviceSessionsInternal,
-  removeRememberedDeviceSessions as removeRememberedDeviceSessionsInternal,
-  type RememberedDeviceSessionRecord,
-} from "./e2eeSessionPersistence";
-import {
-  establishInitiatorDeviceSession as establishInitiatorDeviceSessionInternal,
-  establishResponderDeviceSession as establishResponderDeviceSessionInternal,
-  verifySignedPrekeySignature as verifySignedPrekeySignatureInternal,
-} from "./e2eeSessionEstablishment";
-import {
-  advanceSendingChain as advanceSendingChainInternal,
-  applyIncomingDhRatchet as applyIncomingDhRatchetInternal,
-  applyOutgoingDhRatchet as applyOutgoingDhRatchetInternal,
-  buildSessionMessageCacheKey as buildSessionMessageCacheKeyInternal,
-  cacheSessionMessageKey as cacheSessionMessageKeyInternal,
-  deriveMessageRatchetStep as deriveMessageRatchetStepInternal,
-  encodeRatchetCounter as encodeRatchetCounterInternal,
-  getEnvelopeMessageKey as getEnvelopeMessageKeyInternal,
-  getReceivingMessageKey as getReceivingMessageKeyInternal,
-  resolveReceivingChain as resolveReceivingChainInternal,
-  storeReceivingChain as storeReceivingChainInternal,
-  updateReceivingChain as updateReceivingChainInternal,
-} from "./e2eeSessionRatchet";
+import { dispatchE2eeEncryptionStateSynced } from "./e2eeEvents";
 import {
   decryptArchivedDecryptedMessage as decryptArchivedDecryptedMessageInternal,
   decryptRecoverySnapshotPayload as decryptRecoverySnapshotPayloadInternal,
@@ -256,100 +114,70 @@ import {
   type RecoverySnapshotPayload,
 } from "./e2eeRecoveryArchive";
 import {
-  TRUSTED_DEVICE_STORAGE_PREFIX,
-  readTrustedDeviceUnlockRecord as readTrustedDeviceUnlockRecordInternal,
-  removeTrustedDeviceUnlockRecord as removeTrustedDeviceUnlockRecordInternal,
-  writeTrustedDeviceUnlockRecord as writeTrustedDeviceUnlockRecordInternal,
-  hasTrustedDeviceUnlock,
-  isTrustedDeviceUnlockSupported,
-  type TrustedDeviceUnlockRecord,
-} from "./e2eeTrustedDevice";
+  readTrustedBrowserUnlockRecord as readTrustedBrowserUnlockRecordInternal,
+  removeTrustedBrowserUnlockRecord as removeTrustedBrowserUnlockRecordInternal,
+  writeTrustedBrowserUnlockRecord as writeTrustedBrowserUnlockRecordInternal,
+  hasTrustedBrowserUnlock,
+  isTrustedBrowserUnlockSupported,
+  type TrustedBrowserUnlockRecord,
+} from "./e2eeTrustedBrowser";
 import {
-  createTrustedDeviceCredential as createTrustedDeviceCredentialInternal,
-  deriveTrustedDeviceKey as deriveTrustedDeviceKeyInternal,
-  trustCurrentDeviceUnlock as trustCurrentDeviceUnlockInternal,
-  unlockWithTrustedDevice as unlockWithTrustedDeviceInternal,
-} from "./e2eeTrustedDeviceUnlock";
+  createTrustedBrowserCredential as createTrustedBrowserCredentialInternal,
+  deriveTrustedBrowserKey as deriveTrustedBrowserKeyInternal,
+  trustCurrentBrowserUnlock as trustCurrentBrowserUnlockInternal,
+  unlockWithTrustedBrowser as unlockWithTrustedBrowserInternal,
+} from "./e2eeTrustedBrowserUnlock";
 import { recordSendDiagnosticStep } from "./sendDiagnostics";
 import { recordMessageHydrationDiagnostic } from "./messageHydrationDiagnostics";
 
-const MESSAGE_SCHEME_DEVICE = "X3DH-DEVICE-AES-GCM";
-const MESSAGE_SCHEME_GROUP_SENDER_KEY = "GROUP-SENDER-KEY-AES-GCM";
 const MESSAGE_SCHEME_CHAT_EPOCH = "CHAT-EPOCH-KEY-AES-GCM";
 const MESSAGE_CONTENT_ENVELOPE_TYPE = "north.message.v1";
 const KDF_ITERATIONS = 250_000;
 const UNLOCKED_IDENTITY_STORAGE_PREFIX = "north-messenger:unlocked-e2ee:";
 const AUTO_UNLOCKED_IDENTITY_STORAGE_PREFIX = "north-messenger:auto-unlocked-e2ee:";
 const REMEMBERED_UNLOCKED_IDENTITY_STORAGE_PREFIX = "north-messenger:remembered-e2ee:";
-const ENCRYPTION_DEVICE_STORAGE_PREFIX = "north-messenger:device-e2ee:";
-const REMEMBERED_ENCRYPTION_DEVICE_STORAGE_PREFIX = "north-messenger:remembered-device-e2ee:";
-const ENCRYPTION_DEVICE_SESSION_STORAGE_PREFIX = "north-messenger:device-session-e2ee:";
-const REMEMBERED_ENCRYPTION_DEVICE_SESSION_STORAGE_PREFIX =
-  "north-messenger:remembered-device-session-e2ee:";
-const GROUP_SENDER_CHAIN_STORAGE_PREFIX = "north-messenger:group-sender-chain-e2ee:";
 const GROUP_HISTORY_KEY_STORAGE_PREFIX = "north-messenger:group-history-key-e2ee:";
 const DECRYPTED_MESSAGE_ARCHIVE_STORAGE_PREFIX = "north-messenger:decrypted-message-archive:";
-const OUTGOING_MESSAGE_MIRROR_STORAGE_PREFIX = "north-messenger:outgoing-message-mirror:";
 const E2EE_STORAGE_SCHEMA_VERSION_KEY = "north-messenger:e2ee-storage-schema-version";
 const E2EE_TRANSPORT_STORAGE_SCHEMA_VERSION = "5";
 const DECRYPTED_MESSAGE_ARCHIVE_DB_NAME = "north-messenger-decrypted-message-archive";
 const DECRYPTED_MESSAGE_ARCHIVE_DB_VERSION = 1;
 const DECRYPTED_MESSAGE_ARCHIVE_STORE_NAME = "messages";
 const DECRYPTED_MESSAGE_ARCHIVE_CHAT_INDEX_NAME = "by-user-chat-created-at";
-const TRUSTED_DEVICE_RP_NAME = "North Messenger";
+const TRUSTED_BROWSER_RP_NAME = "North Messenger";
 const ACCOUNT_KEY_ALGORITHM = "RSA-OAEP";
 const ACCOUNT_KEY_HASH = "SHA-256";
-const ACCOUNT_KEY_MODULUS_LENGTH = 2048;
+const ACCOUNT_KEY_MODULUS_LENGTH = 3072;
 const ACCOUNT_KEY_PUBLIC_EXPONENT = new Uint8Array([1, 0, 1]);
-const DEVICE_AGREEMENT_KEY_ALGORITHM = "X25519";
-const DEVICE_SIGNATURE_KEY_ALGORITHM = "Ed25519";
-const DEVICE_ONE_TIME_PREKEY_COUNT = 16;
-const DEVICE_MIN_ONE_TIME_PREKEYS = 4;
-const DEVICE_SIGNED_PREKEY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-const DEVICE_PREKEY_GRACE_MS = 24 * 60 * 60 * 1000;
-const DEVICE_KEY_ID_SPACE = 2_000_000_000 - DEVICE_ONE_TIME_PREKEY_COUNT - 32;
-const DEVICE_MAX_MESSAGE_GAP = 4_096;
-const MAX_ARCHIVED_DEVICE_SESSIONS_PER_PEER_DEVICE = 4;
-const GROUP_MAX_MESSAGE_GAP = 4_096;
-const DIRECT_ENVELOPE_AAD_VERSION = 1;
-const DIRECT_HISTORY_ENVELOPE_AAD_VERSION = 1;
+const IDENTITY_SIGNING_KEY_ALGORITHM = "RSA-PSS";
+const IDENTITY_SIGNING_KEY_HASH = "SHA-256";
+const IDENTITY_SIGNING_KEY_MODULUS_LENGTH = 3072;
+const IDENTITY_SIGNING_KEY_SALT_LENGTH = 32;
+const ACCOUNT_KEY_SIGNATURE_CONTEXT = "north.account-key-bundle.v2";
+const IDENTITY_KEY_ALGORITHM_ID = "RSA-PSS-SHA256";
+const ACCOUNT_KEY_ALGORITHM_ID = "RSA-OAEP-3072-SHA256";
 const CHAT_EPOCH_ENVELOPE_AAD_VERSION = 1;
-const ACCOUNT_HISTORY_KEY_GRANT_AAD_VERSION = 1;
-const GROUP_SHARED_ENVELOPE_AAD_VERSION = 1;
-const GROUP_HISTORY_ENVELOPE_AAD_VERSION = 1;
-const GROUP_SENDER_DISTRIBUTION_AAD_VERSION = 1;
+const CHAT_EPOCH_ENVELOPE_CONTEXT = "north.chat-message.v1";
+const ACCOUNT_HISTORY_KEY_GRANT_LEGACY_AAD_VERSION = 1;
+const ACCOUNT_HISTORY_KEY_GRANT_AAD_VERSION = 2;
+const ACCOUNT_HISTORY_KEY_GRANT_CONTEXT = "north.account-history-key-grant.v2";
+const ACCOUNT_HISTORY_KEY_WRAP_LABEL = "north.account-history-key-grant.wrap.v2";
 const GROUP_HISTORY_KEY_GRANT_AAD_VERSION = 1;
-const DEVICE_REGISTRATION_CACHE_TTL_MS = 30_000;
-const DEVICE_PREPARATION_CACHE_TTL_MS = 30_000;
+const GROUP_HISTORY_KEY_GRANT_CONTEXT = "north.group-history-key-grant.v1";
 const RECOVERY_SNAPSHOT_SYNC_DEBOUNCE_MS = 1_000;
+const RECOVERY_SNAPSHOT_SYNC_FRESH_TTL_MS = 10_000;
 const RECOVERY_SYNC_SESSION_WAIT_TIMEOUT_MS = 1_000;
 const RECOVERY_SYNC_SESSION_WAIT_POLL_MS = 25;
 const RECOVERY_SNAPSHOT_PAYLOAD_VERSION = 1;
 const REMOTE_RECOVERY_ARCHIVE_REFRESH_TTL_MS = 5_000;
 const FAST_HISTORY_INLINE_HYDRATION_SUFFIX_SIZE = 3;
-const OUTGOING_MESSAGE_MIRROR_TTL_MS = 3 * 24 * 60 * 60 * 1000;
-const OUTGOING_MESSAGE_MIRROR_MAX_RECORDS = 200;
-const SIGNED_PREKEY_SIGNATURE_CONTEXT = "north-signed-prekey-v1";
+const STALE_ACTIVE_HISTORY_KEY_MESSAGE =
+  "Encrypted chat epoch history key is no longer active";
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
-const importedDevicePublicKeyCache = new Map<string, Promise<CryptoKey>>();
+const importedAccountPublicKeyCache = new Map<string, Promise<CryptoKey>>();
+const importedIdentitySigningPublicKeyCache = new Map<string, Promise<CryptoKey>>();
 const unlockedIdentityByUserId = new Map<string, LocalIdentity>();
-const inFlightEncryptionDeviceRegistration = new Map<string, Promise<void>>();
-const completedEncryptionDeviceRegistration = new Map<string, number>();
-const inFlightDevicePreparation = new Map<string, Promise<void>>();
-const completedDevicePreparation = new Map<string, number>();
-const preparedConversationDeviceStates = new Map<string, PreparedConversationDeviceState>();
-const inFlightOwnSiblingDevicePreparation = new Map<
-  string,
-  Promise<PreparedConversationDeviceState | null>
->();
-const completedOwnSiblingDevicePreparation = new Map<string, number>();
-const preparedOwnSiblingDeviceStates = new Map<string, PreparedConversationDeviceState>();
-const completedDeviceManifestPreparation = new Map<string, number>();
-const preparedDeviceManifestStates = new Map<string, PreparedDeviceManifestState>();
-const restoredPersistentDeviceSessionKeysByUserId = new Map<string, Set<string>>();
-const hydratedRuntimeDeviceSessionsByUserId = new Set<string>();
-const runtimeWrittenDeviceSessionsByUserId = new Set<string>();
 const inFlightEncryptedConversationSendByKey = new Map<string, Promise<void>>();
 const inFlightMessageHydrationBatchByUserId = new Map<string, Promise<void>>();
 const inFlightMessageHydrationByUserId = new Map<string, Promise<void>>();
@@ -359,8 +187,8 @@ const inFlightRecoverySnapshotSyncByUserId = new Map<string, Promise<void>>();
 const queuedRecoverySnapshotSyncByUserId = new Set<string>();
 const inFlightRecoverySyncSessionWaitByUserId = new Map<string, Promise<AuthResponse | null>>();
 const inFlightRecoveryArchiveRefreshByUserId = new Map<string, Promise<boolean>>();
+const completedRecoverySnapshotSyncByUserId = new Map<string, number>();
 const completedRecoveryArchiveRefreshByUserId = new Map<string, number>();
-const completedGroupHistoryAccessGrantFingerprintsByUserChat = new Map<string, string>();
 const DECRYPTED_ATTACHMENT_CACHE_MAX_BYTES = 64 * 1024 * 1024;
 const decryptedAttachmentCache = new Map<
   string,
@@ -372,29 +200,20 @@ const decryptedAttachmentCache = new Map<
 let decryptedAttachmentCacheSizeBytes = 0;
 
 export {
-  clearPinnedEncryptionIdentity,
-  isEncryptionIdentityChangedError,
   isResettableEncryptionRecoveryError,
   isUnavailableEncryptedMessage,
 } from "./e2eeShared";
-export { hasTrustedDeviceUnlock, isTrustedDeviceUnlockSupported } from "./e2eeTrustedDevice";
+export { hasTrustedBrowserUnlock, isTrustedBrowserUnlockSupported } from "./e2eeTrustedBrowser";
 
 const e2eeMessageReadbackStore = createE2eeMessageReadbackStore({
-  outgoingMessageMirrorStoragePrefix: OUTGOING_MESSAGE_MIRROR_STORAGE_PREFIX,
   decryptedMessageArchiveStoragePrefix: DECRYPTED_MESSAGE_ARCHIVE_STORAGE_PREFIX,
   decryptedMessageArchiveDbName: DECRYPTED_MESSAGE_ARCHIVE_DB_NAME,
   decryptedMessageArchiveDbVersion: DECRYPTED_MESSAGE_ARCHIVE_DB_VERSION,
   decryptedMessageArchiveStoreName: DECRYPTED_MESSAGE_ARCHIVE_STORE_NAME,
   decryptedMessageArchiveChatIndexName: DECRYPTED_MESSAGE_ARCHIVE_CHAT_INDEX_NAME,
-  outgoingMessageMirrorTtlMs: OUTGOING_MESSAGE_MIRROR_TTL_MS,
-  outgoingMessageMirrorMaxRecords: OUTGOING_MESSAGE_MIRROR_MAX_RECORDS,
-  normalizeAttachments: normalizeChatMessageAttachments,
-  isUnavailableEncryptedMessage,
 });
 
 const {
-  rememberOutgoingMessageMirror,
-  readOutgoingMessageMirror,
   writeArchivedDecryptedMessageRecord,
   writeArchivedDecryptedMessageRecords,
   readStoredArchivedDecryptedMessageRecord,
@@ -404,519 +223,6 @@ const {
   normalizeArchivedDecryptedMessageRecord,
   sortArchivedDecryptedMessageRecords,
 } = e2eeMessageReadbackStore;
-
-function sanitizeStoredDeviceSessions(sessions: Record<string, DeviceSessionRecord>) {
-  return sanitizeStoredDeviceSessionsInternal(
-    sessions,
-    MAX_ARCHIVED_DEVICE_SESSIONS_PER_PEER_DEVICE
-  );
-}
-
-function markPersistentRestoredCurrentDeviceSessions(
-  userId: string,
-  sessions: Record<string, DeviceSessionRecord>
-) {
-  return markPersistentRestoredCurrentDeviceSessionsInternal(
-    restoredPersistentDeviceSessionKeysByUserId,
-    userId,
-    sessions
-  );
-}
-
-function wasCurrentDeviceSessionRestoredFromPersistent(
-  userId: string,
-  peerUserId: string,
-  peerDeviceId: string
-) {
-  return wasCurrentDeviceSessionRestoredFromPersistentInternal(
-    restoredPersistentDeviceSessionKeysByUserId,
-    userId,
-    peerUserId,
-    peerDeviceId
-  );
-}
-
-function markCurrentDeviceSessionAsReactivated(
-  userId: string,
-  peerUserId: string,
-  peerDeviceId: string
-) {
-  return markCurrentDeviceSessionAsReactivatedInternal(
-    restoredPersistentDeviceSessionKeysByUserId,
-    userId,
-    peerUserId,
-    peerDeviceId
-  );
-}
-
-function clearPersistentRestoredCurrentDeviceSessions(userId: string) {
-  return clearPersistentRestoredCurrentDeviceSessionsInternal(
-    restoredPersistentDeviceSessionKeysByUserId,
-    userId
-  );
-}
-
-function setCurrentDeviceSessionRecord(
-  sessions: Record<string, DeviceSessionRecord>,
-  sessionRecord: DeviceSessionRecord,
-  maxArchivedSessionsPerPeerDevice = MAX_ARCHIVED_DEVICE_SESSIONS_PER_PEER_DEVICE
-) {
-  return setCurrentDeviceSessionRecordInternal(
-    sessions,
-    sessionRecord,
-    maxArchivedSessionsPerPeerDevice
-  );
-}
-
-function encodeRatchetCounter(counter: number) {
-  return encodeRatchetCounterInternal(counter);
-}
-
-async function deriveMessageRatchetStep(
-  chainKey: Uint8Array,
-  counter: number
-): Promise<{ messageKey: Uint8Array; nextChainKey: Uint8Array }> {
-  return deriveMessageRatchetStepInternal({
-    chainKey,
-    counter,
-    deriveSessionSecret,
-  });
-}
-
-function buildSessionMessageCacheKey(
-  direction: "send" | "recv",
-  ratchetPublicKey: string,
-  counter: number
-) {
-  return buildSessionMessageCacheKeyInternal(direction, ratchetPublicKey, counter);
-}
-
-function resolveReceivingChain(sessionRecord: DeviceSessionRecord, ratchetPublicKey: string) {
-  return resolveReceivingChainInternal(sessionRecord, ratchetPublicKey);
-}
-
-function storeReceivingChain(
-  sessionRecord: DeviceSessionRecord,
-  ratchetPublicKey: string,
-  chain: { chainKey: string; counter: number }
-) {
-  return storeReceivingChainInternal(sessionRecord, ratchetPublicKey, chain);
-}
-
-function updateReceivingChain(
-  sessionRecord: DeviceSessionRecord,
-  ratchetPublicKey: string,
-  chain: { chainKey: string; counter: number }
-) {
-  return updateReceivingChainInternal(sessionRecord, ratchetPublicKey, chain);
-}
-
-function cacheSessionMessageKey(
-  sessionRecord: DeviceSessionRecord,
-  direction: "send" | "recv",
-  ratchetPublicKey: string,
-  counter: number,
-  messageKey: Uint8Array
-) {
-  return cacheSessionMessageKeyInternal(
-    sessionRecord,
-    direction,
-    ratchetPublicKey,
-    counter,
-    messageKey,
-    bytesToBase64
-  );
-}
-
-async function advanceSendingChain(sessionRecord: DeviceSessionRecord) {
-  return advanceSendingChainInternal({
-    sessionRecord,
-    base64ToBytes,
-    bytesToBase64,
-    deriveMessageRatchetStep,
-  });
-}
-
-async function applyOutgoingDhRatchet(sessionRecord: DeviceSessionRecord) {
-  return applyOutgoingDhRatchetInternal({
-    sessionRecord,
-    deviceAgreementKeyAlgorithm: DEVICE_AGREEMENT_KEY_ALGORITHM,
-    generateAsymmetricKeyPair,
-    exportJsonWebKey,
-    importDevicePrivateKey,
-    importDevicePublicKey,
-    deriveAgreementSecret,
-    deriveSessionSecret,
-    base64ToBytes,
-    bytesToBase64,
-  });
-}
-
-async function getReceivingMessageKey(
-  sessionRecord: DeviceSessionRecord,
-  ratchetPublicKey: string,
-  messageCounter: number
-): Promise<Uint8Array> {
-  return getReceivingMessageKeyInternal({
-    sessionRecord,
-    ratchetPublicKey,
-    messageCounter,
-    deviceMaxMessageGap: DEVICE_MAX_MESSAGE_GAP,
-    base64ToBytes,
-    bytesToBase64,
-    deriveMessageRatchetStep,
-  });
-}
-
-async function getEnvelopeMessageKey(
-  sessionRecord: DeviceSessionRecord,
-  envelope: DirectDeviceEnvelope,
-  currentUserId: string,
-  currentDeviceId: string
-): Promise<Uint8Array> {
-  return getEnvelopeMessageKeyInternal({
-    sessionRecord,
-    envelope,
-    currentUserId,
-    currentDeviceId,
-    base64ToBytes,
-    getReceivingMessageKey: (ratchetPublicKey, messageCounter) =>
-      getReceivingMessageKey(sessionRecord, ratchetPublicKey, messageCounter),
-  });
-}
-
-async function applyIncomingDhRatchet(
-  sessionRecord: DeviceSessionRecord,
-  remoteRatchetPublicKey: string
-) {
-  return applyIncomingDhRatchetInternal({
-    sessionRecord,
-    remoteRatchetPublicKey,
-    deviceAgreementKeyAlgorithm: DEVICE_AGREEMENT_KEY_ALGORITHM,
-    importDevicePrivateKey,
-    importDevicePublicKey,
-    deriveAgreementSecret,
-    deriveSessionSecret,
-    base64ToBytes,
-    bytesToBase64,
-  });
-}
-
-async function verifySignedPrekeySignature(bundle: UserEncryptionDeviceBundle) {
-  return verifySignedPrekeySignatureInternal({
-    bundle,
-    importDevicePublicKey,
-    base64ToBytes,
-    buildSignedPrekeySignaturePayload,
-    subtleVerify: (algorithm, key, signature, data) =>
-      window.crypto.subtle.verify(algorithm, key, signature, data),
-  });
-}
-
-async function establishInitiatorDeviceSession(
-  currentUserId: string,
-  ownMaterial: DeviceEncryptionMaterial,
-  bundle: UserEncryptionDeviceBundle
-): Promise<DeviceSessionRecord> {
-  return establishInitiatorDeviceSessionInternal<DeviceEncryptionMaterial, DeviceSessionRecord>({
-    currentUserId,
-    ownMaterial,
-    bundle,
-    deviceAgreementKeyAlgorithm: DEVICE_AGREEMENT_KEY_ALGORITHM,
-    importDevicePrivateKey,
-    importDevicePublicKey,
-    generateAsymmetricKeyPair,
-    exportJsonWebKey,
-    deriveAgreementSecret,
-    deriveSessionSecret,
-    bytesToBase64,
-    textEncoder,
-    createInitializingError: () =>
-      new ApiError("Encrypted chat is still initializing on this device. Try again.", 409),
-    createSessionId: () => window.crypto.randomUUID(),
-    now: () => new Date().toISOString(),
-  });
-}
-
-async function establishResponderDeviceSession(
-  currentUserId: string,
-  ownMaterial: RegisteredDeviceEncryptionMaterial,
-  envelope: DirectDeviceEnvelope
-): Promise<DeviceSessionRecord> {
-  return establishResponderDeviceSessionInternal<
-    RegisteredDeviceEncryptionMaterial,
-    DeviceSessionRecord
-  >({
-    currentUserId,
-    ownMaterial,
-    envelope,
-    deviceAgreementKeyAlgorithm: DEVICE_AGREEMENT_KEY_ALGORITHM,
-    pruneRetiredSignedPrekeys,
-    pruneRetiredOneTimePrekeys,
-    importDevicePrivateKey,
-    importDevicePublicKey,
-    generateAsymmetricKeyPair,
-    exportJsonWebKey,
-    deriveAgreementSecret,
-    deriveSessionSecret,
-    bytesToBase64,
-    textEncoder,
-    createInitializingError: () =>
-      new ApiError("Encrypted chat is still initializing on this device. Try again.", 409),
-    createSessionId: () => window.crypto.randomUUID(),
-    now: () => new Date().toISOString(),
-  });
-}
-
-function buildDirectEnvelopeAdditionalData(
-  envelope: Omit<DirectDeviceEnvelope, "ciphertext">
-) {
-  return buildDirectEnvelopeAdditionalDataInternal(envelope, textEncoder);
-}
-
-async function createDirectRecipientEnvelopeContent(
-  senderUserId: string,
-  ownMaterial: DeviceEncryptionMaterial,
-  sessionRecord: DeviceSessionRecord,
-  content: string
-): Promise<DirectDeviceEnvelope> {
-  return createDirectRecipientEnvelopeContentInternal({
-    senderUserId,
-    ownMaterial,
-    sessionRecord,
-    content,
-    directEnvelopeAadVersion: DIRECT_ENVELOPE_AAD_VERSION,
-    createInitializingError: () =>
-      new ApiError("Encrypted chat is still initializing on this device. Try again.", 409),
-    randomBytes,
-    bytesToBase64,
-    applyOutgoingDhRatchet,
-    advanceSendingChain,
-    encryptEnvelopeCiphertext: async (envelopeMetadata, messageKeyBytes, plaintext, iv) => {
-      const messageKey = await window.crypto.subtle.importKey(
-        "raw",
-        toArrayBuffer(messageKeyBytes),
-        {
-          name: "AES-GCM",
-        },
-        false,
-        ["encrypt"]
-      );
-      const ciphertext = await window.crypto.subtle.encrypt(
-        {
-          name: "AES-GCM",
-          iv: iv as BufferSource,
-          additionalData: buildDirectEnvelopeAdditionalData(envelopeMetadata) as BufferSource,
-        },
-        messageKey,
-        textEncoder.encode(plaintext)
-      );
-
-      return bytesToBase64(new Uint8Array(ciphertext));
-    },
-  });
-}
-
-function parseDirectDeviceEnvelope(value: string): DirectDeviceEnvelope {
-  return parseDirectDeviceEnvelopeInternal(value, DIRECT_ENVELOPE_AAD_VERSION);
-}
-
-function shouldReestablishResponderDeviceSession(
-  sessionRecord: DeviceSessionRecord,
-  envelope: DirectDeviceEnvelope
-) {
-  return shouldReestablishResponderDeviceSessionInternal(sessionRecord, envelope);
-}
-
-async function decryptDirectRecipientEnvelope(
-  serializedEnvelope: string,
-  userId: string,
-  ownMaterial: RegisteredDeviceEncryptionMaterial
-) {
-  return decryptDirectRecipientEnvelopeInternal({
-    serializedEnvelope,
-    userId,
-    ownMaterial,
-    directEnvelopeAadVersion: DIRECT_ENVELOPE_AAD_VERSION,
-    assertTrustedDirectSender,
-    readDeviceSessions,
-    getDeviceSessionMapKey,
-    findDeviceSessionEntryForEnvelope: (sessions, envelope, context) =>
-      findDeviceSessionEntryForEnvelope(sessions, envelope, {
-        ...context,
-        buildSessionMessageCacheKey,
-        resolveReceivingChain,
-      }),
-    establishResponderDeviceSession,
-    setCurrentDeviceSessionRecord,
-    persistOwnMaterial: async (currentUserId, nextOwnMaterial) => {
-      writeEncryptionDeviceMaterial(currentUserId, nextOwnMaterial);
-      await rememberEncryptionDeviceMaterial(currentUserId, nextOwnMaterial);
-    },
-    resolveReceivingChain,
-    applyIncomingDhRatchet,
-    getEnvelopeMessageKey,
-    writeDeviceSessions,
-    rememberDeviceSessions,
-    decryptEnvelopeCiphertext: async (envelope, messageKeyBytes) => {
-      const messageKey = await window.crypto.subtle.importKey(
-        "raw",
-        toArrayBuffer(messageKeyBytes),
-        {
-          name: "AES-GCM",
-        },
-        false,
-        ["decrypt"]
-      );
-      const plaintext = await window.crypto.subtle.decrypt(
-        buildDirectDecryptionAlgorithm(envelope),
-        messageKey,
-        base64ToBytes(envelope.ciphertext)
-      );
-      return textDecoder.decode(plaintext);
-    },
-  });
-}
-
-async function decryptDirectMessage(message: ApiChatMessage, userId: string) {
-  return decryptDirectMessageInternal({
-    message,
-    userId,
-    readOwnMaterial: async (currentUserId) => {
-      const material = await readEncryptionDeviceMaterial(currentUserId);
-      return isRegisteredEncryptionDeviceMaterialAvailable(material) ? material : null;
-    },
-    isOwnMaterialAvailable: isRegisteredEncryptionDeviceMaterialAvailable,
-    decryptDirectRecipientEnvelope: (serializedEnvelope, currentUserId, ownMaterial) =>
-      decryptDirectRecipientEnvelope(serializedEnvelope, currentUserId, ownMaterial),
-    decryptDirectHistoryMessage,
-    isRecoverableHistoryFallbackError: isRecoverableGroupHistoryFallbackError,
-  });
-}
-
-function shouldEstablishDeviceSession(
-  existingSessions: Record<string, DeviceSessionRecord>,
-  bundle: UserEncryptionDeviceBundle
-) {
-  return shouldEstablishDeviceSessionInternal({
-    existingSessions,
-    bundle,
-    getDeviceSessionMapKey,
-  });
-}
-
-async function validateAndPinDeviceBundle(bundle: UserEncryptionDeviceBundle) {
-  return validateAndPinDeviceBundleInternal({
-    bundle,
-    deviceAgreementKeyAlgorithm: DEVICE_AGREEMENT_KEY_ALGORITHM,
-    deviceSignatureKeyAlgorithm: DEVICE_SIGNATURE_KEY_ALGORITHM,
-    readPinnedDeviceBundleRecord,
-    verifySignedPrekeySignature,
-    fingerprintPublicKey,
-    writePinnedDeviceBundleRecord,
-    now: () => new Date().toISOString(),
-  });
-}
-
-async function bootstrapDeviceSessions(
-  token: string,
-  currentUserId: string | null,
-  previewBundles: UserEncryptionDeviceBundle[]
-) {
-  return bootstrapDeviceSessionsInternal<
-    DeviceEncryptionMaterial,
-    DeviceSessionRecord
-  >({
-    token,
-    currentUserId,
-    previewBundles,
-    readOwnMaterial: readEncryptionDeviceMaterial,
-    readCurrentDeviceSessions,
-    shouldEstablishDeviceSession,
-    resolveEncryptionDeviceBundles,
-    validateAndPinDeviceBundle,
-    establishInitiatorDeviceSession,
-    setCurrentDeviceSessionRecord: (sessions, sessionRecord) =>
-      setCurrentDeviceSessionRecord(
-        sessions,
-        sessionRecord,
-        MAX_ARCHIVED_DEVICE_SESSIONS_PER_PEER_DEVICE
-      ),
-    writeDeviceSessions,
-    rememberDeviceSessions,
-  });
-}
-
-function buildDevicePreparationKey(
-  currentUserId: string | null,
-  remoteParticipantIds: string[]
-) {
-  return buildDevicePreparationKeyInternal(currentUserId, remoteParticipantIds);
-}
-
-async function primeDeviceBundles(
-  token: string,
-  userIds: string[],
-  requesterDeviceId?: string | null,
-  currentUserId?: string | null
-) {
-  return primeDeviceBundlesInternal({
-    token,
-    userIds,
-    requesterDeviceId,
-    currentUserId,
-    readPreparedDeviceManifestState,
-    rememberPreparedDeviceManifestState,
-    resolveEncryptionDeviceManifest,
-    resolveEncryptionDeviceBundles,
-    validateAndPinDeviceBundle,
-  });
-}
-
-async function resolveConversationDeviceBundles(
-  token: string,
-  participants: Participant[],
-  requesterDeviceId?: string | null,
-  currentUserId?: string | null
-): Promise<ConversationDeviceBundleResolution> {
-  return resolveConversationDeviceBundlesInternal({
-    token,
-    participants,
-    requesterDeviceId,
-    currentUserId,
-    readPreparedDeviceManifestState,
-    rememberPreparedDeviceManifestState,
-    resolveEncryptionDeviceManifest,
-    resolveEncryptionDeviceBundles,
-    validateAndPinDeviceBundle,
-  });
-}
-
-async function prepareSendConversationDeviceBundles(
-  token: string,
-  currentUserId: string,
-  participants: Participant[],
-  forceRefresh = false
-) {
-  return prepareSendConversationDeviceBundlesInternal({
-    token,
-    currentUserId,
-    participants,
-    inFlightDevicePreparation,
-    readPreparedConversationDeviceState,
-    readPreparedDeviceManifestState,
-    rememberPreparedConversationDeviceState,
-    rememberPreparedDeviceManifestState,
-    readEncryptionDeviceMaterial,
-    listPreparedOwnSiblingDeviceBundles,
-    bootstrapDeviceSessions,
-    resolveEncryptionDeviceManifest,
-    resolveEncryptionDeviceBundles,
-    validateAndPinDeviceBundle,
-    encryptionIdentityChangedMessage: ENCRYPTION_IDENTITY_CHANGED_MESSAGE,
-    forceRefresh,
-  });
-}
 
 function ensureE2eeTransportStorageSchema() {
   if (typeof window === "undefined") {
@@ -929,16 +235,10 @@ function ensureE2eeTransportStorageSchema() {
       return;
     }
 
-    clearLegacyE2eeTransportStorage(window.localStorage);
-    clearLegacyE2eeTransportStorage(window.sessionStorage);
-    importedDevicePublicKeyCache.clear();
-    completedEncryptionDeviceRegistration.clear();
-    completedDevicePreparation.clear();
-    preparedConversationDeviceStates.clear();
-    completedOwnSiblingDevicePreparation.clear();
-    preparedOwnSiblingDeviceStates.clear();
-    completedDeviceManifestPreparation.clear();
-    preparedDeviceManifestStates.clear();
+    resetE2eeTransportStorage(window.localStorage);
+    resetE2eeTransportStorage(window.sessionStorage);
+    importedAccountPublicKeyCache.clear();
+    importedIdentitySigningPublicKeyCache.clear();
     window.localStorage.setItem(
       E2EE_STORAGE_SCHEMA_VERSION_KEY,
       E2EE_TRANSPORT_STORAGE_SCHEMA_VERSION
@@ -948,16 +248,8 @@ function ensureE2eeTransportStorageSchema() {
   }
 }
 
-function clearLegacyE2eeTransportStorage(storage: Storage) {
-  const transportStoragePrefixes = [
-    PINNED_DEVICE_BUNDLE_STORAGE_PREFIX,
-    ENCRYPTION_DEVICE_STORAGE_PREFIX,
-    REMEMBERED_ENCRYPTION_DEVICE_STORAGE_PREFIX,
-    ENCRYPTION_DEVICE_SESSION_STORAGE_PREFIX,
-    REMEMBERED_ENCRYPTION_DEVICE_SESSION_STORAGE_PREFIX,
-    GROUP_SENDER_CHAIN_STORAGE_PREFIX,
-    GROUP_HISTORY_KEY_STORAGE_PREFIX,
-  ];
+function resetE2eeTransportStorage(storage: Storage) {
+  const transportStoragePrefixes = [GROUP_HISTORY_KEY_STORAGE_PREFIX];
   const keysToRemove: string[] = [];
 
   for (let index = 0; index < storage.length; index += 1) {
@@ -978,117 +270,16 @@ type LocalIdentity = {
   privateKey: string;
   accountPublicKey?: string;
   accountPrivateKey?: string;
-};
-
-type DeviceOneTimePrekeyMaterial = {
-  keyId: number;
-  publicKey: string;
-  privateKey: string;
-};
-
-type RetiredDeviceOneTimePrekeyMaterial = DeviceOneTimePrekeyMaterial & {
-  retiredAt: string;
-  expiresAt: string;
-};
-
-type RetiredSignedPrekeyMaterial = {
-  signedPrekeyId: number;
-  signedPrekeyPublicKey: string;
-  signedPrekeyPrivateKey: string;
-  signedPrekeyAlgorithm: string;
-  retiredAt: string;
-  expiresAt: string;
-};
-
-type DeviceEncryptionMaterial = {
-  deviceId: string | null;
-  materialId: string;
-  identityKey: string;
-  identityPrivateKey: string;
-  identityKeyAlgorithm: string;
-  identitySignatureKey: string;
-  identitySignaturePrivateKey: string;
-  identitySignatureKeyAlgorithm: string;
-  signedPrekeyId: number;
-  signedPrekeyPublicKey: string;
-  signedPrekeyPrivateKey: string;
-  signedPrekeySignature: string;
-  signedPrekeyAlgorithm: string;
-  oneTimePrekeys: DeviceOneTimePrekeyMaterial[];
-  retiredOneTimePrekeys?: RetiredDeviceOneTimePrekeyMaterial[];
-  retiredSignedPrekeys?: RetiredSignedPrekeyMaterial[];
-  createdAt: string;
-  signedPrekeyCreatedAt: string;
-};
-
-type RegisteredDeviceEncryptionMaterial = DeviceEncryptionMaterial & {
-  deviceId: string;
-};
-
-type DeviceSessionRecord = {
-  sessionId: string;
-  peerUserId: string;
-  peerDeviceId: string;
-  sessionOrigin?: "initiator" | "responder";
-  ownMaterialId: string;
-  remoteIdentityKey: string;
-  remoteIdentitySignatureKey: string;
-  remoteSignedPrekeyId: number;
-  remoteSignedPrekeyPublicKey: string;
-  remoteOneTimePrekeyId: number | null;
-  initiatorEphemeralPublicKey: string;
-  sendingRatchetPublicKey: string;
-  sendingRatchetPrivateKey: string;
-  remoteRatchetPublicKey: string | null;
-  sendingRatchetUsed: boolean;
-  pendingSendingRatchetStep: boolean;
-  rootKey: string;
-  sendingChainKey: string;
-  receivingChainKey: string;
-  receivingChains?: Record<
-    string,
-    {
-      chainKey: string;
-      counter: number;
-    }
-  >;
-  sendingCounter: number;
-  receivingCounter: number;
-  cachedMessageKeys?: Record<string, string>;
-  establishedAt: string;
+  accountKeyVersion?: number;
+  identityGeneration?: number;
+  identitySigningPublicKey?: string;
+  identitySigningPrivateKey?: string;
 };
 
 type MessageContentEnvelope = {
   type: typeof MESSAGE_CONTENT_ENVELOPE_TYPE;
   text: string;
   attachments?: ChatMessageAttachment[];
-};
-
-type DirectDeviceEnvelope = {
-  aadVersion: number;
-  senderUserId: string;
-  senderDeviceId: string;
-  recipientDeviceId: string;
-  senderIdentityKey: string;
-  senderIdentitySignatureKey: string;
-  initiatorEphemeralPublicKey: string;
-  ratchetPublicKey: string;
-  recipientSignedPrekeyId: number;
-  recipientOneTimePrekeyId: number | null;
-  messageCounter: number;
-  ciphertext: string;
-  iv: string;
-};
-
-type PinnedDeviceBundleRecord = {
-  userId: string;
-  deviceId: string;
-  identityFingerprint: string;
-  identitySignatureFingerprint: string;
-  signedPrekeyFingerprint: string;
-  signedPrekeyId: number;
-  deviceVersion?: string | null;
-  updatedAt: string;
 };
 
 export function hasUnlockedPrivateEncryptionKey(userId: string) {
@@ -1167,6 +358,7 @@ function clearRecoverySnapshotSyncState(userId?: string) {
     inFlightRecoverySnapshotSyncByUserId.delete(userId);
     inFlightRecoverySyncSessionWaitByUserId.delete(userId);
     inFlightRecoveryArchiveRefreshByUserId.delete(userId);
+    completedRecoverySnapshotSyncByUserId.delete(userId);
     completedRecoveryArchiveRefreshByUserId.delete(userId);
     scheduledRecoverySnapshotSyncByUserId.delete(userId);
     queuedRecoverySnapshotSyncByUserId.delete(userId);
@@ -1177,6 +369,7 @@ function clearRecoverySnapshotSyncState(userId?: string) {
   inFlightRecoverySnapshotSyncByUserId.clear();
   inFlightRecoverySyncSessionWaitByUserId.clear();
   inFlightRecoveryArchiveRefreshByUserId.clear();
+  completedRecoverySnapshotSyncByUserId.clear();
   completedRecoveryArchiveRefreshByUserId.clear();
   scheduledRecoverySnapshotSyncByUserId.clear();
   queuedRecoverySnapshotSyncByUserId.clear();
@@ -1223,6 +416,7 @@ async function syncEncryptionRecoverySnapshot(session: AuthResponse) {
   inFlightRecoverySnapshotSyncByUserId.set(userId, syncPromise);
   try {
     await syncPromise;
+    completedRecoverySnapshotSyncByUserId.set(userId, Date.now());
   } finally {
     if (inFlightRecoverySnapshotSyncByUserId.get(userId) === syncPromise) {
       inFlightRecoverySnapshotSyncByUserId.delete(userId);
@@ -1236,7 +430,14 @@ async function syncEncryptionRecoverySnapshot(session: AuthResponse) {
   }
 }
 
-async function syncEncryptionRecoverySnapshotInternal(session: AuthResponse) {
+async function syncEncryptionRecoverySnapshotInternal(
+  session: AuthResponse,
+  publishOwnEncryptionAccountKey: (
+    token: string,
+    userId: string,
+    identity: LocalIdentity
+  ) => Promise<unknown> = publishOwnEncryptionAccountKeyBundle
+) {
   return syncEncryptionRecoverySnapshotInternalExternal({
     session,
     isBrowserEnvironment: () => typeof window !== "undefined",
@@ -1247,6 +448,7 @@ async function syncEncryptionRecoverySnapshotInternal(session: AuthResponse) {
     readRemoteRecoverySnapshotArchivedMessages,
     writeArchivedDecryptedMessageRecords,
     encryptRecoverySnapshotPayload,
+    publishOwnEncryptionAccountKey,
     upsertOwnEncryptionRecoverySnapshot,
   });
 }
@@ -1354,31 +556,26 @@ async function refreshArchivedMessagesFromRemoteRecoverySnapshot(userId: string)
   return refreshPromise;
 }
 
-export async function syncEncryptionDeviceState(session: AuthResponse) {
+export async function syncEncryptionState(session: AuthResponse) {
   ensureE2eeTransportStorageSchema();
   const userId = session.user.id;
   const hadRecoverySyncSession = recoverySyncSessionByUserId.has(userId);
-  const previousDeviceId = (await readEncryptionDeviceMaterial(userId))?.deviceId ?? null;
   rememberRecoverySyncSession(session);
 
   if (!hasUnlockedPrivateEncryptionKey(userId)) {
     if (!hadRecoverySyncSession) {
-      dispatchE2eeDeviceStateSynced(userId);
+      dispatchE2eeEncryptionStateSynced(userId);
     }
     return;
   }
 
   try {
-    await Promise.all([
-      ensureRegisteredEncryptionDevice(session),
-      syncEncryptionRecoverySnapshot(session),
-    ]);
+    await syncEncryptionRecoverySnapshot(session);
   } catch {
-    // Device and recovery sync are best-effort. Messaging should keep working on the last known good state.
+    // Recovery sync is best-effort. Messaging should keep working on the last known good state.
   } finally {
-    const nextDeviceId = (await readEncryptionDeviceMaterial(userId))?.deviceId ?? null;
-    if (!hadRecoverySyncSession || previousDeviceId !== nextDeviceId) {
-      dispatchE2eeDeviceStateSynced(userId);
+    if (!hadRecoverySyncSession) {
+      dispatchE2eeEncryptionStateSynced(userId);
     }
   }
 }
@@ -1400,117 +597,27 @@ export async function readLatestArchivedDecryptedChatMessage(userId: string, cha
   };
 }
 
-function resetLocalEncryptionSessionsForRetry(
-  userId: string,
-  clearGroupSenderChainsToo: boolean,
-  discardRememberedState: boolean
-) {
-  removeDeviceSessions(userId);
-  if (discardRememberedState) {
-    removeRememberedDeviceSessions(userId);
-  }
-  clearCompletedDevicePreparation(userId);
-  if (clearGroupSenderChainsToo) {
-    if (discardRememberedState) {
-      removeGroupSenderChains(userId);
-      removeGroupHistoryKeys(userId);
-    } else {
-      removeRuntimeGroupSenderChains(userId);
-    }
-  }
-}
-
-function resetLocalEncryptionDeviceForRetry(userId: string) {
-  removeEncryptionDeviceMaterial(userId);
-  removeRememberedEncryptionDeviceMaterial(userId);
-  clearCompletedEncryptionDeviceRegistration(userId);
-  clearCompletedDevicePreparation(userId);
-}
-
-async function recoverLocalEncryptionStateForRetry(
-  currentUserId: string,
-  clearGroupSenderChainsToo: boolean,
-  session: AuthResponse | undefined,
-  repairMode: "session" | "device",
-  discardRememberedState = repairMode === "device"
-) {
-  resetLocalEncryptionSessionsForRetry(
-    currentUserId,
-    clearGroupSenderChainsToo,
-    discardRememberedState
-  );
-  if (clearGroupSenderChainsToo && !discardRememberedState) {
-    await restoreRememberedGroupSenderChainsForRetry(currentUserId);
-  }
-  if (repairMode !== "device") {
-    return;
-  }
-
-  resetLocalEncryptionDeviceForRetry(currentUserId);
-  if (session && session.user.id === currentUserId) {
-    await waitForEncryptionDeviceRegistration(session);
-  }
-}
-
-async function restoreRememberedGroupSenderChainsForRetry(userId: string) {
-  const rememberedState = await readRememberedGroupSenderChainState(userId);
-  if (!rememberedState) {
-    return;
-  }
-
-  // Retry repair should reuse the last remembered outbound chain directly
-  // instead of treating it like a fresh reload that requires rotation on the
-  // next send.
-  writeGroupSenderChainState(userId, rememberedState);
-}
-
 export function clearUnlockedEncryptionState(userId?: string) {
   ensureE2eeTransportStorageSchema();
-  clearCompletedGroupHistoryAccessGrantFingerprints(userId);
   return clearUnlockedEncryptionStateInternal({
     userId,
     unlockedIdentityByUserId,
-    importedDevicePublicKeyCache,
-    completedEncryptionDeviceRegistration,
-    completedDevicePreparation,
-    preparedConversationDeviceStates,
-    completedOwnSiblingDevicePreparation,
-    preparedOwnSiblingDeviceStates,
     clearInFlightMessageHydration,
     removeUnlockedIdentityFromSession,
     removeUnlockedIdentityFromPersistentStorage,
-    removeEncryptionDeviceMaterial,
-    removeRememberedEncryptionDeviceMaterial,
-    removeDeviceSessions,
-    removeRememberedDeviceSessions,
-    removeGroupSenderChains,
     removeGroupHistoryKeys,
-    clearCompletedEncryptionDeviceRegistration,
-    clearCompletedDevicePreparation,
     clearRecoverySnapshotSyncState,
   });
 }
 
 export function lockUnlockedEncryptionState(userId?: string) {
   ensureE2eeTransportStorageSchema();
-  clearCompletedGroupHistoryAccessGrantFingerprints(userId);
   return lockUnlockedEncryptionStateInternal({
     userId,
     unlockedIdentityByUserId,
-    completedEncryptionDeviceRegistration,
-    completedDevicePreparation,
-    preparedConversationDeviceStates,
-    completedOwnSiblingDevicePreparation,
-    preparedOwnSiblingDeviceStates,
     clearInFlightMessageHydration,
     removeUnlockedIdentityFromSession,
-    removeEncryptionDeviceMaterial,
-    removeDeviceSessions,
-    removeRememberedDeviceSessions,
-    removeGroupSenderChains,
     removeGroupHistoryKeys,
-    clearCompletedEncryptionDeviceRegistration,
-    clearCompletedDevicePreparation,
     clearRecoverySnapshotSyncState,
   });
 }
@@ -1524,7 +631,6 @@ export async function ensureEncryptionReady(session: AuthResponse, password: str
     readUnlockedIdentity,
     rememberUnlockedIdentity: (userId, identity, targetPassword) =>
       rememberUnlockedIdentity(userId, identity, targetPassword),
-    ensureRegisteredEncryptionDevice,
     syncEncryptionRecoverySnapshot,
     readRememberedUnlockedIdentity: (userId, targetPassword) =>
       readRememberedUnlockedIdentity(userId, targetPassword),
@@ -1533,30 +639,81 @@ export async function ensureEncryptionReady(session: AuthResponse, password: str
       ensureLocalIdentityHasAccountKeyPair(userId, identity, targetPassword),
     restoreEncryptionRecoverySnapshot: (targetSession, targetPassword) =>
       restoreEncryptionRecoverySnapshot(targetSession, targetPassword),
-    listOwnEncryptionDevices,
     createLocalVaultIdentity,
-    encryptionRecoveryExistingChatsMessage: ENCRYPTION_RECOVERY_EXISTING_CHATS_MESSAGE,
   });
 }
 
+function hasFreshCompletedRecoverySnapshotSync(userId: string) {
+  const completedAt = completedRecoverySnapshotSyncByUserId.get(userId);
+  return Boolean(
+    completedAt && Date.now() - completedAt < RECOVERY_SNAPSHOT_SYNC_FRESH_TTL_MS
+  );
+}
+
+async function ensureFreshPublishedAccountKey(
+  session: AuthResponse | undefined,
+  currentUserId: string
+) {
+  if (!session || session.user.id !== currentUserId) {
+    return;
+  }
+
+  rememberRecoverySyncSession(session);
+  if (!hasUnlockedPrivateEncryptionKey(currentUserId)) {
+    return;
+  }
+  if (hasFreshCompletedRecoverySnapshotSync(currentUserId)) {
+    return;
+  }
+
+  await syncEncryptionRecoverySnapshot(session);
+}
+
 export async function resetEncryptionAfterPasswordReset(session: AuthResponse, password: string) {
+  let nextIdentityGeneration = 1;
+  try {
+    const currentBundle = await getOwnEncryptionAccountKey(session.token);
+    if (
+      typeof currentBundle.identityGeneration === "number" &&
+      Number.isFinite(currentBundle.identityGeneration) &&
+      currentBundle.identityGeneration >= 1
+    ) {
+      nextIdentityGeneration = currentBundle.identityGeneration + 1;
+    }
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 404) {
+      throw error;
+    }
+  }
+
   return resetEncryptionAfterPasswordResetInternal({
     session,
     password,
     ensureE2eeTransportStorageSchema,
     clearUnlockedEncryptionState,
-    removeTrustedDeviceUnlockRecord,
-    clearPinnedDeviceBundleRecords,
+    removeTrustedBrowserUnlockRecord,
     clearStoredArchivedDecryptedMessageRecords,
     rememberRecoverySyncSession,
-    createLocalVaultIdentity,
+    createLocalVaultIdentity: () => ({
+      ...createLocalVaultIdentity(),
+      identityGeneration: nextIdentityGeneration,
+    }),
     ensureAccountKeyPair: (userId, identity, targetPassword) =>
       ensureLocalIdentityHasAccountKeyPair(userId, identity, targetPassword),
     writeUnlockedIdentity,
     rememberUnlockedIdentity: (userId, identity, targetPassword) =>
       rememberUnlockedIdentity(userId, identity, targetPassword),
-    ensureRegisteredEncryptionDevice,
-    syncEncryptionRecoverySnapshot,
+    syncEncryptionRecoverySnapshot: (targetSession) =>
+      syncEncryptionRecoverySnapshotInternal(
+        targetSession,
+        (token, userId, identity) =>
+          publishOwnEncryptionAccountKeyBundleAfterIdentityReset(
+            token,
+            userId,
+            identity,
+            password
+          )
+      ),
   });
 }
 
@@ -1591,35 +748,34 @@ export async function buildOwnEncryptionRecoverySnapshotUpload(userId: string) {
   });
 }
 
-export async function trustCurrentDeviceUnlock(session: AuthResponse) {
-  return trustCurrentDeviceUnlockInternal({
+export async function trustCurrentBrowserUnlock(session: AuthResponse) {
+  return trustCurrentBrowserUnlockInternal({
     session,
     ensureE2eeTransportStorageSchema,
     rememberRecoverySyncSession,
-    isTrustedDeviceUnlockSupported,
+    isTrustedBrowserUnlockSupported,
     readUnlockedIdentity,
-    createTrustedDeviceCredential: (targetSession) =>
-      createTrustedDeviceCredential(targetSession),
+    createTrustedBrowserCredential: (targetSession) =>
+      createTrustedBrowserCredential(targetSession),
     randomBytes,
-    deriveTrustedDeviceKey,
+    deriveTrustedBrowserKey,
     textEncoder,
     bytesToBase64,
-    writeTrustedDeviceUnlockRecord,
+    writeTrustedBrowserUnlockRecord,
   });
 }
 
-export async function unlockWithTrustedDevice(session: AuthResponse) {
-  return unlockWithTrustedDeviceInternal({
+export async function unlockWithTrustedBrowser(session: AuthResponse) {
+  return unlockWithTrustedBrowserInternal({
     session,
     ensureE2eeTransportStorageSchema,
     rememberRecoverySyncSession,
-    isTrustedDeviceUnlockSupported,
-    readTrustedDeviceUnlockRecord,
-    deriveTrustedDeviceKey,
+    isTrustedBrowserUnlockSupported,
+    readTrustedBrowserUnlockRecord,
+    deriveTrustedBrowserKey,
     base64ToBytes,
     textDecoder,
     writeUnlockedIdentity,
-    ensureRegisteredEncryptionDevice,
     syncEncryptionRecoverySnapshot,
   });
 }
@@ -1657,14 +813,25 @@ export async function getEncryptedMessagesSnapshot(
     beforeServerOrder?: number | null;
     limit?: number;
     acknowledgeDelivered?: boolean;
+    prefetchedRawMessages?: ApiChatMessage[];
+    prefetchedActiveGroupHistoryKeyAccess?: GroupHistoryKeyAccess | null;
   } = {}
 ) {
   ensureE2eeTransportStorageSchema();
 
-  const rawMessages = await getMessagesRaw(token, chatId, {
-    ...options,
-    acknowledgeDelivered: options.acknowledgeDelivered ?? false,
-  });
+  await primePrefetchedActiveGroupHistoryKeyAccess(
+    userId,
+    chatId,
+    options.prefetchedActiveGroupHistoryKeyAccess
+  );
+
+  const rawMessages =
+    options.prefetchedRawMessages ??
+    (await getMessagesRaw(token, chatId, {
+      beforeServerOrder: options.beforeServerOrder,
+      limit: options.limit,
+      acknowledgeDelivered: options.acknowledgeDelivered ?? false,
+    }));
   const hydratedMessages = await Promise.all(
     rawMessages.map((message) => hydrateChatMessageSnapshot(message, userId))
   );
@@ -1847,6 +1014,8 @@ export async function sendEncryptedMessage(
     isDirectChat?: boolean;
     session?: AuthResponse;
     attachments?: ChatMessageAttachment[];
+    membershipVersion?: number;
+    prejoinHistoryPolicy?: ChatPrejoinHistoryPolicy | null;
   }
 ) {
   ensureE2eeTransportStorageSchema();
@@ -1866,7 +1035,7 @@ export async function sendEncryptedMessage(
   }
 
   if (!options?.currentUserId) {
-    throw new ApiError("Encrypted chat is still initializing on this device. Try again.", 409);
+    throw new ApiError(ENCRYPTION_INITIALIZING_MESSAGE, 409);
   }
 
   const currentUserId = options.currentUserId;
@@ -1875,129 +1044,51 @@ export async function sendEncryptedMessage(
     chatId,
     resolvedClientMessageId,
     async () => {
-      if (options.session && options.session.user.id === options.currentUserId) {
-        recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:waitDeviceRegistration:start");
-        await waitForEncryptionDeviceRegistration(options.session);
-        recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:waitDeviceRegistration:end");
+      await ensureFreshPublishedAccountKey(options.session, currentUserId);
+      const encryptedContent = serializeMessageContent(normalizedContent, attachments);
+      if (!resolvedClientMessageId) {
+        throw new ApiError("Client message id is required", 400);
       }
-
-      if (resolvedClientMessageId) {
-        rememberOutgoingMessageMirror(currentUserId, {
+      const sentMessage = await dispatchEncryptedMessageWithActiveKeyRetry({
+        token,
+        chatId,
+        currentUserId,
+        encryptedContent,
+        participants,
+        resolvedClientMessageId,
+        replyToMessageId,
+        attachments,
+        membershipVersion: options?.membershipVersion,
+        prejoinHistoryPolicy: options?.prejoinHistoryPolicy ?? null,
+        buildChatMessage: (response) =>
+          ({
+            id: response.id,
+            chatId: response.chatId,
+            serverOrder: response.serverOrder ?? null,
+            sender: response.sender,
+            content: normalizedContent,
+            createdAt: response.createdAt,
+            editedAt: response.editedAt,
+            status: response.status,
+            clientMessageId: response.clientMessageId ?? resolvedClientMessageId,
+            replyTo: response.replyTo,
+            reactions: response.reactions ?? [],
+            attachments,
+          }) satisfies ChatMessage,
+      });
+      const archivedMessageVariants: Pick<
+        ChatMessage,
+        "id" | "chatId" | "content" | "createdAt" | "editedAt" | "attachments"
+      >[] = [sentMessage];
+      if (resolvedClientMessageId && resolvedClientMessageId !== sentMessage.id) {
+        archivedMessageVariants.push({
+          ...sentMessage,
           id: resolvedClientMessageId,
-          chatId,
-          content: normalizedContent,
-          createdAt: new Date().toISOString(),
-          editedAt: null,
-          attachments,
-          clientMessageId: resolvedClientMessageId,
         });
       }
-      recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:primeRecipients:start");
-      await prepareSendConversationDeviceBundles(token, currentUserId, participants);
-      recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:primeRecipients:end");
-      const dispatchMessage = async () => {
-        const encryptedContent = serializeMessageContent(normalizedContent, attachments);
-        recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:encrypt:start");
-        const encryptedPayload = await encryptChatEpochMessage(
-          token,
-          chatId,
-          currentUserId,
-          encryptedContent,
-          participants
-        );
-        if (!resolvedClientMessageId) {
-          throw new ApiError("Client message id is required", 400);
-        }
-        recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:encrypt:end", {
-          scheme: encryptedPayload.scheme,
-        });
-
-        recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:transportDispatch:start");
-        const response = await sendMessageRaw(token, chatId, {
-          clientMessageId: resolvedClientMessageId,
-          replyToMessageId,
-          attachmentIds: attachments.map((attachment) => attachment.id),
-          encryptedPayload,
-        });
-        recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:transportDispatch:end", {
-          messageId: response.id,
-          serverOrder: response.serverOrder ?? null,
-        });
-
-        const sentMessage = {
-          id: response.id,
-          chatId: response.chatId,
-          serverOrder: response.serverOrder ?? null,
-          sender: response.sender,
-          content: normalizedContent,
-          createdAt: response.createdAt,
-          editedAt: response.editedAt,
-          status: response.status,
-          clientMessageId: response.clientMessageId ?? resolvedClientMessageId,
-          replyTo: response.replyTo,
-          reactions: response.reactions ?? [],
-          attachments,
-        } satisfies ChatMessage;
-        rememberOutgoingMessageMirror(currentUserId, sentMessage);
-        void rememberArchivedDecryptedMessage(currentUserId, sentMessage);
-        recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:archiveRemembered");
-        return sentMessage;
-      };
-
-      try {
-        return await dispatchMessage();
-      } catch (error) {
-        let recoverableRetryMode = getRecoverableEncryptedEnvelopeErrorMode(error);
-        if (!recoverableRetryMode) {
-          throw error;
-        }
-
-        let retryError: unknown = error;
-        let discardRememberedState = false;
-        while (true) {
-          recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:recoverableRetry", {
-            mode: recoverableRetryMode,
-            discardRememberedState,
-          });
-          await recoverLocalEncryptionStateForRetry(
-            currentUserId,
-            options.isDirectChat === false,
-            options.session,
-            recoverableRetryMode,
-            discardRememberedState
-          );
-          recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:recoverableRetryRecovered", {
-            mode: recoverableRetryMode,
-            discardRememberedState,
-          });
-          const forceRefresh = shouldForceRefreshPreparedRecipientsForError(retryError);
-          await prepareSendConversationDeviceBundles(
-            token,
-            currentUserId,
-            participants,
-            forceRefresh
-          );
-          try {
-            return await dispatchMessage();
-          } catch (nextError) {
-            const nextRetryMode = getRecoverableEncryptedEnvelopeErrorMode(nextError);
-            const canEscalateSessionRecovery =
-              !discardRememberedState &&
-              recoverableRetryMode === "session" &&
-              nextRetryMode === "session";
-            if (!canEscalateSessionRecovery) {
-              throw nextError;
-            }
-
-            recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:recoverableRetryEscalated", {
-              mode: recoverableRetryMode,
-            });
-            retryError = nextError;
-            recoverableRetryMode = nextRetryMode;
-            discardRememberedState = true;
-          }
-        }
-      }
+      await rememberArchivedDecryptedMessages(currentUserId, archivedMessageVariants);
+      recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:archiveRemembered");
+      return sentMessage;
     }
   );
 }
@@ -2014,6 +1105,8 @@ export async function updateEncryptedMessage(
     isDirectChat?: boolean;
     session?: AuthResponse;
     attachments?: ChatMessageAttachment[];
+    membershipVersion?: number;
+    prejoinHistoryPolicy?: ChatPrejoinHistoryPolicy | null;
   }
 ) {
   ensureE2eeTransportStorageSchema();
@@ -2025,91 +1118,32 @@ export async function updateEncryptedMessage(
   }
 
   if (!(options?.currentUserId ?? userId)) {
-    throw new ApiError("Encrypted chat is still initializing on this device. Try again.", 409);
+    throw new ApiError(ENCRYPTION_INITIALIZING_MESSAGE, 409);
   }
 
   const currentUserId = options?.currentUserId ?? userId;
   return serializeEncryptedConversationSend(currentUserId, chatId, "", async () => {
-    if (options?.session && options.session.user.id === (options.currentUserId ?? userId)) {
-      await waitForEncryptionDeviceRegistration(options.session);
-    }
-
-    rememberOutgoingMessageMirror(currentUserId, {
-      id: messageId,
+    await ensureFreshPublishedAccountKey(options?.session, currentUserId);
+    const encryptedContent = serializeMessageContent(normalizedContent, attachments);
+    const response = await updateEncryptedMessageWithActiveKeyRetry({
+      token,
       chatId,
-      content: normalizedContent,
-      createdAt: new Date().toISOString(),
-      editedAt: null,
+      currentUserId,
+      messageId,
+      encryptedContent,
+      participants,
       attachments,
-      clientMessageId: null,
+      membershipVersion: options?.membershipVersion,
+      prejoinHistoryPolicy: options?.prejoinHistoryPolicy ?? null,
     });
-    await prepareSendConversationDeviceBundles(token, currentUserId, participants);
-    const dispatchUpdate = async () => {
-      const encryptedContent = serializeMessageContent(normalizedContent, attachments);
-      const encryptedPayload = await encryptChatEpochMessage(
-        token,
-        chatId,
-        currentUserId,
-        encryptedContent,
-        participants
-      );
-      const response = await updateMessage(token, chatId, messageId, {
-        encryptedPayload,
-      });
 
-      const hydratedMessage = {
-        ...(await hydrateChatMessage(response, userId)),
-        content: normalizedContent,
-        attachments,
-      } satisfies ChatMessage;
-      rememberOutgoingMessageMirror(currentUserId, hydratedMessage);
-      await rememberArchivedDecryptedMessage(currentUserId, hydratedMessage);
-      return hydratedMessage;
-    };
-
-    try {
-      return await dispatchUpdate();
-    } catch (error) {
-      let recoverableRetryMode = getRecoverableEncryptedEnvelopeErrorMode(error);
-      if (!recoverableRetryMode) {
-        throw error;
-      }
-
-      let retryError: unknown = error;
-      let discardRememberedState = false;
-      while (true) {
-        await recoverLocalEncryptionStateForRetry(
-          currentUserId,
-          options?.isDirectChat === false,
-          options?.session,
-          recoverableRetryMode,
-          discardRememberedState
-        );
-        const forceRefresh = shouldForceRefreshPreparedRecipientsForError(retryError);
-        await prepareSendConversationDeviceBundles(
-          token,
-          currentUserId,
-          participants,
-          forceRefresh
-        );
-        try {
-          return await dispatchUpdate();
-        } catch (nextError) {
-          const nextRetryMode = getRecoverableEncryptedEnvelopeErrorMode(nextError);
-          const canEscalateSessionRecovery =
-            !discardRememberedState &&
-            recoverableRetryMode === "session" &&
-            nextRetryMode === "session";
-          if (!canEscalateSessionRecovery) {
-            throw nextError;
-          }
-
-          retryError = nextError;
-          recoverableRetryMode = nextRetryMode;
-          discardRememberedState = true;
-        }
-      }
-    }
+    const hydratedMessage = {
+      ...(await hydrateChatMessage(response, userId)),
+      content: normalizedContent,
+      attachments,
+    } satisfies ChatMessage;
+    await rememberArchivedDecryptedMessage(currentUserId, hydratedMessage);
+    return hydratedMessage;
   });
 }
 
@@ -2121,243 +1155,16 @@ export async function primeEncryptedMessageRecipients(
   ensureE2eeTransportStorageSchema();
 
   if (!options?.currentUserId) {
-    throw new ApiError("Encrypted chat is still initializing on this device. Try again.", 409);
+    throw new ApiError(ENCRYPTION_INITIALIZING_MESSAGE, 409);
   }
 
-  if (options.session && options.session.user.id === options.currentUserId) {
-    await waitForEncryptionDeviceRegistration(options.session);
-  }
-
-  const remoteParticipantIds = participants
-    .map((participant) => participant.id)
-    .filter((participantId) => participantId !== options.currentUserId);
-  await prepareDeviceEncryptionState(
+  await ensureFreshPublishedAccountKey(options.session, options.currentUserId);
+  await resolveConversationAccountKeyDirectory(
     token,
     options.currentUserId,
-    remoteParticipantIds,
-    options.forceRefresh === true
+    participants,
+    await ensureRuntimeAccountIdentity(options.currentUserId)
   );
-}
-
-async function prepareDeviceEncryptionState(
-  token: string,
-  currentUserId: string | null,
-  remoteParticipantIds: string[],
-  forceRefresh = false
-) {
-  const preparationKey = buildDevicePreparationKey(currentUserId, remoteParticipantIds);
-  if (!forceRefresh) {
-    if (readPreparedConversationDeviceState(preparationKey)) {
-      return;
-    }
-
-    const inFlightPreparation = inFlightDevicePreparation.get(preparationKey);
-    if (inFlightPreparation) {
-      await inFlightPreparation;
-      return;
-    }
-  } else {
-    clearPreparedConversationDeviceState(preparationKey);
-    inFlightDevicePreparation.delete(preparationKey);
-  }
-
-  const preparationPromise = (async () => {
-    const ownMaterial = currentUserId ? await readEncryptionDeviceMaterial(currentUserId) : null;
-    const [
-      {
-        rawBundles: remoteRawBundles,
-        trustedBundles: remoteTrustedBundles,
-      },
-      preparedOwnDeviceBundles,
-    ] = await Promise.all([
-      primeDeviceBundles(token, remoteParticipantIds, ownMaterial?.deviceId ?? null, currentUserId),
-      currentUserId && ownMaterial?.deviceId
-        ? listPreparedOwnSiblingDeviceBundles(
-            token,
-            currentUserId,
-            ownMaterial.deviceId,
-            forceRefresh
-          )
-        : Promise.resolve(null),
-    ]);
-    let rawBundles = remoteRawBundles;
-    let trustedBundles = remoteTrustedBundles;
-    let cachePreparedState = true;
-    if (currentUserId && ownMaterial?.deviceId) {
-      if (preparedOwnDeviceBundles) {
-        rawBundles = mergePreparedConversationDeviceBundles(
-          rawBundles,
-          preparedOwnDeviceBundles.rawBundles
-        );
-        trustedBundles = mergePreparedConversationDeviceBundles(
-          trustedBundles,
-          preparedOwnDeviceBundles.trustedBundles
-        );
-      } else {
-        cachePreparedState = false;
-      }
-    }
-    const rawUserIds = new Set(rawBundles.map((bundle) => bundle.userId));
-    const trustedBundleKeys = new Set(
-      trustedBundles.map((bundle) => getDeviceBundleMapKey(bundle.userId, bundle.deviceId))
-    );
-    const untrustedParticipantIds = Array.from(
-      new Set(
-        rawBundles
-          .filter((bundle) => !trustedBundleKeys.has(getDeviceBundleMapKey(bundle.userId, bundle.deviceId)))
-          .map((bundle) => bundle.userId)
-      )
-    );
-    if (untrustedParticipantIds.length > 0) {
-      throw new ApiError(ENCRYPTION_IDENTITY_CHANGED_MESSAGE, 409);
-    }
-
-    const bootstrapped = await bootstrapDeviceSessions(token, currentUserId, trustedBundles);
-    if (bootstrapped && cachePreparedState) {
-      rememberPreparedConversationDeviceState(preparationKey, {
-        rawBundles,
-        trustedBundles,
-      });
-    }
-  })();
-  inFlightDevicePreparation.set(preparationKey, preparationPromise);
-
-  try {
-    await preparationPromise;
-  } finally {
-    if (inFlightDevicePreparation.get(preparationKey) === preparationPromise) {
-      inFlightDevicePreparation.delete(preparationKey);
-    }
-  }
-}
-
-function readPreparedConversationDeviceState(preparationKey: string) {
-  return readPreparedConversationDeviceStateInternal({
-    preparationKey,
-    completedDevicePreparation,
-    preparedConversationDeviceStates,
-    ttlMs: DEVICE_PREPARATION_CACHE_TTL_MS,
-    clearPreparedConversationDeviceState,
-  });
-}
-
-function buildOwnSiblingDevicePreparationKey(currentUserId: string, currentDeviceId: string) {
-  return buildOwnSiblingDevicePreparationKeyInternal(currentUserId, currentDeviceId);
-}
-
-async function listPreparedOwnSiblingDeviceBundles(
-  token: string,
-  currentUserId: string,
-  currentDeviceId: string,
-  forceRefresh = false
-) {
-  return listPreparedOwnSiblingDeviceBundlesInternal({
-    token,
-    currentUserId,
-    currentDeviceId,
-    forceRefresh,
-    inFlightOwnSiblingDevicePreparation,
-    readPreparedOwnSiblingDeviceState,
-    rememberPreparedOwnSiblingDeviceState,
-    clearPreparedOwnSiblingDeviceState,
-    listOwnEncryptionDevices,
-    validateAndPinDeviceBundle,
-  });
-}
-
-function readPreparedOwnSiblingDeviceState(preparationKey: string) {
-  return readPreparedOwnSiblingDeviceStateInternal({
-    preparationKey,
-    completedOwnSiblingDevicePreparation,
-    preparedOwnSiblingDeviceStates,
-    ttlMs: DEVICE_PREPARATION_CACHE_TTL_MS,
-    clearPreparedOwnSiblingDeviceState,
-  });
-}
-
-function rememberPreparedOwnSiblingDeviceState(
-  preparationKey: string,
-  preparedState: PreparedConversationDeviceState
-) {
-  rememberPreparedOwnSiblingDeviceStateInternal({
-    preparationKey,
-    preparedState,
-    completedOwnSiblingDevicePreparation,
-    preparedOwnSiblingDeviceStates,
-  });
-}
-
-function clearPreparedOwnSiblingDeviceState(preparationKey: string) {
-  clearPreparedOwnSiblingDeviceStateInternal({
-    preparationKey,
-    completedOwnSiblingDevicePreparation,
-    preparedOwnSiblingDeviceStates,
-  });
-}
-
-function rememberPreparedConversationDeviceState(
-  preparationKey: string,
-  preparedState: PreparedConversationDeviceState
-) {
-  rememberPreparedConversationDeviceStateInternal({
-    preparationKey,
-    preparedState,
-    completedDevicePreparation,
-    preparedConversationDeviceStates,
-  });
-}
-
-function readPreparedDeviceManifestState(preparationKey: string) {
-  return readPreparedDeviceManifestStateInternal({
-    preparationKey,
-    completedDeviceManifestPreparation,
-    preparedDeviceManifestStates,
-    ttlMs: DEVICE_PREPARATION_CACHE_TTL_MS,
-    clearPreparedDeviceManifestState,
-  });
-}
-
-function rememberPreparedDeviceManifestState(
-  preparationKey: string,
-  preparedState: PreparedDeviceManifestState
-) {
-  rememberPreparedDeviceManifestStateInternal({
-    preparationKey,
-    preparedState,
-    completedDeviceManifestPreparation,
-    preparedDeviceManifestStates,
-  });
-}
-
-function clearPreparedDeviceManifestState(preparationKey: string) {
-  clearPreparedDeviceManifestStateInternal({
-    preparationKey,
-    completedDeviceManifestPreparation,
-    preparedDeviceManifestStates,
-  });
-}
-
-function clearPreparedConversationDeviceState(preparationKey: string) {
-  clearPreparedConversationDeviceStateInternal({
-    preparationKey,
-    completedDevicePreparation,
-    preparedConversationDeviceStates,
-  });
-}
-
-function clearCompletedDevicePreparation(userId: string) {
-  clearCompletedDevicePreparationInternal({
-    userId,
-    completedDevicePreparation,
-    preparedConversationDeviceStates,
-    completedOwnSiblingDevicePreparation,
-    preparedOwnSiblingDeviceStates,
-    completedDeviceManifestPreparation,
-    preparedDeviceManifestStates,
-    clearPreparedConversationDeviceState,
-    clearPreparedOwnSiblingDeviceState,
-    clearPreparedDeviceManifestState,
-  });
 }
 
 export async function hydrateChatMessage(
@@ -2377,12 +1184,10 @@ async function hydrateChatMessageWithoutBatchWait(
     userId,
     serializeMessageHydration,
     ensureE2eeTransportStorageSchema,
-    readArchivedDecryptedMessageRecord,
-    readOutgoingMessageMirror,
+    readArchivedDecryptedMessageRecord: readArchivedDecryptedMessageRecordForHydration,
     buildHydratedChatMessage,
     recordMessageHydrationDiagnostic,
     decryptMessage,
-    rememberOutgoingMessageMirror,
     rememberArchivedDecryptedMessage,
     refreshArchivedMessagesFromRemoteRecoverySnapshot,
   });
@@ -2396,8 +1201,7 @@ export async function hydrateChatMessageSnapshot(
     message,
     userId,
     ensureE2eeTransportStorageSchema,
-    readArchivedDecryptedMessageRecord,
-    readOutgoingMessageMirror,
+    readArchivedDecryptedMessageRecord: readArchivedDecryptedMessageRecordForHydration,
     buildHydratedChatMessage,
     recordMessageHydrationDiagnostic,
   });
@@ -2669,89 +1473,11 @@ async function decryptMessage(message: ApiChatMessage, userId: string) {
     return "";
   }
 
-  if (payload.scheme === MESSAGE_SCHEME_DEVICE) {
-    return decryptDirectMessage(message, userId);
-  }
-
   if (payload.scheme === MESSAGE_SCHEME_CHAT_EPOCH) {
     return decryptChatEpochMessage(message, userId);
   }
 
-  if (payload.scheme === MESSAGE_SCHEME_GROUP_SENDER_KEY) {
-    return decryptGroupMessage(message, userId);
-  }
-
   throw new Error(`Unsupported encrypted payload scheme: ${payload.scheme}`);
-}
-
-async function encryptDirectDeviceMessage(
-  token: string,
-  chatId: string,
-  currentUserId: string,
-  content: string,
-  participants: Participant[],
-  conversationBundles?: ConversationDeviceBundleResolution
-) {
-  return encryptDirectDeviceMessageInternal<
-    RegisteredDeviceEncryptionMaterial,
-    DeviceSessionRecord
-  >({
-    token,
-    chatId,
-    currentUserId,
-    content,
-    participants,
-    conversationBundles,
-    createInitializingError: () =>
-      new ApiError("Encrypted chat is still initializing on this device. Try again.", 409),
-    createIdentityChangedError: (displayNames) =>
-      new ApiError(ENCRYPTION_IDENTITY_CHANGED_MESSAGE, 409, displayNames),
-    createMissingParticipantsError: (displayNames) =>
-      new ApiError(
-        "Encrypted chat is unavailable because some participants do not have an available encryption device yet",
-        409,
-        displayNames
-      ),
-    createUnavailableError: () => new ApiError("Encrypted chat is unavailable", 409),
-    messageSchemeDevice: MESSAGE_SCHEME_DEVICE,
-    readOwnMaterial: async (userId) => {
-      const material = await readEncryptionDeviceMaterial(userId);
-      return isRegisteredEncryptionDeviceMaterialAvailable(material) ? material : null;
-    },
-    resolveConversationDeviceBundles,
-    buildSelfDeviceBundle,
-    getDeviceBundleMapKey,
-    readCurrentDeviceSessions,
-    shouldEstablishDeviceSession,
-    wasCurrentDeviceSessionRestoredFromPersistent,
-    establishInitiatorDeviceSession,
-    setCurrentDeviceSessionRecord,
-    markCurrentDeviceSessionAsReactivated,
-    resolveEncryptionDeviceBundles,
-    validateAndPinDeviceBundle,
-    createDirectRecipientEnvelope,
-    createHistoryEnvelope: async (args) => {
-      const historyKeyRecord = await ensureGroupHistoryKeyRecord(
-        args.token,
-        args.chatId,
-        args.currentUserId,
-        args.ownMaterial,
-        args.targetBundles,
-        args.nextSessions
-      );
-      return JSON.stringify(
-        await createDirectHistoryEnvelope(
-          args.chatId,
-          args.currentUserId,
-          args.ownMaterial,
-          historyKeyRecord,
-          args.content
-        )
-      );
-    },
-    writeDeviceSessions,
-    rememberDeviceSessions,
-  });
 }
 
 async function encryptChatEpochMessage(
@@ -2759,116 +1485,47 @@ async function encryptChatEpochMessage(
   chatId: string,
   currentUserId: string,
   content: string,
-  participants: Participant[]
+  options: {
+    messageRefId: string;
+    membershipVersion?: number;
+    contentType: string;
+  }
 ) {
   const historyKeyRecord = await ensureChatHistoryKeyRecord(
     token,
     chatId,
-    currentUserId,
-    participants
+    currentUserId
   );
   const envelope = await createChatEpochEnvelope(
     chatId,
     currentUserId,
     historyKeyRecord,
-    content
+    content,
+    {
+      messageRefId: options.messageRefId,
+      createdAt: new Date().toISOString(),
+      contentType: options.contentType,
+      membershipVersion:
+        historyKeyRecord.membershipVersion ?? options.membershipVersion ?? 0,
+    }
   );
   const serializedEnvelope = JSON.stringify(envelope);
   return {
     scheme: MESSAGE_SCHEME_CHAT_EPOCH,
-    encryptedKeysByRecipientId: {},
     sharedEnvelope: serializedEnvelope,
-    historyEnvelope: serializedEnvelope,
   } satisfies EncryptedMessagePayload;
 }
 
-export async function grantGroupHistoryAccessForParticipants(
-  token: string,
+function createLocalGroupHistoryKeyRecord(
   chatId: string,
-  participants: Participant[],
-  options?: { currentUserId?: string; session?: AuthResponse; force?: boolean }
-) {
-  ensureE2eeTransportStorageSchema();
-
-  if (!options?.currentUserId) {
-    throw new ApiError("Encrypted chat is still initializing on this device. Try again.", 409);
+  options?: {
+    membershipVersion?: number;
+    historyPolicy?: GroupHistoryKeyGrantPayload["historyPolicy"];
   }
-
-  const currentUserId = options.currentUserId;
-  const ownIdentity = await ensureRuntimeAccountIdentity(currentUserId);
-
-  await resolveGroupHistoryKeyRecordFromServer(
-    token,
-    currentUserId,
-    chatId,
-    await requireRegisteredOwnMaterial(currentUserId)
-  ).catch(() => null);
-  const historyKeyRecords = await readGroupHistoryKeyRecordsForChat(currentUserId, chatId);
-  if (historyKeyRecords.length === 0) {
-    return;
-  }
-  const accountKeyDirectory = await resolveConversationAccountKeyDirectory(
-    token,
-    currentUserId,
-    participants,
-    ownIdentity
-  );
-
-  const grantFingerprint = buildGroupHistoryAccessGrantFingerprint(
-    chatId,
-    Object.keys(accountKeyDirectory),
-    historyKeyRecords
-  );
-  const grantFingerprintKey = getGroupHistoryAccessGrantFingerprintKey(currentUserId, chatId);
-  if (
-    !options.force &&
-    completedGroupHistoryAccessGrantFingerprintsByUserChat.get(grantFingerprintKey) ===
-      grantFingerprint
-  ) {
-    return;
-  }
-
-  for (const historyKeyRecord of historyKeyRecords) {
-    await upsertHistoryKeyAccessForUsers(
-      token,
-      chatId,
-      currentUserId,
-      accountKeyDirectory,
-      historyKeyRecord
-    );
-  }
-
-  completedGroupHistoryAccessGrantFingerprintsByUserChat.set(
-    grantFingerprintKey,
-    grantFingerprint
-  );
-}
-
-async function ensureGroupHistoryKeyRecord(
-  token: string,
-  chatId: string,
-  currentUserId: string,
-  ownMaterial: RegisteredDeviceEncryptionMaterial,
-  targetBundles: UserEncryptionDeviceBundle[],
-  nextSessions: Record<string, DeviceSessionRecord>
-) {
-  return ensureGroupHistoryKeyRecordInternal({
-    token,
-    chatId,
-    currentUserId,
-    ownMaterial,
-    targetBundles,
-    nextSessions,
-    readCurrentGroupHistoryKeyRecord,
-    resolveGroupHistoryKeyRecordFromServer,
-    createLocalGroupHistoryKeyRecord,
-    upsertGroupHistoryKeyAccessForTargets,
-    persistGroupHistoryKeyRecord,
-  });
-}
-
-function createLocalGroupHistoryKeyRecord(chatId: string): GroupHistoryKeyRecord {
+): GroupHistoryKeyRecord {
   return createLocalGroupHistoryKeyRecordInternal(chatId, {
+    membershipVersion: options?.membershipVersion ?? 0,
+    historyPolicy: options?.historyPolicy ?? "DIRECT",
     createHistoryKeyId: () => window.crypto.randomUUID(),
     createKeyMaterial: () => bytesToBase64(randomBytes(32)),
     now: () => new Date().toISOString(),
@@ -2878,131 +1535,37 @@ function createLocalGroupHistoryKeyRecord(chatId: string): GroupHistoryKeyRecord
 async function resolveGroupHistoryKeyRecordFromServer(
   token: string,
   userId: string,
-  chatId: string,
-  ownMaterial: RegisteredDeviceEncryptionMaterial
+  chatId: string
 ) {
   return resolveGroupHistoryKeyRecordFromServerInternal({
     token,
     userId,
     chatId,
-    ownMaterial,
     getOwnGroupHistoryKeys,
     decryptHistoryKeyGrantPayload: decryptDirectHistoryKeyGrantPayload,
     parseGroupHistoryKeyGrantPayload: (value) =>
       parseGroupHistoryKeyGrantPayload(value, GROUP_HISTORY_KEY_GRANT_AAD_VERSION),
     persistGroupHistoryKeyRecord,
+    readGroupHistorySyncState,
+    writeGroupHistorySyncState,
   });
 }
 
-async function upsertGroupHistoryKeyAccessForTargets(
+async function resolveActiveGroupHistoryKeyRecordFromServer(
   token: string,
-  chatId: string,
-  currentUserId: string,
-  ownMaterial: RegisteredDeviceEncryptionMaterial,
-  targetBundles: UserEncryptionDeviceBundle[],
-  nextSessions: Record<string, DeviceSessionRecord>,
-  historyKeyRecord: GroupHistoryKeyRecord
+  userId: string,
+  chatId: string
 ) {
-  await upsertGroupHistoryKeyAccessForTargetsInternal({
+  return resolveActiveGroupHistoryKeyRecordFromServerInternal({
     token,
+    userId,
     chatId,
-    currentUserId,
-    ownMaterial,
-    targetBundles,
-    nextSessions,
-    historyKeyRecord,
-    buildGroupHistoryKeyAccessEnvelopes: (args) =>
-      buildGroupHistoryKeyAccessEnvelopes(
-        args.currentUserId,
-        args.ownMaterial,
-        args.targetBundles,
-        args.nextSessions,
-        args.historyKeyRecord
-      ),
-    buildServerEscrowGrantPayloadJson: (record) =>
-      JSON.stringify({
-        aadVersion: GROUP_HISTORY_KEY_GRANT_AAD_VERSION,
-        chatId: record.chatId,
-        historyKeyId: record.historyKeyId,
-        historyKey: record.keyMaterial,
-        createdAt: record.createdAt,
-      } satisfies GroupHistoryKeyGrantPayload),
-    writeDeviceSessions,
-    rememberDeviceSessions,
-    upsertGroupHistoryKey,
+    getOwnActiveGroupHistoryKey,
+    decryptHistoryKeyGrantPayload: decryptDirectHistoryKeyGrantPayload,
+    parseGroupHistoryKeyGrantPayload: (value) =>
+      parseGroupHistoryKeyGrantPayload(value, GROUP_HISTORY_KEY_GRANT_AAD_VERSION),
     persistGroupHistoryKeyRecord,
-    now: () => new Date().toISOString(),
   });
-}
-
-async function buildGroupHistoryKeyAccessEnvelopes(
-  currentUserId: string,
-  ownMaterial: RegisteredDeviceEncryptionMaterial,
-  targetBundles: UserEncryptionDeviceBundle[],
-  nextSessions: Record<string, DeviceSessionRecord>,
-  historyKeyRecord: GroupHistoryKeyRecord
-) {
-  return buildGroupHistoryKeyAccessEnvelopesInternal({
-    currentUserId,
-    ownMaterial,
-    targetBundles,
-    nextSessions,
-    historyKeyRecord,
-    serializeGrantPayload: (record) =>
-      JSON.stringify({
-        aadVersion: GROUP_HISTORY_KEY_GRANT_AAD_VERSION,
-        chatId: record.chatId,
-        historyKeyId: record.historyKeyId,
-        historyKey: record.keyMaterial,
-        createdAt: record.createdAt,
-      } satisfies GroupHistoryKeyGrantPayload),
-    getDeviceSessionMapKey,
-    establishInitiatorDeviceSession,
-    setCurrentDeviceSessionRecord,
-    createDirectRecipientEnvelopeContent,
-  });
-}
-
-async function createGroupHistoryEnvelope(
-  sharedEnvelope: GroupSharedEnvelope,
-  historyKeyRecord: GroupHistoryKeyRecord,
-  content: string
-): Promise<GroupHistoryEnvelope> {
-  const iv = randomBytes(12);
-  const historyEnvelopeMetadata: Omit<GroupHistoryEnvelope, "ciphertext"> = {
-    aadVersion: GROUP_HISTORY_ENVELOPE_AAD_VERSION,
-    historyKeyId: historyKeyRecord.historyKeyId,
-    iv: bytesToBase64(iv),
-  };
-  const historyKey = await window.crypto.subtle.importKey(
-    "raw",
-    toArrayBuffer(base64ToBytes(historyKeyRecord.keyMaterial)),
-    { name: "AES-GCM" },
-    false,
-    ["encrypt"]
-  );
-  const ciphertext = await window.crypto.subtle.encrypt(
-    {
-      name: "AES-GCM",
-      iv,
-      additionalData: buildGroupHistoryEnvelopeAdditionalData(historyEnvelopeMetadata, sharedEnvelope),
-    },
-    historyKey,
-    textEncoder.encode(content)
-  );
-
-  return {
-    ...historyEnvelopeMetadata,
-    ciphertext: bytesToBase64(new Uint8Array(ciphertext)),
-  };
-}
-
-async function requireRegisteredOwnMaterial(userId: string) {
-  const material = await readEncryptionDeviceMaterial(userId);
-  if (!isRegisteredEncryptionDeviceMaterialAvailable(material)) {
-    throw new ApiError("Encrypted chat is still initializing on this device. Try again.", 409);
-  }
-  return material;
 }
 
 async function resolveConversationAccountKeyDirectory(
@@ -3011,8 +1574,8 @@ async function resolveConversationAccountKeyDirectory(
   participants: Participant[],
   ownIdentity: LocalIdentity
 ) {
-  if (!ownIdentity.accountPublicKey) {
-    throw new ApiError("Encrypted chat is still initializing on this device. Try again.", 409);
+  if (!hasAccountKeyPair(ownIdentity)) {
+    throw new ApiError(ENCRYPTION_INITIALIZING_MESSAGE, 409);
   }
 
   const participantIds = Array.from(new Set(participants.map((participant) => participant.id)));
@@ -3020,12 +1583,24 @@ async function resolveConversationAccountKeyDirectory(
   const resolvedRemoteKeys = remoteParticipants.length
     ? await resolveEncryptionAccountKeys(token, remoteParticipants)
     : [];
+  await verifyResolvedAccountKeyBundles(participants, resolvedRemoteKeys);
   const accountKeyDirectory = Object.fromEntries(
-    resolvedRemoteKeys.map((entry) => [entry.userId, entry.publicKey] as const)
-  ) as Record<string, string>;
-  accountKeyDirectory[currentUserId] = ownIdentity.accountPublicKey;
+    resolvedRemoteKeys.map((entry) => [
+      entry.userId,
+      {
+        publicKey: entry.publicKey,
+        accountKeyVersion: entry.accountKeyVersion,
+      } satisfies ConversationAccountKeyDirectoryEntry,
+    ])
+  ) as Record<string, ConversationAccountKeyDirectoryEntry>;
+  accountKeyDirectory[currentUserId] = {
+    publicKey: ownIdentity.accountPublicKey,
+    accountKeyVersion: ownIdentity.accountKeyVersion,
+  };
 
-  const missingParticipants = participantIds.filter((participantId) => !accountKeyDirectory[participantId]);
+  const missingParticipants = participantIds.filter(
+    (participantId) => !accountKeyDirectory[participantId]?.publicKey
+  );
   if (missingParticipants.length > 0) {
     const missingDisplayNames = participants
       .filter((participant) => missingParticipants.includes(participant.id))
@@ -3040,134 +1615,109 @@ async function resolveConversationAccountKeyDirectory(
   return accountKeyDirectory;
 }
 
-type DirectHistoryEnvelope = {
-  aadVersion: number;
-  historyKeyId: string;
-  senderDeviceId: string;
-  ciphertext: string;
-  iv: string;
-};
-
 type AccountHistoryKeyGrantEnvelope = {
   aadVersion: number;
   ciphertext: string;
+  context?: string;
+  chatId?: string;
+  historyKeyId?: string;
+  recipientUserId?: string;
+  recipientAccountKeyVersion?: number;
+  membershipVersion?: number;
+  historyPolicy?: GroupHistoryKeyGrantPayload["historyPolicy"];
+  createdAt?: string;
+  wrappedKey?: string;
+  iv?: string;
+};
+
+type ConversationAccountKeyDirectoryEntry = {
+  publicKey: string;
+  accountKeyVersion: number;
 };
 
 type ChatEpochEnvelope = {
   aadVersion: number;
+  context: string;
   chatId: string;
   senderUserId: string;
   historyKeyId: string;
+  membershipVersion: number;
+  messageRefId: string;
+  createdAt: string;
+  contentType: string;
   ciphertext: string;
   iv: string;
 };
 
-function parseDirectHistoryEnvelope(
-  value: string,
-  expectedAadVersion: number
-): DirectHistoryEnvelope {
-  const parsed = JSON.parse(value) as Partial<DirectHistoryEnvelope>;
-  if (
-    parsed.aadVersion !== expectedAadVersion ||
-    typeof parsed.historyKeyId !== "string" ||
-    typeof parsed.senderDeviceId !== "string" ||
-    typeof parsed.ciphertext !== "string" ||
-    typeof parsed.iv !== "string"
-  ) {
-    throw new Error("Malformed direct history envelope");
-  }
-
-  return parsed as DirectHistoryEnvelope;
-}
-
-function buildDirectHistoryEnvelopeAdditionalData(
-  historyEnvelope: Omit<DirectHistoryEnvelope, "ciphertext">,
-  message: {
-    chatId: string;
-    senderUserId: string;
-  }
-) {
-  return textEncoder.encode(
-    JSON.stringify({
-      aadVersion: historyEnvelope.aadVersion,
-      historyKeyId: historyEnvelope.historyKeyId,
-      chatId: message.chatId,
-      senderUserId: message.senderUserId,
-      senderDeviceId: historyEnvelope.senderDeviceId,
-      iv: historyEnvelope.iv,
-    })
-  );
-}
-
-async function createDirectHistoryEnvelope(
-  chatId: string,
-  senderUserId: string,
-  ownMaterial: RegisteredDeviceEncryptionMaterial,
-  historyKeyRecord: GroupHistoryKeyRecord,
-  content: string
-): Promise<DirectHistoryEnvelope> {
-  const iv = randomBytes(12);
-  const historyEnvelopeMetadata: Omit<DirectHistoryEnvelope, "ciphertext"> = {
-    aadVersion: DIRECT_HISTORY_ENVELOPE_AAD_VERSION,
-    historyKeyId: historyKeyRecord.historyKeyId,
-    senderDeviceId: ownMaterial.deviceId,
-    iv: bytesToBase64(iv),
-  };
-  const historyKey = await window.crypto.subtle.importKey(
-    "raw",
-    toArrayBuffer(base64ToBytes(historyKeyRecord.keyMaterial)),
-    { name: "AES-GCM" },
-    false,
-    ["encrypt"]
-  );
-  const ciphertext = await window.crypto.subtle.encrypt(
-    {
-      name: "AES-GCM",
-      iv,
-      additionalData: buildDirectHistoryEnvelopeAdditionalData(historyEnvelopeMetadata, {
-        chatId,
-        senderUserId,
-      }),
-    },
-    historyKey,
-    textEncoder.encode(content)
-  );
-
-  return {
-    ...historyEnvelopeMetadata,
-    ciphertext: bytesToBase64(new Uint8Array(ciphertext)),
-  };
-}
-
 function parseAccountHistoryKeyGrantEnvelope(value: string) {
   const parsed = JSON.parse(value) as Partial<AccountHistoryKeyGrantEnvelope>;
   if (
-    parsed.aadVersion !== ACCOUNT_HISTORY_KEY_GRANT_AAD_VERSION ||
+    (parsed.aadVersion !== ACCOUNT_HISTORY_KEY_GRANT_AAD_VERSION &&
+      parsed.aadVersion !== ACCOUNT_HISTORY_KEY_GRANT_LEGACY_AAD_VERSION) ||
     typeof parsed.ciphertext !== "string"
   ) {
     throw new Error("Malformed account history key grant envelope");
   }
 
+  const hasHybridFields = parsed.wrappedKey !== undefined || parsed.iv !== undefined;
+  if (
+    hasHybridFields &&
+    (typeof parsed.wrappedKey !== "string" || typeof parsed.iv !== "string")
+  ) {
+    throw new Error("Malformed account history key grant envelope");
+  }
+
+  if (parsed.aadVersion === ACCOUNT_HISTORY_KEY_GRANT_AAD_VERSION) {
+    if (
+      parsed.context !== ACCOUNT_HISTORY_KEY_GRANT_CONTEXT ||
+      typeof parsed.chatId !== "string" ||
+      typeof parsed.historyKeyId !== "string" ||
+      typeof parsed.recipientUserId !== "string" ||
+      typeof parsed.recipientAccountKeyVersion !== "number" ||
+      typeof parsed.membershipVersion !== "number" ||
+      !Number.isFinite(parsed.membershipVersion) ||
+      parsed.membershipVersion < 0 ||
+      (parsed.historyPolicy !== "DIRECT" &&
+        parsed.historyPolicy !== "JOIN_ONLY" &&
+        parsed.historyPolicy !== "FULL_HISTORY") ||
+      typeof parsed.createdAt !== "string" ||
+      typeof parsed.wrappedKey !== "string" ||
+      typeof parsed.iv !== "string"
+    ) {
+      throw new Error("Malformed account history key grant envelope");
+    }
+  }
+
   return parsed as AccountHistoryKeyGrantEnvelope;
 }
 
-async function createAccountHistoryKeyGrantEnvelope(
-  recipientPublicKey: string,
-  payload: string
+function buildAccountHistoryKeyGrantAdditionalData(
+  envelope: Pick<
+    AccountHistoryKeyGrantEnvelope,
+    | "aadVersion"
+    | "context"
+    | "chatId"
+    | "historyKeyId"
+    | "recipientUserId"
+    | "recipientAccountKeyVersion"
+    | "membershipVersion"
+    | "historyPolicy"
+    | "createdAt"
+  >
 ) {
-  const importedPublicKey = await importAccountPublicKey(recipientPublicKey);
-  const ciphertext = await window.crypto.subtle.encrypt(
-    {
-      name: ACCOUNT_KEY_ALGORITHM,
-    },
-    importedPublicKey,
-    textEncoder.encode(payload)
+  return textEncoder.encode(
+    [
+      envelope.context ?? "",
+      String(envelope.aadVersion),
+      envelope.chatId ?? "",
+      envelope.historyKeyId ?? "",
+      envelope.recipientUserId ?? "",
+      String(envelope.recipientAccountKeyVersion ?? 0),
+      String(envelope.membershipVersion ?? 0),
+      envelope.historyPolicy ?? "",
+      envelope.createdAt ?? "",
+    ].join("\n")
   );
-
-  return {
-    aadVersion: ACCOUNT_HISTORY_KEY_GRANT_AAD_VERSION,
-    ciphertext: bytesToBase64(new Uint8Array(ciphertext)),
-  } satisfies AccountHistoryKeyGrantEnvelope;
 }
 
 async function decryptAccountHistoryKeyGrantEnvelope(
@@ -3179,23 +1729,83 @@ async function decryptAccountHistoryKeyGrantEnvelope(
   }
   const envelope = parseAccountHistoryKeyGrantEnvelope(wrappedPayloadJson);
   const privateKey = await importAccountPrivateKey(identity.accountPrivateKey);
-  const plaintext = await window.crypto.subtle.decrypt(
-    {
-      name: ACCOUNT_KEY_ALGORITHM,
-    },
-    privateKey,
-    base64ToBytes(envelope.ciphertext)
-  );
-  return textDecoder.decode(plaintext);
+  let plaintext: ArrayBuffer;
+  if (envelope.wrappedKey && envelope.iv) {
+    const wrappingKeyDecryptAlgorithm =
+      envelope.aadVersion === ACCOUNT_HISTORY_KEY_GRANT_AAD_VERSION
+        ? {
+            name: ACCOUNT_KEY_ALGORITHM,
+            label: textEncoder.encode(ACCOUNT_HISTORY_KEY_WRAP_LABEL),
+          }
+        : {
+            name: ACCOUNT_KEY_ALGORITHM,
+          };
+    const wrappingKeyBytes = await window.crypto.subtle.decrypt(
+      wrappingKeyDecryptAlgorithm,
+      privateKey,
+      base64ToBytes(envelope.wrappedKey)
+    );
+    const wrappingKey = await window.crypto.subtle.importKey(
+      "raw",
+      wrappingKeyBytes,
+      "AES-GCM",
+      false,
+      ["decrypt"]
+    );
+    plaintext = await window.crypto.subtle.decrypt(
+      {
+        name: "AES-GCM",
+        iv: base64ToBytes(envelope.iv),
+        additionalData:
+          envelope.aadVersion === ACCOUNT_HISTORY_KEY_GRANT_AAD_VERSION
+            ? buildAccountHistoryKeyGrantAdditionalData(envelope)
+            : textEncoder.encode(String(ACCOUNT_HISTORY_KEY_GRANT_LEGACY_AAD_VERSION)),
+      },
+      wrappingKey,
+      base64ToBytes(envelope.ciphertext)
+    );
+  } else {
+    plaintext = await window.crypto.subtle.decrypt(
+      {
+        name: ACCOUNT_KEY_ALGORITHM,
+      },
+      privateKey,
+      base64ToBytes(envelope.ciphertext)
+    );
+  }
+  const plaintextValue = textDecoder.decode(plaintext);
+  if (envelope.aadVersion === ACCOUNT_HISTORY_KEY_GRANT_AAD_VERSION) {
+    const grantPayload = parseGroupHistoryKeyGrantPayload(
+      plaintextValue,
+      GROUP_HISTORY_KEY_GRANT_AAD_VERSION
+    );
+    if (
+      grantPayload.chatId !== envelope.chatId ||
+      grantPayload.historyKeyId !== envelope.historyKeyId ||
+      grantPayload.membershipVersion !== envelope.membershipVersion ||
+      grantPayload.historyPolicy !== envelope.historyPolicy ||
+      grantPayload.createdAt !== envelope.createdAt
+    ) {
+      throw new Error("Account history key grant envelope metadata does not match the payload");
+    }
+  }
+  return plaintextValue;
 }
 
 function parseChatEpochEnvelope(value: string): ChatEpochEnvelope {
   const parsed = JSON.parse(value) as Partial<ChatEpochEnvelope>;
   if (
     parsed.aadVersion !== CHAT_EPOCH_ENVELOPE_AAD_VERSION ||
+    parsed.context !== CHAT_EPOCH_ENVELOPE_CONTEXT ||
     typeof parsed.chatId !== "string" ||
     typeof parsed.senderUserId !== "string" ||
     typeof parsed.historyKeyId !== "string" ||
+    typeof parsed.membershipVersion !== "number" ||
+    !Number.isFinite(parsed.membershipVersion) ||
+    parsed.membershipVersion < 0 ||
+    typeof parsed.messageRefId !== "string" ||
+    typeof parsed.createdAt !== "string" ||
+    typeof parsed.contentType !== "string" ||
     typeof parsed.ciphertext !== "string" ||
     typeof parsed.iv !== "string"
   ) {
@@ -3211,9 +1821,14 @@ function buildChatEpochEnvelopeAdditionalData(
   return textEncoder.encode(
     JSON.stringify({
       aadVersion: envelope.aadVersion,
+      context: envelope.context,
       chatId: envelope.chatId,
       senderUserId: envelope.senderUserId,
       historyKeyId: envelope.historyKeyId,
+      membershipVersion: envelope.membershipVersion,
+      messageRefId: envelope.messageRefId,
+      createdAt: envelope.createdAt,
+      contentType: envelope.contentType,
       iv: envelope.iv,
     })
   );
@@ -3223,14 +1838,25 @@ async function createChatEpochEnvelope(
   chatId: string,
   senderUserId: string,
   historyKeyRecord: GroupHistoryKeyRecord,
-  content: string
+  content: string,
+  options: {
+    messageRefId: string;
+    createdAt: string;
+    contentType: string;
+    membershipVersion: number;
+  }
 ): Promise<ChatEpochEnvelope> {
   const iv = randomBytes(12);
   const envelopeMetadata: Omit<ChatEpochEnvelope, "ciphertext"> = {
     aadVersion: CHAT_EPOCH_ENVELOPE_AAD_VERSION,
+    context: CHAT_EPOCH_ENVELOPE_CONTEXT,
     chatId,
     senderUserId,
     historyKeyId: historyKeyRecord.historyKeyId,
+    membershipVersion: options.membershipVersion,
+    messageRefId: options.messageRefId,
+    createdAt: options.createdAt,
+    contentType: options.contentType,
     iv: bytesToBase64(iv),
   };
   const historyKey = await window.crypto.subtle.importKey(
@@ -3256,93 +1882,30 @@ async function createChatEpochEnvelope(
   };
 }
 
-function buildSelfDeviceBundle(
-  ownMaterial: DeviceEncryptionMaterial,
-  currentUserId: string
-): UserEncryptionDeviceBundle {
-  if (!ownMaterial.deviceId) {
-    throw new ApiError("Encrypted chat is still initializing on this device. Try again.", 409);
+async function primePrefetchedActiveGroupHistoryKeyAccess(
+  userId: string,
+  chatId: string,
+  access: GroupHistoryKeyAccess | null | undefined
+) {
+  if (!access) {
+    return;
   }
 
-  return {
-    userId: currentUserId,
-    deviceId: ownMaterial.deviceId,
-    deviceName: "Current device",
-    identityKey: ownMaterial.identityKey,
-    identityKeyAlgorithm: ownMaterial.identityKeyAlgorithm,
-    identitySignatureKey: ownMaterial.identitySignatureKey,
-    identitySignatureKeyAlgorithm: ownMaterial.identitySignatureKeyAlgorithm,
-    signedPrekeyId: ownMaterial.signedPrekeyId,
-    signedPrekeyPublicKey: ownMaterial.signedPrekeyPublicKey,
-    signedPrekeySignature: ownMaterial.signedPrekeySignature,
-    signedPrekeyAlgorithm: ownMaterial.signedPrekeyAlgorithm,
-    deviceVersion: null,
-    oneTimePrekey: null,
-    registeredAt: ownMaterial.createdAt,
-    lastSeenAt: ownMaterial.createdAt,
-  };
-}
-
-async function createDirectRecipientEnvelope(
-  senderUserId: string,
-  ownMaterial: DeviceEncryptionMaterial,
-  sessionRecord: DeviceSessionRecord,
-  content: string
-): Promise<DirectDeviceEnvelope> {
-  return createDirectRecipientEnvelopeContent(senderUserId, ownMaterial, sessionRecord, content);
-}
-
-async function decryptGroupHistoryEnvelopeContent(
-  historyEnvelope: GroupHistoryEnvelope,
-  sharedEnvelope: GroupSharedEnvelope,
-  historyKeyRecord: GroupHistoryKeyRecord
-) {
-  const historyKey = await window.crypto.subtle.importKey(
-    "raw",
-    toArrayBuffer(base64ToBytes(historyKeyRecord.keyMaterial)),
-    { name: "AES-GCM" },
-    false,
-    ["decrypt"]
-  );
-  const plaintext = await window.crypto.subtle.decrypt(
-    {
-      name: "AES-GCM",
-      iv: base64ToBytes(historyEnvelope.iv),
-      additionalData: buildGroupHistoryEnvelopeAdditionalData(historyEnvelope, sharedEnvelope),
-    },
-    historyKey,
-    base64ToBytes(historyEnvelope.ciphertext)
-  );
-
-  return textDecoder.decode(plaintext);
-}
-
-async function decryptDirectHistoryEnvelopeContent(
-  message: Pick<ApiChatMessage, "chatId" | "sender">,
-  historyEnvelope: DirectHistoryEnvelope,
-  historyKeyRecord: GroupHistoryKeyRecord
-) {
-  const historyKey = await window.crypto.subtle.importKey(
-    "raw",
-    toArrayBuffer(base64ToBytes(historyKeyRecord.keyMaterial)),
-    { name: "AES-GCM" },
-    false,
-    ["decrypt"]
-  );
-  const plaintext = await window.crypto.subtle.decrypt(
-    {
-      name: "AES-GCM",
-      iv: base64ToBytes(historyEnvelope.iv),
-      additionalData: buildDirectHistoryEnvelopeAdditionalData(historyEnvelope, {
-        chatId: message.chatId,
-        senderUserId: message.sender.id,
-      }),
-    },
-    historyKey,
-    base64ToBytes(historyEnvelope.ciphertext)
-  );
-
-  return textDecoder.decode(plaintext);
+  try {
+    await resolveGroupHistoryKeyRecordsFromAccessesInternal(
+      {
+        userId,
+        chatId,
+        decryptHistoryKeyGrantPayload: decryptDirectHistoryKeyGrantPayload,
+        parseGroupHistoryKeyGrantPayload: (value) =>
+          parseGroupHistoryKeyGrantPayload(value, GROUP_HISTORY_KEY_GRANT_AAD_VERSION),
+        persistGroupHistoryKeyRecord,
+      },
+      [access]
+    );
+  } catch {
+    // Ignore malformed prefetched access and allow the normal server fallback to resolve keys.
+  }
 }
 
 async function decryptChatEpochEnvelopeContent(
@@ -3369,199 +1932,6 @@ async function decryptChatEpochEnvelopeContent(
   return textDecoder.decode(plaintext);
 }
 
-async function decryptGroupSharedEnvelopeContent(
-  sharedEnvelope: GroupSharedEnvelope,
-  messageKeyBytes: Uint8Array
-) {
-  const messageKey = await window.crypto.subtle.importKey(
-    "raw",
-    toArrayBuffer(messageKeyBytes),
-    {
-      name: "AES-GCM",
-    },
-    false,
-    ["decrypt"]
-  );
-  const plaintext = await window.crypto.subtle.decrypt(
-    {
-      name: "AES-GCM",
-      iv: base64ToBytes(sharedEnvelope.iv),
-      additionalData: buildGroupEnvelopeAdditionalData(sharedEnvelope),
-    },
-    messageKey,
-    base64ToBytes(sharedEnvelope.ciphertext)
-  );
-
-  return textDecoder.decode(plaintext);
-}
-
-async function assertValidGroupEnvelopeSignature(
-  sharedEnvelope: GroupSharedEnvelope,
-  senderIdentitySignatureKey: string
-) {
-  const signatureKey = await importDevicePublicKey(
-    senderIdentitySignatureKey,
-    DEVICE_SIGNATURE_KEY_ALGORITHM,
-    ["verify"]
-  );
-  const validSignature = await window.crypto.subtle.verify(
-    { name: DEVICE_SIGNATURE_KEY_ALGORITHM } as AlgorithmIdentifier,
-    signatureKey,
-    base64ToBytes(sharedEnvelope.signature),
-    buildGroupEnvelopeSignatureData(sharedEnvelope)
-  );
-  if (!validSignature) {
-    throw new Error("Encrypted group message signature is invalid");
-  }
-}
-
-function cacheGroupInboundMessageKey(
-  record: GroupInboundSenderChainRecord,
-  counter: number,
-  messageKey: Uint8Array
-) {
-  const nextCache = {
-    ...(record.cachedMessageKeys ?? {}),
-    [String(counter)]: bytesToBase64(messageKey),
-  };
-  record.cachedMessageKeys = pruneCachedGroupInboundMessageKeys(nextCache);
-}
-
-function pruneCachedGroupInboundMessageKeys(cache: Record<string, string>) {
-  // Keep every derived group-message key so older messages stay readable after
-  // later sender-chain traffic advances the counter.
-  return cache;
-}
-
-async function resolveInboundGroupMessageKey(
-  record: GroupInboundSenderChainRecord,
-  messageCounter: number
-) {
-  const cachedMessageKey = record.cachedMessageKeys?.[String(messageCounter)];
-  if (cachedMessageKey) {
-    return base64ToBytes(cachedMessageKey);
-  }
-
-  if (messageCounter < record.nextMessageCounter) {
-    throw new Error("Encrypted group message key is no longer available for this sender chain");
-  }
-  if (messageCounter - record.nextMessageCounter > GROUP_MAX_MESSAGE_GAP) {
-    throw new Error("Encrypted group message counter gap is too large for this sender chain");
-  }
-
-  let currentCounter = record.nextMessageCounter;
-  let currentChainKey = base64ToBytes(record.nextChainKey);
-  while (currentCounter <= messageCounter) {
-    const ratchetStep = await deriveMessageRatchetStep(currentChainKey, currentCounter);
-    cacheGroupInboundMessageKey(record, currentCounter, ratchetStep.messageKey);
-    currentChainKey = Uint8Array.from(ratchetStep.nextChainKey);
-    currentCounter += 1;
-  }
-
-  record.nextChainKey = bytesToBase64(currentChainKey);
-  record.nextMessageCounter = currentCounter;
-  record.updatedAt = new Date().toISOString();
-  const resolvedMessageKey = record.cachedMessageKeys?.[String(messageCounter)];
-  if (!resolvedMessageKey) {
-    throw new Error("Encrypted group message key could not be derived for this sender chain");
-  }
-
-  return base64ToBytes(resolvedMessageKey);
-}
-
-function upsertInboundGroupSenderChainRecord(
-  state: GroupSenderChainState,
-  distribution: GroupSenderKeyDistribution,
-  ratchetStep: { messageKey: Uint8Array; nextChainKey: Uint8Array }
-) {
-  const chainKey = getGroupInboundSenderChainMapKey(
-    distribution.chatId,
-    distribution.senderUserId,
-    distribution.senderDeviceId,
-    distribution.senderKeyId
-  );
-  const existingRecord = state.inboundChains[chainKey];
-  const nextRecord: GroupInboundSenderChainRecord = existingRecord ?? {
-    chatId: distribution.chatId,
-    senderUserId: distribution.senderUserId,
-    senderDeviceId: distribution.senderDeviceId,
-    senderKeyId: distribution.senderKeyId,
-    nextChainKey: bytesToBase64(ratchetStep.nextChainKey),
-    nextMessageCounter: distribution.messageCounter + 1,
-    cachedMessageKeys: {},
-    updatedAt: new Date().toISOString(),
-  };
-
-  cacheGroupInboundMessageKey(nextRecord, distribution.messageCounter, ratchetStep.messageKey);
-  if (distribution.messageCounter >= nextRecord.nextMessageCounter - 1) {
-    nextRecord.nextChainKey = bytesToBase64(ratchetStep.nextChainKey);
-    nextRecord.nextMessageCounter = distribution.messageCounter + 1;
-  }
-  nextRecord.updatedAt = new Date().toISOString();
-  state.inboundChains[chainKey] = nextRecord;
-  pruneInboundGroupSenderChains(state);
-}
-
-function pruneInboundGroupSenderChains(state: GroupSenderChainState) {
-  void state;
-}
-
-async function decryptGroupMessage(message: ApiChatMessage, userId: string) {
-  return decryptGroupMessageInternal<
-    RegisteredDeviceEncryptionMaterial,
-    GroupInboundSenderChainRecord,
-    DirectDeviceEnvelope
-  >({
-    message,
-    userId,
-    readOwnMaterial: async (currentUserId) => {
-      const material = await readEncryptionDeviceMaterial(currentUserId);
-      return isRegisteredEncryptionDeviceMaterialAvailable(material) ? material : null;
-    },
-    parseGroupSharedEnvelope: (value) =>
-      parseGroupSharedEnvelope(value, GROUP_SHARED_ENVELOPE_AAD_VERSION),
-    decryptGroupHistoryMessage,
-    parseDirectDeviceEnvelope,
-    assertGroupDistributionSenderMatchesSharedEnvelope,
-    readGroupSenderChainState,
-    resolveInboundGroupSenderChainRecord,
-    assertValidGroupEnvelopeSignature,
-    resolveInboundGroupMessageKey,
-    writeGroupSenderChainState,
-    rememberGroupSenderChainState,
-    decryptGroupSharedEnvelopeContent,
-    decryptDirectRecipientEnvelope,
-    isRecoverableGroupHistoryFallbackError,
-    parseGroupSenderKeyDistribution: (value) =>
-      parseGroupSenderKeyDistribution(value, GROUP_SENDER_DISTRIBUTION_AAD_VERSION),
-    base64ToBytes,
-    deriveMessageRatchetStep,
-    upsertInboundGroupSenderChainRecord,
-  });
-}
-
-async function decryptGroupHistoryMessage(
-  message: ApiChatMessage,
-  userId: string,
-  ownMaterial: RegisteredDeviceEncryptionMaterial,
-  sharedEnvelope: GroupSharedEnvelope
-) {
-  return decryptGroupHistoryMessageInternal({
-    message,
-    userId,
-    ownMaterial,
-    sharedEnvelope,
-    parseGroupHistoryEnvelope: (value) =>
-      parseGroupHistoryEnvelope(value, GROUP_HISTORY_ENVELOPE_AAD_VERSION),
-    resolveLocalGroupHistoryKeyRecord,
-    getRecoverySyncSession: async (currentUserId) =>
-      recoverySyncSessionByUserId.get(currentUserId) ??
-      (await waitForRecoverySyncSession(currentUserId)),
-    resolveGroupHistoryKeyRecordFromServer,
-    decryptGroupHistoryEnvelopeContent,
-  });
-}
-
 async function decryptChatEpochMessage(message: ApiChatMessage, userId: string) {
   const payload = message.encryptedPayload;
   if (!payload?.sharedEnvelope) {
@@ -3575,19 +1945,13 @@ async function decryptChatEpochMessage(message: ApiChatMessage, userId: string) 
     envelope.historyKeyId
   );
   if (!historyKeyRecord) {
-    const ownMaterial = await requireRegisteredOwnMaterial(userId);
     const session =
       recoverySyncSessionByUserId.get(userId) ?? (await waitForRecoverySyncSession(userId));
     if (!session) {
-      throw new Error("Encrypted chat history key is not available for this device");
+      throw new Error("Encrypted chat history key is not available in this browser");
     }
 
-    historyKeyRecord = await resolveGroupHistoryKeyRecordFromServer(
-      session.token,
-      userId,
-      message.chatId,
-      ownMaterial
-    );
+    historyKeyRecord = await resolveGroupHistoryKeyRecordFromServer(session.token, userId, message.chatId);
   }
   if (!historyKeyRecord || historyKeyRecord.historyKeyId !== envelope.historyKeyId) {
     throw new Error("Encrypted chat history key is not available for this message");
@@ -3596,173 +1960,185 @@ async function decryptChatEpochMessage(message: ApiChatMessage, userId: string) 
   return decryptChatEpochEnvelopeContent(envelope, historyKeyRecord);
 }
 
-async function upsertHistoryKeyAccessForUsers(
-  token: string,
-  chatId: string,
-  currentUserId: string,
-  accountKeyDirectory: Record<string, string>,
-  historyKeyRecord: GroupHistoryKeyRecord
-) {
-  const serializedGrantPayload = JSON.stringify({
-    aadVersion: GROUP_HISTORY_KEY_GRANT_AAD_VERSION,
-    chatId: historyKeyRecord.chatId,
-    historyKeyId: historyKeyRecord.historyKeyId,
-    historyKey: historyKeyRecord.keyMaterial,
-    createdAt: historyKeyRecord.createdAt,
-  } satisfies GroupHistoryKeyGrantPayload);
-  const wrappedKeysByRecipientUserId = Object.fromEntries(
-    await Promise.all(
-      Object.entries(accountKeyDirectory).map(async ([recipientUserId, publicKey]) => [
-        recipientUserId,
-        JSON.stringify(
-          await createAccountHistoryKeyGrantEnvelope(publicKey, serializedGrantPayload)
-        ),
-      ])
-    )
-  );
-
-  await upsertGroupHistoryKey(token, chatId, {
-    historyKeyId: historyKeyRecord.historyKeyId,
-    wrappedKeysByRecipientUserId,
-  });
-  await persistGroupHistoryKeyRecord(currentUserId, {
-    ...historyKeyRecord,
-    updatedAt: new Date().toISOString(),
-  });
-}
-
 async function ensureChatHistoryKeyRecord(
   token: string,
   chatId: string,
-  currentUserId: string,
-  participants: Participant[]
+  currentUserId: string
 ) {
   const localRecord = await readCurrentGroupHistoryKeyRecord(currentUserId, chatId);
   if (localRecord) {
     return localRecord;
   }
 
-  const ownMaterial = await requireRegisteredOwnMaterial(currentUserId);
-  const remoteRecord = await resolveGroupHistoryKeyRecordFromServer(
+  const remoteRecord = await resolveActiveGroupHistoryKeyRecordFromServer(
     token,
     currentUserId,
-    chatId,
-    ownMaterial
+    chatId
   );
-  if (remoteRecord) {
-    return remoteRecord;
+  if (!remoteRecord) {
+    throw new ApiError("Active encrypted chat history key was not found", 404);
   }
-
-  const ownIdentity = await ensureRuntimeAccountIdentity(currentUserId);
-  const accountKeyDirectory = await resolveConversationAccountKeyDirectory(
-    token,
-    currentUserId,
-    participants,
-    ownIdentity
-  );
-  const createdRecord = createLocalGroupHistoryKeyRecord(chatId);
-  await upsertHistoryKeyAccessForUsers(
-    token,
-    chatId,
-    currentUserId,
-    accountKeyDirectory,
-    createdRecord
-  );
-  await persistGroupHistoryKeyRecord(currentUserId, createdRecord);
-  return createdRecord;
+  return remoteRecord;
 }
 
-async function decryptDirectHistoryMessage(
-  message: Pick<ApiChatMessage, "chatId" | "sender" | "encryptedPayload">,
-  userId: string,
-  ownMaterial: RegisteredDeviceEncryptionMaterial
-) {
-  if (!message.encryptedPayload?.historyEnvelope) {
-    throw new Error("Encrypted direct history envelope is not available");
-  }
+async function dispatchEncryptedMessageWithActiveKeyRetry(options: {
+  token: string;
+  chatId: string;
+  currentUserId: string;
+  encryptedContent: string;
+  participants: Participant[];
+  resolvedClientMessageId: string;
+  replyToMessageId?: string | null;
+  attachments: ChatMessageAttachment[];
+  membershipVersion?: number;
+  prejoinHistoryPolicy?: ChatPrejoinHistoryPolicy | null;
+  buildChatMessage: (response: ApiChatMessage) => ChatMessage;
+}) {
+  return dispatchWithActiveKeyRetry({
+    token: options.token,
+    chatId: options.chatId,
+    currentUserId: options.currentUserId,
+    encryptedContent: options.encryptedContent,
+    participants: options.participants,
+    clientMessageIdForDiagnostics: options.resolvedClientMessageId,
+    messageRefId: options.resolvedClientMessageId,
+    membershipVersion: options.membershipVersion,
+    prejoinHistoryPolicy: options.prejoinHistoryPolicy ?? null,
+    contentType: options.attachments.length > 0 ? MESSAGE_CONTENT_ENVELOPE_TYPE : "text/plain",
+    dispatch: async (encryptedPayload) =>
+      sendMessageRaw(options.token, options.chatId, {
+        clientMessageId: options.resolvedClientMessageId,
+        replyToMessageId: options.replyToMessageId,
+        attachmentIds: options.attachments.map((attachment) => attachment.id),
+        encryptedPayload,
+      }),
+    mapResponse: options.buildChatMessage,
+  });
+}
 
-  const historyEnvelope = parseDirectHistoryEnvelope(
-    message.encryptedPayload.historyEnvelope,
-    DIRECT_HISTORY_ENVELOPE_AAD_VERSION
-  );
-  let historyKeyRecord = await resolveLocalGroupHistoryKeyRecord(
-    userId,
-    message.chatId,
-    historyEnvelope.historyKeyId
-  );
-  if (!historyKeyRecord) {
-    const session =
-      recoverySyncSessionByUserId.get(userId) ?? (await waitForRecoverySyncSession(userId));
-    if (!session) {
-      throw new Error("Encrypted direct history key is not available for this device");
-    }
+async function updateEncryptedMessageWithActiveKeyRetry(options: {
+  token: string;
+  chatId: string;
+  currentUserId: string;
+  messageId: string;
+  encryptedContent: string;
+  participants: Participant[];
+  attachments?: ChatMessageAttachment[];
+  membershipVersion?: number;
+  prejoinHistoryPolicy?: ChatPrejoinHistoryPolicy | null;
+}) {
+  return dispatchWithActiveKeyRetry({
+    token: options.token,
+    chatId: options.chatId,
+    currentUserId: options.currentUserId,
+    encryptedContent: options.encryptedContent,
+    participants: options.participants,
+    clientMessageIdForDiagnostics: "",
+    messageRefId: options.messageId,
+    membershipVersion: options.membershipVersion,
+    prejoinHistoryPolicy: options.prejoinHistoryPolicy ?? null,
+    contentType:
+      (options.attachments?.length ?? 0) > 0 ? MESSAGE_CONTENT_ENVELOPE_TYPE : "text/plain",
+    dispatch: async (encryptedPayload) =>
+      updateMessage(options.token, options.chatId, options.messageId, {
+        encryptedPayload,
+      }),
+    mapResponse: (response) => response,
+  });
+}
 
-    historyKeyRecord = await resolveGroupHistoryKeyRecordFromServer(
-      session.token,
-      userId,
-      message.chatId,
-      ownMaterial
+async function dispatchWithActiveKeyRetry<TResponse, TResult>(options: {
+  token: string;
+  chatId: string;
+  currentUserId: string;
+  encryptedContent: string;
+  participants: Participant[];
+  clientMessageIdForDiagnostics: string;
+  messageRefId: string;
+  membershipVersion?: number;
+  prejoinHistoryPolicy?: ChatPrejoinHistoryPolicy | null;
+  contentType: string;
+  dispatch: (encryptedPayload: EncryptedMessagePayload) => Promise<TResponse>;
+  mapResponse: (response: TResponse) => TResult;
+}) {
+  let allowRetryOnStaleActiveKey = true;
+  while (true) {
+    recordSendDiagnosticStep(options.clientMessageIdForDiagnostics, "e2ee:encrypt:start");
+    const encryptedPayload = await encryptChatEpochMessage(
+      options.token,
+      options.chatId,
+      options.currentUserId,
+      options.encryptedContent,
+      {
+        messageRefId: options.messageRefId,
+        membershipVersion: options.membershipVersion,
+        contentType: options.contentType,
+      }
     );
-  }
-  if (!historyKeyRecord || historyKeyRecord.historyKeyId !== historyEnvelope.historyKeyId) {
-    throw new Error("Encrypted direct history key is not available for this message");
-  }
+    recordSendDiagnosticStep(options.clientMessageIdForDiagnostics, "e2ee:encrypt:end", {
+      scheme: encryptedPayload.scheme,
+    });
 
-  return decryptDirectHistoryEnvelopeContent(message, historyEnvelope, historyKeyRecord);
+    try {
+      recordSendDiagnosticStep(
+        options.clientMessageIdForDiagnostics,
+        "e2ee:transportDispatch:start"
+      );
+      const response = await options.dispatch(encryptedPayload);
+      const mappedResponse = options.mapResponse(response);
+      if (isApiChatMessage(response)) {
+        recordSendDiagnosticStep(
+          options.clientMessageIdForDiagnostics,
+          "e2ee:transportDispatch:end",
+          {
+            messageId: response.id,
+            serverOrder: response.serverOrder ?? null,
+          }
+        );
+      }
+      return mappedResponse;
+    } catch (error) {
+      if (allowRetryOnStaleActiveKey && isStaleActiveHistoryKeyError(error)) {
+        allowRetryOnStaleActiveKey = false;
+        recordSendDiagnosticStep(
+          options.clientMessageIdForDiagnostics,
+          "e2ee:activeHistoryKey:staleRetry"
+        );
+        await clearCurrentGroupHistoryKeyRecord(options.currentUserId, options.chatId);
+        continue;
+      }
+
+      throw error;
+    }
+  }
 }
 
-async function decryptDirectRecipientEnvelopeContent(
-  serializedEnvelope: string,
-  userId: string,
-  ownMaterial: RegisteredDeviceEncryptionMaterial
-) {
-  const { content } = await decryptDirectRecipientEnvelope(serializedEnvelope, userId, ownMaterial);
-  return content;
+function isApiChatMessage(value: unknown): value is ApiChatMessage {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "id" in value &&
+      typeof (value as { id?: unknown }).id === "string"
+  );
+}
+
+function isStaleActiveHistoryKeyError(error: unknown) {
+  return (
+    error instanceof ApiError &&
+    error.status === 409 &&
+    error.message === STALE_ACTIVE_HISTORY_KEY_MESSAGE
+  );
 }
 
 async function decryptDirectHistoryKeyGrantPayload(
   serializedEnvelope: string,
-  userId: string,
-  ownMaterial: RegisteredDeviceEncryptionMaterial
+  userId: string
 ) {
   const identity = readUnlockedIdentity(userId);
-  if (identity?.accountPrivateKey) {
-    try {
-      return await decryptAccountHistoryKeyGrantEnvelope(identity, serializedEnvelope);
-    } catch {
-      // Fall through to legacy direct-envelope grants.
-    }
+  if (!identity?.accountPrivateKey) {
+    throw new Error("Encrypted account history key is not available in this browser");
   }
-
-  return decryptDirectRecipientEnvelopeContent(serializedEnvelope, userId, ownMaterial);
-}
-
-function buildDirectDecryptionAlgorithm(
-  envelope: DirectDeviceEnvelope
-): AesGcmParams {
-  return {
-    name: "AES-GCM",
-    iv: base64ToBytes(envelope.iv),
-    additionalData: buildDirectEnvelopeAdditionalData({
-      ...envelope,
-    }),
-  };
-}
-
-async function assertTrustedDirectSender(envelope: DirectDeviceEnvelope) {
-  const pinnedRecord = readPinnedDeviceBundleRecord(envelope.senderUserId, envelope.senderDeviceId);
-  if (!pinnedRecord) {
-    return;
-  }
-
-  const identityFingerprint = await fingerprintPublicKey(envelope.senderIdentityKey);
-  const identitySignatureFingerprint = await fingerprintPublicKey(envelope.senderIdentitySignatureKey);
-  if (
-    pinnedRecord.identityFingerprint !== identityFingerprint ||
-    pinnedRecord.identitySignatureFingerprint !== identitySignatureFingerprint
-  ) {
-    throw new ApiError(ENCRYPTION_IDENTITY_CHANGED_MESSAGE, 409);
-  }
+  return decryptAccountHistoryKeyGrantEnvelope(identity, serializedEnvelope);
 }
 
 async function deriveWrappingKey(password: string, salt: Uint8Array, iterations: number) {
@@ -3791,50 +2167,9 @@ async function deriveWrappingKey(password: string, salt: Uint8Array, iterations:
   );
 }
 
-async function importDevicePublicKey(
-  serializedPublicKey: string,
-  algorithm: string,
-  usages: KeyUsage[]
-) {
-  const normalizedUsages =
-    algorithm === DEVICE_AGREEMENT_KEY_ALGORITHM &&
-    usages.length > 0 &&
-    usages.every((usage) => usage === "deriveBits")
-      ? []
-      : usages;
-  const parsedPublicKey = JSON.parse(serializedPublicKey) as JsonWebKey;
-  const normalizedPublicKey: JsonWebKey = Array.isArray(parsedPublicKey.key_ops)
-    ? {
-        ...parsedPublicKey,
-        key_ops: [...normalizedUsages],
-      }
-    : parsedPublicKey;
-  const cacheKey = `${algorithm}:${JSON.stringify(normalizedPublicKey)}:${normalizedUsages.join(",")}`;
-  const cachedKey = importedDevicePublicKeyCache.get(cacheKey);
-  if (cachedKey) {
-    return cachedKey;
-  }
-
-  const importPromise = window.crypto.subtle.importKey(
-    "jwk",
-    normalizedPublicKey,
-    { name: algorithm } as AlgorithmIdentifier,
-    false,
-    normalizedUsages
-  );
-
-  importedDevicePublicKeyCache.set(cacheKey, importPromise);
-  try {
-    return await importPromise;
-  } catch (error) {
-    importedDevicePublicKeyCache.delete(cacheKey);
-    throw error;
-  }
-}
-
 async function importAccountPublicKey(serializedPublicKey: string) {
   const cacheKey = `${ACCOUNT_KEY_ALGORITHM}:${serializedPublicKey}:encrypt`;
-  const cachedKey = importedDevicePublicKeyCache.get(cacheKey);
+  const cachedKey = importedAccountPublicKeyCache.get(cacheKey);
   if (cachedKey) {
     return cachedKey;
   }
@@ -3849,27 +2184,13 @@ async function importAccountPublicKey(serializedPublicKey: string) {
     false,
     ["encrypt"]
   );
-  importedDevicePublicKeyCache.set(cacheKey, importPromise);
+  importedAccountPublicKeyCache.set(cacheKey, importPromise);
   try {
     return await importPromise;
   } catch (error) {
-    importedDevicePublicKeyCache.delete(cacheKey);
+    importedAccountPublicKeyCache.delete(cacheKey);
     throw error;
   }
-}
-
-async function importDevicePrivateKey(
-  serializedPrivateKey: string,
-  algorithm: string,
-  usages: KeyUsage[]
-) {
-  return window.crypto.subtle.importKey(
-    "jwk",
-    JSON.parse(serializedPrivateKey) as JsonWebKey,
-    { name: algorithm } as AlgorithmIdentifier,
-    false,
-    usages
-  );
 }
 
 async function importAccountPrivateKey(serializedPrivateKey: string) {
@@ -3885,41 +2206,138 @@ async function importAccountPrivateKey(serializedPrivateKey: string) {
   );
 }
 
-async function deriveAgreementSecret(privateKey: CryptoKey, publicKey: CryptoKey) {
-  const sharedBits = await window.crypto.subtle.deriveBits(
+async function importIdentitySigningPublicKey(serializedPublicKey: string) {
+  const cacheKey = `${IDENTITY_SIGNING_KEY_ALGORITHM}:${serializedPublicKey}:verify`;
+  const cachedKey = importedIdentitySigningPublicKeyCache.get(cacheKey);
+  if (cachedKey) {
+    return cachedKey;
+  }
+
+  const importPromise = window.crypto.subtle.importKey(
+    "jwk",
+    JSON.parse(serializedPublicKey) as JsonWebKey,
     {
-      name: DEVICE_AGREEMENT_KEY_ALGORITHM,
-      public: publicKey,
-    } as EcdhKeyDeriveParams,
-    privateKey,
-    256
+      name: IDENTITY_SIGNING_KEY_ALGORITHM,
+      hash: IDENTITY_SIGNING_KEY_HASH,
+    } satisfies RsaHashedImportParams,
+    false,
+    ["verify"]
   );
-  return new Uint8Array(sharedBits);
+  importedIdentitySigningPublicKeyCache.set(cacheKey, importPromise);
+  try {
+    return await importPromise;
+  } catch (error) {
+    importedIdentitySigningPublicKeyCache.delete(cacheKey);
+    throw error;
+  }
 }
 
-async function deriveSessionSecret(
-  ikm: Uint8Array,
-  salt: Uint8Array,
-  label: string
-): Promise<Uint8Array> {
-  const baseKey = await window.crypto.subtle.importKey(
-    "raw",
-    toArrayBuffer(ikm),
-    "HKDF",
-    false,
-    ["deriveBits"]
-  );
-  const derivedBits = await window.crypto.subtle.deriveBits(
+async function importIdentitySigningPrivateKey(serializedPrivateKey: string) {
+  return window.crypto.subtle.importKey(
+    "jwk",
+    JSON.parse(serializedPrivateKey) as JsonWebKey,
     {
-      name: "HKDF",
-      hash: "SHA-256",
-      salt: toArrayBuffer(salt),
-      info: toArrayBuffer(textEncoder.encode(label)),
-    },
-    baseKey,
-    256
+      name: IDENTITY_SIGNING_KEY_ALGORITHM,
+      hash: IDENTITY_SIGNING_KEY_HASH,
+    } satisfies RsaHashedImportParams,
+    false,
+    ["sign"]
   );
-  return new Uint8Array(derivedBits);
+}
+
+function buildAccountKeySignaturePayload(
+  userId: string,
+  identityGeneration: number,
+  accountKeyVersion: number,
+  identitySigningPublicKey: string,
+  identityKeyAlgorithm: string,
+  accountKeyAlgorithm: string,
+  signedAt: string,
+  accountPublicKey: string
+) {
+  return textEncoder.encode(
+    [
+      ACCOUNT_KEY_SIGNATURE_CONTEXT,
+      userId,
+      String(identityGeneration),
+      String(accountKeyVersion),
+      identityKeyAlgorithm,
+      accountKeyAlgorithm,
+      signedAt,
+      identitySigningPublicKey,
+      accountPublicKey,
+    ].join("\n")
+  );
+}
+
+async function verifyResolvedAccountKeyBundles(
+  participants: Participant[],
+  resolvedRemoteKeys: UserEncryptionAccountKey[]
+) {
+  if (resolvedRemoteKeys.length === 0) {
+    return;
+  }
+
+  const participantsById = Object.fromEntries(
+    participants.map((participant) => [participant.id, participant] as const)
+  );
+  const invalidParticipants = new Set<string>();
+
+  for (const entry of resolvedRemoteKeys) {
+    try {
+      if (
+        !entry.identitySigningPublicKey ||
+        !entry.signature ||
+        !Number.isFinite(entry.accountKeyVersion) ||
+        entry.accountKeyVersion < 1 ||
+        !Number.isFinite(entry.identityGeneration) ||
+        entry.identityGeneration < 1 ||
+        entry.identityKeyAlgorithm !== IDENTITY_KEY_ALGORITHM_ID ||
+        entry.accountKeyAlgorithm !== ACCOUNT_KEY_ALGORITHM_ID ||
+        typeof entry.signedAt !== "string" ||
+        entry.signedAt.length === 0
+      ) {
+        throw new Error("Account key bundle is incomplete");
+      }
+
+      const signingPublicKey = await importIdentitySigningPublicKey(entry.identitySigningPublicKey);
+      const valid = await window.crypto.subtle.verify(
+        {
+          name: IDENTITY_SIGNING_KEY_ALGORITHM,
+          saltLength: IDENTITY_SIGNING_KEY_SALT_LENGTH,
+        },
+        signingPublicKey,
+        base64ToBytes(entry.signature),
+        buildAccountKeySignaturePayload(
+          entry.userId,
+          entry.identityGeneration,
+          entry.accountKeyVersion,
+          entry.identitySigningPublicKey,
+          entry.identityKeyAlgorithm,
+          entry.accountKeyAlgorithm,
+          entry.signedAt,
+          entry.publicKey
+        )
+      );
+      if (!valid) {
+        throw new Error("Account key signature is invalid");
+      }
+    } catch {
+      invalidParticipants.add(
+        participantsById[entry.userId]?.displayName ??
+          participantsById[entry.userId]?.username ??
+          entry.userId
+      );
+    }
+  }
+
+  if (invalidParticipants.size > 0) {
+    throw new ApiError(
+      "Encrypted chat participant account key could not be verified",
+      409,
+      Array.from(invalidParticipants)
+    );
+  }
 }
 
 function concatByteArrays(chunks: Uint8Array[]) {
@@ -3963,10 +2381,61 @@ function createLocalVaultIdentity(): LocalIdentity {
   });
 }
 
+async function exportJsonWebKey(key: CryptoKey) {
+  return JSON.stringify(await window.crypto.subtle.exportKey("jwk", key));
+}
+
 function hasAccountKeyPair(
   identity: LocalIdentity | null | undefined
-): identity is LocalIdentity & { accountPublicKey: string; accountPrivateKey: string } {
+): identity is LocalIdentity & {
+  accountPublicKey: string;
+  accountPrivateKey: string;
+  accountKeyVersion: number;
+  identityGeneration: number;
+  identitySigningPublicKey: string;
+  identitySigningPrivateKey: string;
+} {
+  return Boolean(
+    identity?.accountPublicKey &&
+      identity?.accountPrivateKey &&
+      identity?.identitySigningPublicKey &&
+      identity?.identitySigningPrivateKey &&
+      typeof identity?.identityGeneration === "number" &&
+      identity.identityGeneration >= 1 &&
+      typeof identity?.accountKeyVersion === "number" &&
+      identity.accountKeyVersion >= 1
+  );
+}
+
+function hasIdentitySigningKeyPair(identity: LocalIdentity | null | undefined) {
+  return Boolean(identity?.identitySigningPublicKey && identity?.identitySigningPrivateKey);
+}
+
+function hasStoredAccountKeyMaterial(identity: LocalIdentity | null | undefined) {
   return Boolean(identity?.accountPublicKey && identity?.accountPrivateKey);
+}
+
+function hasStoredAccountKeyVersion(identity: LocalIdentity | null | undefined) {
+  return typeof identity?.accountKeyVersion === "number" && identity.accountKeyVersion >= 1;
+}
+
+function hasStoredIdentityGeneration(identity: LocalIdentity | null | undefined) {
+  return typeof identity?.identityGeneration === "number" && identity.identityGeneration >= 1;
+}
+
+function assertSignedAccountIdentityContinuity(identity: LocalIdentity | null | undefined) {
+  const hasAccountMaterial = hasStoredAccountKeyMaterial(identity);
+  const hasAccountVersion = hasStoredAccountKeyVersion(identity);
+  const hasSigningMaterial = hasIdentitySigningKeyPair(identity);
+  const hasIdentityGeneration = hasStoredIdentityGeneration(identity);
+
+  if ((hasAccountMaterial || hasAccountVersion) && !hasSigningMaterial) {
+    throw new ApiError(ENCRYPTION_RECOVERY_EXISTING_CHATS_MESSAGE, 409);
+  }
+
+  if (hasAccountMaterial && (!hasAccountVersion || !hasIdentityGeneration)) {
+    throw new ApiError(ENCRYPTION_RECOVERY_EXISTING_CHATS_MESSAGE, 409);
+  }
 }
 
 async function generateAccountKeyPair() {
@@ -3979,6 +2448,24 @@ async function generateAccountKeyPair() {
     } satisfies RsaHashedKeyGenParams,
     true,
     ["encrypt", "decrypt"]
+  )) as CryptoKeyPair;
+
+  return {
+    publicKey: await exportJsonWebKey(keyPair.publicKey),
+    privateKey: await exportJsonWebKey(keyPair.privateKey),
+  };
+}
+
+async function generateIdentitySigningKeyPair() {
+  const keyPair = (await window.crypto.subtle.generateKey(
+    {
+      name: IDENTITY_SIGNING_KEY_ALGORITHM,
+      hash: IDENTITY_SIGNING_KEY_HASH,
+      modulusLength: IDENTITY_SIGNING_KEY_MODULUS_LENGTH,
+      publicExponent: ACCOUNT_KEY_PUBLIC_EXPONENT,
+    } satisfies RsaHashedKeyGenParams,
+    true,
+    ["sign", "verify"]
   )) as CryptoKeyPair;
 
   return {
@@ -4058,6 +2545,93 @@ async function rememberUnlockedIdentity(
   });
 }
 
+async function buildOwnEncryptionAccountKeyUpload(
+  userId: string,
+  identity: LocalIdentity
+) {
+  if (!hasAccountKeyPair(identity)) {
+    throw new ApiError(ENCRYPTION_INITIALIZING_MESSAGE, 409);
+  }
+
+  const signingPrivateKey = await importIdentitySigningPrivateKey(
+    identity.identitySigningPrivateKey
+  );
+  const signedAt = new Date().toISOString();
+  const signature = await window.crypto.subtle.sign(
+    {
+      name: IDENTITY_SIGNING_KEY_ALGORITHM,
+      saltLength: IDENTITY_SIGNING_KEY_SALT_LENGTH,
+    },
+    signingPrivateKey,
+    buildAccountKeySignaturePayload(
+      userId,
+      identity.identityGeneration,
+      identity.accountKeyVersion,
+      identity.identitySigningPublicKey,
+      IDENTITY_KEY_ALGORITHM_ID,
+      ACCOUNT_KEY_ALGORITHM_ID,
+      signedAt,
+      identity.accountPublicKey
+    )
+  );
+
+  return {
+    publicKey: identity.accountPublicKey,
+    accountKeyVersion: identity.accountKeyVersion,
+    identityGeneration: identity.identityGeneration,
+    identitySigningPublicKey: identity.identitySigningPublicKey,
+    identityKeyAlgorithm: IDENTITY_KEY_ALGORITHM_ID,
+    accountKeyAlgorithm: ACCOUNT_KEY_ALGORITHM_ID,
+    signedAt,
+    signature: bytesToBase64(new Uint8Array(signature)),
+  };
+}
+
+async function publishOwnEncryptionAccountKeyBundle(
+  token: string,
+  userId: string,
+  identity: LocalIdentity
+) {
+  return upsertOwnEncryptionAccountKey(
+    token,
+    await buildOwnEncryptionAccountKeyUpload(userId, identity)
+  );
+}
+
+async function publishOwnEncryptionAccountKeyBundleAfterIdentityReset(
+  token: string,
+  userId: string,
+  identity: LocalIdentity,
+  currentPassword: string
+) {
+  const upload = await buildOwnEncryptionAccountKeyUpload(userId, identity);
+  let currentBundle:
+    | {
+        identityGeneration: number;
+      }
+    | null = null;
+  try {
+    currentBundle = await getOwnEncryptionAccountKey(token);
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 404) {
+      throw error;
+    }
+  }
+
+  if (!currentBundle || upload.identityGeneration <= currentBundle.identityGeneration) {
+    return upsertOwnEncryptionAccountKey(token, upload);
+  }
+
+  if (upload.identityGeneration !== currentBundle.identityGeneration + 1) {
+    throw new ApiError(ENCRYPTION_RECOVERY_EXISTING_CHATS_MESSAGE, 409);
+  }
+
+  return resetOwnEncryptionIdentity(token, {
+    currentPassword,
+    ...upload,
+  });
+}
+
 async function ensureLocalIdentityHasAccountKeyPair(
   userId: string,
   identity: LocalIdentity,
@@ -4067,12 +2641,36 @@ async function ensureLocalIdentityHasAccountKeyPair(
     return identity;
   }
 
-  const accountKeyPair = await generateAccountKeyPair();
-  const upgradedIdentity: LocalIdentity = {
-    ...identity,
-    accountPublicKey: accountKeyPair.publicKey,
-    accountPrivateKey: accountKeyPair.privateKey,
-  };
+  let upgradedIdentity: LocalIdentity = { ...identity };
+  assertSignedAccountIdentityContinuity(upgradedIdentity);
+  if (!hasIdentitySigningKeyPair(upgradedIdentity)) {
+    const identitySigningKeyPair = await generateIdentitySigningKeyPair();
+    upgradedIdentity = {
+      ...upgradedIdentity,
+      identityGeneration: hasStoredIdentityGeneration(upgradedIdentity)
+        ? upgradedIdentity.identityGeneration
+        : 1,
+      identitySigningPublicKey: identitySigningKeyPair.publicKey,
+      identitySigningPrivateKey: identitySigningKeyPair.privateKey,
+    };
+  }
+  if (!hasStoredAccountKeyMaterial(upgradedIdentity)) {
+    const accountKeyPair = await generateAccountKeyPair();
+    const currentAccountKeyVersion = upgradedIdentity.accountKeyVersion;
+    const nextAccountKeyVersion =
+      typeof currentAccountKeyVersion === "number" && currentAccountKeyVersion >= 1
+        ? currentAccountKeyVersion + 1
+        : 1;
+    upgradedIdentity = {
+      ...upgradedIdentity,
+      accountPublicKey: accountKeyPair.publicKey,
+      accountPrivateKey: accountKeyPair.privateKey,
+      identityGeneration: hasStoredIdentityGeneration(upgradedIdentity)
+        ? upgradedIdentity.identityGeneration
+        : 1,
+      accountKeyVersion: nextAccountKeyVersion,
+    };
+  }
   writeUnlockedIdentity(userId, upgradedIdentity);
   await rememberUnlockedIdentity(userId, upgradedIdentity, password);
   return upgradedIdentity;
@@ -4085,12 +2683,36 @@ async function ensureRuntimeAccountIdentity(userId: string): Promise<LocalIdenti
   }
 
   const baseIdentity = existingIdentity ?? createLocalVaultIdentity();
-  const accountKeyPair = await generateAccountKeyPair();
-  const upgradedIdentity: LocalIdentity = {
-    ...baseIdentity,
-    accountPublicKey: accountKeyPair.publicKey,
-    accountPrivateKey: accountKeyPair.privateKey,
-  };
+  let upgradedIdentity: LocalIdentity = { ...baseIdentity };
+  assertSignedAccountIdentityContinuity(upgradedIdentity);
+  if (!hasIdentitySigningKeyPair(upgradedIdentity)) {
+    const identitySigningKeyPair = await generateIdentitySigningKeyPair();
+    upgradedIdentity = {
+      ...upgradedIdentity,
+      identityGeneration: hasStoredIdentityGeneration(upgradedIdentity)
+        ? upgradedIdentity.identityGeneration
+        : 1,
+      identitySigningPublicKey: identitySigningKeyPair.publicKey,
+      identitySigningPrivateKey: identitySigningKeyPair.privateKey,
+    };
+  }
+  if (!hasStoredAccountKeyMaterial(upgradedIdentity)) {
+    const accountKeyPair = await generateAccountKeyPair();
+    const currentAccountKeyVersion = upgradedIdentity.accountKeyVersion;
+    const nextAccountKeyVersion =
+      typeof currentAccountKeyVersion === "number" && currentAccountKeyVersion >= 1
+        ? currentAccountKeyVersion + 1
+        : 1;
+    upgradedIdentity = {
+      ...upgradedIdentity,
+      accountPublicKey: accountKeyPair.publicKey,
+      accountPrivateKey: accountKeyPair.privateKey,
+      identityGeneration: hasStoredIdentityGeneration(upgradedIdentity)
+        ? upgradedIdentity.identityGeneration
+        : 1,
+      accountKeyVersion: nextAccountKeyVersion,
+    };
+  }
   writeUnlockedIdentity(userId, upgradedIdentity);
   return upgradedIdentity;
 }
@@ -4122,617 +2744,6 @@ async function restoreEncryptionRecoverySnapshot(
   });
 }
 
-async function ensureRegisteredEncryptionDevice(session: AuthResponse) {
-  const registrationKey = session.user.id;
-  const cachedRegistrationTimestamp = completedEncryptionDeviceRegistration.get(registrationKey);
-  if (
-    cachedRegistrationTimestamp &&
-    Date.now() - cachedRegistrationTimestamp < DEVICE_REGISTRATION_CACHE_TTL_MS
-  ) {
-    const material = await readEncryptionDeviceMaterial(session.user.id);
-    if (isRegistrationSyncFresh(material)) {
-      return;
-    }
-    completedEncryptionDeviceRegistration.delete(registrationKey);
-  }
-
-  const inFlightRegistration = inFlightEncryptionDeviceRegistration.get(registrationKey);
-  if (inFlightRegistration) {
-    await inFlightRegistration;
-    return;
-  }
-
-  const registrationPromise = ensureRegisteredEncryptionDeviceInternal(session);
-  inFlightEncryptionDeviceRegistration.set(registrationKey, registrationPromise);
-  try {
-    await registrationPromise;
-    if (isRegistrationSyncFresh(await readEncryptionDeviceMaterial(session.user.id))) {
-      completedEncryptionDeviceRegistration.set(registrationKey, Date.now());
-    }
-  } finally {
-    if (inFlightEncryptionDeviceRegistration.get(registrationKey) === registrationPromise) {
-      inFlightEncryptionDeviceRegistration.delete(registrationKey);
-    }
-  }
-}
-
-async function waitForEncryptionDeviceRegistration(session: AuthResponse) {
-  return waitForEncryptionDeviceRegistrationInternal({
-    session,
-    rememberRecoverySyncSession,
-    getInFlightRegistration: (registrationKey) =>
-      inFlightEncryptionDeviceRegistration.get(registrationKey),
-    readEncryptionDeviceMaterial,
-    discardUnusableRegisteredEncryptionDeviceMaterial: (userId, material) =>
-      discardUnusableRegisteredEncryptionDeviceMaterial(userId, material),
-    hasFreshCompletedEncryptionDeviceRegistration,
-    ensureRegisteredEncryptionDevice,
-    recoverRegisteredEncryptionDeviceMaterial: (session, material) =>
-      recoverRegisteredEncryptionDeviceMaterial(session, material),
-    forceRegisterEncryptionDevice,
-    initializationErrorMessage:
-      "Encrypted chat is still initializing on this device. Try again.",
-  });
-}
-
-async function ensureRegisteredEncryptionDeviceInternal(session: AuthResponse) {
-  return ensureRegisteredEncryptionDeviceInternalExternal({
-    session,
-    isSecureContextAvailable: () =>
-      typeof window !== "undefined" && window.isSecureContext,
-    listOwnEncryptionDevices,
-    readEncryptionDeviceMaterial,
-    discardUnusableRegisteredEncryptionDeviceMaterial: (userId, material) =>
-      discardUnusableRegisteredEncryptionDeviceMaterial(userId, material),
-    isSignedPrekeyRotationDue,
-    minOneTimePrekeys: DEVICE_MIN_ONE_TIME_PREKEYS,
-    refreshEncryptionDeviceMaterial,
-    createEncryptionDeviceMaterial,
-    upsertOwnEncryptionDevice,
-    writeEncryptionDeviceMaterial,
-    rememberEncryptionDeviceMaterial,
-    markRegistrationCompleted: (userId) =>
-      completedEncryptionDeviceRegistration.set(userId, Date.now()),
-    removeDeviceSessions,
-    removeRememberedDeviceSessions,
-    removeGroupSenderChains,
-    removeGroupHistoryKeys,
-    clearCompletedDevicePreparation,
-  });
-}
-
-async function recoverRegisteredEncryptionDeviceMaterial(
-  session: AuthResponse,
-  material?: DeviceEncryptionMaterial | null
-) {
-  return recoverRegisteredEncryptionDeviceMaterialInternal({
-    session,
-    material,
-    readEncryptionDeviceMaterial,
-    listOwnEncryptionDevices,
-    writeEncryptionDeviceMaterial,
-    rememberEncryptionDeviceMaterial,
-    markRegistrationCompleted: (userId) =>
-      completedEncryptionDeviceRegistration.set(userId, Date.now()),
-    removeDeviceSessions,
-    removeRememberedDeviceSessions,
-    removeGroupSenderChains,
-    removeGroupHistoryKeys,
-    clearCompletedDevicePreparation,
-  });
-}
-
-async function forceRegisterEncryptionDevice(session: AuthResponse) {
-  return forceRegisterEncryptionDeviceInternal({
-    session,
-    isSecureContextAvailable: () =>
-      typeof window !== "undefined" && window.isSecureContext,
-    readEncryptionDeviceMaterial,
-    removeEncryptionDeviceMaterial,
-    removeRememberedEncryptionDeviceMaterial,
-    removeDeviceSessions,
-    removeRememberedDeviceSessions,
-    removeGroupSenderChains,
-    removeGroupHistoryKeys,
-    clearCompletedEncryptionDeviceRegistration,
-    clearCompletedDevicePreparation,
-    createEncryptionDeviceMaterial,
-    upsertOwnEncryptionDevice,
-    writeEncryptionDeviceMaterial,
-    rememberEncryptionDeviceMaterial,
-    markRegistrationCompleted: (userId) =>
-      completedEncryptionDeviceRegistration.set(userId, Date.now()),
-  });
-}
-
-function isSignedPrekeyRotationDue(
-  material: DeviceEncryptionMaterial | null,
-  existingDevice: UserEncryptionDevice | null
-) {
-  return isSignedPrekeyRotationDueInternal(
-    material,
-    existingDevice,
-    DEVICE_SIGNED_PREKEY_MAX_AGE_MS
-  );
-}
-
-function findOwnEncryptionDevice(devices: UserEncryptionDevice[], material: DeviceEncryptionMaterial | null) {
-  return findOwnEncryptionDeviceInternal(devices, material);
-}
-
-function isRegisteredEncryptionDeviceMaterialAvailable(
-  material: DeviceEncryptionMaterial | null
-): material is RegisteredDeviceEncryptionMaterial {
-  return isRegisteredEncryptionDeviceMaterialAvailableInternal(material);
-}
-
-async function isRegisteredEncryptionDeviceMaterialUsable(material: DeviceEncryptionMaterial | null) {
-  return isRegisteredEncryptionDeviceMaterialUsableInternal({
-    material,
-    importDevicePrivateKey,
-  });
-}
-
-async function discardUnusableRegisteredEncryptionDeviceMaterial(
-  userId: string,
-  material: DeviceEncryptionMaterial | null
-) {
-  return discardUnusableRegisteredEncryptionDeviceMaterialInternal({
-    userId,
-    material,
-    isRegisteredEncryptionDeviceMaterialUsable,
-    removeEncryptionDeviceMaterial,
-    removeRememberedEncryptionDeviceMaterial,
-    removeDeviceSessions,
-    removeRememberedDeviceSessions,
-    removeGroupSenderChains,
-    removeGroupHistoryKeys,
-    clearCompletedEncryptionDeviceRegistration,
-    clearCompletedDevicePreparation,
-  });
-}
-
-function isRegistrationSyncFresh(material: DeviceEncryptionMaterial | null) {
-  return isRegistrationSyncFreshInternal(
-    material,
-    DEVICE_MIN_ONE_TIME_PREKEYS,
-    (candidate) => isSignedPrekeyRotationDue(candidate, null)
-  );
-}
-
-function clearCompletedEncryptionDeviceRegistration(userId: string) {
-  for (const cacheKey of Array.from(completedEncryptionDeviceRegistration.keys())) {
-    if (cacheKey === userId || cacheKey.startsWith(`${userId}:`)) {
-      completedEncryptionDeviceRegistration.delete(cacheKey);
-    }
-  }
-}
-
-function hasFreshCompletedEncryptionDeviceRegistration(registrationKey: string) {
-  const cachedRegistrationTimestamp = completedEncryptionDeviceRegistration.get(registrationKey);
-  return Boolean(
-    cachedRegistrationTimestamp &&
-      Date.now() - cachedRegistrationTimestamp < DEVICE_REGISTRATION_CACHE_TTL_MS
-  );
-}
-
-async function createEncryptionDeviceMaterial(): Promise<DeviceEncryptionMaterial> {
-  const identityAgreement = await generateAsymmetricKeyPair(
-    DEVICE_AGREEMENT_KEY_ALGORITHM,
-    ["deriveBits"]
-  );
-  const identitySigning = await generateAsymmetricKeyPair(DEVICE_SIGNATURE_KEY_ALGORITHM, ["sign"]);
-  const signedPrekey = await generateAsymmetricKeyPair(DEVICE_AGREEMENT_KEY_ALGORITHM, ["deriveBits"]);
-  const signedPrekeyId = nextDeviceKeyId();
-  const signedPrekeyPublicKey = await exportJsonWebKey(signedPrekey.publicKey);
-  const signedPrekeySignature = bytesToBase64(
-    new Uint8Array(
-      await window.crypto.subtle.sign(
-        DEVICE_SIGNATURE_KEY_ALGORITHM,
-        identitySigning.privateKey,
-        buildSignedPrekeySignaturePayload(signedPrekeyPublicKey)
-      )
-    )
-  );
-
-  const createdAt = new Date().toISOString();
-  return {
-    deviceId: null,
-    materialId: window.crypto.randomUUID(),
-    identityKey: await exportJsonWebKey(identityAgreement.publicKey),
-    identityPrivateKey: await exportJsonWebKey(identityAgreement.privateKey),
-    identityKeyAlgorithm: DEVICE_AGREEMENT_KEY_ALGORITHM,
-    identitySignatureKey: await exportJsonWebKey(identitySigning.publicKey),
-    identitySignaturePrivateKey: await exportJsonWebKey(identitySigning.privateKey),
-    identitySignatureKeyAlgorithm: DEVICE_SIGNATURE_KEY_ALGORITHM,
-    signedPrekeyId,
-    signedPrekeyPublicKey,
-    signedPrekeyPrivateKey: await exportJsonWebKey(signedPrekey.privateKey),
-    signedPrekeySignature,
-    signedPrekeyAlgorithm: DEVICE_AGREEMENT_KEY_ALGORITHM,
-    oneTimePrekeys: await createOneTimePrekeys(),
-    retiredOneTimePrekeys: [],
-    retiredSignedPrekeys: [],
-    createdAt,
-    signedPrekeyCreatedAt: createdAt,
-  };
-}
-
-async function refreshEncryptionDeviceMaterial(
-  currentMaterial: DeviceEncryptionMaterial,
-  options: { rotateSignedPrekey: boolean }
-): Promise<DeviceEncryptionMaterial> {
-  if (!options.rotateSignedPrekey) {
-    const refreshedAt = new Date().toISOString();
-    return {
-      ...currentMaterial,
-      retiredOneTimePrekeys: mergeRetiredOneTimePrekeys(
-        currentMaterial.retiredOneTimePrekeys,
-        currentMaterial.oneTimePrekeys,
-        refreshedAt
-      ),
-      retiredSignedPrekeys: pruneRetiredSignedPrekeys(currentMaterial.retiredSignedPrekeys),
-      oneTimePrekeys: await createOneTimePrekeys(),
-    };
-  }
-
-  const signedPrekey = await generateAsymmetricKeyPair(DEVICE_AGREEMENT_KEY_ALGORITHM, ["deriveBits"]);
-  const signaturePrivateKey = await importDevicePrivateKey(
-    currentMaterial.identitySignaturePrivateKey,
-    currentMaterial.identitySignatureKeyAlgorithm,
-    ["sign"]
-  );
-  const signedPrekeyId = nextDeviceKeyId();
-  const signedPrekeyPublicKey = await exportJsonWebKey(signedPrekey.publicKey);
-  const signedPrekeySignature = bytesToBase64(
-    new Uint8Array(
-      await window.crypto.subtle.sign(
-        currentMaterial.identitySignatureKeyAlgorithm,
-        signaturePrivateKey,
-        buildSignedPrekeySignaturePayload(signedPrekeyPublicKey)
-      )
-    )
-  );
-
-  const rotatedAt = new Date().toISOString();
-  return {
-    ...currentMaterial,
-    signedPrekeyId,
-    signedPrekeyPublicKey,
-    signedPrekeyPrivateKey: await exportJsonWebKey(signedPrekey.privateKey),
-    signedPrekeySignature,
-    retiredOneTimePrekeys: mergeRetiredOneTimePrekeys(
-      currentMaterial.retiredOneTimePrekeys,
-      currentMaterial.oneTimePrekeys,
-      rotatedAt
-    ),
-    retiredSignedPrekeys: mergeRetiredSignedPrekeys(currentMaterial, rotatedAt),
-    oneTimePrekeys: await createOneTimePrekeys(),
-    signedPrekeyCreatedAt: rotatedAt,
-  };
-}
-
-async function createOneTimePrekeys() {
-  const baseKeyId = nextDeviceKeyId();
-  return Promise.all(
-    Array.from({ length: DEVICE_ONE_TIME_PREKEY_COUNT }, (_, index) =>
-      createOneTimePrekeyMaterial(baseKeyId + index + 1)
-    )
-  );
-}
-
-async function createOneTimePrekeyMaterial(keyId: number): Promise<DeviceOneTimePrekeyMaterial> {
-  const keyPair = await generateAsymmetricKeyPair(DEVICE_AGREEMENT_KEY_ALGORITHM, ["deriveBits"]);
-  return {
-    keyId,
-    publicKey: await exportJsonWebKey(keyPair.publicKey),
-    privateKey: await exportJsonWebKey(keyPair.privateKey),
-  };
-}
-
-async function generateAsymmetricKeyPair(
-  name: string,
-  usages: KeyUsage[]
-): Promise<CryptoKeyPair> {
-  return (await window.crypto.subtle.generateKey(
-    { name } as AlgorithmIdentifier,
-    true,
-    usages
-  )) as CryptoKeyPair;
-}
-
-async function exportJsonWebKey(key: CryptoKey) {
-  return JSON.stringify(await window.crypto.subtle.exportKey("jwk", key));
-}
-
-function buildSignedPrekeySignaturePayload(serializedPublicKey: string) {
-  const parsedPublicKey = JSON.parse(serializedPublicKey) as JsonWebKey;
-  if (
-    parsedPublicKey.kty !== "OKP" ||
-    parsedPublicKey.crv !== DEVICE_AGREEMENT_KEY_ALGORITHM ||
-    typeof parsedPublicKey.x !== "string" ||
-    !parsedPublicKey.x
-  ) {
-    throw new Error("Malformed signed prekey");
-  }
-
-  return concatByteArrays([
-    textEncoder.encode(SIGNED_PREKEY_SIGNATURE_CONTEXT),
-    new Uint8Array([0]),
-    normalizeSignedPrekeyPublicComponent(parsedPublicKey.x),
-  ]);
-}
-
-function normalizeSignedPrekeyPublicComponent(value: string) {
-  try {
-    const rawPublicKey = base64UrlToBytes(value);
-    if (rawPublicKey.length === 32) {
-      return rawPublicKey;
-    }
-  } catch {
-    // Fall back to a deterministic 32-byte seed shape for fixture data that
-    // does not use a real base64url-encoded JWK component.
-  }
-
-  const source = textEncoder.encode(value);
-  const normalizedBytes = new Uint8Array(32);
-  for (let index = 0; index < normalizedBytes.length; index += 1) {
-    normalizedBytes[index] = source[index % source.length] ?? 0;
-  }
-  return normalizedBytes;
-}
-
-function nextDeviceKeyId() {
-  if (typeof window !== "undefined" && window.crypto?.getRandomValues) {
-    const randomValue = new Uint32Array(1);
-    window.crypto.getRandomValues(randomValue);
-    return randomValue[0]! % DEVICE_KEY_ID_SPACE;
-  }
-
-  return Math.floor(Math.random() * DEVICE_KEY_ID_SPACE);
-}
-
-function pruneRetiredSignedPrekeys(
-  prekeys: RetiredSignedPrekeyMaterial[] | undefined,
-  now = Date.now()
-) {
-  return pruneRetiredSignedPrekeysInternal(prekeys, now);
-}
-
-function pruneRetiredOneTimePrekeys(
-  prekeys: RetiredDeviceOneTimePrekeyMaterial[] | undefined,
-  now = Date.now()
-) {
-  return pruneRetiredOneTimePrekeysInternal(prekeys, now);
-}
-
-function mergeRetiredSignedPrekeys(
-  material: DeviceEncryptionMaterial,
-  retiredAt: string
-) {
-  const expiresAt = new Date(Date.parse(retiredAt) + DEVICE_PREKEY_GRACE_MS).toISOString();
-  return [
-    ...pruneRetiredSignedPrekeys(material.retiredSignedPrekeys),
-    {
-      signedPrekeyId: material.signedPrekeyId,
-      signedPrekeyPublicKey: material.signedPrekeyPublicKey,
-      signedPrekeyPrivateKey: material.signedPrekeyPrivateKey,
-      signedPrekeyAlgorithm: material.signedPrekeyAlgorithm,
-      retiredAt,
-      expiresAt,
-    },
-  ];
-}
-
-function mergeRetiredOneTimePrekeys(
-  retiredOneTimePrekeys: RetiredDeviceOneTimePrekeyMaterial[] | undefined,
-  oneTimePrekeys: DeviceOneTimePrekeyMaterial[],
-  retiredAt: string
-) {
-  const expiresAt = new Date(Date.parse(retiredAt) + DEVICE_PREKEY_GRACE_MS).toISOString();
-  return [
-    ...pruneRetiredOneTimePrekeys(retiredOneTimePrekeys),
-    ...oneTimePrekeys.map((prekey) => ({
-      ...prekey,
-      retiredAt,
-      expiresAt,
-    })),
-  ];
-}
-
-function normalizeDeviceEncryptionMaterial(value: unknown): DeviceEncryptionMaterial | null {
-  return normalizeDeviceEncryptionMaterialInternal(value) as DeviceEncryptionMaterial | null;
-}
-
-async function readEncryptionDeviceMaterial(userId: string): Promise<DeviceEncryptionMaterial | null> {
-  return readEncryptionDeviceMaterialInternal({
-    userId,
-    getEncryptionDeviceStorageKey,
-    normalizeDeviceEncryptionMaterial: (value) =>
-      normalizeDeviceEncryptionMaterial(value) as DeviceEncryptionMaterial | null,
-    removeEncryptionDeviceMaterial,
-    writeEncryptionDeviceMaterial: (targetUserId, material) =>
-      writeEncryptionDeviceMaterial(targetUserId, material),
-    readRememberedEncryptionDeviceMaterial: (targetUserId) =>
-      readRememberedEncryptionDeviceMaterial(targetUserId),
-  });
-}
-
-export async function getCurrentEncryptionDeviceId(userId: string) {
-  return (await readEncryptionDeviceMaterial(userId))?.deviceId ?? null;
-}
-
-function writeEncryptionDeviceMaterial(userId: string, material: DeviceEncryptionMaterial) {
-  return writeEncryptionDeviceMaterialInternal({
-    userId,
-    material,
-    getEncryptionDeviceStorageKey,
-  });
-}
-
-function removeEncryptionDeviceMaterial(userId: string) {
-  return removeEncryptionDeviceMaterialInternal({
-    userId,
-    getEncryptionDeviceStorageKey,
-  });
-}
-
-async function readRememberedEncryptionDeviceMaterial(userId: string): Promise<DeviceEncryptionMaterial | null> {
-  return readRememberedEncryptionDeviceMaterialInternal({
-    userId,
-    readUnlockedIdentity,
-    getRememberedEncryptionDeviceStorageKey,
-    decryptRememberedEncryptionDeviceMaterial: (privateKey, record) =>
-      decryptRememberedEncryptionDeviceMaterial(privateKey, record),
-    normalizeDeviceEncryptionMaterial: (value) =>
-      normalizeDeviceEncryptionMaterial(value) as DeviceEncryptionMaterial | null,
-    removeRememberedEncryptionDeviceMaterial,
-  });
-}
-
-async function rememberEncryptionDeviceMaterial(userId: string, material: DeviceEncryptionMaterial) {
-  return rememberEncryptionDeviceMaterialInternal({
-    userId,
-    material,
-    readUnlockedIdentity,
-    encryptRememberedEncryptionDeviceMaterial: (privateKey, targetMaterial) =>
-      encryptRememberedEncryptionDeviceMaterial(privateKey, targetMaterial),
-    getRememberedEncryptionDeviceStorageKey,
-  });
-}
-
-async function encryptRememberedEncryptionDeviceMaterial(
-  privateKey: string,
-  material: DeviceEncryptionMaterial
-) {
-  return encryptRememberedEncryptionDeviceMaterialInternal({
-    privateKey,
-    material,
-    randomBytes,
-    deriveWrappingKey,
-    bytesToBase64,
-    textEncoder,
-    kdfIterations: KDF_ITERATIONS,
-  });
-}
-
-async function decryptRememberedEncryptionDeviceMaterial(
-  privateKey: string,
-  record: { salt: string; iv: string; ciphertext: string; createdAt: string }
-) {
-  return decryptRememberedEncryptionDeviceMaterialInternal({
-    privateKey,
-    record,
-    base64ToBytes,
-    deriveWrappingKey,
-    textDecoder,
-    kdfIterations: KDF_ITERATIONS,
-  });
-}
-
-function removeRememberedEncryptionDeviceMaterial(userId: string) {
-  return removeRememberedEncryptionDeviceMaterialInternal({
-    userId,
-    getRememberedEncryptionDeviceStorageKey,
-  });
-}
-
-async function readGroupSenderChainState(userId: string): Promise<GroupSenderChainState> {
-  return readGroupSenderChainStateInternal({
-    userId,
-    getGroupSenderChainStorageKey,
-    readRememberedGroupSenderChainState,
-    writeGroupSenderChainState: (targetUserId, state) =>
-      writeGroupSenderChainState(targetUserId, state),
-    removeGroupSenderChains,
-  });
-}
-
-function writeGroupSenderChainState(userId: string, state: GroupSenderChainState) {
-  return writeGroupSenderChainStateInternal({
-    userId,
-    state,
-    getGroupSenderChainStorageKey,
-  });
-}
-
-function removeGroupSenderChains(userId: string) {
-  return removeGroupSenderChainsInternal({
-    userId,
-    getGroupSenderChainStorageKey,
-    getRememberedGroupSenderChainStorageKey,
-  });
-}
-
-function removeRuntimeGroupSenderChains(userId: string) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.sessionStorage.removeItem(getGroupSenderChainStorageKey(userId));
-  } catch {
-    return;
-  }
-}
-
-async function readRememberedGroupSenderChainState(
-  userId: string
-): Promise<GroupSenderChainState | null> {
-  return readRememberedGroupSenderChainStateInternal({
-    userId,
-    readUnlockedIdentity,
-    getRememberedGroupSenderChainStorageKey,
-    decryptRememberedGroupSenderChainState: (privateKey, record) =>
-      decryptRememberedGroupSenderChainState(privateKey, record),
-    removeRememberedGroupSenderChainState: (targetUserId) =>
-      removeRememberedGroupSenderChainStateInternal({
-        userId: targetUserId,
-        getRememberedGroupSenderChainStorageKey,
-      }),
-  });
-}
-
-async function rememberGroupSenderChainState(userId: string, state: GroupSenderChainState) {
-  return rememberGroupSenderChainStateInternal({
-    userId,
-    state,
-    readUnlockedIdentity,
-    encryptRememberedGroupSenderChainState: (privateKey, targetState) =>
-      encryptRememberedGroupSenderChainState(privateKey, targetState),
-    getRememberedGroupSenderChainStorageKey,
-  });
-}
-
-async function encryptRememberedGroupSenderChainState(
-  privateKey: string,
-  state: GroupSenderChainState
-) {
-  return encryptRememberedGroupSenderChainStateInternal({
-    privateKey,
-    state,
-    randomBytes,
-    deriveWrappingKey,
-    bytesToBase64,
-    textEncoder,
-    kdfIterations: KDF_ITERATIONS,
-  });
-}
-
-async function decryptRememberedGroupSenderChainState(
-  privateKey: string,
-  record: { salt: string; iv: string; ciphertext: string; createdAt: string }
-) {
-  return decryptRememberedGroupSenderChainStateInternal({
-    privateKey,
-    record,
-    base64ToBytes,
-    deriveWrappingKey,
-    textDecoder,
-    kdfIterations: KDF_ITERATIONS,
-  });
-}
-
 async function readGroupHistoryKeyState(userId: string): Promise<GroupHistoryKeyState> {
   return readGroupHistoryKeyStateInternal({
     userId,
@@ -4756,6 +2767,30 @@ function removeGroupHistoryKeys(userId: string) {
   });
 }
 
+async function readGroupHistorySyncState(userId: string, chatId: string) {
+  return readGroupHistorySyncStateInternal({
+    userId,
+    chatId,
+    readGroupHistoryKeyState,
+  });
+}
+
+async function writeGroupHistorySyncState(
+  userId: string,
+  chatId: string,
+  state: { cursor: string | null; fullySynced: boolean }
+) {
+  return writeGroupHistorySyncStateInternal({
+    userId,
+    chatId,
+    cursor: state.cursor,
+    fullySynced: state.fullySynced,
+    readGroupHistoryKeyState,
+    writeGroupHistoryKeyState: (targetUserId, nextState) =>
+      writeGroupHistoryKeyState(targetUserId, nextState),
+  });
+}
+
 async function persistGroupHistoryKeyRecord(userId: string, record: GroupHistoryKeyRecord) {
   return persistGroupHistoryKeyRecordInternal({
     userId,
@@ -4764,6 +2799,45 @@ async function persistGroupHistoryKeyRecord(userId: string, record: GroupHistory
     writeGroupHistoryKeyState: (targetUserId, state) =>
       writeGroupHistoryKeyState(targetUserId, state),
   });
+}
+
+async function clearCurrentGroupHistoryKeyRecord(userId: string, chatId: string) {
+  return clearCurrentGroupHistoryKeyRecordInternal({
+    userId,
+    chatId,
+    readGroupHistoryKeyState,
+    writeGroupHistoryKeyState: (targetUserId, state) =>
+      writeGroupHistoryKeyState(targetUserId, state),
+  });
+}
+
+export async function invalidateActiveGroupHistoryKeyCache(userId: string, chatId: string) {
+  return clearCurrentGroupHistoryKeyRecord(userId, chatId);
+}
+
+export async function hydrateOwnActiveGroupHistoryKeyAccess(
+  userId: string,
+  event: ActiveGroupHistoryKeyEvent
+) {
+  return resolveGroupHistoryKeyRecordsFromAccessesInternal(
+    {
+      userId,
+      chatId: event.chatId,
+      decryptHistoryKeyGrantPayload: decryptDirectHistoryKeyGrantPayload,
+      parseGroupHistoryKeyGrantPayload: (value) =>
+        parseGroupHistoryKeyGrantPayload(value, GROUP_HISTORY_KEY_GRANT_AAD_VERSION),
+      persistGroupHistoryKeyRecord,
+    },
+    [
+      {
+        historyKeyId: event.historyKeyId,
+        wrappedKeyPayloadJson: event.wrappedKeyPayloadJson,
+        serverGrantPayloadJson: event.serverGrantPayloadJson,
+        createdAt: event.createdAt,
+        updatedAt: event.updatedAt,
+      },
+    ]
+  );
 }
 
 async function resolveLocalGroupHistoryKeyRecord(
@@ -4800,249 +2874,23 @@ async function readGroupHistoryKeyRecordsForChat(userId: string, chatId: string)
     });
 }
 
-function buildGroupHistoryAccessGrantFingerprint(
-  chatId: string,
-  recipientUserIds: string[],
-  historyKeyRecords: GroupHistoryKeyRecord[]
-) {
-  const recipientFingerprint = recipientUserIds
-    .slice()
-    .sort()
-    .join(",");
-  const historyKeyFingerprint = historyKeyRecords.map((record) => record.historyKeyId).sort().join(",");
-  return `${chatId}|${recipientFingerprint}|${historyKeyFingerprint}`;
-}
-
-function getGroupHistoryAccessGrantFingerprintKey(userId: string, chatId: string) {
-  return `${userId}:${chatId}`;
-}
-
-function clearCompletedGroupHistoryAccessGrantFingerprints(userId?: string) {
-  if (!userId) {
-    completedGroupHistoryAccessGrantFingerprintsByUserChat.clear();
-    return;
-  }
-
-  for (const key of completedGroupHistoryAccessGrantFingerprintsByUserChat.keys()) {
-    if (key.startsWith(`${userId}:`)) {
-      completedGroupHistoryAccessGrantFingerprintsByUserChat.delete(key);
-    }
-  }
-}
-
-async function readDeviceSessions(userId: string): Promise<Record<string, DeviceSessionRecord>> {
-  if (typeof window === "undefined") {
-    return {};
-  }
-
-  try {
-    const rawValue = window.sessionStorage.getItem(getDeviceSessionStorageKey(userId));
-    if (rawValue) {
-      const parsedSessions = JSON.parse(rawValue) as Record<string, DeviceSessionRecord>;
-      if (!isValidDeviceSessionCollection(parsedSessions)) {
-        return {};
-      }
-
-      const sanitizedSessions = sanitizeStoredDeviceSessions(parsedSessions);
-      if (!hydratedRuntimeDeviceSessionsByUserId.has(userId)) {
-        if (!runtimeWrittenDeviceSessionsByUserId.has(userId)) {
-          markPersistentRestoredCurrentDeviceSessions(userId, sanitizedSessions);
-        }
-        hydratedRuntimeDeviceSessionsByUserId.add(userId);
-      }
-      if (sanitizedSessions !== parsedSessions) {
-        writeDeviceSessions(userId, sanitizedSessions);
-        void rememberDeviceSessions(userId, sanitizedSessions);
-      }
-      return sanitizedSessions;
-    }
-
-    const rememberedSessions = await readRememberedDeviceSessions(userId);
-    if (rememberedSessions) {
-      const sanitizedSessions = sanitizeStoredDeviceSessions(rememberedSessions);
-      writeDeviceSessions(userId, sanitizedSessions);
-      markPersistentRestoredCurrentDeviceSessions(userId, sanitizedSessions);
-      hydratedRuntimeDeviceSessionsByUserId.add(userId);
-      if (sanitizedSessions !== rememberedSessions) {
-        await rememberDeviceSessions(userId, sanitizedSessions);
-      }
-      return sanitizedSessions;
-    }
-  } catch {
-    removeDeviceSessions(userId);
-    return {};
-  }
-
-  return {};
-}
-
-async function readCurrentDeviceSessions(
-  userId: string,
-  ownMaterialId: string
-): Promise<Record<string, DeviceSessionRecord>> {
-  const sessions = await readDeviceSessions(userId);
-  const filteredSessions = filterDeviceSessionsForOwnMaterial(sessions, ownMaterialId);
-  if (Object.keys(filteredSessions).length === Object.keys(sessions).length) {
-    return sessions;
-  }
-
-  writeDeviceSessions(userId, filteredSessions);
-  await rememberDeviceSessions(userId, filteredSessions);
-  return filteredSessions;
-}
-
-function writeDeviceSessions(userId: string, sessions: Record<string, DeviceSessionRecord>) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    runtimeWrittenDeviceSessionsByUserId.add(userId);
-    window.sessionStorage.setItem(getDeviceSessionStorageKey(userId), JSON.stringify(sessions));
-  } catch {
-    return;
-  }
-}
-
-function removeDeviceSessions(userId: string) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    clearPersistentRestoredCurrentDeviceSessions(userId);
-    hydratedRuntimeDeviceSessionsByUserId.delete(userId);
-    runtimeWrittenDeviceSessionsByUserId.delete(userId);
-    window.sessionStorage.removeItem(getDeviceSessionStorageKey(userId));
-  } catch {
-    return;
-  }
-}
-
-async function readRememberedDeviceSessions(
-  userId: string
-): Promise<Record<string, DeviceSessionRecord> | null> {
-  return readRememberedDeviceSessionsInternal({
-    userId,
-    readUnlockedIdentity,
-    getRememberedDeviceSessionStorageKey,
-    decryptRememberedDeviceSessions,
-    validateSessionCollection: (
-      value
-    ): value is Record<string, DeviceSessionRecord> => isValidDeviceSessionCollection(value),
-    removeRememberedDeviceSessions,
-  });
-}
-
-async function rememberDeviceSessions(userId: string, sessions: Record<string, DeviceSessionRecord>) {
-  return rememberDeviceSessionsInternal({
-    userId,
-    sessions,
-    readUnlockedIdentity,
-    sanitizeStoredDeviceSessions,
-    encryptRememberedDeviceSessions,
-    getRememberedDeviceSessionStorageKey,
-  });
-}
-
-async function encryptRememberedDeviceSessions(
-  privateKey: string,
-  sessions: Record<string, DeviceSessionRecord>
-): Promise<RememberedDeviceSessionRecord> {
-  return encryptRememberedDeviceSessionsInternal({
-    privateKey,
-    sessions,
-    kdfIterations: KDF_ITERATIONS,
-    randomBytes,
-    deriveWrappingKey,
-    bytesToBase64,
-    textEncoder,
-  });
-}
-
-async function decryptRememberedDeviceSessions(
-  privateKey: string,
-  record: RememberedDeviceSessionRecord
-) {
-  return decryptRememberedDeviceSessionsInternal({
-    privateKey,
-    record,
-    kdfIterations: KDF_ITERATIONS,
-    deriveWrappingKey,
-    base64ToBytes,
-    textDecoder,
-  });
-}
-
-function removeRememberedDeviceSessions(userId: string) {
-  return removeRememberedDeviceSessionsInternal({
-    userId,
-    getRememberedDeviceSessionStorageKey,
-  });
-}
-
-function isValidDeviceSessionCollection(value: unknown): value is Record<string, DeviceSessionRecord> {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  return Object.values(value).every((session) => {
-    if (!session || typeof session !== "object") {
-      return false;
-    }
-
-    const candidate = session as Partial<DeviceSessionRecord>;
-    return (
-      typeof candidate.sessionId === "string" &&
-      typeof candidate.peerUserId === "string" &&
-      typeof candidate.peerDeviceId === "string" &&
-      (typeof candidate.sessionOrigin === "undefined" ||
-        candidate.sessionOrigin === "initiator" ||
-        candidate.sessionOrigin === "responder") &&
-      typeof candidate.ownMaterialId === "string" &&
-      typeof candidate.remoteIdentityKey === "string" &&
-      typeof candidate.remoteIdentitySignatureKey === "string" &&
-      typeof candidate.remoteSignedPrekeyId === "number" &&
-      typeof candidate.remoteSignedPrekeyPublicKey === "string" &&
-      (typeof candidate.remoteOneTimePrekeyId === "number" || candidate.remoteOneTimePrekeyId === null) &&
-      typeof candidate.initiatorEphemeralPublicKey === "string" &&
-      typeof candidate.sendingRatchetPublicKey === "string" &&
-      typeof candidate.sendingRatchetPrivateKey === "string" &&
-      (typeof candidate.remoteRatchetPublicKey === "string" || candidate.remoteRatchetPublicKey === null) &&
-      typeof candidate.sendingRatchetUsed === "boolean" &&
-      typeof candidate.pendingSendingRatchetStep === "boolean" &&
-      typeof candidate.rootKey === "string" &&
-      typeof candidate.sendingChainKey === "string" &&
-      typeof candidate.receivingChainKey === "string" &&
-      (typeof candidate.receivingChains === "undefined" ||
-        (candidate.receivingChains !== null &&
-          typeof candidate.receivingChains === "object" &&
-          Object.values(candidate.receivingChains).every(
-            (chain) =>
-              chain !== null &&
-              typeof chain === "object" &&
-              typeof (chain as { chainKey?: unknown }).chainKey === "string" &&
-              typeof (chain as { counter?: unknown }).counter === "number"
-          ))) &&
-      typeof candidate.sendingCounter === "number" &&
-      typeof candidate.receivingCounter === "number" &&
-      (typeof candidate.cachedMessageKeys === "undefined" ||
-        (candidate.cachedMessageKeys !== null &&
-          typeof candidate.cachedMessageKeys === "object" &&
-          Object.values(candidate.cachedMessageKeys).every((value) => typeof value === "string"))) &&
-      typeof candidate.establishedAt === "string"
-    );
-  });
-}
-
 async function rememberArchivedDecryptedMessage(
   userId: string,
   message: Pick<ChatMessage, "id" | "chatId" | "content" | "createdAt" | "editedAt" | "attachments">
 ) {
+  return rememberArchivedDecryptedMessages(userId, [message]);
+}
+
+async function rememberArchivedDecryptedMessages(
+  userId: string,
+  messages: Pick<
+    ChatMessage,
+    "id" | "chatId" | "content" | "createdAt" | "editedAt" | "attachments"
+  >[]
+) {
   if (
     typeof window === "undefined" ||
-    !message.content.trim() ||
-    isUnavailableEncryptedMessage(message.content)
+    messages.length === 0
   ) {
     return;
   }
@@ -5053,8 +2901,18 @@ async function rememberArchivedDecryptedMessage(
   }
 
   try {
-    const record = await encryptArchivedDecryptedMessage(identity.privateKey, message);
-    await writeArchivedDecryptedMessageRecord(userId, record);
+    const archiveCandidates = messages.filter(
+      (message) => message.content.trim() && !isUnavailableEncryptedMessage(message.content)
+    );
+    if (archiveCandidates.length === 0) {
+      return;
+    }
+    const records = await Promise.all(
+      archiveCandidates.map((message) =>
+        encryptArchivedDecryptedMessage(identity.privateKey, message)
+      )
+    );
+    await writeArchivedDecryptedMessageRecords(userId, records);
     scheduleEncryptionRecoverySnapshotSync(userId);
   } catch {
     return;
@@ -5093,6 +2951,27 @@ async function readArchivedDecryptedMessageRecord(userId: string, messageId: str
   } catch {
     return null;
   }
+}
+
+async function readArchivedDecryptedMessageRecordForHydration(
+  userId: string,
+  message: Pick<ApiChatMessage, "id" | "clientMessageId" | "sender">
+) {
+  const primaryRecord = await readArchivedDecryptedMessageRecord(userId, message.id);
+  if (primaryRecord) {
+    return primaryRecord;
+  }
+
+  if (message.sender.id !== userId) {
+    return null;
+  }
+
+  const clientMessageId = message.clientMessageId?.trim();
+  if (!clientMessageId || clientMessageId === message.id) {
+    return null;
+  }
+
+  return readArchivedDecryptedMessageRecord(userId, clientMessageId);
 }
 
 async function readLatestArchivedDecryptedMessageRecord(userId: string, chatId: string) {
@@ -5193,16 +3072,16 @@ async function decryptRecoverySnapshotPayload(
   });
 }
 
-function readTrustedDeviceUnlockRecord(userId: string): TrustedDeviceUnlockRecord | null {
-  return readTrustedDeviceUnlockRecordInternal(userId);
+function readTrustedBrowserUnlockRecord(userId: string): TrustedBrowserUnlockRecord | null {
+  return readTrustedBrowserUnlockRecordInternal(userId);
 }
 
-function writeTrustedDeviceUnlockRecord(userId: string, record: TrustedDeviceUnlockRecord) {
-  return writeTrustedDeviceUnlockRecordInternal(userId, record);
+function writeTrustedBrowserUnlockRecord(userId: string, record: TrustedBrowserUnlockRecord) {
+  return writeTrustedBrowserUnlockRecordInternal(userId, record);
 }
 
-function removeTrustedDeviceUnlockRecord(userId: string) {
-  return removeTrustedDeviceUnlockRecordInternal(userId);
+function removeTrustedBrowserUnlockRecord(userId: string) {
+  return removeTrustedBrowserUnlockRecordInternal(userId);
 }
 
 function readUnlockedIdentityFromSession(userId: string): LocalIdentity | null {
@@ -5267,143 +3146,33 @@ function getDecryptedMessageArchiveStorageKey(userId: string) {
   return `${DECRYPTED_MESSAGE_ARCHIVE_STORAGE_PREFIX}${userId}`;
 }
 
-function getPinnedDeviceBundleStorageKey(userId: string, deviceId: string) {
-  return `${PINNED_DEVICE_BUNDLE_STORAGE_PREFIX}${userId}:${deviceId}`;
-}
-
-function getEncryptionDeviceStorageKey(userId: string) {
-  return `${ENCRYPTION_DEVICE_STORAGE_PREFIX}${userId}`;
-}
-
-function getRememberedEncryptionDeviceStorageKey(userId: string) {
-  return `${REMEMBERED_ENCRYPTION_DEVICE_STORAGE_PREFIX}${userId}`;
-}
-
-function getDeviceSessionStorageKey(userId: string) {
-  return `${ENCRYPTION_DEVICE_SESSION_STORAGE_PREFIX}${userId}`;
-}
-
-function getRememberedDeviceSessionStorageKey(userId: string) {
-  return `${REMEMBERED_ENCRYPTION_DEVICE_SESSION_STORAGE_PREFIX}${userId}`;
-}
-
-function getRememberedGroupSenderChainStorageKey(userId: string) {
-  return `${GROUP_SENDER_CHAIN_STORAGE_PREFIX}remembered:${userId}`;
-}
-
-function getGroupSenderChainStorageKey(userId: string) {
-  return `${GROUP_SENDER_CHAIN_STORAGE_PREFIX}${userId}`;
-}
-
 function getGroupHistoryKeyStorageKey(userId: string) {
   return `${GROUP_HISTORY_KEY_STORAGE_PREFIX}${userId}`;
 }
 
-function readPinnedDeviceBundleRecord(userId: string, deviceId: string): PinnedDeviceBundleRecord | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  try {
-    const rawValue = window.localStorage.getItem(getPinnedDeviceBundleStorageKey(userId, deviceId));
-    if (!rawValue) {
-      return null;
-    }
-
-    const parsedRecord = JSON.parse(rawValue) as Partial<PinnedDeviceBundleRecord>;
-    if (
-      typeof parsedRecord.userId !== "string" ||
-      typeof parsedRecord.deviceId !== "string" ||
-      typeof parsedRecord.identityFingerprint !== "string" ||
-      typeof parsedRecord.identitySignatureFingerprint !== "string" ||
-      typeof parsedRecord.signedPrekeyFingerprint !== "string" ||
-      typeof parsedRecord.signedPrekeyId !== "number"
-    ) {
-      clearPinnedDeviceBundleRecord(userId, deviceId);
-      return null;
-    }
-
-    return {
-      ...parsedRecord,
-      deviceVersion:
-        typeof parsedRecord.deviceVersion === "string" ? parsedRecord.deviceVersion : null,
-    } as PinnedDeviceBundleRecord;
-  } catch {
-    clearPinnedDeviceBundleRecord(userId, deviceId);
-    return null;
-  }
-}
-
-function writePinnedDeviceBundleRecord(userId: string, deviceId: string, record: PinnedDeviceBundleRecord) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(getPinnedDeviceBundleStorageKey(userId, deviceId), JSON.stringify(record));
-  } catch {
-    return;
-  }
-}
-
-function clearPinnedDeviceBundleRecords(userId: string) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  const keysToRemove: string[] = [];
-  for (let index = 0; index < window.localStorage.length; index += 1) {
-    const currentKey = window.localStorage.key(index);
-    if (currentKey?.startsWith(`${PINNED_DEVICE_BUNDLE_STORAGE_PREFIX}${userId}:`)) {
-      keysToRemove.push(currentKey);
-    }
-  }
-  keysToRemove.forEach((key) => window.localStorage.removeItem(key));
-}
-
-function clearPinnedDeviceBundleRecord(userId: string, deviceId: string) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.localStorage.removeItem(getPinnedDeviceBundleStorageKey(userId, deviceId));
-  } catch {
-    return;
-  }
-}
-
-async function fingerprintPublicKey(publicKey: string) {
-  const digest = await window.crypto.subtle.digest("SHA-256", textEncoder.encode(publicKey));
-  return bytesToBase64(new Uint8Array(digest))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-}
-
-async function createTrustedDeviceCredential(session: AuthResponse) {
-  return createTrustedDeviceCredentialInternal({
+async function createTrustedBrowserCredential(session: AuthResponse) {
+  return createTrustedBrowserCredentialInternal({
     session,
     randomBytes,
     toArrayBuffer,
-    rpId: getTrustedDeviceRpId(),
-    rpName: TRUSTED_DEVICE_RP_NAME,
+    rpId: getTrustedBrowserRpId(),
+    rpName: TRUSTED_BROWSER_RP_NAME,
     textEncoder,
   });
 }
 
-async function deriveTrustedDeviceKey(credentialId: Uint8Array, prfSalt: Uint8Array) {
-  return deriveTrustedDeviceKeyInternal({
+async function deriveTrustedBrowserKey(credentialId: Uint8Array, prfSalt: Uint8Array) {
+  return deriveTrustedBrowserKeyInternal({
     credentialId,
     prfSalt,
-    rpId: getTrustedDeviceRpId(),
+    rpId: getTrustedBrowserRpId(),
     randomBytes,
     toArrayBuffer,
     bytesToBase64Url,
   });
 }
 
-function getTrustedDeviceRpId() {
+function getTrustedBrowserRpId() {
   return window.location.hostname;
 }
 

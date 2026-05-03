@@ -71,9 +71,7 @@ export type ChatMessageAttachment = {
 
 export type EncryptedMessagePayload = {
   scheme: string;
-  encryptedKeysByRecipientId: Record<string, string>;
   sharedEnvelope?: string | null;
-  historyEnvelope?: string | null;
 };
 
 export type ChatSummary = {
@@ -89,6 +87,8 @@ export type ChatSummary = {
   lastMessageServerOrder?: number | null;
   updatedAt: string;
   unreadCount: number;
+  membershipVersion?: number;
+  activeHistoryKeyId?: string | null;
   pinnedMessage: MessageSnippet | null;
   historyAccessStatus?: ChatHistoryBackfillStatus | null;
   prejoinHistoryPolicy?: ChatPrejoinHistoryPolicy | null;
@@ -98,6 +98,52 @@ export type ChatDraft = {
   chatId: string;
   content: string;
   updatedAt: string;
+};
+
+export type PendingOutgoingMessage = {
+  chatId: string;
+  clientMessageId: string;
+  content: string;
+  createdAt: string;
+  localOrder: number | null;
+  recipientCount: number;
+  replyTo: MessageSnippet | null;
+  status: "SENDING" | "FAILED";
+  updatedAt: string;
+  attachments?: ChatMessageAttachment[];
+};
+
+export type WorkspaceBootstrap = {
+  profile: UserProfile;
+  chats: ChatSummary[];
+  archivedChatIds: string[];
+  contacts: UserProfile[];
+  blockedUsers: UserProfile[];
+  drafts: ChatDraft[];
+  pendingOutgoingMessages: PendingOutgoingMessage[];
+  conferences: VideoConference[];
+  archivedConferences: VideoConference[];
+};
+
+export type WorkspaceSearch = {
+  users: UserProfile[];
+  contacts: UserProfile[];
+  chats: ChatSummary[];
+  conferences: VideoConference[];
+};
+
+export type ChatOpen = {
+  chat: ChatSummary;
+  initialMessages: ApiChatMessage[];
+  initialMessagesNextCursor: string | null;
+  confirmedPendingOutgoingClientMessageIds: string[];
+  activeHistoryKeyAccess: GroupHistoryKeyAccess | null;
+};
+
+export type MessagePage = {
+  messages: ApiChatMessage[];
+  nextCursor: string | null;
+  confirmedPendingOutgoingClientMessageIds: string[];
 };
 
 export type VideoConference = {
@@ -228,62 +274,9 @@ export type ApiErrorResponse = {
   details: string[];
 };
 
-export type UserEncryptionDevicePrekey = {
-  keyId: number;
-  publicKey: string;
-};
-
-export type UserEncryptionDevice = {
-  deviceId: string;
-  deviceName: string;
-  identityKey: string;
-  identityKeyAlgorithm: string;
-  identitySignatureKey: string;
-  identitySignatureKeyAlgorithm: string;
-  signedPrekeyId: number;
-  signedPrekeyPublicKey: string;
-  signedPrekeySignature: string;
-  signedPrekeyAlgorithm: string;
-  deviceVersion: string | null;
-  availableOneTimePrekeys: number;
-  registeredAt: string;
-  lastSeenAt: string;
-};
-
-export type UserEncryptionDeviceBundle = {
-  userId: string;
-  deviceId: string;
-  deviceName: string;
-  identityKey: string;
-  identityKeyAlgorithm: string;
-  identitySignatureKey: string;
-  identitySignatureKeyAlgorithm: string;
-  signedPrekeyId: number;
-  signedPrekeyPublicKey: string;
-  signedPrekeySignature: string;
-  signedPrekeyAlgorithm: string;
-  deviceVersion: string | null;
-  oneTimePrekey: UserEncryptionDevicePrekey | null;
-  registeredAt: string;
-  lastSeenAt: string;
-};
-
-export type KnownEncryptionDeviceManifestEntry = {
-  deviceId: string;
-  version: string;
-};
-
-export type UserEncryptionDeviceManifest = {
-  version: string;
-  fullSync: boolean;
-  bundles: UserEncryptionDeviceBundle[];
-  removedDeviceIds: string[];
-};
-
 export type UserEncryptionRecoverySnapshot = {
   snapshotPayloadJson: string;
   wrappedIdentityRecordJson: string;
-  accountPublicKey?: string | null;
   wrappedPasswordVersion?: number;
   createdAt: string;
   updatedAt: string;
@@ -297,7 +290,18 @@ export type GroupHistoryKeyAccess = {
   updatedAt: string;
 };
 
+export type ActiveGroupHistoryKeyEvent = GroupHistoryKeyAccess & {
+  chatId: string;
+};
+
 export type UserEncryptionAccountKey = {
   userId: string;
   publicKey: string;
+  accountKeyVersion: number;
+  identityGeneration: number;
+  identitySigningPublicKey: string;
+  identityKeyAlgorithm: string;
+  accountKeyAlgorithm: string;
+  signedAt: string;
+  signature: string;
 };

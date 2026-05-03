@@ -1,6 +1,7 @@
 package com.north.messenger.application.message;
 
 import com.north.messenger.api.dto.MessageReactionSummaryResponse;
+import com.north.messenger.api.dto.MessagePageResponse;
 import com.north.messenger.api.dto.MessageResponse;
 import com.north.messenger.api.dto.MessageSnippetResponse;
 import com.north.messenger.api.dto.EncryptedMessagePayloadResponse;
@@ -19,8 +20,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -64,6 +65,33 @@ class MessageQueryService {
 
     @Transactional
     List<MessageResponse> listMessages(
+            UUID chatId,
+            String username,
+            Long beforeServerOrder,
+            int limit,
+            boolean acknowledgeDelivered
+    ) {
+        return listMessagePage(chatId, username, beforeServerOrder, limit, acknowledgeDelivered).messages();
+    }
+
+    @Transactional
+    MessagePageResponse listMessagePage(
+            UUID chatId,
+            String username,
+            String cursor,
+            int limit,
+            boolean acknowledgeDelivered
+    ) {
+        return listMessagePage(
+                chatId,
+                username,
+                parseCursor(cursor),
+                limit,
+                acknowledgeDelivered
+        );
+    }
+
+    private MessagePageResponse listMessagePage(
             UUID chatId,
             String username,
             Long beforeServerOrder,
@@ -126,13 +154,6 @@ class MessageQueryService {
                 recentMessages.stream().map(ChatMessage::getId).toList(),
                 currentUser.getId()
         );
-        Map<UUID, Map<String, String>> encryptedKeysByMessageId = messageSupport.loadEncryptedKeysByMessageIdForUser(
-                recentMessages,
-                currentUser.getId()
-        );
-        Set<String> visibleCurrentUserDeviceIds = recentMessages.isEmpty()
-                ? Set.of()
-                : messageSupport.loadVisibleDeviceIds(currentUser.getId());
         Map<UUID, MessageSnippetResponse> repliesByMessageId = messageSupport.loadReplySnippetsByMessageId(
                 recentMessages,
                 usersById
@@ -146,8 +167,6 @@ class MessageQueryService {
                     usersById,
                     summariesByMessageId,
                     reactionsByMessageId,
-                    encryptedKeysByMessageId,
-                    visibleCurrentUserDeviceIds,
                     repliesByMessageId
                 ))
                 .flatMap(Optional::stream)
@@ -165,7 +184,36 @@ class MessageQueryService {
             );
         }
 
-        return renderedMessages.stream().map(RenderedMessage::response).toList();
+        List<MessageResponse> responses = renderedMessages.stream().map(RenderedMessage::response).toList();
+        String nextCursor = recentMessages.size() == safeLimit && !recentMessages.isEmpty()
+                ? Long.toString(recentMessages.get(0).getServerOrder())
+                : null;
+        List<String> confirmedPendingOutgoingClientMessageIds = responses.stream()
+                .map(MessageResponse::clientMessageId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
+        return new MessagePageResponse(
+                responses,
+                nextCursor,
+                confirmedPendingOutgoingClientMessageIds
+        );
+    }
+
+    private Long parseCursor(String cursor) {
+        if (cursor == null || cursor.isBlank()) {
+            return null;
+        }
+
+        try {
+            return Long.parseLong(cursor.trim());
+        } catch (NumberFormatException exception) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "Message page cursor is malformed"
+            );
+        }
     }
 
     private static int compareMessageOrder(ChatMessage left, ChatMessage right) {
@@ -188,8 +236,6 @@ class MessageQueryService {
             Map<UUID, UserAccount> usersById,
             Map<UUID, MessageSupport.MessageReceiptSummary> summariesByMessageId,
             Map<UUID, List<MessageReactionSummaryResponse>> reactionsByMessageId,
-            Map<UUID, Map<String, String>> encryptedKeysByMessageId,
-            Set<String> visibleCurrentUserDeviceIds,
             Map<UUID, MessageSnippetResponse> repliesByMessageId
     ) {
         UserAccount sender = usersById.get(message.getSenderId());
@@ -205,25 +251,7 @@ class MessageQueryService {
         }
 
         ParticipantResponse senderParticipant = authService.toParticipant(sender);
-        EncryptedMessagePayloadResponse encryptedPayload = null;
-        try {
-            encryptedPayload = messageSupport.toEncryptedPayload(
-                    message,
-                    currentUser.getId(),
-                    encryptedKeysByMessageId.getOrDefault(message.getId(), Map.of()),
-                    visibleCurrentUserDeviceIds,
-                    true
-            );
-        } catch (IllegalStateException exception) {
-            log.warn(
-                    "Returning chat message without encrypted payload chatId={} messageId={} senderId={} currentUserId={} reason={}",
-                    chatId,
-                    message.getId(),
-                    message.getSenderId(),
-                    currentUser.getId(),
-                    exception.getMessage()
-            );
-        }
+        EncryptedMessagePayloadResponse encryptedPayload = messageSupport.toEncryptedPayload(message);
 
         return Optional.of(new RenderedMessage(
                 message,

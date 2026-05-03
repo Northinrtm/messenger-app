@@ -3,6 +3,10 @@ export type StoredLocalIdentity = {
   privateKey: string;
   accountPublicKey?: string;
   accountPrivateKey?: string;
+  accountKeyVersion?: number;
+  identityGeneration?: number;
+  identitySigningPublicKey?: string;
+  identitySigningPrivateKey?: string;
 };
 
 export type RememberedUnlockedIdentityRecord = {
@@ -41,6 +45,28 @@ function normalizeLocalIdentity(value: unknown): StoredLocalIdentity | null {
     accountPrivateKey:
       typeof candidate.accountPrivateKey === "string" && candidate.accountPrivateKey.length > 0
         ? candidate.accountPrivateKey
+        : undefined,
+    accountKeyVersion:
+      typeof candidate.accountKeyVersion === "number" &&
+      Number.isFinite(candidate.accountKeyVersion) &&
+      candidate.accountKeyVersion >= 1
+        ? candidate.accountKeyVersion
+        : undefined,
+    identityGeneration:
+      typeof candidate.identityGeneration === "number" &&
+      Number.isFinite(candidate.identityGeneration) &&
+      candidate.identityGeneration >= 1
+        ? candidate.identityGeneration
+        : undefined,
+    identitySigningPublicKey:
+      typeof candidate.identitySigningPublicKey === "string" &&
+      candidate.identitySigningPublicKey.length > 0
+        ? candidate.identitySigningPublicKey
+        : undefined,
+    identitySigningPrivateKey:
+      typeof candidate.identitySigningPrivateKey === "string" &&
+      candidate.identitySigningPrivateKey.length > 0
+        ? candidate.identitySigningPrivateKey
         : undefined,
   };
 }
@@ -400,6 +426,12 @@ export function writeUnlockedIdentityToPersistentAutoStorage(options: {
   const record: AutoUnlockedIdentityRecord = {
     publicKey: options.identity.publicKey,
     privateKey: options.identity.privateKey,
+    accountPublicKey: options.identity.accountPublicKey,
+    accountPrivateKey: options.identity.accountPrivateKey,
+    accountKeyVersion: options.identity.accountKeyVersion,
+    identityGeneration: options.identity.identityGeneration,
+    identitySigningPublicKey: options.identity.identitySigningPublicKey,
+    identitySigningPrivateKey: options.identity.identitySigningPrivateKey,
     createdAt: options.now?.() ?? new Date().toISOString(),
   };
 

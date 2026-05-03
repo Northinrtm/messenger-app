@@ -28,7 +28,7 @@ The repository currently supports:
 - conference recordings import/download path
 - registration, login, active sessions, profile editing, avatar update
 - email verification and password reset by email
-- trusted-device / passkey-based encrypted chat unlock
+- trusted-browser / passkey-based encrypted chat unlock
 - server-side E2EE coverage diagnostics for support without plaintext access
 - single-host horizontal scaling for `backend`/`web` through Docker Compose replicas
 - production deploy, backup, healthcheck, websocket storm guard, and optional observability
@@ -99,14 +99,21 @@ Core backend areas:
 
 ### E2EE
 
-- direct chats use `X3DH-DEVICE-AES-GCM`
-- group chats use `GROUP-SENDER-KEY-AES-GCM`
+- managed E2EE trust model, not strict zero-knowledge E2EE
+- direct and group chats use `CHAT-EPOCH-KEY-AES-GCM`
+- account-level encryption keys are published as signed bundles under a stable identity signing key
+- the first identity signing key is bootstrapped during authenticated onboarding
+- recipients unlock chat history through account-level encryption keys
+- each chat rotates and distributes chat history epoch keys as membership changes
+- explicit identity reset is treated as a separate security event from normal account-key rotation
+- backend stores escrowed history-key material for recovery and regrant according to chat policy
 - backend stores encrypted payloads, not plaintext
 - encrypted chat unlock is separate from auth session
-- trusted-device unlock supports `WebAuthn` / passkeys / Windows Hello / Touch ID where available
+- trusted-browser unlock supports `WebAuthn` / passkeys / Windows Hello / Touch ID where available
 - browser-local encrypted state is restored across normal tab closes/reopens in the same browser profile
 - decrypted message archive is used for recovery and fast history hydration
-- group history-key fallback supports post-patch history access for later group participants where a grant exists
+- group history policy supports `JOIN_ONLY` and `FULL_HISTORY` for later participants
+- messages, grants, and escrow payloads are bound to chat/epoch/account metadata through authenticated envelope context
 - production diagnostic script reports E2EE metadata coverage without decrypting or printing plaintext
 
 ### Groups
@@ -117,6 +124,7 @@ Core backend areas:
 - ban participants
 - leave/delete group rules
 - group invite links
+- toggle whether later participants may read pre-join history
 
 ### Video conferences
 
@@ -147,12 +155,12 @@ Recommended next work, in priority order:
    add a smoke-test script that verifies health, login, direct chat, group chat, attachment upload, push config, and E2EE diagnostics after each deploy.
 2. Search and media UX:
    add full-text message search, a per-chat media/file gallery, and quick navigation to the first unread message.
-3. E2EE device management:
-   expose encryption devices in the UI, support device revoke, and show actionable explanations for `Encrypted message unavailable`.
+3. E2EE visibility and recovery:
+   expose clearer identity-reset and history-access diagnostics in the UI, explain why earlier history is or is not available, and show actionable explanations for `Encrypted message unavailable`.
 4. Push notification hardening:
    add stable VAPID key generation docs/script and later implement encrypted push payload previews that can be decrypted by the service worker.
 5. Storage and backup hardening:
-   move attachments/recordings to S3-compatible object storage and add off-site backup replication with restore rehearsal.
+   move attachments/recordings to S3-compatible object storage and add off-site backup replication with restore rehearsal for PostgreSQL plus `APP_E2EE_ESCROW_SECRET`.
 6. Scale path:
    move attachments/recordings to object storage, add distributed presence/last-seen, then introduce Kafka/NATS only if async delivery volume justifies it.
 
@@ -275,6 +283,7 @@ Important app variables:
 - `APP_CORS_ALLOWED_ORIGINS`
 - `APP_JWT_SECRET`
 - `APP_JWT_REFRESH_TOKEN_TTL`
+- `APP_E2EE_ESCROW_SECRET`
 - `APP_REALTIME_REDIS_ENABLED`
 - `APP_AUTH_RATE_LIMIT_REDIS_ENABLED`
 - `APP_REALTIME_REDIS_MAC_SECRET`
@@ -319,6 +328,20 @@ Security model:
 
 Production should use stable VAPID keys through `APP_PUSH_VAPID_PUBLIC_KEY` and `APP_PUSH_VAPID_PRIVATE_KEY`.
 If they are empty, the backend generates temporary keys on startup; this is acceptable for local dev, but existing push subscriptions need refresh after restart.
+
+## E2EE Trust Model
+
+The current chat encryption model is:
+
+- managed E2EE with client-side message encryption and server-side escrow/regrant for history access
+- signed account-key bundles validated under a stable identity signing key
+- authenticated bootstrap of the first identity key during onboarding
+- explicit identity reset flow when identity-signing-key continuity is lost
+
+Normal account-key rotation keeps the same identity signing key and increases `accountKeyVersion`.
+Identity reset changes the identity signing key, increases `identityGeneration`, requires fresh user authentication, and triggers server-side regrant plus epoch rotation for the affected chats.
+
+The server does not store plaintext chat messages, but it can recover and regrant history keys according to chat policy. The system should therefore be described as managed E2EE, not strict zero-knowledge E2EE.
 
 ## Email Verification and Password Reset
 
@@ -372,6 +395,7 @@ APP_REALTIME_REDIS_ENABLED=true
 APP_AUTH_RATE_LIMIT_REDIS_ENABLED=true
 APP_REALTIME_REDIS_MAC_SECRET=<stable-random-secret>
 APP_JWT_SECRET=<stable-base64-secret>
+APP_E2EE_ESCROW_SECRET=<stable-base64-secret>
 BACKEND_REPLICAS=2
 WEB_REPLICAS=2
 ```
@@ -430,7 +454,7 @@ deploy/e2ee-coverage-diagnostic.sh --chat-id <chat-uuid>
 deploy/e2ee-coverage-diagnostic.sh --chat-id <chat-uuid> --message-id <message-uuid>
 ```
 
-The script prints only metadata: active participant devices, message envelope coverage, history-key grants, and missing device coverage.
+The script prints only metadata: participant account-key readiness, history-key grants, and unreadable-message coverage.
 It does not read, decrypt, or print plaintext.
 
 ## CI/CD
@@ -498,7 +522,7 @@ mvn test
 5. Verify typing, receipts, reactions, reply, edit, forward, pin, and delete flows.
 6. Upload an image and a non-image file in direct and group chats.
 7. Reopen the browser and verify encrypted chats restore correctly for the same browser profile.
-8. Log in from another browser profile and verify trusted-device unlock and group history behavior.
+8. Log in from another browser profile and verify trusted-browser unlock and group history behavior.
 9. Enable push notifications and verify generic closed-app push plus hidden-tab browser-side preview.
 10. Start or schedule a conference and verify joinability near the scheduled time.
 11. Run `deploy/e2ee-coverage-diagnostic.sh` for a known group chat without exposing plaintext.

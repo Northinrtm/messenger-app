@@ -4,16 +4,36 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEffect, useState } from "react";
 
-import { ApiError } from "../../../lib/api";
 import {
-  ENCRYPTION_IDENTITY_CHANGED_MESSAGE,
-  ENCRYPTION_INITIALIZING_MESSAGE,
-} from "../../../lib/e2eeShared";
-import { readLocalPendingMessages, upsertLocalPendingMessage } from "../../../lib/localPendingMessages";
+  ApiError,
+  deletePendingOutgoingMessage,
+  upsertPendingOutgoingMessage,
+} from "../../../lib/api";
+import { ENCRYPTION_INITIALIZING_MESSAGE } from "../../../lib/e2eeShared";
+import type { PendingOutgoingMessage } from "../../../lib/types";
 vi.mock("../../../lib/e2ee", () => ({
   sendEncryptedMessage: vi.fn(),
   updateEncryptedMessage: vi.fn(),
 }));
+vi.mock("../../../lib/api", async () => {
+  const actual = await vi.importActual<typeof import("../../../lib/api")>("../../../lib/api");
+  return {
+    ...actual,
+    upsertPendingOutgoingMessage: vi.fn(
+      async (
+        _token: string,
+        clientMessageId: string,
+        body: Omit<PendingOutgoingMessage, "clientMessageId" | "updatedAt">
+      ) => ({
+        ...body,
+        clientMessageId,
+        updatedAt: new Date().toISOString(),
+      })
+    ),
+    deletePendingOutgoingMessage: vi.fn(async () => undefined),
+    deleteChatDraft: vi.fn(async () => undefined),
+  };
+});
 
 import { sendEncryptedMessage } from "../../../lib/e2ee";
 import type { AuthResponse, ChatSummary, UserProfile } from "../../../lib/types";
@@ -387,7 +407,7 @@ describe("useMessageActions send failure recovery", () => {
     );
   });
 
-  it("keeps transient realtime send failures in sending state so reconnect can resume them invisibly", async () => {
+  it("marks transient realtime send failures as failed for explicit retry", async () => {
     vi.mocked(sendEncryptedMessage).mockRejectedValueOnce(
       new ApiError("Realtime connection was interrupted before the message was confirmed.", 503)
     );
@@ -428,12 +448,12 @@ describe("useMessageActions send failure recovery", () => {
     expect(pendingMessages).toEqual([
       expect.objectContaining({
         clientMessageId: expect.stringMatching(/^client-/),
-        status: "SENDING",
+        status: "FAILED",
       }),
     ]);
   });
 
-  it("keeps retryable encrypted initialization errors in sending state", async () => {
+  it("marks retryable encrypted initialization errors as failed for explicit retry", async () => {
     vi.mocked(sendEncryptedMessage).mockRejectedValueOnce(
       new ApiError(ENCRYPTION_INITIALIZING_MESSAGE, 409)
     );
@@ -475,12 +495,12 @@ describe("useMessageActions send failure recovery", () => {
     expect(pendingMessages).toEqual([
       expect.objectContaining({
         clientMessageId: expect.stringMatching(/^client-/),
-        status: "SENDING",
+        status: "FAILED",
       }),
     ]);
   });
 
-  it("keeps gateway transport failures in sending state", async () => {
+  it("marks gateway transport failures as failed for explicit retry", async () => {
     vi.mocked(sendEncryptedMessage).mockRejectedValueOnce(
       new ApiError("Backend is unavailable", 502)
     );
@@ -522,59 +542,12 @@ describe("useMessageActions send failure recovery", () => {
     expect(pendingMessages).toEqual([
       expect.objectContaining({
         clientMessageId: expect.stringMatching(/^client-/),
-        status: "SENDING",
-      }),
-    ]);
-  });
-
-  it("keeps hard encryption trust conflicts in failed state", async () => {
-    vi.mocked(sendEncryptedMessage).mockRejectedValueOnce(
-      new ApiError(ENCRYPTION_IDENTITY_CHANGED_MESSAGE, 409)
-    );
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: {
-          retry: false,
-        },
-      },
-    });
-    const latestStateRef: { current: HarnessState | null } = { current: null };
-
-    root = createRoot(container);
-    await act(async () => {
-      root!.render(
-        <QueryClientProvider client={queryClient}>
-          <Harness
-            isRealtimeConnected
-            queryClient={queryClient}
-            onReady={(value) => {
-              latestStateRef.current = value;
-            }}
-          />
-        </QueryClientProvider>
-      );
-      await flushMicrotasks();
-    });
-
-    await act(async () => {
-      latestStateRef.current?.submitActiveDraft("message requires manual trust fix");
-      await flushMicrotasks();
-    });
-
-    const pendingMessages = queryClient.getQueryData([
-      "pending-outgoing-messages",
-      "user-1",
-    ]) as Array<{ clientMessageId: string; status: string }> | undefined;
-
-    expect(pendingMessages).toEqual([
-      expect.objectContaining({
-        clientMessageId: expect.stringMatching(/^client-/),
         status: "FAILED",
       }),
     ]);
   });
 
-  it("releases a stuck send attempt and retries the same pending message", async () => {
+  it("marks a timed out send attempt as failed without auto retrying it", async () => {
     vi.useFakeTimers();
     vi.mocked(sendEncryptedMessage)
       .mockImplementationOnce(() => new Promise(() => undefined));
@@ -609,7 +582,6 @@ describe("useMessageActions send failure recovery", () => {
     });
 
     const firstClientMessageId = vi.mocked(sendEncryptedMessage).mock.calls[0]?.[4] as string;
-    vi.mocked(sendEncryptedMessage).mockResolvedValueOnce(sentMessage(firstClientMessageId));
     expect(vi.mocked(sendEncryptedMessage)).toHaveBeenCalledTimes(1);
 
     await act(async () => {
@@ -620,25 +592,13 @@ describe("useMessageActions send failure recovery", () => {
     expect(queryClient.getQueryData(["pending-outgoing-messages", "user-1"])).toEqual([
       expect.objectContaining({
         clientMessageId: firstClientMessageId,
-        status: "SENDING",
+        status: "FAILED",
       }),
     ]);
     expect(vi.mocked(sendEncryptedMessage)).toHaveBeenCalledTimes(1);
-
-    await act(async () => {
-      vi.advanceTimersByTime(1_500);
-      await flushMicrotasks(10);
-    });
-
-    expect(vi.mocked(sendEncryptedMessage)).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(sendEncryptedMessage).mock.calls[1]?.[4]).toBe(firstClientMessageId);
-    expect(queryClient.getQueryData(["pending-outgoing-messages", "user-1"])).toEqual([]);
   });
 
-  it("does not spin auto resend when realtime rejects a recovered pending message immediately", async () => {
-    vi.mocked(sendEncryptedMessage).mockRejectedValue(
-      new ApiError("Realtime connection was interrupted before the message was confirmed.", 503)
-    );
+  it("marks recovered sending messages as failed on startup without auto resending them", async () => {
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: {
@@ -665,7 +625,6 @@ describe("useMessageActions send failure recovery", () => {
       root!.render(
         <QueryClientProvider client={queryClient}>
           <Harness
-            isRealtimeConnected
             queryClient={queryClient}
             onReady={() => undefined}
           />
@@ -674,27 +633,17 @@ describe("useMessageActions send failure recovery", () => {
       await flushMicrotasks(10);
     });
 
-    expect(vi.mocked(sendEncryptedMessage)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sendEncryptedMessage)).not.toHaveBeenCalled();
     expect(queryClient.getQueryData(["pending-outgoing-messages", "user-1"])).toEqual([
       expect.objectContaining({
         clientMessageId: "client-recovered",
-        status: "SENDING",
+        status: "FAILED",
       }),
     ]);
   });
 
   it("deletes a recovered local pending message without calling the server", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
-    upsertLocalPendingMessage("user-1", {
-      chatId: "chat-1",
-      clientMessageId: "client-recovered",
-      content: "recovered message",
-      createdAt: "2026-04-18T12:00:01.000Z",
-      localOrder: 8,
-      recipientCount: 1,
-      replyTo: null,
-      status: "SENDING",
-    });
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: {
@@ -702,10 +651,20 @@ describe("useMessageActions send failure recovery", () => {
         },
       },
     });
-    queryClient.setQueryData(
-      ["pending-outgoing-messages", "user-1"],
-      readLocalPendingMessages("user-1")
-    );
+    queryClient.setQueryData<PendingOutgoingMessage[]>(["pending-outgoing-messages", "user-1"], [
+      {
+        chatId: "chat-1",
+        clientMessageId: "client-recovered",
+        content: "recovered message",
+        createdAt: "2026-04-18T12:00:01.000Z",
+        localOrder: 8,
+        recipientCount: 1,
+        replyTo: null,
+        status: "SENDING",
+        updatedAt: "2026-04-18T12:00:01.000Z",
+        attachments: [],
+      },
+    ]);
     queryClient.setQueryData(["messages", "user-1", "chat-1"], {
       pages: [
         [
@@ -756,28 +715,21 @@ describe("useMessageActions send failure recovery", () => {
     });
 
     expect(confirmSpy).toHaveBeenCalledTimes(1);
-    expect(readLocalPendingMessages("user-1")).toEqual([]);
     expect(queryClient.getQueryData(["pending-outgoing-messages", "user-1"])).toEqual([]);
     expect(queryClient.getQueryData(["messages", "user-1", "chat-1"])).toEqual({
       pages: [[]],
       pageParams: [undefined],
     });
     expect(vi.mocked(sendEncryptedMessage)).not.toHaveBeenCalled();
+    expect(vi.mocked(deletePendingOutgoingMessage)).toHaveBeenCalledWith(
+      "session-token",
+      "client-recovered"
+    );
     confirmSpy.mockRestore();
   });
 
   it("allows sending a new message after deleting a recovered local pending bubble", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
-    upsertLocalPendingMessage("user-1", {
-      chatId: "chat-1",
-      clientMessageId: "client-recovered",
-      content: "recovered message",
-      createdAt: "2026-04-18T12:00:01.000Z",
-      localOrder: 8,
-      recipientCount: 1,
-      replyTo: null,
-      status: "SENDING",
-    });
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: {
@@ -785,10 +737,20 @@ describe("useMessageActions send failure recovery", () => {
         },
       },
     });
-    queryClient.setQueryData(
-      ["pending-outgoing-messages", "user-1"],
-      readLocalPendingMessages("user-1")
-    );
+    queryClient.setQueryData<PendingOutgoingMessage[]>(["pending-outgoing-messages", "user-1"], [
+      {
+        chatId: "chat-1",
+        clientMessageId: "client-recovered",
+        content: "recovered message",
+        createdAt: "2026-04-18T12:00:01.000Z",
+        localOrder: 8,
+        recipientCount: 1,
+        replyTo: null,
+        status: "SENDING",
+        updatedAt: "2026-04-18T12:00:01.000Z",
+        attachments: [],
+      },
+    ]);
     queryClient.setQueryData(["messages", "user-1", "chat-1"], {
       pages: [
         [
@@ -844,7 +806,6 @@ describe("useMessageActions send failure recovery", () => {
       await flushMicrotasks(10);
     });
 
-    expect(readLocalPendingMessages("user-1")).toEqual([]);
     expect(queryClient.getQueryData(["pending-outgoing-messages", "user-1"])).toEqual([]);
     expect(vi.mocked(sendEncryptedMessage)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(sendEncryptedMessage).mock.calls[0]?.[2]).toBe("fresh message after delete");
@@ -852,83 +813,4 @@ describe("useMessageActions send failure recovery", () => {
     confirmSpy.mockRestore();
   });
 
-  it("automatically resumes recovered sending messages after realtime reconnect", async () => {
-    upsertLocalPendingMessage("user-1", {
-      chatId: "chat-1",
-      clientMessageId: "client-queued",
-      content: "message after reload",
-      createdAt: "2026-04-18T12:00:01.000Z",
-      localOrder: 7,
-      recipientCount: 1,
-      replyTo: null,
-      status: "SENDING",
-    });
-
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: {
-          retry: false,
-        },
-      },
-    });
-    queryClient.setQueryData(["pending-outgoing-messages", "user-1"], [
-      {
-        chatId: "chat-1",
-        clientMessageId: "client-queued",
-        content: "message after reload",
-        createdAt: "2026-04-18T12:00:01.000Z",
-        localOrder: 7,
-        recipientCount: 1,
-        replyTo: null,
-        status: "SENDING",
-        updatedAt: "2026-04-18T12:00:00.000Z",
-      },
-    ]);
-    vi.mocked(sendEncryptedMessage).mockResolvedValueOnce({
-      id: "server-queued",
-      chatId: "chat-1",
-      serverOrder: 42,
-      sender: currentUser(),
-      content: "message after reload",
-      createdAt: "2026-04-18T12:00:02.000Z",
-      editedAt: null,
-      status: {
-        state: "SENT",
-        recipientCount: 1,
-        deliveredCount: 0,
-        readCount: 0,
-      },
-      clientMessageId: "client-queued",
-      replyTo: null,
-      reactions: [],
-      attachments: [],
-    });
-
-    root = createRoot(container);
-    await act(async () => {
-      root!.render(
-        <QueryClientProvider client={queryClient}>
-          <Harness
-            isRealtimeConnected
-            queryClient={queryClient}
-            onReady={() => undefined}
-          />
-        </QueryClientProvider>
-      );
-      await flushMicrotasks();
-    });
-
-    expect(vi.mocked(sendEncryptedMessage)).toHaveBeenCalledWith(
-      "session-token",
-      "chat-1",
-      "message after reload",
-      activeChat().members,
-      "client-queued",
-      null,
-      expect.objectContaining({
-        currentUserId: "user-1",
-      })
-    );
-    expect(queryClient.getQueryData(["pending-outgoing-messages", "user-1"])).toEqual([]);
-  });
 });

@@ -10,8 +10,7 @@ import { buildUnlockErrorPresentation } from "./unlockErrorPresentation";
 describe("buildUnlockErrorPresentation", () => {
   it("marks previous-password recovery errors as resettable", () => {
     const presentation = buildUnlockErrorPresentation(
-      new ApiError(ENCRYPTION_RECOVERY_PREVIOUS_PASSWORD_REQUIRED_MESSAGE, 409),
-      { encryptionDeviceCount: 1 }
+      new ApiError(ENCRYPTION_RECOVERY_PREVIOUS_PASSWORD_REQUIRED_MESSAGE, 409)
     );
 
     expect(presentation).not.toBeNull();
@@ -19,23 +18,20 @@ describe("buildUnlockErrorPresentation", () => {
     expect(presentation?.title).toContain("previous password");
   });
 
-  it("includes registered device guidance for restore failures", () => {
+  it("includes browser-session guidance for restore failures", () => {
     const presentation = buildUnlockErrorPresentation(
-      new ApiError(ENCRYPTION_RECOVERY_PASSWORD_RESTORE_FAILED_MESSAGE, 409),
-      { encryptionDeviceCount: 3 }
+      new ApiError(ENCRYPTION_RECOVERY_PASSWORD_RESTORE_FAILED_MESSAGE, 409)
     );
 
     expect(presentation).not.toBeNull();
-    expect(presentation?.detailLines.some((line) => line.includes("3 registered encryption devices"))).toBe(
-      true
-    );
-    expect(presentation?.detailLines.some((line) => line.includes("keep it signed in"))).toBe(true);
+    expect(
+      presentation?.detailLines.some((line) => line.includes("another browser session still opens encrypted chats"))
+    ).toBe(true);
   });
 
-  it("classifies trusted-device re-enrollment failures without enabling reset", () => {
+  it("classifies trusted-browser re-enrollment failures without enabling reset", () => {
     const presentation = buildUnlockErrorPresentation(
-      new ApiError("Device unlock failed. Re-enter your password and trust this device again", 400),
-      { encryptionDeviceCount: 2 }
+      new ApiError("Browser unlock failed. Re-enter your password and trust this browser again", 400)
     );
 
     expect(presentation).not.toBeNull();

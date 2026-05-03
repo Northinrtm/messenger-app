@@ -4,23 +4,25 @@ import type {
   ApiErrorResponse,
   ApiChatMessage,
   AuthResponse,
+  ChatOpen,
+  MessagePage,
   ChatSummary,
+  ChatDraft,
   GroupHistoryKeyAccess,
   InviteAcceptance,
   InviteLink,
   MessageReactionEvent,
+  PendingOutgoingMessage,
   Participant,
   PushNotificationConfig,
   PushSubscriptionPayload,
-  KnownEncryptionDeviceManifestEntry,
-  UserEncryptionDevice,
   UserEncryptionAccountKey,
-  UserEncryptionDeviceBundle,
-  UserEncryptionDeviceManifest,
   UserEncryptionRecoverySnapshot,
   VideoConference,
   UserProfile,
   UserSessionInfo,
+  WorkspaceBootstrap,
+  WorkspaceSearch,
 } from "./types";
 
 export class ApiError extends Error {
@@ -370,8 +372,20 @@ export function getChats(token: string) {
   return request<ChatSummary[]>("/api/chats", { token });
 }
 
+export function getWorkspaceBootstrap(token: string) {
+  return request<WorkspaceBootstrap>("/api/workspace/bootstrap", { token });
+}
+
 export function getArchivedChats(token: string) {
   return request<string[]>("/api/chats/archive", { token });
+}
+
+export function getChatDrafts(token: string) {
+  return request<ChatDraft[]>("/api/chats/drafts", { token });
+}
+
+export function getPendingOutgoingMessages(token: string) {
+  return request<PendingOutgoingMessage[]>("/api/messages/pending-outgoing", { token });
 }
 
 export function getVideoConferences(token: string) {
@@ -690,6 +704,44 @@ export function getMessagesRaw(
   });
 }
 
+export function getChatOpen(
+  token: string,
+  chatId: string,
+  options: {
+    limit?: number;
+    acknowledgeDelivered?: boolean;
+  } = {}
+) {
+  return request<ChatOpen>(`/api/chats/${chatId}/open`, {
+    token,
+    query: {
+      acknowledgeDelivered:
+        options.acknowledgeDelivered === undefined ? undefined : options.acknowledgeDelivered ? 1 : 0,
+      limit: options.limit,
+    },
+  });
+}
+
+export function getMessagesPage(
+  token: string,
+  chatId: string,
+  options: {
+    cursor?: string | null;
+    limit?: number;
+    acknowledgeDelivered?: boolean;
+  } = {}
+) {
+  return request<MessagePage>(`/api/chats/${chatId}/messages/page`, {
+    token,
+    query: {
+      acknowledgeDelivered:
+        options.acknowledgeDelivered === undefined ? undefined : options.acknowledgeDelivered ? 1 : 0,
+      cursor: options.cursor,
+      limit: options.limit,
+    },
+  });
+}
+
 export function createMessage(
   token: string,
   chatId: string,
@@ -699,9 +751,7 @@ export function createMessage(
     attachmentIds?: string[];
     encryptedPayload: {
       scheme: string;
-      encryptedKeysByRecipientId: Record<string, string>;
       sharedEnvelope?: string | null;
-      historyEnvelope?: string | null;
     };
   }
 ) {
@@ -736,9 +786,7 @@ export function updateMessage(
   body: {
     encryptedPayload: {
       scheme: string;
-      encryptedKeysByRecipientId: Record<string, string>;
       sharedEnvelope?: string | null;
-      historyEnvelope?: string | null;
     };
   }
 ) {
@@ -874,6 +922,76 @@ export function updateArchivedChat(token: string, chatId: string, archived: bool
   });
 }
 
+export function upsertChatDraft(
+  token: string,
+  chatId: string,
+  content: string,
+  options?: { keepalive?: boolean }
+) {
+  return request<ChatDraft>(`/api/chats/${chatId}/draft`, {
+    method: "PUT",
+    token,
+    body: { content },
+    keepalive: options?.keepalive,
+  });
+}
+
+export function deleteChatDraft(
+  token: string,
+  chatId: string,
+  options?: { keepalive?: boolean }
+) {
+  return request<void>(`/api/chats/${chatId}/draft`, {
+    method: "DELETE",
+    token,
+    keepalive: options?.keepalive,
+  });
+}
+
+export function upsertPendingOutgoingMessage(
+  token: string,
+  clientMessageId: string,
+  body: {
+    chatId: string;
+    content: string;
+    createdAt: string;
+    localOrder?: number | null;
+    recipientCount: number;
+    replyTo?: {
+      id: string;
+      sender: Participant;
+      createdAt: string;
+      preview: string;
+    } | null;
+    status: "SENDING" | "FAILED";
+    attachments?: Array<{
+      id: string;
+      fileName: string;
+      mimeType: string;
+      sizeBytes: number;
+      ciphertextSizeBytes: number;
+      key: string;
+      iv: string;
+    }>;
+  }
+) {
+  return request<PendingOutgoingMessage>(
+    `/api/messages/pending-outgoing/${encodeURIComponent(clientMessageId)}`,
+    {
+      method: "PUT",
+      token,
+      body,
+    }
+  );
+}
+
+export function deletePendingOutgoingMessage(token: string, clientMessageId: string) {
+  return request<void>(`/api/messages/pending-outgoing/${encodeURIComponent(clientMessageId)}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
 export function deleteChat(token: string, chatId: string) {
   return request<void>(`/api/chats/${chatId}`, {
     method: "DELETE",
@@ -900,79 +1018,10 @@ export function searchUsers(token: string, query: string) {
   });
 }
 
-export function listOwnEncryptionDevices(token: string) {
-  return request<UserEncryptionDevice[]>("/api/e2ee/devices/me", {
+export function searchWorkspace(token: string, query: string) {
+  return request<WorkspaceSearch>("/api/search", {
     token,
-  });
-}
-
-export function retireOwnEncryptionDevice(token: string, deviceId: string) {
-  return request<void>(`/api/e2ee/devices/me/${deviceId}`, {
-    method: "DELETE",
-    token,
-  });
-}
-
-export function upsertOwnEncryptionDevice(
-  token: string,
-  body: {
-    deviceId?: string;
-    identityKey: string;
-    identityKeyAlgorithm: string;
-    identitySignatureKey: string;
-    identitySignatureKeyAlgorithm: string;
-    signedPrekeyId: number;
-    signedPrekeyPublicKey: string;
-    signedPrekeySignature: string;
-    signedPrekeyAlgorithm: string;
-    oneTimePrekeys: Array<{
-      keyId: number;
-      publicKey: string;
-    }>;
-  }
-) {
-  return request<UserEncryptionDevice>("/api/e2ee/devices/me", {
-    method: "PUT",
-    token,
-    body,
-  });
-}
-
-export function resolveEncryptionDeviceBundles(
-  token: string,
-  userIds: string[],
-  options?: { consumeOneTimePrekeys?: boolean; deviceIds?: string[]; requesterDeviceId?: string }
-) {
-  return request<UserEncryptionDeviceBundle[]>("/api/e2ee/devices/bundles/resolve", {
-    method: "POST",
-    token,
-    body: {
-      userIds,
-      consumeOneTimePrekeys: options?.consumeOneTimePrekeys === true,
-      deviceIds: options?.deviceIds,
-      requesterDeviceId: options?.requesterDeviceId,
-    },
-  });
-}
-
-export function resolveEncryptionDeviceManifest(
-  token: string,
-  userIds: string[],
-  options?: {
-    deviceIds?: string[];
-    knownDevices?: KnownEncryptionDeviceManifestEntry[];
-    knownVersion?: string;
-  }
-) {
-  return request<UserEncryptionDeviceManifest>("/api/e2ee/devices/bundles/manifest", {
-    method: "POST",
-    token,
-    body: {
-      userIds,
-      deviceIds: options?.deviceIds,
-      knownDevices: options?.knownDevices,
-      knownVersion: options?.knownVersion,
-    },
+    query: { query },
   });
 }
 
@@ -982,11 +1031,26 @@ export function getOwnEncryptionRecoverySnapshot(token: string) {
   });
 }
 
-export function getOwnGroupHistoryKeys(token: string, chatId: string, deviceId: string) {
+export function getOwnGroupHistoryKeys(
+  token: string,
+  chatId: string,
+  cursor?: string | null
+) {
   return request<GroupHistoryKeyAccess[]>(`/api/e2ee/group-history/chats/${chatId}/keys/me`, {
     token,
-    query: { deviceId },
+    query: {
+      cursor,
+    },
   });
+}
+
+export function getOwnActiveGroupHistoryKey(token: string, chatId: string) {
+  return request<GroupHistoryKeyAccess>(
+    `/api/e2ee/group-history/chats/${chatId}/active-key/me`,
+    {
+      token,
+    }
+  );
 }
 
 export function resolveEncryptionAccountKeys(token: string, userIds: string[]) {
@@ -999,18 +1063,59 @@ export function resolveEncryptionAccountKeys(token: string, userIds: string[]) {
   });
 }
 
-export function upsertGroupHistoryKey(
+export function rotateOwnActiveGroupHistoryKey(token: string, chatId: string) {
+  return request<{ historyKeyId: string; createdAt: string }>(
+    `/api/e2ee/group-history/chats/${chatId}/rotate`,
+    {
+      method: "POST",
+      token,
+    }
+  );
+}
+
+export function getOwnEncryptionAccountKey(token: string) {
+  return request<{
+    publicKey: string;
+    accountKeyVersion: number;
+    identityGeneration: number;
+    identitySigningPublicKey: string;
+    identityKeyAlgorithm: string;
+    accountKeyAlgorithm: string;
+    signedAt: string;
+    signature: string;
+    createdAt: string;
+    updatedAt: string;
+  }>("/api/e2ee/account-keys/me", {
+    token,
+  });
+}
+
+export function upsertOwnEncryptionAccountKey(
   token: string,
-  chatId: string,
   body: {
-    historyKeyId: string;
-    wrappedKeysByRecipientDeviceId?: Record<string, string>;
-    wrappedKeysByRecipientUserId?: Record<string, string>;
-    serverEscrowGrantPayloadJson?: string | null;
+    publicKey: string;
+    accountKeyVersion: number;
+    identityGeneration: number;
+    identitySigningPublicKey: string;
+    identityKeyAlgorithm: string;
+    accountKeyAlgorithm: string;
+    signedAt: string;
+    signature: string;
   }
 ) {
-  return request<{ historyKeyId: string; createdAt: string }>(
-    `/api/e2ee/group-history/chats/${chatId}/keys`,
+  return request<{
+    publicKey: string;
+    accountKeyVersion: number;
+    identityGeneration: number;
+    identitySigningPublicKey: string;
+    identityKeyAlgorithm: string;
+    accountKeyAlgorithm: string;
+    signedAt: string;
+    signature: string;
+    createdAt: string;
+    updatedAt: string;
+  }>(
+    "/api/e2ee/account-keys/me",
     {
       method: "PUT",
       token,
@@ -1019,12 +1124,43 @@ export function upsertGroupHistoryKey(
   );
 }
 
+export function resetOwnEncryptionIdentity(
+  token: string,
+  body: {
+    currentPassword: string;
+    publicKey: string;
+    accountKeyVersion: number;
+    identityGeneration: number;
+    identitySigningPublicKey: string;
+    identityKeyAlgorithm: string;
+    accountKeyAlgorithm: string;
+    signedAt: string;
+    signature: string;
+  }
+) {
+  return request<{
+    publicKey: string;
+    accountKeyVersion: number;
+    identityGeneration: number;
+    identitySigningPublicKey: string;
+    identityKeyAlgorithm: string;
+    accountKeyAlgorithm: string;
+    signedAt: string;
+    signature: string;
+    createdAt: string;
+    updatedAt: string;
+  }>("/api/e2ee/account-keys/me/reset", {
+    method: "POST",
+    token,
+    body,
+  });
+}
+
 export function upsertOwnEncryptionRecoverySnapshot(
   token: string,
   body: {
     snapshotPayloadJson: string;
     wrappedIdentityRecordJson: string;
-    accountPublicKey: string;
   }
 ) {
   return request<UserEncryptionRecoverySnapshot>("/api/e2ee/recovery-snapshot/me", {

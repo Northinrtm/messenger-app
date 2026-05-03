@@ -1,5 +1,6 @@
 import { type InfiniteData, type QueryClient } from "@tanstack/react-query";
 import { useEffect, useEffectEvent, useRef } from "react";
+import { invalidateActiveGroupHistoryKeyCache } from "../../../lib/e2ee";
 import { isUnavailableEncryptedMessage } from "../../../lib/e2eeShared";
 import { replaceSubscribedChatIds, subscribeToChats } from "../../../lib/realtime";
 import type {
@@ -88,13 +89,6 @@ export function shouldRefreshChatListOnRealtimeConnect(
   return hasEstablishedRealtimeConnection;
 }
 
-export function shouldGrantRealtimeGroupHistoryAccess(
-  chat: ChatSummary,
-  currentUserId: string
-) {
-  return !chat.direct && chat.members.some((member) => member.id === currentUserId);
-}
-
 export function shouldRefreshActiveChatOnRealtimeChatUpdate(
   chat: Pick<ChatSummary, "id" | "direct">,
   options: {
@@ -108,6 +102,22 @@ export function shouldRefreshActiveChatOnRealtimeChatUpdate(
 
   return (options.cachedMessages?.pages ?? []).some((page) =>
     page.some((message) => isUnavailableEncryptedMessage(message.content))
+  );
+}
+
+export function shouldInvalidateActiveHistoryKeyCacheOnRealtimeChatUpdate(
+  previousChat:
+    | Pick<ChatSummary, "activeHistoryKeyId">
+    | null
+    | undefined,
+  nextChat: Pick<ChatSummary, "activeHistoryKeyId">
+) {
+  if (!previousChat) {
+    return false;
+  }
+
+  return (
+    (previousChat.activeHistoryKeyId ?? null) !== (nextChat.activeHistoryKeyId ?? null)
   );
 }
 
@@ -210,9 +220,9 @@ export function useRealtimeChatSubscription({
   });
 
   const handleRealtimeChat = useEffectEvent((chat: ChatSummary) => {
-    const isNewChat = !(
-      queryClient.getQueryData<ChatSummary[]>(["chats", sessionToken]) ?? []
-    ).some((currentChat) => currentChat.id === chat.id);
+    const currentChats = queryClient.getQueryData<ChatSummary[]>(["chats", sessionToken]) ?? [];
+    const existingChat = currentChats.find((currentChat) => currentChat.id === chat.id) ?? null;
+    const isNewChat = existingChat === null;
     const shouldRefreshActiveChat = shouldRefreshActiveChatOnRealtimeChatUpdate(chat, {
       activeChatId,
       cachedMessages: queryClient.getQueryData<InfiniteData<ChatMessage[]>>(
@@ -225,16 +235,18 @@ export function useRealtimeChatSubscription({
       (current) => upsertChat(current, chat)
     );
 
+    if (
+      shouldInvalidateActiveHistoryKeyCacheOnRealtimeChatUpdate(existingChat, chat)
+    ) {
+      void invalidateActiveGroupHistoryKeyCache(currentUser.id, chat.id);
+    }
+
     if (isNewChat) {
       void queryClient.invalidateQueries({ queryKey: ["chats", sessionToken] });
     }
 
     if (chat.lastMessageAt && chat.lastMessage === "Encrypted message") {
       void refreshChatPreviewFromServer(chat.id);
-    }
-
-    if (shouldGrantRealtimeGroupHistoryAccess(chat, currentUser.id)) {
-      void grantRealtimeGroupHistoryAccess(sessionToken, currentUser.id, chat);
     }
 
     if (shouldRefreshActiveChat) {
@@ -392,22 +404,6 @@ export function useRealtimeChatSubscription({
     };
     void queryClient.invalidateQueries({ queryKey: ["typing", sessionToken, activeChatId] });
   }, [activeChatId, isRealtimeConnected, queryClient, sessionToken]);
-}
-
-async function grantRealtimeGroupHistoryAccess(
-  token: string,
-  currentUserId: string,
-  chat: ChatSummary
-) {
-  try {
-    const { grantGroupHistoryAccessForParticipants } = await import("../../../lib/e2ee");
-    await grantGroupHistoryAccessForParticipants(token, chat.id, chat.members, {
-      currentUserId,
-    });
-  } catch {
-    // Best-effort: existing online members grant post-patch group history to
-    // invite-link joiners, but live E2EE should not fail if this device lacks the key.
-  }
 }
 
 export function shouldRefreshActiveChatOnRealtimeConnect(

@@ -125,6 +125,7 @@ APP_REALTIME_REDIS_ENABLED=true
 APP_AUTH_RATE_LIMIT_REDIS_ENABLED=true
 APP_REALTIME_REDIS_MAC_SECRET=<stable-random-secret>
 APP_JWT_SECRET=<stable-base64-secret>
+APP_E2EE_ESCROW_SECRET=<stable-base64-secret>
 BACKEND_REPLICAS=2
 WEB_REPLICAS=2
 ```
@@ -146,6 +147,7 @@ What this covers:
 - Redis-backed auth endpoint rate limiting
 - stateless HTTP routing through `web` and Docker DNS
 - one active runner per scheduled backend job through Postgres advisory locks
+- one active runner per E2EE maintenance batch: epoch rotation, history backfill, regrant, and identity-reset follow-up
 - Prometheus backend scraping through Docker DNS discovery
 
 What is still singleton or host-local:
@@ -171,10 +173,28 @@ If VAPID keys are empty, the backend generates temporary keys on startup. That k
 
 The backend sends generic push notifications only. Message plaintext stays out of server-sent push payloads; notification previews are shown only by an already-open unlocked web client after local decryption.
 
+## Managed E2EE Operating Rules
+
+Production should treat the chat encryption model as managed E2EE:
+
+- the first identity signing key is bootstrapped during authenticated onboarding
+- account encryption public keys are published as signed bundles and rotated under the same identity signing key
+- identity reset is a separate security event that requires fresh user authentication
+- the server stores escrowed history-key material so it can regrant history access and recover active epochs according to chat policy
+
+This means production must not describe the system as strict zero-knowledge E2EE.
+The backend still stores ciphertext instead of plaintext, but it can recover history keys under the product's managed recovery rules.
+
+Operationally important consequences:
+
+- ordinary account-key rotation should be transparent to users
+- identity reset should be treated like a security-sensitive account recovery flow
+- loss of PostgreSQL data or `APP_E2EE_ESCROW_SECRET` breaks managed history recovery even if message ciphertext still exists
+
 ## E2EE Coverage Diagnostics
 
 Use the server-side diagnostic script when a user reports `Encrypted message unavailable`.
-It prints only encryption metadata: active participant devices, message envelope coverage, history-key grants, and missing device coverage.
+It prints only encryption metadata: participant account-key readiness, message shared-envelope coverage, history-key grants, and unreadable-message coverage.
 It does not read, decrypt, or print message plaintext.
 
 ```bash
@@ -185,10 +205,11 @@ deploy/e2ee-coverage-diagnostic.sh --chat-id <chat-uuid> --message-id <message-u
 
 Important fields:
 
-- `has_history_envelope` means the message can use the post-patch group history fallback.
-- `has_history_access` means the recipient device has a wrapped copy of the group history key.
-- `can_receive` is true when the device has either a live sender-key envelope or a usable history fallback.
-- `joined_after_message` helps distinguish expected pre-patch/late-joiner gaps from current grant bugs.
+- `has_shared_envelope` means the message still carries the authenticated encrypted payload expected by the current chat-epoch scheme.
+- `has_history_access` means the participant account has a wrapped copy of the chat history key.
+- `has_history_key` means the stored message points at a server-known history key epoch.
+- `can_read` is true when the sender is looking at their own message or the participant has a usable history fallback.
+- `joined_after_message` helps distinguish expected late-joiner gaps from current grant bugs.
 
 ## Backups
 
@@ -219,6 +240,8 @@ Default retention:
 
 This is intentionally a local-on-server backup setup.
 It is much better than having no backups, but it is not a substitute for off-site replication.
+
+For managed E2EE, the backup plan is only valid if the corresponding `APP_E2EE_ESCROW_SECRET` is preserved and restore-tested together with PostgreSQL.
 
 ## Emergency manual deploy
 

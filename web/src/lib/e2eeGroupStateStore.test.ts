@@ -1,152 +1,37 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import type { GroupHistoryKeyRecord } from "./e2eeGroupEngine";
 import {
-  decryptRememberedGroupSenderChainState,
-  encryptRememberedGroupSenderChainState,
+  clearCurrentGroupHistoryKeyRecord,
   persistGroupHistoryKeyRecord,
   readCurrentGroupHistoryKeyRecord,
+  readGroupHistorySyncState,
   readGroupHistoryKeyState,
-  readGroupSenderChainState,
-  readRememberedGroupSenderChainState,
-  rememberGroupSenderChainState,
   removeGroupHistoryKeys,
-  removeGroupSenderChains,
-  removeRememberedGroupSenderChainState,
   resolveLocalGroupHistoryKeyRecord,
+  writeGroupHistorySyncState,
   writeGroupHistoryKeyState,
-  writeGroupSenderChainState,
 } from "./e2eeGroupStateStore";
-import type { GroupHistoryKeyRecord, GroupSenderChainState } from "./e2eeGroupEngine";
-
-const senderChainState: GroupSenderChainState = {
-  outboundChains: {
-    "chat-id": {
-      chatId: "chat-id",
-      ownMaterialId: "material-id",
-      senderDeviceId: "self-device",
-      senderKeyId: "sender-key-id",
-      recipientDeviceSetHash: "hash",
-      chainKey: "chain-key",
-      nextMessageCounter: 1,
-      createdAt: "2026-04-27T12:00:00.000Z",
-    },
-  },
-  inboundChains: {},
-};
-
-const historyKeyRecord: GroupHistoryKeyRecord = {
-  historyKeyId: "history-key-id",
-  chatId: "chat-id",
-  keyMaterial: "key-material",
-  createdAt: "2026-04-27T12:00:00.000Z",
-  updatedAt: "2026-04-27T12:00:00.000Z",
-};
 
 describe("e2eeGroupStateStore", () => {
-  beforeEach(() => {
-    window.sessionStorage.clear();
-    window.localStorage.clear();
-  });
-
-  it("round-trips remembered sender chain state through encrypted localStorage", async () => {
-    vi.spyOn(window.crypto.subtle, "encrypt").mockResolvedValue(
-      new Uint8Array([1, 2, 3]).buffer
-    );
-    vi.spyOn(window.crypto.subtle, "decrypt").mockResolvedValue(
-      new TextEncoder().encode(JSON.stringify(senderChainState)).buffer
-    );
-
-    const rememberedKey = (userId: string) => `remembered-group:${userId}`;
-    const deriveWrappingKey = vi.fn(async () => ({} as CryptoKey));
-    const encryptState = async (
-      privateKey: string,
-      state: typeof senderChainState
-    ) =>
-      encryptRememberedGroupSenderChainState({
-        privateKey,
-        state,
-        randomBytes: (length) => new Uint8Array(length).fill(1),
-        deriveWrappingKey,
-        bytesToBase64: (bytes) => btoa(String.fromCharCode(...bytes)),
-        textEncoder: new TextEncoder(),
-        kdfIterations: 10,
-      });
-    const decryptState = async (
-      privateKey: string,
-      record: { salt: string; iv: string; ciphertext: string; createdAt: string }
-    ) =>
-      decryptRememberedGroupSenderChainState({
-        privateKey,
-        record,
-        base64ToBytes: (value) =>
-          Uint8Array.from(atob(value), (character) => character.charCodeAt(0)),
-        deriveWrappingKey,
-        textDecoder: new TextDecoder(),
-        kdfIterations: 10,
-      });
-
-    await rememberGroupSenderChainState({
-      userId: "self",
-      state: senderChainState,
-      readUnlockedIdentity: () => ({ privateKey: "vault-private" }),
-      encryptRememberedGroupSenderChainState: encryptState,
-      getRememberedGroupSenderChainStorageKey: rememberedKey,
-    });
-
-    const restored = await readRememberedGroupSenderChainState({
-      userId: "self",
-      readUnlockedIdentity: () => ({ privateKey: "vault-private" }),
-      getRememberedGroupSenderChainStorageKey: rememberedKey,
-      decryptRememberedGroupSenderChainState: decryptState,
-      removeRememberedGroupSenderChainState: (userId) =>
-        removeRememberedGroupSenderChainState({
-          userId,
-          getRememberedGroupSenderChainStorageKey: rememberedKey,
-        }),
-    });
-
-    expect(restored).toEqual(senderChainState);
-  });
-
-  it("hydrates sender chain state from remembered storage", async () => {
-    const sessionKey = (userId: string) => `group:${userId}`;
-
-    const state = await readGroupSenderChainState({
-      userId: "self",
-      getGroupSenderChainStorageKey: sessionKey,
-      readRememberedGroupSenderChainState: vi.fn(async () => senderChainState),
-      writeGroupSenderChainState: (userId, state) =>
-        writeGroupSenderChainState({
-          userId,
-          state,
-          getGroupSenderChainStorageKey: sessionKey,
-        }),
-      removeGroupSenderChains: (userId) =>
-        removeGroupSenderChains({
-          userId,
-          getGroupSenderChainStorageKey: sessionKey,
-          getRememberedGroupSenderChainStorageKey: (value) =>
-            `remembered-group:${value}`,
-        }),
-    });
-
-    expect(state).toEqual(senderChainState);
-    expect(window.sessionStorage.getItem(sessionKey("self"))).toBeTruthy();
-  });
-
-  it("normalizes group history key state and drops dangling current ids", async () => {
-    const historyKeyStorageKey = (userId: string) => `history:${userId}`;
-    window.sessionStorage.setItem(
-      historyKeyStorageKey("self"),
+  it("restores and filters stored group history key state", async () => {
+    sessionStorage.setItem(
+      "history:self",
       JSON.stringify({
         currentKeyIdsByChatId: {
-          "chat-id": "missing-id",
-          "chat-two": "history-key-id",
+          chat: "history-1",
+          missing: "history-missing",
         },
         keysById: {
-          "history-key-id": {
-            ...historyKeyRecord,
-            chatId: "chat-two",
+          "history-1": {
+            historyKeyId: "history-1",
+            chatId: "chat",
+            keyMaterial: "key-1",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:01.000Z",
+          },
+          invalid: {
+            historyKeyId: 1,
           },
         },
       })
@@ -154,44 +39,81 @@ describe("e2eeGroupStateStore", () => {
 
     const state = await readGroupHistoryKeyState({
       userId: "self",
-      getGroupHistoryKeyStorageKey: historyKeyStorageKey,
-      removeGroupHistoryKeys: (userId) =>
-        removeGroupHistoryKeys({
-          userId,
-          getGroupHistoryKeyStorageKey: historyKeyStorageKey,
-        }),
+      getGroupHistoryKeyStorageKey: (userId) => `history:${userId}`,
+      removeGroupHistoryKeys: vi.fn(),
     });
 
     expect(state.currentKeyIdsByChatId).toEqual({
-      "chat-two": "history-key-id",
+      chat: "history-1",
     });
+    expect(state.syncCursorByChatId).toEqual({});
+    expect(state.fullySyncedChatIds).toEqual([]);
+    expect(Object.keys(state.keysById)).toEqual(["history-1"]);
   });
 
-  it("persists and resolves local group history key records", async () => {
-    const historyKeyStorageKey = (userId: string) => `history:${userId}`;
+  it("cleans up malformed stored state", async () => {
+    sessionStorage.setItem("history:self", "not-json");
+
+    const removeState = vi.fn((userId: string) =>
+      removeGroupHistoryKeys({
+        userId,
+        getGroupHistoryKeyStorageKey: (value) => `history:${value}`,
+      })
+    );
+
+    const state = await readGroupHistoryKeyState({
+      userId: "self",
+      getGroupHistoryKeyStorageKey: (userId) => `history:${userId}`,
+      removeGroupHistoryKeys: removeState,
+    });
+
+    expect(state).toEqual({
+      currentKeyIdsByChatId: {},
+      syncCursorByChatId: {},
+      fullySyncedChatIds: [],
+      keysById: {},
+    });
+    expect(removeState).toHaveBeenCalledWith("self");
+  });
+
+  it("persists and resolves local history key records", async () => {
+    const writeState = vi.fn(
+      (
+        userId: string,
+        state: {
+          currentKeyIdsByChatId: Record<string, string>;
+          syncCursorByChatId: Record<string, string>;
+          fullySyncedChatIds: string[];
+          keysById: Record<string, GroupHistoryKeyRecord>;
+        }
+      ) =>
+        writeGroupHistoryKeyState({
+          userId,
+          state,
+          getGroupHistoryKeyStorageKey: (value) => `history:${value}`,
+        })
+    );
     const readState = (userId: string) =>
       readGroupHistoryKeyState({
         userId,
-        getGroupHistoryKeyStorageKey: historyKeyStorageKey,
-        removeGroupHistoryKeys: (targetUserId) =>
+        getGroupHistoryKeyStorageKey: (value) => `history:${value}`,
+        removeGroupHistoryKeys: (value) =>
           removeGroupHistoryKeys({
-            userId: targetUserId,
-            getGroupHistoryKeyStorageKey: historyKeyStorageKey,
+            userId: value,
+            getGroupHistoryKeyStorageKey: (key) => `history:${key}`,
           }),
       });
-    const writeState = (
-      userId: string,
-      state: Awaited<ReturnType<typeof readState>>
-    ) =>
-      writeGroupHistoryKeyState({
-        userId,
-        state,
-        getGroupHistoryKeyStorageKey: historyKeyStorageKey,
-      });
+    const record: GroupHistoryKeyRecord = {
+      historyKeyId: "history-1",
+      chatId: "chat",
+      keyMaterial: "key-1",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:01.000Z",
+    };
 
     await persistGroupHistoryKeyRecord({
       userId: "self",
-      record: historyKeyRecord,
+      record,
       readGroupHistoryKeyState: readState,
       writeGroupHistoryKeyState: writeState,
     });
@@ -199,18 +121,80 @@ describe("e2eeGroupStateStore", () => {
     await expect(
       resolveLocalGroupHistoryKeyRecord({
         userId: "self",
-        chatId: "chat-id",
-        historyKeyId: "history-key-id",
+        chatId: "chat",
+        historyKeyId: "history-1",
         readGroupHistoryKeyState: readState,
       })
-    ).resolves.toEqual(historyKeyRecord);
+    ).resolves.toEqual(record);
 
     await expect(
       readCurrentGroupHistoryKeyRecord({
         userId: "self",
-        chatId: "chat-id",
+        chatId: "chat",
         readGroupHistoryKeyState: readState,
       })
-    ).resolves.toEqual(historyKeyRecord);
+    ).resolves.toEqual(record);
+
+    await clearCurrentGroupHistoryKeyRecord({
+      userId: "self",
+      chatId: "chat",
+      readGroupHistoryKeyState: readState,
+      writeGroupHistoryKeyState: writeState,
+    });
+
+    await expect(
+      readCurrentGroupHistoryKeyRecord({
+        userId: "self",
+        chatId: "chat",
+        readGroupHistoryKeyState: readState,
+      })
+    ).resolves.toBeNull();
+
+    await expect(
+      resolveLocalGroupHistoryKeyRecord({
+        userId: "self",
+        chatId: "chat",
+        historyKeyId: "history-1",
+        readGroupHistoryKeyState: readState,
+      })
+    ).resolves.toEqual(record);
+  });
+
+  it("tracks sync cursor and full-sync state per chat", async () => {
+    const readState = (userId: string) =>
+      readGroupHistoryKeyState({
+        userId,
+        getGroupHistoryKeyStorageKey: (value) => `history:${value}`,
+        removeGroupHistoryKeys: (value) =>
+          removeGroupHistoryKeys({
+            userId: value,
+            getGroupHistoryKeyStorageKey: (key) => `history:${key}`,
+          }),
+      });
+
+    await writeGroupHistorySyncState({
+      userId: "self",
+      chatId: "chat",
+      cursor: "2026-01-01T00:00:01.000Z|history-1",
+      fullySynced: true,
+      readGroupHistoryKeyState: readState,
+      writeGroupHistoryKeyState: (userId, state) =>
+        writeGroupHistoryKeyState({
+          userId,
+          state,
+          getGroupHistoryKeyStorageKey: (value) => `history:${value}`,
+        }),
+    });
+
+    await expect(
+      readGroupHistorySyncState({
+        userId: "self",
+        chatId: "chat",
+        readGroupHistoryKeyState: readState,
+      })
+    ).resolves.toEqual({
+      cursor: "2026-01-01T00:00:01.000Z|history-1",
+      fullySynced: true,
+    });
   });
 });

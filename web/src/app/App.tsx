@@ -219,8 +219,8 @@ export function App() {
       return;
     }
 
-    void import("../lib/e2ee").then(({ syncEncryptionDeviceState }) => {
-      void syncEncryptionDeviceState(session);
+    void import("../lib/e2ee").then(({ syncEncryptionState }) => {
+      void syncEncryptionState(session);
     });
   }, [emailVerificationToken, passwordResetToken, restoringSession, session]);
 
@@ -247,8 +247,8 @@ export function App() {
         void requestSessionRefresh(false);
       }
 
-      void import("../lib/e2ee").then(({ syncEncryptionDeviceState }) => {
-        void syncEncryptionDeviceState(session);
+      void import("../lib/e2ee").then(({ syncEncryptionState }) => {
+        void syncEncryptionState(session);
       });
     };
 

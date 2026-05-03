@@ -10,12 +10,14 @@ import com.north.messenger.api.dto.UserProfileResponse;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.UserBlock;
 import com.north.messenger.domain.model.UserContact;
+import com.north.messenger.domain.model.UserEncryptionAccountKey;
 import com.north.messenger.domain.model.UserEncryptionRecoverySnapshot;
 import com.north.messenger.domain.model.UserSession;
 import com.north.messenger.domain.repository.ChatRoomRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import com.north.messenger.domain.repository.UserBlockRepository;
 import com.north.messenger.domain.repository.UserContactRepository;
+import com.north.messenger.domain.repository.UserEncryptionAccountKeyRepository;
 import com.north.messenger.domain.repository.UserEncryptionRecoverySnapshotRepository;
 import com.north.messenger.domain.repository.UserSessionRepository;
 import com.north.messenger.security.JwtService;
@@ -29,6 +31,7 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collection;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -56,6 +59,8 @@ public class AuthService {
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static final int REFRESH_TOKEN_BYTES = 32;
     private static final Duration ONLINE_WINDOW = Duration.ofMinutes(2);
+    private static final String MISSING_ACCOUNT_ENCRYPTION_MESSAGE =
+            "Encrypted chat is unavailable because some participants have not initialized account encryption yet";
     private static final Pattern USERNAME_PATTERN = Pattern.compile("^[a-z][a-z0-9_]{2,23}$");
     private static final Pattern EMAIL_PATTERN = Pattern.compile(
             "^[a-z0-9._%+-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
@@ -68,6 +73,7 @@ public class AuthService {
     private final UserContactRepository userContactRepository;
     private final UserBlockRepository userBlockRepository;
     private final UserSessionRepository userSessionRepository;
+    private final UserEncryptionAccountKeyRepository userEncryptionAccountKeyRepository;
     private final UserEncryptionRecoverySnapshotRepository userEncryptionRecoverySnapshotRepository;
     private final ChatRoomRepository chatRoomRepository;
     private final PasswordEncoder passwordEncoder;
@@ -83,6 +89,7 @@ public class AuthService {
             UserContactRepository userContactRepository,
             UserBlockRepository userBlockRepository,
             UserSessionRepository userSessionRepository,
+            UserEncryptionAccountKeyRepository userEncryptionAccountKeyRepository,
             UserEncryptionRecoverySnapshotRepository userEncryptionRecoverySnapshotRepository,
             ChatRoomRepository chatRoomRepository,
             PasswordEncoder passwordEncoder,
@@ -97,6 +104,7 @@ public class AuthService {
         this.userContactRepository = userContactRepository;
         this.userBlockRepository = userBlockRepository;
         this.userSessionRepository = userSessionRepository;
+        this.userEncryptionAccountKeyRepository = userEncryptionAccountKeyRepository;
         this.userEncryptionRecoverySnapshotRepository = userEncryptionRecoverySnapshotRepository;
         this.chatRoomRepository = chatRoomRepository;
         this.passwordEncoder = passwordEncoder;
@@ -201,6 +209,12 @@ public class AuthService {
         return toProfile(requireAuthenticatedUser(username));
     }
 
+    public void assertCurrentPassword(UserAccount user, String currentPassword) {
+        if (user == null || currentPassword == null || !passwordEncoder.matches(currentPassword, user.getPasswordHash())) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Current password is invalid");
+        }
+    }
+
     @Transactional
     public UserProfileResponse updateProfile(String username, String displayName, String profession) {
         UserAccount currentUser = requireAuthenticatedUser(username);
@@ -220,9 +234,7 @@ public class AuthService {
     @Transactional
     public void changePassword(String username, ChangePasswordRequest request) {
         UserAccount currentUser = requireAuthenticatedUser(username);
-        if (!passwordEncoder.matches(request.currentPassword(), currentUser.getPasswordHash())) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Current password is invalid");
-        }
+        assertCurrentPassword(currentUser, request.currentPassword());
         if (passwordEncoder.matches(request.newPassword(), currentUser.getPasswordHash())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "New password must be different from current password");
         }
@@ -593,6 +605,34 @@ public class AuthService {
         }
     }
 
+    public void assertUsersHavePublishedAccountKeys(Collection<UserAccount> users) {
+        if (users == null || users.isEmpty()) {
+            return;
+        }
+
+        LinkedHashMap<UUID, UserAccount> usersById = users.stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.toMap(
+                        UserAccount::getId,
+                        Function.identity(),
+                        (left, ignored) -> left,
+                        LinkedHashMap::new
+                ));
+        if (usersById.isEmpty()) {
+            return;
+        }
+
+        Set<UUID> userIdsWithPublishedAccountKeys = userEncryptionAccountKeyRepository
+                .findAllByUserIdIn(List.copyOf(usersById.keySet())).stream()
+                .map(UserEncryptionAccountKey::getUserId)
+                .collect(Collectors.toSet());
+        if (userIdsWithPublishedAccountKeys.containsAll(usersById.keySet())) {
+            return;
+        }
+
+        throw new ResponseStatusException(HttpStatus.CONFLICT, MISSING_ACCOUNT_ENCRYPTION_MESSAGE);
+    }
+
     public Map<UUID, Boolean> resolveOnlineByUserIds(Collection<UUID> userIds) {
         if (userIds.isEmpty()) {
             return Map.of();
@@ -661,7 +701,6 @@ public class AuthService {
                     existing.update(
                             snapshotPayloadJson,
                             wrappedIdentityRecordJson,
-                            existing.getAccountPublicKey(),
                             wrappedPasswordVersion,
                             now
                     );
@@ -672,7 +711,6 @@ public class AuthService {
                         userId,
                         snapshotPayloadJson,
                         wrappedIdentityRecordJson,
-                        null,
                         wrappedPasswordVersion,
                         now,
                         now

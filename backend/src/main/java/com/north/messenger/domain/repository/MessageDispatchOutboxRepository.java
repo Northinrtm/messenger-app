@@ -11,10 +11,27 @@ import org.springframework.data.repository.query.Param;
 
 public interface MessageDispatchOutboxRepository extends JpaRepository<MessageDispatchOutboxEntry, UUID> {
 
+    long countByProcessedAtIsNull();
+
+    long countByProcessedAtIsNullAndAvailableAtLessThanEqual(Instant availableAt);
+
     List<MessageDispatchOutboxEntry> findAllByProcessedAtIsNullAndAvailableAtLessThanEqualOrderByCreatedAtAsc(
             Instant availableAt,
             Pageable pageable
     );
+
+    List<MessageDispatchOutboxEntry> findAllByProcessedAtBeforeOrderByProcessedAtAsc(
+            Instant processedBefore,
+            Pageable pageable
+    );
+
+    @Query("""
+            select min(entry.availableAt)
+            from MessageDispatchOutboxEntry entry
+            where entry.processedAt is null
+              and entry.availableAt <= :availableAt
+            """)
+    Instant findOldestDueAvailableAt(@Param("availableAt") Instant availableAt);
 
     @Query(
             value = """

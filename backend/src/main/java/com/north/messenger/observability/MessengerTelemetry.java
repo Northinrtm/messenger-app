@@ -139,21 +139,6 @@ public class MessengerTelemetry {
         log.warn("Message dispatch skipped because payload was missing chatId={} messageId={} source={}", chatId, messageId, source);
     }
 
-    public void recordMessagePayloadStorageSource(String source, String scope, int count) {
-        if (count <= 0) {
-            return;
-        }
-
-        Counter.builder("messenger.message.payload.storage.total")
-                .description("Encrypted message payload storage source usage")
-                .tags(
-                        "source", source,
-                        "scope", scope
-                )
-                .register(meterRegistry)
-                .increment(count);
-    }
-
     public void recordChatSummaryBroadcast(
             Timer.Sample sample,
             ChatRoom room,

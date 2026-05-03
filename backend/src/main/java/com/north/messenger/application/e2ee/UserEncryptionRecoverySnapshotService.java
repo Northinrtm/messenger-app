@@ -2,15 +2,11 @@ package com.north.messenger.application.e2ee;
 
 import com.north.messenger.api.dto.UserEncryptionRecoverySnapshotRequest;
 import com.north.messenger.api.dto.UserEncryptionRecoverySnapshotResponse;
-import com.north.messenger.api.dto.UserEncryptionAccountKeyResolveResponse;
-import com.north.messenger.api.dto.ResolveEncryptionAccountKeysRequest;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.domain.model.UserEncryptionRecoverySnapshot;
 import com.north.messenger.domain.repository.UserEncryptionRecoverySnapshotRepository;
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,21 +37,6 @@ public class UserEncryptionRecoverySnapshotService {
                 ));
     }
 
-    public List<UserEncryptionAccountKeyResolveResponse> resolveAccountPublicKeys(
-            String username,
-            String accessToken,
-            ResolveEncryptionAccountKeysRequest request
-    ) {
-        authService.requireAuthenticatedSession(username, accessToken);
-        return userEncryptionRecoverySnapshotRepository.findAllByUserIdIn(request.userIds()).stream()
-                .filter(snapshot -> snapshot.getAccountPublicKey() != null && !snapshot.getAccountPublicKey().isBlank())
-                .map(snapshot -> new UserEncryptionAccountKeyResolveResponse(
-                        snapshot.getUserId(),
-                        snapshot.getAccountPublicKey()
-                ))
-                .collect(Collectors.toList());
-    }
-
     @Transactional
     public UserEncryptionRecoverySnapshotResponse upsertOwnRecoverySnapshot(
             String username,
@@ -65,14 +46,13 @@ public class UserEncryptionRecoverySnapshotService {
         AuthService.AuthenticatedSession authenticatedSession =
                 authService.requireAuthenticatedSession(username, accessToken);
         Instant now = Instant.now();
+        UUID userId = authenticatedSession.user().getId();
 
-        UserEncryptionRecoverySnapshot snapshot = userEncryptionRecoverySnapshotRepository
-                .findByUserId(authenticatedSession.user().getId())
+        UserEncryptionRecoverySnapshot snapshot = userEncryptionRecoverySnapshotRepository.findByUserId(userId)
                 .map(existing -> {
                     existing.update(
                             request.snapshotPayloadJson(),
                             request.wrappedIdentityRecordJson(),
-                            request.accountPublicKey(),
                             authenticatedSession.user().getPasswordVersion(),
                             now
                     );
@@ -80,10 +60,9 @@ public class UserEncryptionRecoverySnapshotService {
                 })
                 .orElseGet(() -> new UserEncryptionRecoverySnapshot(
                         UUID.randomUUID(),
-                        authenticatedSession.user().getId(),
+                        userId,
                         request.snapshotPayloadJson(),
                         request.wrappedIdentityRecordJson(),
-                        request.accountPublicKey(),
                         authenticatedSession.user().getPasswordVersion(),
                         now,
                         now
@@ -96,7 +75,6 @@ public class UserEncryptionRecoverySnapshotService {
         return new UserEncryptionRecoverySnapshotResponse(
                 snapshot.getSnapshotPayloadJson(),
                 snapshot.getWrappedIdentityRecordJson(),
-                snapshot.getAccountPublicKey(),
                 snapshot.getWrappedPasswordVersion(),
                 snapshot.getCreatedAt(),
                 snapshot.getUpdatedAt()

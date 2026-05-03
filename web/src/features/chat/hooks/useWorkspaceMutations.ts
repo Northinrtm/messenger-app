@@ -18,7 +18,6 @@ import {
   logout,
   removeGroupParticipant as removeGroupParticipantRequest,
   removeContact as removeContactRequest,
-  retireOwnEncryptionDevice,
   revokeGroupModerator as revokeGroupModeratorRequest,
   revokeSession,
   resendOwnEmailVerification,
@@ -34,7 +33,6 @@ import type {
   ChatPrejoinHistoryPolicy,
   ChatSummary,
   Participant,
-  UserEncryptionDevice,
   UserProfile,
   UserSessionInfo,
   VideoConference,
@@ -247,19 +245,7 @@ export function useWorkspaceMutations({
   const addGroupParticipantsMutation = useMutation({
     mutationFn: (participantUsernames: string[]) =>
       addGroupParticipants(token, activeChat!.id, { participantUsernames }),
-    onSuccess: async (chat) => {
-      if (!chat.direct) {
-        try {
-          const { grantGroupHistoryAccessForParticipants } = await import("../../../lib/e2ee");
-          await grantGroupHistoryAccessForParticipants(token, chat.id, chat.members, {
-            currentUserId: currentSession.user.id,
-            session: currentSession,
-            force: true,
-          });
-        } catch {
-          // History-key grant is best-effort here; the regular live E2EE flow still remains usable.
-        }
-      }
+    onSuccess: (chat) => {
       queryClient.setQueryData<ChatSummary[]>(["chats", token], (current) => upsertChat(current, chat));
       setGroupInviteUsernames([]);
       setIsGroupInvitePickerOpen(false);
@@ -475,16 +461,6 @@ export function useWorkspaceMutations({
       queryClient.setQueryData<UserProfile[]>(["contacts", token], (current) =>
         current?.filter((item) => item.username !== blockedUser.username) ?? []
       );
-    },
-  });
-
-  const retireEncryptionDeviceMutation = useMutation({
-    mutationFn: (deviceId: string) => retireOwnEncryptionDevice(token, deviceId),
-    onSuccess: (_, deviceId) => {
-      queryClient.setQueryData(["encryption-devices", token], (current: UserEncryptionDevice[] | undefined) =>
-        current?.filter((item) => item.deviceId !== deviceId) ?? []
-      );
-      void queryClient.invalidateQueries({ queryKey: ["encryption-devices", token] });
     },
   });
 
@@ -723,7 +699,6 @@ export function useWorkspaceMutations({
     removeContact,
     removeContactMutation,
     revokeGroupModeratorMutation,
-    retireEncryptionDeviceMutation,
     revokeSessionMutation,
     resendOwnEmailVerificationMutation,
     signOutMutation,

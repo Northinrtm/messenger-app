@@ -106,8 +106,6 @@ app:
       from-address: ${APP_AUTH_PASSWORD_RESET_FROM_ADDRESS:${SPRING_MAIL_USERNAME:}}
   cors:
     allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:5173}
-  e2ee:
-    max-active-devices-per-user: ${APP_E2EE_MAX_ACTIVE_DEVICES_PER_USER:8}
   realtime:
     broker:
       mode: ${APP_REALTIME_BROKER_MODE:simple}
@@ -136,12 +134,29 @@ app:
     refresh-token-ttl: ${APP_JWT_REFRESH_TOKEN_TTL:P30D}
     secret: ${APP_JWT_SECRET:}
     generate-secret-if-missing: ${APP_JWT_GENERATE_SECRET_IF_MISSING:false}
+  e2ee:
+    escrow:
+      secret: ${APP_E2EE_ESCROW_SECRET:}
+      generate-secret-if-missing: ${APP_E2EE_ESCROW_GENERATE_SECRET_IF_MISSING:true}
   outbox:
     message-dispatch:
       batch-size: ${APP_OUTBOX_MESSAGE_DISPATCH_BATCH_SIZE:128}
       max-batches-per-drain: ${APP_OUTBOX_MESSAGE_DISPATCH_MAX_BATCHES_PER_DRAIN:16}
       poll-fixed-delay-ms: ${APP_OUTBOX_MESSAGE_DISPATCH_POLL_FIXED_DELAY_MS:1000}
       retry-delay-ms: ${APP_OUTBOX_MESSAGE_DISPATCH_RETRY_DELAY_MS:3000}
+      retention: ${APP_OUTBOX_MESSAGE_DISPATCH_RETENTION:P7D}
+      cleanup-batch-size: ${APP_OUTBOX_MESSAGE_DISPATCH_CLEANUP_BATCH_SIZE:500}
+      cleanup-max-batches-per-run: ${APP_OUTBOX_MESSAGE_DISPATCH_CLEANUP_MAX_BATCHES_PER_RUN:8}
+      cleanup-fixed-delay-ms: ${APP_OUTBOX_MESSAGE_DISPATCH_CLEANUP_FIXED_DELAY_MS:3600000}
+    e2ee-maintenance:
+      batch-size: ${APP_OUTBOX_E2EE_MAINTENANCE_BATCH_SIZE:128}
+      max-batches-per-drain: ${APP_OUTBOX_E2EE_MAINTENANCE_MAX_BATCHES_PER_DRAIN:16}
+      poll-fixed-delay-ms: ${APP_OUTBOX_E2EE_MAINTENANCE_POLL_FIXED_DELAY_MS:1000}
+      retry-delay-ms: ${APP_OUTBOX_E2EE_MAINTENANCE_RETRY_DELAY_MS:3000}
+      retention: ${APP_OUTBOX_E2EE_MAINTENANCE_RETENTION:P7D}
+      cleanup-batch-size: ${APP_OUTBOX_E2EE_MAINTENANCE_CLEANUP_BATCH_SIZE:500}
+      cleanup-max-batches-per-run: ${APP_OUTBOX_E2EE_MAINTENANCE_CLEANUP_MAX_BATCHES_PER_RUN:8}
+      cleanup-fixed-delay-ms: ${APP_OUTBOX_E2EE_MAINTENANCE_CLEANUP_FIXED_DELAY_MS:3600000}
   async:
     message-dispatch:
       core-pool-size: ${APP_ASYNC_MESSAGE_DISPATCH_CORE_POOL_SIZE:4}
@@ -151,6 +166,10 @@ app:
       core-pool-size: ${APP_ASYNC_PUSH_NOTIFICATION_CORE_POOL_SIZE:2}
       max-pool-size: ${APP_ASYNC_PUSH_NOTIFICATION_MAX_POOL_SIZE:8}
       queue-capacity: ${APP_ASYNC_PUSH_NOTIFICATION_QUEUE_CAPACITY:200}
+    e2ee-maintenance:
+      core-pool-size: ${APP_ASYNC_E2EE_MAINTENANCE_CORE_POOL_SIZE:2}
+      max-pool-size: ${APP_ASYNC_E2EE_MAINTENANCE_MAX_POOL_SIZE:8}
+      queue-capacity: ${APP_ASYNC_E2EE_MAINTENANCE_QUEUE_CAPACITY:1000}
   media:
     conference-recordings:
       directory: ${APP_MEDIA_CONFERENCE_RECORDINGS_DIRECTORY:./storage/conference-recordings}

@@ -11,7 +11,6 @@ import jakarta.validation.Validator;
 import java.security.Principal;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -47,8 +46,8 @@ class MessageWebSocketControllerTest {
                 "client-message-id",
                 null,
                 new EncryptedMessagePayloadRequest(
-                        "X3DH-DEVICE-AES-GCM",
-                        Map.of("device-id", "{\"ciphertext\":\"payload\"}")
+                        "CHAT-EPOCH-KEY-AES-GCM",
+                        "{\"aadVersion\":1,\"chatId\":\"chat-id\",\"senderUserId\":\"user-id\",\"historyKeyId\":\"history-key-id\",\"ciphertext\":\"payload\",\"iv\":\"012345678901\"}"
                 )
         );
         MessageResponse response = new MessageResponse(
@@ -81,8 +80,8 @@ class MessageWebSocketControllerTest {
                 " ",
                 null,
                 new EncryptedMessagePayloadRequest(
-                        "X3DH-DEVICE-AES-GCM",
-                        Map.of("device-id", "{\"ciphertext\":\"payload\"}")
+                        "CHAT-EPOCH-KEY-AES-GCM",
+                        "{\"aadVersion\":1,\"chatId\":\"chat-id\",\"senderUserId\":\"user-id\",\"historyKeyId\":\"history-key-id\",\"ciphertext\":\"payload\",\"iv\":\"012345678901\"}"
                 )
         );
         Principal principal = () -> "north";
@@ -115,14 +114,14 @@ class MessageWebSocketControllerTest {
                 "client-message-id",
                 null,
                 new EncryptedMessagePayloadRequest(
-                        "X3DH-DEVICE-AES-GCM",
-                        Map.of("device-id", "{\"ciphertext\":\"payload\"}")
+                        "CHAT-EPOCH-KEY-AES-GCM",
+                        "{\"aadVersion\":1,\"chatId\":\"chat-id\",\"senderUserId\":\"user-id\",\"historyKeyId\":\"history-key-id\",\"ciphertext\":\"payload\",\"iv\":\"012345678901\"}"
                 )
         );
         Principal principal = () -> "north";
 
         when(messageService.sendMessage(chatId, "north", request))
-                .thenThrow(new ResponseStatusException(HttpStatus.CONFLICT, "Encrypted chat is still initializing on this device. Try again."));
+                .thenThrow(new ResponseStatusException(HttpStatus.CONFLICT, "Encrypted chat is still initializing. Try again."));
 
         controller.sendMessage(principal, chatId, request);
 

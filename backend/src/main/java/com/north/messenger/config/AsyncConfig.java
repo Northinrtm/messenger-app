@@ -45,6 +45,23 @@ public class AsyncConfig {
         );
     }
 
+    @Bean(name = "e2eeMaintenanceExecutor")
+    public Executor e2eeMaintenanceExecutor(
+            MeterRegistry meterRegistry,
+            @Value("${app.async.e2ee-maintenance.core-pool-size:2}") int corePoolSize,
+            @Value("${app.async.e2ee-maintenance.max-pool-size:8}") int maxPoolSize,
+            @Value("${app.async.e2ee-maintenance.queue-capacity:1000}") int queueCapacity
+    ) {
+        return buildMonitoredExecutor(
+                meterRegistry,
+                "e2ee-maintenance-",
+                corePoolSize,
+                maxPoolSize,
+                queueCapacity,
+                "messenger.e2ee.maintenance.executor"
+        );
+    }
+
     private Executor buildMonitoredExecutor(
             MeterRegistry meterRegistry,
             String threadNamePrefix,

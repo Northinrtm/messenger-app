@@ -1,8 +1,5 @@
 import { ApiError } from "./api";
-import {
-  ENCRYPTION_IDENTITY_CHANGED_MESSAGE,
-  ENCRYPTION_INITIALIZING_MESSAGE,
-} from "./e2eeShared";
+import { ENCRYPTION_INITIALIZING_MESSAGE } from "./e2eeShared";
 import type { SendDiagnosticRecord, SendDiagnosticStep } from "./sendDiagnostics";
 
 export type NormalizedSendFailureCategory =
@@ -21,7 +18,6 @@ export type NormalizedSendFailureCode =
   | "realtime_ack_timeout"
   | "message_preparation_timeout"
   | "encryption_initializing"
-  | "encryption_identity_changed"
   | "encryption_error"
   | "auth_session_ended"
   | "duplicate_pending"
@@ -124,9 +120,7 @@ export function getSendFailureDisplayLabel(
     case "message_preparation_timeout":
       return "Encryption timed out";
     case "encryption_initializing":
-      return "Encryption device is not ready";
-    case "encryption_identity_changed":
-      return "Device trust changed";
+      return "Encryption is not ready";
     case "auth_session_ended":
       return "Session ended";
     case "duplicate_pending":
@@ -210,13 +204,6 @@ function classifySendFailure(status: number | null, message: string): Pick<
     };
   }
 
-  if (message === ENCRYPTION_IDENTITY_CHANGED_MESSAGE) {
-    return {
-      category: "encryption",
-      code: "encryption_identity_changed",
-    };
-  }
-
   if (status === 409 && message === "Message send is already pending") {
     return {
       category: "request",
@@ -271,12 +258,7 @@ function classifySendFailure(status: number | null, message: string): Pick<
   }
 
   const normalizedMessage = message.toLowerCase();
-  if (
-    normalizedMessage.includes("encrypted") ||
-    normalizedMessage.includes("encryption") ||
-    normalizedMessage.includes("device envelope") ||
-    normalizedMessage.includes("device session")
-  ) {
+  if (normalizedMessage.includes("encrypted") || normalizedMessage.includes("encryption")) {
     return {
       category: "encryption",
       code: "encryption_error",

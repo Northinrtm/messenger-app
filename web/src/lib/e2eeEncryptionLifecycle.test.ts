@@ -18,7 +18,6 @@ describe("e2eeEncryptionLifecycle", () => {
     const ensureE2eeTransportStorageSchema = vi.fn();
     const rememberRecoverySyncSession = vi.fn();
     const rememberUnlockedIdentity = vi.fn(async () => {});
-    const ensureRegisteredEncryptionDevice = vi.fn(async () => {});
     const syncEncryptionRecoverySnapshot = vi.fn(async () => {});
     const ensureAccountKeyPair = vi.fn(async (_userId, identity) => identity);
 
@@ -32,18 +31,15 @@ describe("e2eeEncryptionLifecycle", () => {
         privateKey: "vault-private",
       }),
       rememberUnlockedIdentity,
-      ensureRegisteredEncryptionDevice,
       syncEncryptionRecoverySnapshot,
       ensureAccountKeyPair,
       readRememberedUnlockedIdentity: vi.fn(async () => null),
       writeUnlockedIdentity: vi.fn(),
       restoreEncryptionRecoverySnapshot: vi.fn(async () => null),
-      listOwnEncryptionDevices: vi.fn(async () => []),
       createLocalVaultIdentity: vi.fn(() => ({
         publicKey: "local-device-vault",
         privateKey: "vault-private",
       })),
-      encryptionRecoveryExistingChatsMessage: "existing",
     });
 
     expect(ensureE2eeTransportStorageSchema).toHaveBeenCalled();
@@ -56,36 +52,41 @@ describe("e2eeEncryptionLifecycle", () => {
       publicKey: "local-device-vault",
       privateKey: "vault-private",
     }, "password");
-    expect(ensureRegisteredEncryptionDevice).toHaveBeenCalledWith(session);
     expect(syncEncryptionRecoverySnapshot).toHaveBeenCalledWith(session);
   });
 
-  it("throws when existing encrypted devices are present and no identity can be restored", async () => {
-    await expect(
-      ensureEncryptionReady({
-        session: session as never,
-        password: "password",
-        ensureE2eeTransportStorageSchema: vi.fn(),
-        rememberRecoverySyncSession: vi.fn(),
-        readUnlockedIdentity: () => null,
-        rememberUnlockedIdentity: vi.fn(async () => {}),
-        ensureRegisteredEncryptionDevice: vi.fn(async () => {}),
-        syncEncryptionRecoverySnapshot: vi.fn(async () => {}),
-        ensureAccountKeyPair: vi.fn(async (_userId, identity) => identity),
-        readRememberedUnlockedIdentity: vi.fn(async () => null),
-        writeUnlockedIdentity: vi.fn(),
-        restoreEncryptionRecoverySnapshot: vi.fn(async () => null),
-        listOwnEncryptionDevices: vi.fn(async () => [{ id: "device" }]),
-        createLocalVaultIdentity: vi.fn(() => ({
-          publicKey: "local-device-vault",
-          privateKey: "vault-private",
-        })),
-        encryptionRecoveryExistingChatsMessage: "existing encrypted chats",
-      })
-    ).rejects.toMatchObject({
-      message: "existing encrypted chats",
-      status: 409,
+  it("creates a new local vault identity when nothing can be restored", async () => {
+    const createLocalVaultIdentity = vi.fn(() => ({
+      publicKey: "local-device-vault",
+      privateKey: "vault-private",
+    }));
+    const writeUnlockedIdentity = vi.fn();
+    const rememberUnlockedIdentity = vi.fn(async () => {});
+
+    await ensureEncryptionReady({
+      session: session as never,
+      password: "password",
+      ensureE2eeTransportStorageSchema: vi.fn(),
+      rememberRecoverySyncSession: vi.fn(),
+      readUnlockedIdentity: () => null,
+      rememberUnlockedIdentity,
+      syncEncryptionRecoverySnapshot: vi.fn(async () => {}),
+      ensureAccountKeyPair: vi.fn(async (_userId, identity) => identity),
+      readRememberedUnlockedIdentity: vi.fn(async () => null),
+      writeUnlockedIdentity,
+      restoreEncryptionRecoverySnapshot: vi.fn(async () => null),
+      createLocalVaultIdentity,
     });
+
+    expect(createLocalVaultIdentity).toHaveBeenCalled();
+    expect(writeUnlockedIdentity).toHaveBeenCalledWith("self", {
+      publicKey: "local-device-vault",
+      privateKey: "vault-private",
+    });
+    expect(rememberUnlockedIdentity).toHaveBeenCalledWith("self", {
+      publicKey: "local-device-vault",
+      privateKey: "vault-private",
+    }, "password");
   });
 
   it("rejects empty password on reset", async () => {
@@ -95,8 +96,7 @@ describe("e2eeEncryptionLifecycle", () => {
         password: "   ",
         ensureE2eeTransportStorageSchema: vi.fn(),
         clearUnlockedEncryptionState: vi.fn(),
-        removeTrustedDeviceUnlockRecord: vi.fn(),
-        clearPinnedDeviceBundleRecords: vi.fn(),
+        removeTrustedBrowserUnlockRecord: vi.fn(),
         clearStoredArchivedDecryptedMessageRecords: vi.fn(async () => {}),
         rememberRecoverySyncSession: vi.fn(),
         createLocalVaultIdentity: vi.fn(() => ({
@@ -106,7 +106,6 @@ describe("e2eeEncryptionLifecycle", () => {
         ensureAccountKeyPair: vi.fn(async (_userId, identity) => identity),
         writeUnlockedIdentity: vi.fn(),
         rememberUnlockedIdentity: vi.fn(async () => {}),
-        ensureRegisteredEncryptionDevice: vi.fn(async () => {}),
         syncEncryptionRecoverySnapshot: vi.fn(async () => {}),
       })
     ).rejects.toMatchObject({

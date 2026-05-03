@@ -1,11 +1,11 @@
 import {
   type InfiniteData,
   useMutation,
+  useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
 import {
   type ComponentProps,
-  useDeferredValue,
   useEffect,
   useEffectEvent,
   type CSSProperties,
@@ -23,6 +23,7 @@ import {
   createConferenceInviteLink as createConferenceInviteLinkRequest,
   createGroupInviteLink as createGroupInviteLinkRequest,
   createVideoConference as createVideoConferenceRequest,
+  getWorkspaceBootstrap,
   deleteOwnAccount as deleteOwnAccountRequest,
   deleteChat as deleteChatRequest,
   describeError,
@@ -49,8 +50,6 @@ import {
 } from "../../lib/pushNotifications";
 import { rememberCurrentBuildRevision } from "../../lib/messageHydrationDiagnostics";
 import {
-  clearPinnedEncryptionIdentity,
-  isEncryptionIdentityChangedError,
   isUnavailableEncryptedMessage,
 } from "../../lib/e2eeShared";
 import type {
@@ -66,7 +65,6 @@ import type {
   VideoConference,
 } from "../../lib/types";
 import {
-  applyChatPreviewOverrides,
   buildMessagesQueryKey,
   clearChatUnreadCount,
   getMessageIdentityKey,
@@ -181,9 +179,9 @@ const MESSAGE_QUERY_GC_TIME_MS = 30 * 60_000;
 const TYPING_QUERY_GC_TIME_MS = 15_000;
 const SEARCH_QUERY_GC_TIME_MS = 30_000;
 const CONFERENCE_ACTIVATION_LEAD_MS = 5 * 60 * 1000;
-const CHAT_ENCRYPTION_WARNING_GRACE_MS = 500;
 const BUILD_META_POLL_MS = 60_000;
 const BUILD_UPDATE_AUTO_RELOAD_DELAY_MS = 1_500;
+const WORKSPACE_BOOTSTRAP_STALE_TIME_MS = 15_000;
 const GROUP_HISTORY_ACCESS_NOTICE_COPY = {
   pendingTitle:
     "\u0418\u0441\u0442\u043e\u0440\u0438\u044f encrypted-\u0447\u0430\u0442\u0430 \u043f\u043e\u0434\u0433\u043e\u0442\u0430\u0432\u043b\u0438\u0432\u0430\u0435\u0442\u0441\u044f",
@@ -209,13 +207,6 @@ const initialPushNotificationState = (): PushNotificationClientState => ({
   subscribed: false,
   permission: isPushNotificationSupported() ? Notification.permission : "unsupported",
 });
-
-type ChatEncryptionIdentityWarning = {
-  chatId: string;
-  participantIds: string[];
-  errorText: string | null;
-  isVisible: boolean;
-};
 
 type BuildRevisionMeta = {
   revision: string;
@@ -298,9 +289,6 @@ export function NorthMessengerWorkspace({
   const [groupInviteCodesByChatId, setGroupInviteCodesByChatId] = useState<Record<string, string>>({});
   const [conferenceInviteCodesById, setConferenceInviteCodesById] = useState<Record<string, string>>({});
   const [pendingGroupMenuOpenChatId, setPendingGroupMenuOpenChatId] = useState<string | null>(null);
-  const [chatEncryptionIdentityWarning, setChatEncryptionIdentityWarning] =
-    useState<ChatEncryptionIdentityWarning | null>(null);
-  const [isRecoveringEncryptionIdentity, setIsRecoveringEncryptionIdentity] = useState(false);
   const [pushNotificationState, setPushNotificationState] =
     useState<PushNotificationClientState>(initialPushNotificationState);
   const [pushNotificationPending, setPushNotificationPending] = useState(false);
@@ -320,8 +308,6 @@ export function NorthMessengerWorkspace({
   const handledRealtimeMessageIdsRef = useRef(new Map<string, true>());
   const conferenceListScrollRef = useRef<HTMLDivElement | null>(null);
   const conferenceSurfaceRef = useRef<HTMLDivElement | null>(null);
-  const deferredSearch = useDeferredValue(search);
-  const deferredContactSearch = useDeferredValue(contactSearch);
   const { sidebarWidth, startSidebarResize } = useSidebarResize();
 
   useEffect(() => {
@@ -470,6 +456,43 @@ export function NorthMessengerWorkspace({
     openMessageContextMenu,
     setContextMenu,
   } = useContextMenu();
+  const workspaceBootstrapQuery = useQuery({
+    queryKey: ["workspace-bootstrap", session.token],
+    queryFn: () => getWorkspaceBootstrap(session.token),
+    staleTime: WORKSPACE_BOOTSTRAP_STALE_TIME_MS,
+  });
+  const workspaceBootstrapReady =
+    workspaceBootstrapQuery.isSuccess || workspaceBootstrapQuery.isError;
+  const workspaceBootstrapData = workspaceBootstrapQuery.data;
+  const workspaceBootstrapUpdatedAt = workspaceBootstrapData
+    ? workspaceBootstrapQuery.dataUpdatedAt
+    : undefined;
+  useEffect(() => {
+    if (!workspaceBootstrapData) {
+      return;
+    }
+
+    queryClient.setQueryData(["profile", session.token], workspaceBootstrapData.profile);
+    queryClient.setQueryData(["chats", session.token], workspaceBootstrapData.chats);
+    queryClient.setQueryData(
+      ["archived-chats", session.token],
+      workspaceBootstrapData.archivedChatIds
+    );
+    queryClient.setQueryData(["contacts", session.token], workspaceBootstrapData.contacts);
+    queryClient.setQueryData(
+      ["blocked-users", session.token],
+      workspaceBootstrapData.blockedUsers
+    );
+    queryClient.setQueryData(["drafts", session.token], workspaceBootstrapData.drafts);
+    queryClient.setQueryData(
+      ["video-conferences", session.token],
+      workspaceBootstrapData.conferences
+    );
+    queryClient.setQueryData(
+      ["video-conferences-archive", session.token],
+      workspaceBootstrapData.archivedConferences
+    );
+  }, [queryClient, session.token, workspaceBootstrapData]);
   const {
     activeDraft,
     clearDraftForChat,
@@ -482,11 +505,12 @@ export function NorthMessengerWorkspace({
     setDraftsByChatId,
   } = useChatDrafts({
     activeChatId,
+    bootstrapReady: workspaceBootstrapReady,
+    initialDrafts: workspaceBootstrapData?.drafts,
+    initialDraftsUpdatedAt: workspaceBootstrapUpdatedAt,
     queryClient,
     token: session.token,
-    userId: session.user.id,
   });
-  const deferredDraftsByChatId = useDeferredValue(draftsByChatId);
   const {
     clearTypingParticipant,
     handleComposerChange,
@@ -562,8 +586,6 @@ export function NorthMessengerWorkspace({
     conferencesQuery,
     contactsQuery,
     contactsSearchQuery,
-    currentEncryptionDeviceQuery,
-    encryptionDevicesQuery,
     messages,
     messagesQuery,
     pendingOutgoingMessagesQuery,
@@ -576,12 +598,15 @@ export function NorthMessengerWorkspace({
     isActiveChatOpen,
     activeListTab,
     activePendingOutgoingCount,
+    bootstrapReady: workspaceBootstrapReady,
+    contactSearchText: contactSearch,
     currentUser: session.user,
-    deferredContactSearch,
-    deferredSearch,
+    initialWorkspaceBootstrap: workspaceBootstrapData,
+    initialWorkspaceBootstrapUpdatedAt: workspaceBootstrapUpdatedAt,
     isRealtimeConnected,
     messageQueryGcTimeMs: MESSAGE_QUERY_GC_TIME_MS,
     searchQueryGcTimeMs: SEARCH_QUERY_GC_TIME_MS,
+    searchText: search,
     sessionToken: session.token,
     sidebarSheet,
     typingQueryGcTimeMs: TYPING_QUERY_GC_TIME_MS,
@@ -591,60 +616,28 @@ export function NorthMessengerWorkspace({
   const serverChats = chatsQuery.data ?? [];
   const archivedChatIds = archivedChatsQuery.data ?? [];
   const archivedChatIdSet = useMemo(() => new Set(archivedChatIds), [archivedChatIds]);
-  const normalizedSearch = deferredSearch.trim().toLowerCase();
+  const normalizedSearch = search.trim().toLowerCase();
   const listedServerChats = useMemo(
     () => serverChats.filter((chat) => !chat.direct || chat.lastMessageAt !== null),
     [serverChats]
   );
-  const filteredServerChats = useMemo(
-    () =>
-      !normalizedSearch
-        ? listedServerChats
-        : listedServerChats.filter((chat) => {
-            return (
-              chat.title.toLowerCase().includes(normalizedSearch) ||
-              chat.members.some((member) =>
-                `${member.username} ${member.displayName}`.toLowerCase().includes(normalizedSearch)
-              )
-            );
-          }),
-    [listedServerChats, normalizedSearch]
-  );
   const visibleServerChats = useMemo(
-    () => filteredServerChats.filter((chat) => !archivedChatIdSet.has(chat.id)),
-    [archivedChatIdSet, filteredServerChats]
-  );
-  const previewHydrationChats = useMemo(
-    () =>
-      sidebarSheet === "archive"
-        ? listedServerChats.filter((chat) => archivedChatIdSet.has(chat.id))
-        : activeListTab === "chats"
-          ? visibleServerChats
-          : [],
-    [activeListTab, archivedChatIdSet, listedServerChats, sidebarSheet, visibleServerChats]
+    () => listedServerChats.filter((chat) => !archivedChatIdSet.has(chat.id)),
+    [archivedChatIdSet, listedServerChats]
   );
   const {
     applyChatPreviewMessage,
     applyServerChatPreviewMessage,
-    chatPreviewOverrides,
     clearChatPreviewOverride,
     refreshChatPreviewFromServer,
     syncChatPinnedSummary,
     syncChatPreviewFromCache,
   } = useChatPreviews({
-    archivedChatIds,
     formatPreviewText: buildChatListPreviewText,
-    previewHydrationChats,
     queryClient,
     token: session.token,
-    userId: session.user.id,
   });
-  const chats = useMemo(
-    () => applyChatPreviewOverrides(serverChats, chatPreviewOverrides),
-    [chatPreviewOverrides, serverChats]
-  );
-  const currentEncryptionDeviceId = currentEncryptionDeviceQuery.data ?? null;
-  const encryptionDevices = encryptionDevicesQuery.data ?? [];
+  const chats = serverChats;
   const sessions = sessionsQuery.data ?? [];
   const profile = profileQuery.data ?? session.user;
   const deleteAccountRequiresMatch =
@@ -654,17 +647,22 @@ export function NorthMessengerWorkspace({
   const blockedUsers = blockedUsersQuery.data ?? [];
   const conferences = conferencesQuery.data ?? [];
   const archivedConferences = archivedConferencesQuery.data ?? [];
-  const userSearchResults = userSearchQuery.data ?? [];
-  const contactSearchResults = contactsSearchQuery.data ?? [];
-  const chatsLoading = chatsQuery.data === undefined && chatsQuery.isFetching;
-  const encryptionDevicesLoading =
-    encryptionDevicesQuery.data === undefined && encryptionDevicesQuery.isFetching;
+  const userSearchResults = userSearchQuery.data?.users ?? [];
+  const contactSearchResults = contactsSearchQuery.data?.users ?? [];
+  const workspaceBootstrapLoading = workspaceBootstrapQuery.isPending;
+  const chatsLoading =
+    workspaceBootstrapLoading || (chatsQuery.data === undefined && chatsQuery.isFetching);
   const sessionsLoading = sessionsQuery.data === undefined && sessionsQuery.isFetching;
-  const archivedChatsLoading = archivedChatsQuery.data === undefined && archivedChatsQuery.isFetching;
-  const contactsLoading = contactsQuery.data === undefined && contactsQuery.isFetching;
-  const conferencesLoading = conferencesQuery.data === undefined && conferencesQuery.isFetching;
+  const archivedChatsLoading =
+    workspaceBootstrapLoading ||
+    (archivedChatsQuery.data === undefined && archivedChatsQuery.isFetching);
+  const contactsLoading =
+    workspaceBootstrapLoading || (contactsQuery.data === undefined && contactsQuery.isFetching);
+  const conferencesLoading =
+    workspaceBootstrapLoading || (conferencesQuery.data === undefined && conferencesQuery.isFetching);
   const archivedConferencesLoading =
-    archivedConferencesQuery.data === undefined && archivedConferencesQuery.isFetching;
+    workspaceBootstrapLoading ||
+    (archivedConferencesQuery.data === undefined && archivedConferencesQuery.isFetching);
   const allConferences = useMemo(
     () => mergeVideoConferenceCollections(conferences, archivedConferences),
     [archivedConferences, conferences]
@@ -684,24 +682,6 @@ export function NorthMessengerWorkspace({
     () => chats.filter((chat) => !chat.direct || chat.lastMessageAt !== null),
     [chats]
   );
-  const filteredChats = useMemo(
-    () =>
-      !normalizedSearch
-        ? listedChats
-        : listedChats.filter((chat) => {
-            return (
-              chat.title.toLowerCase().includes(normalizedSearch) ||
-              chat.members.some((member) =>
-                `${member.username} ${member.displayName}`.toLowerCase().includes(normalizedSearch)
-              )
-            );
-          }),
-    [listedChats, normalizedSearch]
-  );
-  const visibleChats = useMemo(
-    () => filteredChats.filter((chat) => !archivedChatIdSet.has(chat.id)),
-    [archivedChatIdSet, filteredChats]
-  );
   const nonArchivedChats = useMemo(
     () => listedChats.filter((chat) => !archivedChatIdSet.has(chat.id)),
     [archivedChatIdSet, listedChats]
@@ -709,6 +689,14 @@ export function NorthMessengerWorkspace({
   const archivedChats = useMemo(
     () => listedChats.filter((chat) => archivedChatIdSet.has(chat.id)),
     [archivedChatIdSet, listedChats]
+  );
+  const searchedVisibleChats = useMemo(
+    () => userSearchQuery.data?.chats ?? [],
+    [userSearchQuery.data?.chats]
+  );
+  const visibleChats = useMemo(
+    () => (normalizedSearch ? searchedVisibleChats : nonArchivedChats),
+    [nonArchivedChats, normalizedSearch, searchedVisibleChats]
   );
   const groupContacts = useMemo(
     () => contacts.filter((contact) => contact.username !== session.user.username),
@@ -734,20 +722,8 @@ export function NorthMessengerWorkspace({
     [contacts, directChatUsernames, session.user.username]
   );
   const visibleConferences = useMemo(
-    () =>
-      !normalizedSearch
-        ? listedConferences
-        : listedConferences.filter((conference) => {
-            const participantText = conference.participants
-              .map((participant) => `${participant.username} ${participant.displayName}`)
-              .join(" ")
-              .toLowerCase();
-            return (
-              conference.title.toLowerCase().includes(normalizedSearch) ||
-              participantText.includes(normalizedSearch)
-            );
-          }),
-    [listedConferences, normalizedSearch]
+    () => (normalizedSearch ? userSearchQuery.data?.conferences ?? [] : listedConferences),
+    [listedConferences, normalizedSearch, userSearchQuery.data?.conferences]
   );
   const latestUnreadChatActivityAt = getLatestUnreadChatActivityAt(nonArchivedChats);
   const currentConferenceActivitySnapshot = useMemo(
@@ -811,51 +787,7 @@ export function NorthMessengerWorkspace({
   );
   const activeChatCanModerateMembers = activeChatIsOwnedByCurrentUser || activeChatIsModerator;
   const activeChatCanShareInviteLink = activeChatIsOwnedByCurrentUser || activeChatIsModerator;
-  const activeChatEncryptionWarning =
-    activeChat &&
-    chatEncryptionIdentityWarning?.chatId === activeChat.id &&
-    chatEncryptionIdentityWarning.isVisible
-      ? {
-          title: "Нужно обновить чат",
-          description:
-            "Данные чата изменились. Обновите чат, чтобы снова отправлять и редактировать сообщения.",
-          errorText: chatEncryptionIdentityWarning.errorText,
-          actionLabel: "Обновить чат",
-          isPending: isRecoveringEncryptionIdentity,
-        }
-      : null;
-  const markActiveChatEncryptionIdentityWarning = useEffectEvent(
-    (chatId: string, participantIds: string[], errorText: string | null = null) => {
-      setChatEncryptionIdentityWarning((current) => {
-        if (
-          current?.chatId === chatId &&
-          current.errorText === errorText &&
-          current.participantIds.length === participantIds.length &&
-          current.participantIds.every((participantId, index) => participantId === participantIds[index])
-        ) {
-          return current;
-        }
-
-        return {
-          chatId,
-          participantIds,
-          errorText,
-          isVisible: false,
-        };
-      });
-    }
-  );
-  const clearActiveChatEncryptionIdentityWarning = useEffectEvent((chatId?: string) => {
-    setChatEncryptionIdentityWarning((current) => {
-      if (!current) {
-        return null;
-      }
-      if (!chatId || current.chatId === chatId) {
-        return null;
-      }
-      return current;
-    });
-  });
+  const activeChatEncryptionWarning = null;
   const primeEncryptionRecipients = useEffectEvent(
     async (participants: Participant[], forceRefresh = false) => {
       const { primeEncryptedMessageRecipients } = await import("../../lib/e2ee");
@@ -866,12 +798,6 @@ export function NorthMessengerWorkspace({
       });
     }
   );
-  const refreshEncryptionIdentityForChat = useEffectEvent(async (chat: ChatSummary) => {
-    chat.members.forEach((participant) => {
-      clearPinnedEncryptionIdentity(participant.id);
-    });
-    await primeEncryptionRecipients(chat.members, true);
-  });
   const refreshPushNotifications = useEffectEvent(async () => {
     const nextState = await getPushNotificationState(session.token);
     setPushNotificationState(nextState);
@@ -1192,42 +1118,15 @@ export function NorthMessengerWorkspace({
     }
 
     let cancelled = false;
-    void primeEncryptionRecipients(activeChat.members)
-      .then(() => {
-        if (cancelled) {
-          return;
-        }
-        clearActiveChatEncryptionIdentityWarning(activeChat.id);
-      })
-      .catch((error) => {
-        if (cancelled) {
-          return;
-        }
+    void primeEncryptionRecipients(activeChat.members).catch((error) => {
+      if (cancelled) {
+        return;
+      }
 
-        if (error instanceof ApiError && error.status === 401) {
-          onSessionChange(null);
-          return;
-        }
-
-        if (isEncryptionIdentityChangedError(error)) {
-          void refreshEncryptionIdentityForChat(activeChat)
-            .then(() => {
-              if (cancelled) {
-                return;
-              }
-              clearActiveChatEncryptionIdentityWarning(activeChat.id);
-            })
-            .catch((recoveryError) => {
-              if (cancelled) {
-                return;
-              }
-
-              if (recoveryError instanceof ApiError && recoveryError.status === 401) {
-                onSessionChange(null);
-              }
-            });
-        }
-      });
+      if (error instanceof ApiError && error.status === 401) {
+        onSessionChange(null);
+      }
+    });
 
     return () => {
       cancelled = true;
@@ -1247,43 +1146,9 @@ export function NorthMessengerWorkspace({
   }, [activeChatId, activeConferenceId]);
 
   useEffect(() => {
-    clearActiveChatEncryptionIdentityWarning(activeChatId ?? undefined);
-    setIsRecoveringEncryptionIdentity(false);
     sendMessageMutation.reset();
     editMessageMutation.reset();
   }, [activeChatId, session.sessionId, session.user.id]);
-
-  useEffect(() => {
-    if (!chatEncryptionIdentityWarning || chatEncryptionIdentityWarning.isVisible) {
-      return;
-    }
-
-    const timerId = window.setTimeout(() => {
-      setChatEncryptionIdentityWarning((current) => {
-        if (
-          !current ||
-          current.isVisible ||
-          current.chatId !== chatEncryptionIdentityWarning.chatId ||
-          current.errorText !== chatEncryptionIdentityWarning.errorText ||
-          current.participantIds.length !== chatEncryptionIdentityWarning.participantIds.length ||
-          !current.participantIds.every(
-            (participantId, index) => participantId === chatEncryptionIdentityWarning.participantIds[index]
-          )
-        ) {
-          return current;
-        }
-
-        return {
-          ...current,
-          isVisible: true,
-        };
-      });
-    }, CHAT_ENCRYPTION_WARNING_GRACE_MS);
-
-    return () => {
-      window.clearTimeout(timerId);
-    };
-  }, [chatEncryptionIdentityWarning]);
 
   useEffect(() => {
     if (
@@ -1588,49 +1453,7 @@ export function NorthMessengerWorkspace({
     clearMessageSelection();
   });
 
-  const handleRecoverEncryptionIdentity = useEffectEvent(async () => {
-    if (
-      !activeChat ||
-      !chatEncryptionIdentityWarning ||
-      chatEncryptionIdentityWarning.chatId !== activeChat.id ||
-      isRecoveringEncryptionIdentity
-    ) {
-      return;
-    }
-
-    setIsRecoveringEncryptionIdentity(true);
-    sendMessageMutation.reset();
-    editMessageMutation.reset();
-    setChatEncryptionIdentityWarning((current) =>
-      current && current.chatId === activeChat.id
-        ? {
-            ...current,
-            errorText: null,
-          }
-        : current
-    );
-
-    try {
-      await refreshEncryptionIdentityForChat(activeChat);
-      setChatEncryptionIdentityWarning(null);
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 401) {
-        onSessionChange(null);
-        return;
-      }
-
-      setChatEncryptionIdentityWarning((current) =>
-        current && current.chatId === activeChat.id
-          ? {
-              ...current,
-              errorText: "Не удалось обновить чат. Попробуйте еще раз.",
-            }
-          : current
-      );
-    } finally {
-      setIsRecoveringEncryptionIdentity(false);
-    }
-  });
+  const handleRecoverEncryptionIdentity = useEffectEvent(() => undefined);
 
   const handleDownloadAttachment = useEffectEvent(
     async (chatId: string, attachment: ChatMessageAttachment) => {
@@ -1659,37 +1482,6 @@ export function NorthMessengerWorkspace({
     }
   );
 
-  useEffect(() => {
-    if (!activeChat) {
-      return;
-    }
-
-    const mismatchError =
-      sendMessageMutation.variables?.chatId === activeChat.id &&
-      isEncryptionIdentityChangedError(sendMessageMutation.error)
-        ? sendMessageMutation.error
-        : editMessageMutation.variables?.chatId === activeChat.id &&
-            isEncryptionIdentityChangedError(editMessageMutation.error)
-          ? editMessageMutation.error
-          : null;
-
-    if (!mismatchError) {
-      return;
-    }
-
-    markActiveChatEncryptionIdentityWarning(
-      activeChat.id,
-      activeChat.members.map((member) => member.id),
-      null
-    );
-  }, [
-    activeChat,
-    editMessageMutation.error,
-    editMessageMutation.variables,
-    sendMessageMutation.error,
-    sendMessageMutation.variables,
-  ]);
-
   const {
     addConferenceParticipantsMutation,
     addContact,
@@ -1712,7 +1504,6 @@ export function NorthMessengerWorkspace({
     removeContact,
     removeContactMutation,
     revokeGroupModeratorMutation,
-    retireEncryptionDeviceMutation,
     revokeSessionMutation,
     resendOwnEmailVerificationMutation,
     signOutMutation,
@@ -2218,7 +2009,7 @@ export function NorthMessengerWorkspace({
 
   const { errorText, showContactSearchResults, tabChats, tabChatsEmptyText } = useWorkspaceStatus({
     activeListTab,
-    deferredContactSearch,
+    contactSearch,
     errors: [
       acceptInviteMutation.error,
       createChatMutation.error,
@@ -2237,7 +2028,6 @@ export function NorthMessengerWorkspace({
       revokeGroupModeratorMutation.error,
       addConferenceParticipantsMutation.error,
       addGroupParticipantsMutation.error,
-      isEncryptionIdentityChangedError(sendMessageMutation.error) ||
       isTransientSendConfirmationError(sendMessageMutation.error)
         ? null
         : sendMessageMutation.error,
@@ -2250,7 +2040,7 @@ export function NorthMessengerWorkspace({
       updateArchivedChatMutation.error,
       deleteChatMutation.error,
       deleteMessageMutation.error,
-      isEncryptionIdentityChangedError(editMessageMutation.error) ? null : editMessageMutation.error,
+      editMessageMutation.error,
       pinMessageMutation.error,
       forwardMessageMutation.error,
       toggleMessageReactionMutation.error,
@@ -2258,9 +2048,8 @@ export function NorthMessengerWorkspace({
       removeContactMutation.error,
       blockUserMutation.error,
       unblockUserMutation.error,
+      workspaceBootstrapQuery.error,
       chatsQuery.error,
-      encryptionDevicesQuery.error,
-      retireEncryptionDeviceMutation.error,
       sessionsQuery.error,
       profileQuery.error,
       archivedChatsQuery.error,
@@ -2277,7 +2066,9 @@ export function NorthMessengerWorkspace({
     onUnauthorized: () => onSessionChange(null),
     visibleChats,
   });
-  const showTopSearchResults = deferredSearch.trim().length > 0;
+  const showTopSearchResults = search.trim().length > 0;
+  const userSearchIsPending = showTopSearchResults && userSearchQuery.isFetching;
+  const contactSearchIsPending = showContactSearchResults && contactsSearchQuery.isFetching;
   const chatListContent = useMemo(
     () => (
       <ChatListPanel
@@ -2295,7 +2086,7 @@ export function NorthMessengerWorkspace({
         tabChatsEmptyText={tabChatsEmptyText}
         activeChatId={activeChat?.id ?? null}
         typingByChatId={typingByChatId}
-        draftsByChatId={deferredDraftsByChatId}
+        draftsByChatId={draftsByChatId}
         openConference={openConference}
         openChat={openChat}
         openChatContextMenu={openChatContextMenu}
@@ -2317,7 +2108,7 @@ export function NorthMessengerWorkspace({
       chatsLoading,
       conferenceBrowserMode,
       conferencesLoading,
-      deferredDraftsByChatId,
+      draftsByChatId,
       normalizedSearch,
       openChat,
       openChatContextMenu,
@@ -2450,9 +2241,6 @@ export function NorthMessengerWorkspace({
     contactSearchResults,
     contacts,
     contactsLoading,
-    encryptionDevices,
-    encryptionDevicesLoading,
-    currentEncryptionDeviceId,
     sessions,
     sessionsLoading,
     activeChat,
@@ -2491,8 +2279,7 @@ export function NorthMessengerWorkspace({
     pushNotificationsInfo: pushNotificationInfo,
     pushNotificationsError: pushNotificationError,
     revokeSessionPending: revokeSessionMutation.isPending,
-    retireEncryptionDevicePending: retireEncryptionDeviceMutation.isPending,
-    contactSearchFetching: contactsSearchQuery.isFetching,
+    contactSearchFetching: contactSearchIsPending,
     onClose: () => setSidebarSheet(null),
     onProfileDisplayNameChange: setProfileDisplayName,
     onProfileProfessionChange: setProfileProfession,
@@ -2529,7 +2316,6 @@ export function NorthMessengerWorkspace({
     onAddContact: handleAddContact,
     onRemoveContact: removeContact,
     onCreateChat: (username) => createChatMutation.mutate(username),
-    onRetireEncryptionDevice: (deviceId) => retireEncryptionDeviceMutation.mutate(deviceId),
     onRevokeSession: (sessionId) => revokeSessionMutation.mutate(sessionId),
     formatProfileDate,
     formatSessionTime,
@@ -2823,7 +2609,7 @@ export function NorthMessengerWorkspace({
         sidebarManagementSheetProps={sidebarManagementSheetProps}
         sidebarSheet={sidebarSheet}
         sidebarUtilitySheetProps={sidebarUtilitySheetProps}
-        userSearchIsFetching={userSearchQuery.isFetching}
+        userSearchIsFetching={userSearchIsPending}
         userSearchResults={userSearchResults}
       />
 

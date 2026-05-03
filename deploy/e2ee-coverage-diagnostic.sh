@@ -126,35 +126,19 @@ where r.id = :'chat_id'::uuid
 group by r.id, r.title, r.is_direct, r.created_at;
 
 \echo ''
-\echo '== Participants And Active Devices =='
-with valid_signed_prekeys as (
-  select device_id, count(*) as valid_prekeys
-  from user_encryption_signed_prekeys
-  where retired_at is null
-    and (expires_at is null or expires_at > now())
-  group by device_id
-)
+\echo '== Participants And Account Keys =='
 select u.username,
        u.display_name,
        to_char(p.joined_at at time zone 'Europe/Moscow', 'YYYY-MM-DD HH24:MI:SS') as joined_msk,
-       count(d.id) filter (where d.retired_at is null) as active_devices,
-       count(d.id) filter (
-         where d.retired_at is null and coalesce(vsp.valid_prekeys, 0) > 0
-       ) as active_devices_with_valid_prekey,
-       string_agg(
-         left(d.id::text, 8) || ':' ||
-           coalesce(to_char(d.last_seen_at at time zone 'Europe/Moscow', 'MM-DD HH24:MI'), '?') ||
-           case when d.retired_at is null then '' else ':retired' end,
-         ', '
-         order by d.last_seen_at desc
-       ) as devices
+       (account_key.public_key is not null and length(account_key.public_key) > 0) as has_account_key,
+       snapshot.wrapped_password_version,
+       to_char(snapshot.updated_at at time zone 'Europe/Moscow', 'YYYY-MM-DD HH24:MI:SS') as snapshot_updated_msk
 from chat_participants p
 join app_users u on u.id = p.user_id
-left join user_encryption_devices d on d.user_id = u.id
-left join valid_signed_prekeys vsp on vsp.device_id = d.id
+left join user_encryption_account_keys account_key on account_key.user_id = u.id
+left join user_encryption_recovery_snapshots snapshot on snapshot.user_id = u.id
 where p.chat_id = :'chat_id'::uuid
-group by u.username, u.display_name, p.joined_at
-order by p.joined_at;
+order by p.joined_at, u.username;
 
 \echo ''
 \echo '== Messages =='
@@ -170,12 +154,8 @@ select m.id,
        to_char(m.created_at at time zone 'Europe/Moscow', 'YYYY-MM-DD HH24:MI:SS') as created_msk,
        sender.username as sender,
        m.encryption_scheme,
-       coalesce((
-         select count(*)
-         from jsonb_object_keys(coalesce(nullif(m.encrypted_keys_json, ''), '{}')::jsonb)
-       ), 0) as live_key_count,
+       m.content is not null and length(m.content) > 0 as has_shared_envelope,
        m.history_key_id is not null as has_history_key,
-       m.history_envelope_json is not null and length(m.history_envelope_json) > 0 as has_history_envelope,
        left(coalesce(m.history_key_id::text, ''), 8) as history_key_short,
        left(coalesce(m.reply_to_message_id::text, ''), 8) as reply_to_short
 from selected_messages m
@@ -184,23 +164,14 @@ order by m.created_at desc;
 
 \echo ''
 \echo '== Missing Coverage Summary =='
-with valid_signed_prekeys as (
-  select device_id
-  from user_encryption_signed_prekeys
-  where retired_at is null
-    and (expires_at is null or expires_at > now())
-), participant_devices as (
+with participant_users as (
   select p.chat_id,
          p.joined_at,
          u.id as user_id,
-         u.username,
-         d.id as device_id
+         u.username
   from chat_participants p
   join app_users u on u.id = p.user_id
-  join user_encryption_devices d on d.user_id = u.id
-  join valid_signed_prekeys vsp on vsp.device_id = d.id
   where p.chat_id = :'chat_id'::uuid
-    and d.retired_at is null
 ), selected_messages as (
   select m.*
   from chat_messages m
@@ -208,65 +179,49 @@ with valid_signed_prekeys as (
     and (nullif(:'message_id', '') is null or m.id = nullif(:'message_id', '')::uuid)
   order by m.created_at desc
   limit :message_limit
-), message_live_keys as (
-  select m.id as message_id, key::uuid as device_id
-  from selected_messages m
-  cross join lateral jsonb_object_keys(coalesce(nullif(m.encrypted_keys_json, ''), '{}')::jsonb) as key
 ), history_access as (
-  select history_key_id, recipient_device_id
-  from chat_history_key_access
+  select history_key_id, recipient_user_id
+  from chat_history_key_user_access
 ), coverage as (
   select m.id as message_id,
          m.created_at,
          sender.username as sender,
-         pd.username as recipient,
-         pd.device_id,
-         pd.joined_at,
-         (mlk.device_id is not null) as has_live_key,
-         (m.history_envelope_json is not null and length(m.history_envelope_json) > 0) as has_history_envelope,
-         (ha.recipient_device_id is not null) as has_history_access
+         pu.username as recipient,
+         pu.joined_at,
+         (m.sender_id = pu.user_id) as is_sender,
+         (m.history_key_id is not null) as has_history_key,
+         (ha.recipient_user_id is not null) as has_history_access
   from selected_messages m
   join app_users sender on sender.id = m.sender_id
-  cross join participant_devices pd
-  left join message_live_keys mlk on mlk.message_id = m.id and mlk.device_id = pd.device_id
-  left join history_access ha on ha.history_key_id = m.history_key_id and ha.recipient_device_id = pd.device_id
+  cross join participant_users pu
+  left join history_access ha on ha.history_key_id = m.history_key_id and ha.recipient_user_id = pu.user_id
 )
 select left(message_id::text, 8) as msg,
        to_char(created_at at time zone 'Europe/Moscow', 'YYYY-MM-DD HH24:MI:SS') as created_msk,
        sender,
-       count(*) as active_devices,
-       count(*) filter (where has_live_key) as live_covered,
-       count(*) filter (where has_history_envelope and has_history_access) as history_covered,
-       count(*) filter (where not (has_live_key or (has_history_envelope and has_history_access))) as missing_devices,
+       count(*) as participants,
+       count(*) filter (where is_sender) as sender_rows,
+       count(*) filter (where has_history_key and has_history_access) as history_covered,
+       count(*) filter (where not (is_sender or (has_history_key and has_history_access))) as missing_users,
        string_agg(
-         recipient || ':' || left(device_id::text, 8) ||
-           case when joined_at > created_at then ':joined_after' else '' end,
+         recipient || case when joined_at > created_at then ':joined_after' else '' end,
          ', '
-         order by recipient, device_id
-       ) filter (where not (has_live_key or (has_history_envelope and has_history_access))) as missing
+         order by recipient
+       ) filter (where not (is_sender or (has_history_key and has_history_access))) as missing
 from coverage
 group by message_id, created_at, sender
 order by created_at desc;
 
 \echo ''
-\echo '== Per-Device Coverage =='
-with valid_signed_prekeys as (
-  select device_id
-  from user_encryption_signed_prekeys
-  where retired_at is null
-    and (expires_at is null or expires_at > now())
-), participant_devices as (
+\echo '== Per-User Coverage =='
+with participant_users as (
   select p.chat_id,
          p.joined_at,
          u.id as user_id,
-         u.username,
-         d.id as device_id
+         u.username
   from chat_participants p
   join app_users u on u.id = p.user_id
-  join user_encryption_devices d on d.user_id = u.id
-  join valid_signed_prekeys vsp on vsp.device_id = d.id
   where p.chat_id = :'chat_id'::uuid
-    and d.retired_at is null
 ), selected_messages as (
   select m.*
   from chat_messages m
@@ -274,32 +229,26 @@ with valid_signed_prekeys as (
     and (nullif(:'message_id', '') is null or m.id = nullif(:'message_id', '')::uuid)
   order by m.created_at desc
   limit :message_limit
-), message_live_keys as (
-  select m.id as message_id, key::uuid as device_id
-  from selected_messages m
-  cross join lateral jsonb_object_keys(coalesce(nullif(m.encrypted_keys_json, ''), '{}')::jsonb) as key
 ), history_access as (
-  select history_key_id, recipient_device_id
-  from chat_history_key_access
+  select history_key_id, recipient_user_id
+  from chat_history_key_user_access
 )
 select left(m.id::text, 8) as msg,
        to_char(m.created_at at time zone 'Europe/Moscow', 'HH24:MI:SS') as time_msk,
        sender.username as sender,
-       pd.username as recipient,
-       left(pd.device_id::text, 8) as device,
-       pd.joined_at > m.created_at as joined_after_message,
-       (mlk.device_id is not null) as has_live_key,
-       (m.history_envelope_json is not null and length(m.history_envelope_json) > 0) as has_history_envelope,
-       (ha.recipient_device_id is not null) as has_history_access,
-       ((mlk.device_id is not null) or (
-         m.history_envelope_json is not null and length(m.history_envelope_json) > 0 and ha.recipient_device_id is not null
-       )) as can_receive
+       pu.username as recipient,
+       pu.joined_at > m.created_at as joined_after_message,
+       (m.sender_id = pu.user_id) as is_sender,
+       (m.history_key_id is not null) as has_history_key,
+       (ha.recipient_user_id is not null) as has_history_access,
+       ((m.sender_id = pu.user_id) or (
+         m.history_key_id is not null and ha.recipient_user_id is not null
+       )) as can_read
 from selected_messages m
 join app_users sender on sender.id = m.sender_id
-cross join participant_devices pd
-left join message_live_keys mlk on mlk.message_id = m.id and mlk.device_id = pd.device_id
-left join history_access ha on ha.history_key_id = m.history_key_id and ha.recipient_device_id = pd.device_id
-order by m.created_at desc, pd.username, pd.device_id;
+cross join participant_users pu
+left join history_access ha on ha.history_key_id = m.history_key_id and ha.recipient_user_id = pu.user_id
+order by m.created_at desc, pu.username;
 
 \echo ''
 \echo '== History Keys =='
@@ -307,12 +256,29 @@ select left(h.id::text, 8) as history_key,
        to_char(h.created_at at time zone 'Europe/Moscow', 'YYYY-MM-DD HH24:MI:SS') as created_msk,
        creator.username as created_by,
        count(a.id) as grants,
+       count(e.id) as escrow_records,
        string_agg(distinct u.username, ', ' order by u.username) as granted_users
 from chat_history_keys h
 join app_users creator on creator.id = h.created_by_user_id
-left join chat_history_key_access a on a.history_key_id = h.id
+left join chat_history_key_user_access a on a.history_key_id = h.id
 left join app_users u on u.id = a.recipient_user_id
+left join chat_history_key_escrow e on e.history_key_id = h.id
 where h.chat_id = :'chat_id'::uuid
 group by h.id, h.created_at, creator.username
 order by h.created_at desc;
+
+\echo ''
+\echo '== Backfill Status =='
+select recipient.username as recipient,
+       status.state,
+       status.required_history_key_count,
+       status.granted_history_key_count,
+       grantor.username as primary_grantor,
+       to_char(status.joined_at at time zone 'Europe/Moscow', 'YYYY-MM-DD HH24:MI:SS') as joined_msk,
+       to_char(status.completed_at at time zone 'Europe/Moscow', 'YYYY-MM-DD HH24:MI:SS') as completed_msk
+from chat_history_backfill_status status
+join app_users recipient on recipient.id = status.recipient_user_id
+left join app_users grantor on grantor.id = status.primary_grantor_user_id
+where status.chat_id = :'chat_id'::uuid
+order by status.joined_at, recipient.username;
 SQL

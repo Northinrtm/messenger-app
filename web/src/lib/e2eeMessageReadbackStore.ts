@@ -11,172 +11,17 @@ export type RememberedDecryptedMessageArchiveRecord = {
   archivedAt: string;
 };
 
-export type OutgoingMessageMirrorRecord = {
-  messageId: string;
-  clientMessageId: string | null;
-  chatId: string;
-  content: string;
-  createdAt: string;
-  editedAt: string | null;
-  mirroredAt: string;
-  attachments: ChatMessageAttachment[];
-};
-
 export function createE2eeMessageReadbackStore(options: {
-  outgoingMessageMirrorStoragePrefix: string;
   decryptedMessageArchiveStoragePrefix: string;
   decryptedMessageArchiveDbName: string;
   decryptedMessageArchiveDbVersion: number;
   decryptedMessageArchiveStoreName: string;
   decryptedMessageArchiveChatIndexName: string;
-  outgoingMessageMirrorTtlMs: number;
-  outgoingMessageMirrorMaxRecords: number;
-  normalizeAttachments: (value: unknown) => ChatMessageAttachment[];
-  isUnavailableEncryptedMessage: (value: string) => boolean;
 }) {
   let decryptedMessageArchiveDbPromise: Promise<IDBDatabase> | null = null;
 
-  function getOutgoingMessageMirrorStorageKey(userId: string) {
-    return `${options.outgoingMessageMirrorStoragePrefix}${userId}`;
-  }
-
   function getDecryptedMessageArchiveStorageKey(userId: string) {
     return `${options.decryptedMessageArchiveStoragePrefix}${userId}`;
-  }
-
-  function readOutgoingMessageMirrorRecords(userId: string): OutgoingMessageMirrorRecord[] {
-    if (typeof window === "undefined") {
-      return [];
-    }
-
-    try {
-      const raw = window.localStorage.getItem(getOutgoingMessageMirrorStorageKey(userId));
-      if (!raw) {
-        return [];
-      }
-
-      const parsed = JSON.parse(raw) as unknown;
-      if (!Array.isArray(parsed)) {
-        return [];
-      }
-
-      return trimOutgoingMessageMirrorRecords(parsed.filter(isOutgoingMessageMirrorRecordCandidate));
-    } catch {
-      return [];
-    }
-  }
-
-  function writeOutgoingMessageMirrorRecords(
-    userId: string,
-    records: OutgoingMessageMirrorRecord[]
-  ) {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    try {
-      if (records.length === 0) {
-        window.localStorage.removeItem(getOutgoingMessageMirrorStorageKey(userId));
-        return;
-      }
-
-      window.localStorage.setItem(getOutgoingMessageMirrorStorageKey(userId), JSON.stringify(records));
-    } catch {
-      return;
-    }
-  }
-
-  function trimOutgoingMessageMirrorRecords(records: OutgoingMessageMirrorRecord[]) {
-    const cutoffMs = Date.now() - options.outgoingMessageMirrorTtlMs;
-    return [...records]
-      .filter((record) => {
-        const mirroredAtMs = Date.parse(record.mirroredAt);
-        return !Number.isNaN(mirroredAtMs) && mirroredAtMs >= cutoffMs;
-      })
-      .sort((left, right) => right.mirroredAt.localeCompare(left.mirroredAt))
-      .slice(0, options.outgoingMessageMirrorMaxRecords);
-  }
-
-  function isOutgoingMessageMirrorRecordCandidate(
-    candidate: unknown
-  ): candidate is OutgoingMessageMirrorRecord {
-    if (!candidate || typeof candidate !== "object") {
-      return false;
-    }
-
-    const record = candidate as Record<string, unknown>;
-    return (
-      typeof record.messageId === "string" &&
-      typeof record.chatId === "string" &&
-      typeof record.content === "string" &&
-      typeof record.createdAt === "string" &&
-      (record.editedAt === null || typeof record.editedAt === "string") &&
-      (record.clientMessageId === null || typeof record.clientMessageId === "string") &&
-      typeof record.mirroredAt === "string" &&
-      Array.isArray(record.attachments)
-    );
-  }
-
-  function rememberOutgoingMessageMirror(
-    userId: string,
-    message: Pick<
-      ChatMessage,
-      "id" | "chatId" | "content" | "createdAt" | "editedAt" | "attachments" | "clientMessageId"
-    >
-  ) {
-    if (
-      typeof window === "undefined" ||
-      !message.content.trim() ||
-      options.isUnavailableEncryptedMessage(message.content)
-    ) {
-      return;
-    }
-
-    try {
-      const nextRecord: OutgoingMessageMirrorRecord = {
-        messageId: message.id,
-        clientMessageId: message.clientMessageId ?? null,
-        chatId: message.chatId,
-        content: message.content,
-        createdAt: message.createdAt,
-        editedAt: message.editedAt,
-        mirroredAt: new Date().toISOString(),
-        attachments: options.normalizeAttachments(message.attachments ?? []),
-      };
-      const nextRecords = trimOutgoingMessageMirrorRecords([
-        nextRecord,
-        ...readOutgoingMessageMirrorRecords(userId).filter(
-          (record) =>
-            record.messageId !== nextRecord.messageId &&
-            (!nextRecord.clientMessageId || record.clientMessageId !== nextRecord.clientMessageId)
-        ),
-      ]);
-      writeOutgoingMessageMirrorRecords(userId, nextRecords);
-    } catch {
-      return;
-    }
-  }
-
-  function readOutgoingMessageMirror(
-    userId: string,
-    message: Pick<ApiChatMessage, "id" | "chatId" | "clientMessageId" | "sender">,
-    currentUserId: string
-  ) {
-    if (typeof window === "undefined" || message.sender.id !== currentUserId) {
-      return null;
-    }
-
-    const records = readOutgoingMessageMirrorRecords(userId);
-    return (
-      records.find((record) => record.messageId === message.id && record.chatId === message.chatId) ??
-      records.find(
-        (record) =>
-          Boolean(message.clientMessageId) &&
-          record.clientMessageId === message.clientMessageId &&
-          record.chatId === message.chatId
-      ) ??
-      null
-    );
   }
 
   function normalizeArchivedDecryptedMessageRecord(
@@ -505,8 +350,6 @@ export function createE2eeMessageReadbackStore(options: {
   }
 
   return {
-    rememberOutgoingMessageMirror,
-    readOutgoingMessageMirror,
     writeArchivedDecryptedMessageRecord,
     writeArchivedDecryptedMessageRecords,
     readStoredArchivedDecryptedMessageRecord,

@@ -1,117 +1,7 @@
 import type {
   GroupHistoryKeyRecord,
   GroupHistoryKeyState,
-  GroupInboundSenderChainRecord,
-  GroupSenderChainRecord,
-  GroupSenderChainState,
 } from "./e2eeGroupEngine";
-
-type RememberedGroupSenderChainStateRecord = {
-  salt: string;
-  iv: string;
-  ciphertext: string;
-  createdAt: string;
-};
-
-type UnlockedIdentityLike = {
-  privateKey: string;
-};
-
-function isValidGroupSenderChainRecord(
-  value: unknown
-): value is GroupSenderChainRecord {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const parsed = value as Partial<GroupSenderChainRecord>;
-  return (
-    typeof parsed.chatId === "string" &&
-    typeof parsed.ownMaterialId === "string" &&
-    typeof parsed.senderDeviceId === "string" &&
-    typeof parsed.senderKeyId === "string" &&
-    typeof parsed.recipientDeviceSetHash === "string" &&
-    typeof parsed.chainKey === "string" &&
-    typeof parsed.nextMessageCounter === "number" &&
-    typeof parsed.createdAt === "string"
-  );
-}
-
-function isValidGroupInboundSenderChainRecord(
-  value: unknown
-): value is GroupInboundSenderChainRecord {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const parsed = value as Partial<GroupInboundSenderChainRecord>;
-  return (
-    typeof parsed.chatId === "string" &&
-    typeof parsed.senderUserId === "string" &&
-    typeof parsed.senderDeviceId === "string" &&
-    typeof parsed.senderKeyId === "string" &&
-    typeof parsed.nextChainKey === "string" &&
-    typeof parsed.nextMessageCounter === "number" &&
-    typeof parsed.updatedAt === "string" &&
-    (typeof parsed.cachedMessageKeys === "undefined" ||
-      (parsed.cachedMessageKeys !== null &&
-        typeof parsed.cachedMessageKeys === "object" &&
-        Object.values(parsed.cachedMessageKeys).every(
-          (entry) => typeof entry === "string"
-        )))
-  );
-}
-
-function isValidGroupSenderChainCollection(
-  value: unknown
-): value is Record<string, GroupSenderChainRecord> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-
-  return Object.values(value).every((entry) =>
-    isValidGroupSenderChainRecord(entry)
-  );
-}
-
-function isValidGroupInboundSenderChainCollection(
-  value: unknown
-): value is Record<string, GroupInboundSenderChainRecord> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-
-  return Object.values(value).every((entry) =>
-    isValidGroupInboundSenderChainRecord(entry)
-  );
-}
-
-function normalizeGroupSenderChainState(
-  value: unknown
-): GroupSenderChainState | null {
-  if (
-    value &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    isValidGroupSenderChainCollection(
-      (value as Partial<GroupSenderChainState>).outboundChains ?? {}
-    ) &&
-    isValidGroupInboundSenderChainCollection(
-      (value as Partial<GroupSenderChainState>).inboundChains ?? {}
-    )
-  ) {
-    return value as GroupSenderChainState;
-  }
-
-  if (isValidGroupSenderChainCollection(value)) {
-    return {
-      outboundChains: value,
-      inboundChains: {},
-    };
-  }
-
-  return null;
-}
 
 function normalizeGroupHistoryKeyRecord(
   value: unknown
@@ -161,11 +51,30 @@ function normalizeGroupHistoryKeyState(
   );
   const keysById = Object.fromEntries(
     Object.entries(parsed.keysById)
-      .map(([keyId, entry]) => [keyId, normalizeGroupHistoryKeyRecord(entry)] as const)
+      .map(
+        ([keyId, entry]) =>
+          [keyId, normalizeGroupHistoryKeyRecord(entry)] as const
+      )
       .filter(
         (entry): entry is [string, GroupHistoryKeyRecord] => entry[1] !== null
       )
   );
+  const syncCursorByChatId =
+    parsed.syncCursorByChatId &&
+    typeof parsed.syncCursorByChatId === "object" &&
+    !Array.isArray(parsed.syncCursorByChatId)
+      ? Object.fromEntries(
+          Object.entries(parsed.syncCursorByChatId).filter(
+            (entry): entry is [string, string] =>
+              typeof entry[0] === "string" && typeof entry[1] === "string"
+          )
+        )
+      : {};
+  const fullySyncedChatIds = Array.isArray(parsed.fullySyncedChatIds)
+    ? parsed.fullySyncedChatIds.filter(
+        (value): value is string => typeof value === "string"
+      )
+    : [];
 
   return {
     currentKeyIdsByChatId: Object.fromEntries(
@@ -173,287 +82,10 @@ function normalizeGroupHistoryKeyState(
         Boolean(keysById[keyId])
       )
     ),
+    syncCursorByChatId,
+    fullySyncedChatIds,
     keysById,
   };
-}
-
-export async function encryptRememberedGroupSenderChainState(options: {
-  privateKey: string;
-  state: GroupSenderChainState;
-  randomBytes: (length: number) => Uint8Array;
-  deriveWrappingKey: (
-    privateKey: string,
-    salt: Uint8Array,
-    iterations: number
-  ) => Promise<CryptoKey>;
-  bytesToBase64: (bytes: Uint8Array) => string;
-  textEncoder: TextEncoder;
-  kdfIterations: number;
-}) {
-  const salt = options.randomBytes(16);
-  const iv = options.randomBytes(12);
-  const wrappingKey = await options.deriveWrappingKey(
-    options.privateKey,
-    salt,
-    options.kdfIterations
-  );
-  const ciphertext = await window.crypto.subtle.encrypt(
-    {
-      name: "AES-GCM",
-      iv: iv as BufferSource,
-    },
-    wrappingKey,
-    options.textEncoder.encode(JSON.stringify(options.state))
-  );
-
-  return {
-    salt: options.bytesToBase64(salt),
-    iv: options.bytesToBase64(iv),
-    ciphertext: options.bytesToBase64(new Uint8Array(ciphertext)),
-    createdAt: new Date().toISOString(),
-  } satisfies RememberedGroupSenderChainStateRecord;
-}
-
-export async function decryptRememberedGroupSenderChainState(options: {
-  privateKey: string;
-  record: RememberedGroupSenderChainStateRecord;
-  base64ToBytes: (value: string) => Uint8Array;
-  deriveWrappingKey: (
-    privateKey: string,
-    salt: Uint8Array,
-    iterations: number
-  ) => Promise<CryptoKey>;
-  textDecoder: TextDecoder;
-  kdfIterations: number;
-}) {
-  try {
-    const salt = options.base64ToBytes(options.record.salt);
-    const iv = options.base64ToBytes(options.record.iv);
-    const ciphertext = options.base64ToBytes(options.record.ciphertext);
-    const wrappingKey = await options.deriveWrappingKey(
-      options.privateKey,
-      salt,
-      options.kdfIterations
-    );
-    const plaintext = await window.crypto.subtle.decrypt(
-      {
-        name: "AES-GCM",
-        iv: iv as BufferSource,
-      },
-      wrappingKey,
-      ciphertext as BufferSource
-    );
-    return options.textDecoder.decode(plaintext);
-  } catch {
-    return null;
-  }
-}
-
-export async function readRememberedGroupSenderChainState(options: {
-  userId: string;
-  readUnlockedIdentity: (userId: string) => UnlockedIdentityLike | null;
-  getRememberedGroupSenderChainStorageKey: (userId: string) => string;
-  decryptRememberedGroupSenderChainState: (
-    privateKey: string,
-    record: RememberedGroupSenderChainStateRecord
-  ) => Promise<string | null>;
-  removeRememberedGroupSenderChainState: (userId: string) => void;
-}) {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const identity = options.readUnlockedIdentity(options.userId);
-  if (!identity) {
-    return null;
-  }
-
-  try {
-    const rawValue = window.localStorage.getItem(
-      options.getRememberedGroupSenderChainStorageKey(options.userId)
-    );
-    if (!rawValue) {
-      return null;
-    }
-
-    const parsedRecord =
-      JSON.parse(rawValue) as Partial<RememberedGroupSenderChainStateRecord>;
-    if (
-      typeof parsedRecord.salt !== "string" ||
-      typeof parsedRecord.iv !== "string" ||
-      typeof parsedRecord.ciphertext !== "string"
-    ) {
-      options.removeRememberedGroupSenderChainState(options.userId);
-      return null;
-    }
-
-    const stateJson = await options.decryptRememberedGroupSenderChainState(
-      identity.privateKey,
-      parsedRecord as RememberedGroupSenderChainStateRecord
-    );
-    if (!stateJson) {
-      options.removeRememberedGroupSenderChainState(options.userId);
-      return null;
-    }
-
-    const normalizedState = normalizeGroupSenderChainState(
-      JSON.parse(stateJson) as unknown
-    );
-    if (!normalizedState) {
-      options.removeRememberedGroupSenderChainState(options.userId);
-      return null;
-    }
-
-    return normalizedState;
-  } catch {
-    options.removeRememberedGroupSenderChainState(options.userId);
-    return null;
-  }
-}
-
-export async function rememberGroupSenderChainState(options: {
-  userId: string;
-  state: GroupSenderChainState;
-  readUnlockedIdentity: (userId: string) => UnlockedIdentityLike | null;
-  encryptRememberedGroupSenderChainState: (
-    privateKey: string,
-    state: GroupSenderChainState
-  ) => Promise<RememberedGroupSenderChainStateRecord>;
-  getRememberedGroupSenderChainStorageKey: (userId: string) => string;
-}) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  const identity = options.readUnlockedIdentity(options.userId);
-  if (!identity) {
-    return;
-  }
-
-  try {
-    const record = await options.encryptRememberedGroupSenderChainState(
-      identity.privateKey,
-      options.state
-    );
-    window.localStorage.setItem(
-      options.getRememberedGroupSenderChainStorageKey(options.userId),
-      JSON.stringify(record)
-    );
-  } catch {
-    return;
-  }
-}
-
-export async function readGroupSenderChainState(options: {
-  userId: string;
-  getGroupSenderChainStorageKey: (userId: string) => string;
-  readRememberedGroupSenderChainState: (
-    userId: string
-  ) => Promise<GroupSenderChainState | null>;
-  writeGroupSenderChainState: (userId: string, state: GroupSenderChainState) => void;
-  removeGroupSenderChains: (userId: string) => void;
-}) {
-  if (typeof window === "undefined") {
-    return {
-      outboundChains: {},
-      inboundChains: {},
-    } satisfies GroupSenderChainState;
-  }
-
-  try {
-    const rawValue = window.sessionStorage.getItem(
-      options.getGroupSenderChainStorageKey(options.userId)
-    );
-    if (rawValue) {
-      const parsedState = normalizeGroupSenderChainState(
-        JSON.parse(rawValue) as unknown
-      );
-      if (parsedState) {
-        return parsedState;
-      }
-      options.removeGroupSenderChains(options.userId);
-      return {
-        outboundChains: {},
-        inboundChains: {},
-      } satisfies GroupSenderChainState;
-    }
-
-    const rememberedState = await options.readRememberedGroupSenderChainState(
-      options.userId
-    );
-    if (rememberedState) {
-      options.writeGroupSenderChainState(options.userId, rememberedState);
-      return rememberedState;
-    }
-  } catch {
-    options.removeGroupSenderChains(options.userId);
-    return {
-      outboundChains: {},
-      inboundChains: {},
-    } satisfies GroupSenderChainState;
-  }
-
-  return {
-    outboundChains: {},
-    inboundChains: {},
-  } satisfies GroupSenderChainState;
-}
-
-export function writeGroupSenderChainState(options: {
-  userId: string;
-  state: GroupSenderChainState;
-  getGroupSenderChainStorageKey: (userId: string) => string;
-}) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.sessionStorage.setItem(
-      options.getGroupSenderChainStorageKey(options.userId),
-      JSON.stringify(options.state)
-    );
-  } catch {
-    return;
-  }
-}
-
-export function removeGroupSenderChains(options: {
-  userId: string;
-  getGroupSenderChainStorageKey: (userId: string) => string;
-  getRememberedGroupSenderChainStorageKey: (userId: string) => string;
-}) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.sessionStorage.removeItem(
-      options.getGroupSenderChainStorageKey(options.userId)
-    );
-    window.localStorage.removeItem(
-      options.getRememberedGroupSenderChainStorageKey(options.userId)
-    );
-  } catch {
-    return;
-  }
-}
-
-export function removeRememberedGroupSenderChainState(options: {
-  userId: string;
-  getRememberedGroupSenderChainStorageKey: (userId: string) => string;
-}) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.localStorage.removeItem(
-      options.getRememberedGroupSenderChainStorageKey(options.userId)
-    );
-  } catch {
-    return;
-  }
 }
 
 export async function readGroupHistoryKeyState(options: {
@@ -464,6 +96,8 @@ export async function readGroupHistoryKeyState(options: {
   if (typeof window === "undefined") {
     return {
       currentKeyIdsByChatId: {},
+      syncCursorByChatId: {},
+      fullySyncedChatIds: [],
       keysById: {},
     } satisfies GroupHistoryKeyState;
   }
@@ -475,6 +109,8 @@ export async function readGroupHistoryKeyState(options: {
     if (!rawValue) {
       return {
         currentKeyIdsByChatId: {},
+        syncCursorByChatId: {},
+        fullySyncedChatIds: [],
         keysById: {},
       } satisfies GroupHistoryKeyState;
     }
@@ -492,6 +128,8 @@ export async function readGroupHistoryKeyState(options: {
   options.removeGroupHistoryKeys(options.userId);
   return {
     currentKeyIdsByChatId: {},
+    syncCursorByChatId: {},
+    fullySyncedChatIds: [],
     keysById: {},
   } satisfies GroupHistoryKeyState;
 }
@@ -532,6 +170,30 @@ export function removeGroupHistoryKeys(options: {
   }
 }
 
+export async function clearCurrentGroupHistoryKeyRecord(options: {
+  userId: string;
+  chatId: string;
+  readGroupHistoryKeyState: (userId: string) => Promise<GroupHistoryKeyState>;
+  writeGroupHistoryKeyState: (
+    userId: string,
+    state: GroupHistoryKeyState
+  ) => void;
+}) {
+  const state = await options.readGroupHistoryKeyState(options.userId);
+  if (!state.currentKeyIdsByChatId[options.chatId]) {
+    return;
+  }
+
+  const nextCurrentKeyIdsByChatId = { ...state.currentKeyIdsByChatId };
+  delete nextCurrentKeyIdsByChatId[options.chatId];
+  options.writeGroupHistoryKeyState(options.userId, {
+    currentKeyIdsByChatId: nextCurrentKeyIdsByChatId,
+    syncCursorByChatId: state.syncCursorByChatId,
+    fullySyncedChatIds: state.fullySyncedChatIds,
+    keysById: state.keysById,
+  });
+}
+
 export async function persistGroupHistoryKeyRecord(options: {
   userId: string;
   record: GroupHistoryKeyRecord;
@@ -547,6 +209,15 @@ export async function persistGroupHistoryKeyRecord(options: {
       ...state.currentKeyIdsByChatId,
       [options.record.chatId]: options.record.historyKeyId,
     },
+    syncCursorByChatId: {
+      ...state.syncCursorByChatId,
+      [options.record.chatId]: advanceSyncCursor(
+        state.syncCursorByChatId[options.record.chatId] ?? null,
+        options.record.updatedAt,
+        options.record.historyKeyId
+      ),
+    },
+    fullySyncedChatIds: state.fullySyncedChatIds,
     keysById: {
       ...state.keysById,
       [options.record.historyKeyId]: options.record,
@@ -582,4 +253,72 @@ export async function readCurrentGroupHistoryKeyRecord(options: {
 
   const record = state.keysById[currentKeyId] ?? null;
   return record?.chatId === options.chatId ? record : null;
+}
+
+export async function readGroupHistorySyncState(options: {
+  userId: string;
+  chatId: string;
+  readGroupHistoryKeyState: (userId: string) => Promise<GroupHistoryKeyState>;
+}) {
+  const state = await options.readGroupHistoryKeyState(options.userId);
+  return {
+    cursor: state.syncCursorByChatId[options.chatId] ?? null,
+    fullySynced: state.fullySyncedChatIds.includes(options.chatId),
+  };
+}
+
+export async function writeGroupHistorySyncState(options: {
+  userId: string;
+  chatId: string;
+  cursor: string | null;
+  fullySynced: boolean;
+  readGroupHistoryKeyState: (userId: string) => Promise<GroupHistoryKeyState>;
+  writeGroupHistoryKeyState: (
+    userId: string,
+    state: GroupHistoryKeyState
+  ) => void;
+}) {
+  const state = await options.readGroupHistoryKeyState(options.userId);
+  const nextSyncCursorByChatId = { ...state.syncCursorByChatId };
+  if (options.cursor) {
+    nextSyncCursorByChatId[options.chatId] = options.cursor;
+  } else {
+    delete nextSyncCursorByChatId[options.chatId];
+  }
+  const nextFullySyncedChatIds = options.fullySynced
+    ? Array.from(new Set([...state.fullySyncedChatIds, options.chatId]))
+    : state.fullySyncedChatIds.filter((chatId) => chatId !== options.chatId);
+  options.writeGroupHistoryKeyState(options.userId, {
+    currentKeyIdsByChatId: state.currentKeyIdsByChatId,
+    syncCursorByChatId: nextSyncCursorByChatId,
+    fullySyncedChatIds: nextFullySyncedChatIds,
+    keysById: state.keysById,
+  });
+}
+
+function advanceSyncCursor(
+  currentCursor: string | null,
+  updatedAt: string,
+  historyKeyId: string
+) {
+  if (!currentCursor) {
+    return `${updatedAt}|${historyKeyId}`;
+  }
+
+  const separatorIndex = currentCursor.indexOf("|");
+  if (separatorIndex <= 0 || separatorIndex >= currentCursor.length - 1) {
+    return `${updatedAt}|${historyKeyId}`;
+  }
+
+  const currentUpdatedAt = currentCursor.slice(0, separatorIndex);
+  const currentHistoryKeyId = currentCursor.slice(separatorIndex + 1);
+  if (updatedAt !== currentUpdatedAt) {
+    return updatedAt.localeCompare(currentUpdatedAt) > 0
+      ? `${updatedAt}|${historyKeyId}`
+      : currentCursor;
+  }
+
+  return historyKeyId.localeCompare(currentHistoryKeyId) > 0
+    ? `${updatedAt}|${historyKeyId}`
+    : currentCursor;
 }

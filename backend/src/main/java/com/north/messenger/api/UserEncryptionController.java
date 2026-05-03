@@ -3,26 +3,20 @@ package com.north.messenger.api;
 import com.north.messenger.api.dto.GroupHistoryKeyAccessResponse;
 import com.north.messenger.api.dto.GroupHistoryKeyResponse;
 import com.north.messenger.api.dto.ResolveEncryptionAccountKeysRequest;
-import com.north.messenger.api.dto.ResolveEncryptionDeviceBundlesRequest;
-import com.north.messenger.api.dto.ResolveEncryptionDeviceManifestRequest;
-import com.north.messenger.api.dto.UpsertGroupHistoryKeyRequest;
+import com.north.messenger.api.dto.UserEncryptionAccountKeyRequest;
+import com.north.messenger.api.dto.UserEncryptionIdentityResetRequest;
 import com.north.messenger.api.dto.UserEncryptionAccountKeyResolveResponse;
-import com.north.messenger.api.dto.UserEncryptionDeviceBundleResponse;
-import com.north.messenger.api.dto.UserEncryptionDeviceRequest;
-import com.north.messenger.api.dto.UserEncryptionDeviceManifestResponse;
-import com.north.messenger.api.dto.UserEncryptionDeviceResponse;
+import com.north.messenger.api.dto.UserEncryptionAccountKeyResponse;
 import com.north.messenger.api.dto.UserEncryptionRecoverySnapshotRequest;
 import com.north.messenger.api.dto.UserEncryptionRecoverySnapshotResponse;
 import com.north.messenger.application.e2ee.ChatGroupHistoryKeyService;
-import com.north.messenger.application.e2ee.UserEncryptionDeviceService;
+import com.north.messenger.application.e2ee.UserEncryptionAccountKeyService;
 import com.north.messenger.application.e2ee.UserEncryptionRecoverySnapshotService;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.security.core.Authentication;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -31,83 +25,24 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/e2ee")
 public class UserEncryptionController {
 
-    private final UserEncryptionDeviceService userEncryptionDeviceService;
     private final UserEncryptionRecoverySnapshotService userEncryptionRecoverySnapshotService;
+    private final UserEncryptionAccountKeyService userEncryptionAccountKeyService;
     private final ChatGroupHistoryKeyService chatGroupHistoryKeyService;
 
     public UserEncryptionController(
-            UserEncryptionDeviceService userEncryptionDeviceService,
             UserEncryptionRecoverySnapshotService userEncryptionRecoverySnapshotService,
+            UserEncryptionAccountKeyService userEncryptionAccountKeyService,
             ChatGroupHistoryKeyService chatGroupHistoryKeyService
     ) {
-        this.userEncryptionDeviceService = userEncryptionDeviceService;
         this.userEncryptionRecoverySnapshotService = userEncryptionRecoverySnapshotService;
+        this.userEncryptionAccountKeyService = userEncryptionAccountKeyService;
         this.chatGroupHistoryKeyService = chatGroupHistoryKeyService;
-    }
-
-    @GetMapping("/devices/me")
-    public List<UserEncryptionDeviceResponse> listOwnDevices(Authentication authentication) {
-        return userEncryptionDeviceService.listOwnDevices(authentication.getName());
-    }
-
-    @PutMapping("/devices/me")
-    public UserEncryptionDeviceResponse upsertOwnDevice(
-            Authentication authentication,
-            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
-            @Valid @RequestBody UserEncryptionDeviceRequest request
-    ) {
-        return userEncryptionDeviceService.upsertOwnDevice(
-                authentication.getName(),
-                extractBearerToken(authorization),
-                request
-        );
-    }
-
-    @PostMapping("/devices/bundles/resolve")
-    public List<UserEncryptionDeviceBundleResponse> resolveDeviceBundles(
-            Authentication authentication,
-            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
-            @Valid @RequestBody ResolveEncryptionDeviceBundlesRequest request
-    ) {
-        return userEncryptionDeviceService.resolveDeviceBundles(
-                authentication.getName(),
-                extractBearerToken(authorization),
-                request
-        );
-    }
-
-    @DeleteMapping("/devices/me/{deviceId}")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void retireOwnDevice(
-            Authentication authentication,
-            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
-            @PathVariable UUID deviceId
-    ) {
-        userEncryptionDeviceService.retireOwnDevice(
-                authentication.getName(),
-                extractBearerToken(authorization),
-                deviceId
-        );
-    }
-
-    @PostMapping("/devices/bundles/manifest")
-    public UserEncryptionDeviceManifestResponse resolveDeviceManifest(
-            Authentication authentication,
-            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
-            @Valid @RequestBody ResolveEncryptionDeviceManifestRequest request
-    ) {
-        return userEncryptionDeviceService.resolveDeviceManifest(
-                authentication.getName(),
-                extractBearerToken(authorization),
-                request
-        );
     }
 
     @GetMapping("/recovery-snapshot/me")
@@ -128,13 +63,44 @@ public class UserEncryptionController {
         );
     }
 
+    @PutMapping("/account-keys/me")
+    public UserEncryptionAccountKeyResponse upsertOwnAccountKey(
+            Authentication authentication,
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+            @Valid @RequestBody UserEncryptionAccountKeyRequest request
+    ) {
+        return userEncryptionAccountKeyService.upsertOwnAccountKey(
+                authentication.getName(),
+                extractBearerToken(authorization),
+                request
+        );
+    }
+
+    @GetMapping("/account-keys/me")
+    public UserEncryptionAccountKeyResponse getOwnAccountKey(Authentication authentication) {
+        return userEncryptionAccountKeyService.getOwnAccountKey(authentication.getName());
+    }
+
+    @PostMapping("/account-keys/me/reset")
+    public UserEncryptionAccountKeyResponse resetOwnIdentityKeyBundle(
+            Authentication authentication,
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+            @Valid @RequestBody UserEncryptionIdentityResetRequest request
+    ) {
+        return userEncryptionAccountKeyService.resetOwnIdentityKeyBundle(
+                authentication.getName(),
+                extractBearerToken(authorization),
+                request
+        );
+    }
+
     @PostMapping("/account-keys/resolve")
     public List<UserEncryptionAccountKeyResolveResponse> resolveAccountKeys(
             Authentication authentication,
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
             @Valid @RequestBody ResolveEncryptionAccountKeysRequest request
     ) {
-        return userEncryptionRecoverySnapshotService.resolveAccountPublicKeys(
+        return userEncryptionAccountKeyService.resolveAccountPublicKeys(
                 authentication.getName(),
                 extractBearerToken(authorization),
                 request
@@ -145,27 +111,36 @@ public class UserEncryptionController {
     public List<GroupHistoryKeyAccessResponse> listOwnGroupHistoryKeys(
             Authentication authentication,
             @PathVariable UUID chatId,
-            @RequestParam String deviceId
+            @RequestParam(required = false) String cursor
     ) {
         return chatGroupHistoryKeyService.listOwnGroupHistoryKeys(
                 authentication.getName(),
                 chatId,
-                deviceId
+                cursor
         );
     }
 
-    @PutMapping("/group-history/chats/{chatId}/keys")
-    public GroupHistoryKeyResponse upsertGroupHistoryKey(
+    @GetMapping("/group-history/chats/{chatId}/active-key/me")
+    public GroupHistoryKeyAccessResponse getOwnActiveGroupHistoryKey(
+            Authentication authentication,
+            @PathVariable UUID chatId
+    ) {
+        return chatGroupHistoryKeyService.getOwnActiveGroupHistoryKey(
+                authentication.getName(),
+                chatId
+        );
+    }
+
+    @PostMapping("/group-history/chats/{chatId}/rotate")
+    public GroupHistoryKeyResponse rotateOwnActiveGroupHistoryKey(
             Authentication authentication,
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
-            @PathVariable UUID chatId,
-            @Valid @RequestBody UpsertGroupHistoryKeyRequest request
+            @PathVariable UUID chatId
     ) {
-        return chatGroupHistoryKeyService.upsertGroupHistoryKey(
+        return chatGroupHistoryKeyService.rotateOwnActiveHistoryKey(
                 authentication.getName(),
                 extractBearerToken(authorization),
-                chatId,
-                request
+                chatId
         );
     }
 

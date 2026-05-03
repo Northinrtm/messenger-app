@@ -34,9 +34,9 @@
 - `WebSocket/STOMP` как основной realtime transport;
 - HTTP как authoritative fallback/recovery path;
 - E2EE:
-  - direct chats: `X3DH-DEVICE-AES-GCM`
-  - group chats: `GROUP-SENDER-KEY-AES-GCM`
-- browser-local encrypted state, trusted-device unlock, decrypted message archive.
+  - direct chats: `CHAT-EPOCH-KEY-AES-GCM`
+  - group chats: `CHAT-EPOCH-KEY-AES-GCM`
+- browser-local encrypted state, trusted-browser unlock, decrypted message archive.
 
 ## 3. Обязательные тестовые среды
 
@@ -86,9 +86,12 @@
 ### 4.2 Инварианты E2EE
 
 - Backend не должен хранить plaintext сообщений.
+- Managed E2EE trust model должен оставаться согласованным: сервер не хранит plaintext сообщений, но может regrant'ить history keys через escrow по правилам продукта.
 - Свежие сообщения, отправленные из уже разблокированной и поддерживаемой клиентской сессии, не должны отображаться как `[Encrypted message unavailable]`.
 - Разблокировка encrypted chats должна быть отделена от обычного login session.
 - Смена пароля не должна ломать будущую разблокировку encrypted chats при штатном сценарии смены пароля через приложение.
+- Штатная ротация account key не должна ломать последующий send/readback.
+- Identity reset должен быть отдельным проверяемым security event, а не молчаливой самопочинкой клиента.
 
 ### 4.3 Инварианты realtime
 
@@ -130,17 +133,21 @@
 Нужно тестировать:
 
 - unlock encrypted chats по паролю;
-- trusted device / passkey unlock;
+- trusted browser / passkey unlock;
 - lock/unlock после reload;
 - unlock на чистом профиле;
 - unlock после смены пароля;
-- сценарий “не могу разблокировать encrypted chats”.
+- сценарий “не могу разблокировать encrypted chats”;
+- штатную ротацию account encryption key;
+- identity reset с новым identity signing key.
 
 Обязательные acceptance checks:
 
 - пользовательский login может быть активен, но encrypted chats могут требовать отдельный unlock;
 - сообщения не должны silently становиться unreadable в поддерживаемом сценарии;
 - UX должен честно объяснять mismatch старого/нового password wrap, если он возникает.
+- штатная account-key rotation должна проходить без ручного вмешательства второго участника;
+- identity reset должен требовать явный security flow и не должен маскироваться под обычную ротацию.
 
 ### 5.3 Direct chats
 
@@ -173,6 +180,7 @@
 - добавление/удаление участников;
 - модераторы и owner rules;
 - invite links;
+- переключение `JOIN_ONLY` / `FULL_HISTORY`;
 - отправка текста;
 - reply/edit/forward/pin/reactions;
 - delete for self/everyone, где разрешено;
@@ -186,6 +194,8 @@
 - group send идет через `ws` в штатном сценарии;
 - свежие group messages не должны становиться `[Encrypted message unavailable]` в поддерживаемой разблокированной сессии;
 - изменения состава группы не должны ломать subsequent send;
+- при `JOIN_ONLY` новый участник не должен получать pre-join history;
+- при `FULL_HISTORY` server-side backfill должен выдавать разрешённую историю без ручной раздачи ключей от другого клиента;
 - readback после reload должен совпадать с тем, что было до reload.
 
 ### 5.5 Attachments
@@ -349,8 +359,9 @@
    - не ушли в `Retry`.
 6. Проверить read receipt.
 7. Проверить typing.
-8. Проверить delete for self/everyone на тестовом сообщении.
-9. Проверить хотя бы один attachment flow.
+8. Проверить хотя бы один сценарий `JOIN_ONLY` или `FULL_HISTORY`, если релиз затрагивал группы или E2EE.
+9. Проверить delete for self/everyone на тестовом сообщении.
+10. Проверить хотя бы один attachment flow.
 
 Если smoke не пройден, релиз считается подозрительным даже при “зеленом” CI.
 
@@ -414,3 +425,4 @@
 - нет новых ложных `Retry`;
 - нет новой регрессии по read receipts и typing;
 - нет признаков рассинхронизации между UI, realtime и persisted history.
+

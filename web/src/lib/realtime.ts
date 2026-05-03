@@ -9,6 +9,7 @@ import { ApiError, createMessage } from "./api";
 import { WS_URL } from "./config";
 import { recordSendDiagnosticStep } from "./sendDiagnostics";
 import type {
+  ActiveGroupHistoryKeyEvent,
   ApiChatMessage,
   ChatRemovalEvent,
   ChatMessage,
@@ -180,6 +181,15 @@ export function subscribeToChats({
         })
       );
     }
+
+    connection.userSubscriptions.push(
+      client.subscribe("/user/queue/group-history-active-keys", (frame) => {
+        const payload = JSON.parse(frame.body) as ActiveGroupHistoryKeyEvent;
+        void import("./e2ee").then(({ hydrateOwnActiveGroupHistoryKeyAccess }) =>
+          hydrateOwnActiveGroupHistoryKeyAccess(connection.currentUserId, payload)
+        );
+      })
+    );
 
     connection.userSubscriptions.push(
       client.subscribe("/user/queue/message-acks", (frame) => {
@@ -605,9 +615,7 @@ export function sendMessageRealtime(input: {
   replyToMessageId?: string | null;
   encryptedPayload: {
     scheme: string;
-    encryptedKeysByRecipientId: Record<string, string>;
     sharedEnvelope?: string | null;
-    historyEnvelope?: string | null;
   };
   attachmentIds?: string[];
   timeoutMs?: number;
@@ -674,9 +682,7 @@ export function sendMessageRaw(
     replyToMessageId?: string | null;
     encryptedPayload: {
       scheme: string;
-      encryptedKeysByRecipientId: Record<string, string>;
       sharedEnvelope?: string | null;
-      historyEnvelope?: string | null;
     };
     attachmentIds?: string[];
   }
@@ -753,15 +759,11 @@ export function sendMessageRaw(
 
 function resolveRealtimeAckTimeoutMs(input: {
   scheme: string;
-  encryptedKeysByRecipientId: Record<string, string>;
   sharedEnvelope?: string | null;
-  historyEnvelope?: string | null;
 }) {
-  const isGroupPayload =
-    input.scheme === "GROUP-SENDER-KEY-AES-GCM" ||
-    Boolean(input.sharedEnvelope) ||
-    Boolean(input.historyEnvelope);
-  return isGroupPayload ? REALTIME_SEND_ACK_TIMEOUT_GROUP_MS : REALTIME_SEND_ACK_TIMEOUT_MS;
+  return Boolean(input.sharedEnvelope)
+    ? REALTIME_SEND_ACK_TIMEOUT_GROUP_MS
+    : REALTIME_SEND_ACK_TIMEOUT_MS;
 }
 
 function resolvePendingSendRequest(message: ApiChatMessage) {

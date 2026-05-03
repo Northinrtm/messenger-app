@@ -1,6 +1,7 @@
 package com.north.messenger.application.message;
 
 import com.north.messenger.api.dto.CreateMessageRequest;
+import com.north.messenger.api.dto.MessagePageResponse;
 import com.north.messenger.api.dto.MessageReceiptRequest;
 import com.north.messenger.api.dto.MessageReactionEventResponse;
 import com.north.messenger.api.dto.MessageResponse;
@@ -43,6 +44,23 @@ public class MessageService {
                 chatId,
                 username,
                 beforeServerOrder,
+                limit,
+                acknowledgeDelivered
+        );
+    }
+
+    @Transactional
+    public MessagePageResponse listMessagePage(
+            UUID chatId,
+            String username,
+            String cursor,
+            int limit,
+            boolean acknowledgeDelivered
+    ) {
+        return messageQueryService.listMessagePage(
+                chatId,
+                username,
+                cursor,
                 limit,
                 acknowledgeDelivered
         );

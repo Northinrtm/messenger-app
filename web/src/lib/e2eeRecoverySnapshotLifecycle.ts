@@ -6,6 +6,10 @@ type StoredLocalIdentity = {
   privateKey: string;
   accountPublicKey?: string;
   accountPrivateKey?: string;
+  accountKeyVersion?: number;
+  identityGeneration?: number;
+  identitySigningPublicKey?: string;
+  identitySigningPrivateKey?: string;
 };
 
 type RememberedUnlockedIdentityRecord = {
@@ -18,7 +22,6 @@ type RememberedUnlockedIdentityRecord = {
 type RecoverySnapshotUpload = {
   snapshotPayloadJson: string;
   wrappedIdentityRecordJson: string;
-  accountPublicKey: string;
 };
 
 type ArchivedRecordLike = {
@@ -88,6 +91,11 @@ export async function syncEncryptionRecoverySnapshotInternal<T extends ArchivedR
       privateKey: string,
       archivedMessages: T[]
     ) => Promise<unknown>;
+    publishOwnEncryptionAccountKey: (
+      token: string,
+      userId: string,
+      identity: StoredLocalIdentity
+    ) => Promise<unknown>;
     upsertOwnEncryptionRecoverySnapshot: (token: string, payload: RecoverySnapshotUpload) => Promise<unknown>;
   }
 ) {
@@ -136,12 +144,16 @@ export async function syncEncryptionRecoverySnapshotInternal<T extends ArchivedR
     identity.privateKey,
     archivedMessages
   );
+  await options.publishOwnEncryptionAccountKey(
+    options.session.token,
+    userId,
+    identity
+  );
   await options.upsertOwnEncryptionRecoverySnapshot(
     options.session.token,
     buildRecoverySnapshotUploadPayload({
       snapshotPayloadRecord,
       wrappedIdentityRecord: rememberedIdentityRecord,
-      accountPublicKey: identity.accountPublicKey ?? "",
     })
   );
 }
@@ -149,12 +161,10 @@ export async function syncEncryptionRecoverySnapshotInternal<T extends ArchivedR
 export function buildRecoverySnapshotUploadPayload<SnapshotRecord>(options: {
   snapshotPayloadRecord: SnapshotRecord;
   wrappedIdentityRecord: RememberedUnlockedIdentityRecord;
-  accountPublicKey: string;
 }): RecoverySnapshotUpload {
   return {
     snapshotPayloadJson: JSON.stringify(options.snapshotPayloadRecord),
     wrappedIdentityRecordJson: JSON.stringify(options.wrappedIdentityRecord),
-    accountPublicKey: options.accountPublicKey,
   };
 }
 
@@ -189,7 +199,6 @@ export async function buildOwnRecoverySnapshotUpload<
   return buildRecoverySnapshotUploadPayload({
     snapshotPayloadRecord,
     wrappedIdentityRecord: rememberedIdentityRecord,
-    accountPublicKey: identity.accountPublicKey ?? "",
   });
 }
 

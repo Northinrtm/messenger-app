@@ -5,13 +5,10 @@ type ReadableHydrationRecord = Pick<ChatMessage, "content" | "editedAt" | "attac
 
 type HydrationDiagnosticOutcome =
   | "snapshot-archive-hit"
-  | "snapshot-mirror-hit"
   | "snapshot-unavailable"
   | "plain-archive-hit"
-  | "plain-mirror-hit"
   | "plain-unavailable"
   | "decrypt-success"
-  | "decrypt-failed-mirror-hit"
   | "decrypt-failed-archive-hit"
   | "decrypt-failed-archive-refresh-hit"
   | "decrypt-failed-unavailable";
@@ -40,13 +37,8 @@ export async function hydrateChatMessageSnapshot(options: {
   ensureE2eeTransportStorageSchema: () => void;
   readArchivedDecryptedMessageRecord: (
     userId: string,
-    messageId: string
+    message: Pick<ApiChatMessage, "id" | "clientMessageId" | "sender">
   ) => Promise<ReadableHydrationRecord | null>;
-  readOutgoingMessageMirror: (
-    userId: string,
-    message: Pick<ApiChatMessage, "id" | "chatId" | "clientMessageId" | "sender">,
-    currentUserId: string
-  ) => ReadableHydrationRecord | null;
   buildHydratedChatMessage: HydratedMessageBuilder;
   recordMessageHydrationDiagnostic: (diagnostic: HydrationDiagnosticRecord) => void;
 }) {
@@ -54,27 +46,21 @@ export async function hydrateChatMessageSnapshot(options: {
 
   const archivedMessage = await options.readArchivedDecryptedMessageRecord(
     options.userId,
-    options.message.id
+    options.message
   );
-  const readableMessage =
-    archivedMessage ?? options.readOutgoingMessageMirror(options.userId, options.message, options.userId);
   options.recordMessageHydrationDiagnostic({
     message: options.message,
     currentUserId: options.userId,
     phase: "snapshot",
-    outcome: archivedMessage
-      ? "snapshot-archive-hit"
-      : readableMessage
-        ? "snapshot-mirror-hit"
-        : "snapshot-unavailable",
-    mirrorHit: Boolean(!archivedMessage && readableMessage),
+    outcome: archivedMessage ? "snapshot-archive-hit" : "snapshot-unavailable",
+    mirrorHit: false,
     archiveHit: Boolean(archivedMessage),
   });
   return options.buildHydratedChatMessage(
     options.message,
-    readableMessage?.content ?? ENCRYPTED_MESSAGE_UNAVAILABLE,
-    readableMessage?.editedAt ?? options.message.editedAt,
-    readableMessage?.attachments
+    archivedMessage?.content ?? ENCRYPTED_MESSAGE_UNAVAILABLE,
+    archivedMessage?.editedAt ?? options.message.editedAt,
+    archivedMessage?.attachments
   );
 }
 
@@ -85,23 +71,11 @@ export async function hydrateChatMessage(options: {
   ensureE2eeTransportStorageSchema: () => void;
   readArchivedDecryptedMessageRecord: (
     userId: string,
-    messageId: string
+    message: Pick<ApiChatMessage, "id" | "clientMessageId" | "sender">
   ) => Promise<ReadableHydrationRecord | null>;
-  readOutgoingMessageMirror: (
-    userId: string,
-    message: Pick<ApiChatMessage, "id" | "chatId" | "clientMessageId" | "sender">,
-    currentUserId: string
-  ) => ReadableHydrationRecord | null;
   buildHydratedChatMessage: HydratedMessageBuilder;
   recordMessageHydrationDiagnostic: (diagnostic: HydrationDiagnosticRecord) => void;
   decryptMessage: (message: ApiChatMessage, userId: string) => Promise<string>;
-  rememberOutgoingMessageMirror: (
-    userId: string,
-    message: Pick<
-      ChatMessage,
-      "id" | "chatId" | "content" | "createdAt" | "editedAt" | "attachments" | "clientMessageId"
-    >
-  ) => void;
   rememberArchivedDecryptedMessage: (
     userId: string,
     message: Pick<ChatMessage, "id" | "chatId" | "content" | "createdAt" | "editedAt" | "attachments">
@@ -114,21 +88,14 @@ export async function hydrateChatMessage(options: {
     if (!options.message.encryptedPayload) {
       const archivedMessage = await options.readArchivedDecryptedMessageRecord(
         options.userId,
-        options.message.id
+        options.message
       );
-      const readableMessage =
-        archivedMessage ??
-        options.readOutgoingMessageMirror(options.userId, options.message, options.userId);
       options.recordMessageHydrationDiagnostic({
         message: options.message,
         currentUserId: options.userId,
         phase: "hydrate",
-        outcome: archivedMessage
-          ? "plain-archive-hit"
-          : readableMessage
-            ? "plain-mirror-hit"
-            : "plain-unavailable",
-        mirrorHit: Boolean(!archivedMessage && readableMessage),
+        outcome: archivedMessage ? "plain-archive-hit" : "plain-unavailable",
+        mirrorHit: false,
         archiveHit: Boolean(archivedMessage),
       });
       return archivedMessage
@@ -138,13 +105,6 @@ export async function hydrateChatMessage(options: {
             archivedMessage.editedAt,
             archivedMessage.attachments
           )
-        : readableMessage
-          ? options.buildHydratedChatMessage(
-              options.message,
-              readableMessage.content,
-              readableMessage.editedAt,
-              readableMessage.attachments
-            )
           : options.buildHydratedChatMessage(options.message, ENCRYPTED_MESSAGE_UNAVAILABLE);
     }
 
@@ -159,36 +119,12 @@ export async function hydrateChatMessage(options: {
         mirrorHit: false,
         archiveHit: false,
       });
-      if (options.message.sender.id === options.userId) {
-        options.rememberOutgoingMessageMirror(options.userId, hydratedMessage);
-      }
       void options.rememberArchivedDecryptedMessage(options.userId, hydratedMessage);
       return hydratedMessage;
     } catch {
-      const mirroredOwnMessage = options.readOutgoingMessageMirror(
-        options.userId,
-        options.message,
-        options.userId
-      );
-      if (mirroredOwnMessage) {
-        options.recordMessageHydrationDiagnostic({
-          message: options.message,
-          currentUserId: options.userId,
-          phase: "hydrate",
-          outcome: "decrypt-failed-mirror-hit",
-          mirrorHit: true,
-          archiveHit: false,
-        });
-        return options.buildHydratedChatMessage(
-          options.message,
-          mirroredOwnMessage.content,
-          mirroredOwnMessage.editedAt,
-          mirroredOwnMessage.attachments
-        );
-      }
       let archivedMessage = await options.readArchivedDecryptedMessageRecord(
         options.userId,
-        options.message.id
+        options.message
       );
       const remoteArchiveRefreshAttempted = !archivedMessage;
       let remoteArchiveRefreshHit = false;
@@ -198,7 +134,7 @@ export async function hydrateChatMessage(options: {
       ) {
         archivedMessage = await options.readArchivedDecryptedMessageRecord(
           options.userId,
-          options.message.id
+          options.message
         );
         remoteArchiveRefreshHit = Boolean(archivedMessage);
       }

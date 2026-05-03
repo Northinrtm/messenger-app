@@ -137,6 +137,7 @@ describe("e2eeRecoverySnapshotLifecycle", () => {
 
   it("syncs merged archived messages into remote recovery snapshot", async () => {
     const writeArchivedDecryptedMessageRecords = vi.fn(async () => {});
+    const publishOwnEncryptionAccountKey = vi.fn(async () => {});
     const upsertOwnEncryptionRecoverySnapshot = vi.fn(async () => {});
 
     await syncEncryptionRecoverySnapshotInternal({
@@ -147,6 +148,11 @@ describe("e2eeRecoverySnapshotLifecycle", () => {
         publicKey: "local-device-vault",
         privateKey: "vault-private",
         accountPublicKey: '{"kty":"RSA","n":"account-public","e":"AQAB"}',
+        accountPrivateKey: '{"kty":"RSA","d":"account-private"}',
+        accountKeyVersion: 3,
+        identityGeneration: 1,
+        identitySigningPublicKey: '{"kty":"RSA","n":"identity-public","e":"AQAB"}',
+        identitySigningPrivateKey: '{"kty":"RSA","d":"identity-private"}',
       }),
       readRememberedUnlockedIdentityRecord: () => ({
         salt: "salt",
@@ -170,6 +176,7 @@ describe("e2eeRecoverySnapshotLifecycle", () => {
       encryptRecoverySnapshotPayload: vi.fn(async (_privateKey, archivedMessages) => ({
         archivedMessages,
       })),
+      publishOwnEncryptionAccountKey,
       upsertOwnEncryptionRecoverySnapshot,
     });
 
@@ -179,8 +186,17 @@ describe("e2eeRecoverySnapshotLifecycle", () => {
         archivedAt: "2026-04-27T12:00:00.000Z",
       },
     ]);
-    expect(upsertOwnEncryptionRecoverySnapshot).toHaveBeenCalledWith("token", {
+    expect(publishOwnEncryptionAccountKey).toHaveBeenCalledWith("token", "self", {
+      publicKey: "local-device-vault",
+      privateKey: "vault-private",
       accountPublicKey: '{"kty":"RSA","n":"account-public","e":"AQAB"}',
+      accountPrivateKey: '{"kty":"RSA","d":"account-private"}',
+      accountKeyVersion: 3,
+      identityGeneration: 1,
+      identitySigningPublicKey: '{"kty":"RSA","n":"identity-public","e":"AQAB"}',
+      identitySigningPrivateKey: '{"kty":"RSA","d":"identity-private"}',
+    });
+    expect(upsertOwnEncryptionRecoverySnapshot).toHaveBeenCalledWith("token", {
       snapshotPayloadJson: JSON.stringify({
         archivedMessages: [
           {

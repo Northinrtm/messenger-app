@@ -84,22 +84,20 @@ class MessageReceiptRepositoryTest {
                             content,
                             encryption_scheme,
                             encryption_iv,
-                            encrypted_keys_json,
                             client_message_id,
                             server_order,
                             created_at
-                        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """)
                 .setParameter(1, messageId)
                 .setParameter(2, chatId)
                 .setParameter(3, senderId)
                 .setParameter(4, "ciphertext")
-                .setParameter(5, "RSA-OAEP-256/AES-GCM")
+                .setParameter(5, "CHAT-EPOCH-KEY-AES-GCM")
                 .setParameter(6, "iv")
-                .setParameter(7, "{\"key\":\"value\"}")
-                .setParameter(8, "client-" + messageId)
-                .setParameter(9, serverOrder)
-                .setParameter(10, createdAt)
+                .setParameter(7, "client-" + messageId)
+                .setParameter(8, serverOrder)
+                .setParameter(9, createdAt)
                 .executeUpdate();
         return entityManager.find(ChatMessage.class, messageId);
     }

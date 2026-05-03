@@ -9,7 +9,7 @@ vi.mock("../lib/api", () => ({
 vi.mock("../lib/e2ee", () => ({
   hasUnlockedPrivateEncryptionKey: vi.fn(() => true),
   lockUnlockedEncryptionState: vi.fn(),
-  syncEncryptionDeviceState: vi.fn(() => Promise.resolve()),
+  syncEncryptionState: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock("../lib/session", () => ({
