@@ -172,9 +172,10 @@ cd "$APP_DIR"
 
 git config --global --add safe.directory "$APP_DIR" >/dev/null 2>&1 || true
 
-if ! git diff --quiet || ! git diff --cached --quiet; then
-  echo "Refusing to deploy: working tree has local changes in $APP_DIR" >&2
-  exit 1
+if ! git diff --quiet || ! git diff --cached --quiet || [[ -n "$(git status --short --untracked-files=normal)" ]]; then
+  echo "Resetting server checkout to a clean state in $APP_DIR"
+  git reset --hard HEAD
+  git clean -fd
 fi
 
 git fetch origin main
