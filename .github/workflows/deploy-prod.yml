@@ -62,7 +62,7 @@ jobs:
             -o ServerAliveInterval=30 \
             -o ServerAliveCountMax=10 \
             "$PROD_SSH_USER@$PROD_SSH_HOST" \
-            "rm -f '$REMOTE_LOG' '$REMOTE_EXIT' && chmod +x /tmp/messenger-remote-update.sh && nohup env DEPLOY_STATUS_FILE='$REMOTE_EXIT' /tmp/messenger-remote-update.sh '${PROD_APP_DIR:-/opt/messenger-app}' > '$REMOTE_LOG' 2>&1 </dev/null &"
+            "rm -f '$REMOTE_LOG' '$REMOTE_EXIT' && chmod +x /tmp/messenger-remote-update.sh && nohup env DEPLOY_STATUS_FILE='$REMOTE_EXIT' PROD_PUBLIC_BASE_URL='${PROD_PUBLIC_BASE_URL}' PROD_PUBLIC_IP='${PROD_SSH_HOST}' /tmp/messenger-remote-update.sh '${PROD_APP_DIR:-/opt/messenger-app}' > '$REMOTE_LOG' 2>&1 </dev/null &"
 
           for attempt in $(seq 1 "$WAIT_ATTEMPTS"); do
             output="$(ssh \

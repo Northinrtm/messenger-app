@@ -184,6 +184,7 @@ git pull --ff-only origin main
 WEB_APP_REVISION="$(git rev-parse HEAD)"
 export WEB_APP_REVISION
 
+bash "$APP_DIR/deploy/bootstrap-prod-env.sh" "$ENV_FILE"
 bash "$APP_DIR/deploy/preflight-prod.sh" "$ENV_FILE"
 
 BACKEND_REPLICAS="${BACKEND_REPLICAS:-$(env_file_value BACKEND_REPLICAS 1)}"
