@@ -142,16 +142,20 @@ class MessageDispatchService {
             participantCount = participants.size();
             MessageSupport.MessageReceiptSummary summary = messageSupport.loadReceiptSummaries(List.of(message.getId()))
                     .getOrDefault(message.getId(), MessageSupport.MessageReceiptSummary.empty());
-            Map<UUID, MessageSnippetResponse> repliesByMessageId = messageSupport.loadReplySnippetsByMessageId(
-                    List.of(message),
-                    participants.stream().collect(Collectors.toMap(UserAccount::getId, Function.identity()))
-            );
+            Map<UUID, UserAccount> participantsById = participants.stream()
+                    .collect(Collectors.toMap(UserAccount::getId, Function.identity()));
             ParticipantResponse senderParticipant = authService.toParticipant(sender);
             Map<String, List<MessageReaction>> reactionsByKey = messageReactionRepository.findAllByMessageIdIn(
                             List.of(message.getId())
                     ).stream()
                     .collect(Collectors.groupingBy(MessageReaction::getReactionKey));
-            MessageSnippetResponse replyTo = repliesByMessageId.get(message.getId());
+            EncryptedMessagePayloadResponse encryptedPayload = messageSupport.toEncryptedPayload(message);
+            MessageSnippetResponse senderReplyTo = messageSupport.loadReplySnippetsByMessageId(
+                    List.of(message),
+                    participantsById,
+                    room,
+                    sender.getId()
+            ).get(message.getId());
 
             MessageResponse senderAck = messageSupport.toResponse(
                     message,
@@ -160,8 +164,8 @@ class MessageDispatchService {
                     summary,
                     messageSupport.summarizeReactions(reactionsByKey, sender.getId()),
                     senderClientMessageId,
-                    replyTo,
-                    messageSupport.toEncryptedPayload(message)
+                    senderReplyTo,
+                    encryptedPayload
             );
             realtimeMessagingGateway.sendToUser(sender.getUsername(), MESSAGE_ACK_DESTINATION, senderAck);
 
@@ -170,7 +174,12 @@ class MessageDispatchService {
                         reactionsByKey,
                         participant.getId()
                 );
-                EncryptedMessagePayloadResponse encryptedPayload = messageSupport.toEncryptedPayload(message);
+                MessageSnippetResponse replyTo = messageSupport.loadReplySnippetsByMessageId(
+                        List.of(message),
+                        participantsById,
+                        room,
+                        participant.getId()
+                ).get(message.getId());
                 MessageResponse response = participant.getId().equals(sender.getId())
                         ? messageSupport.toResponse(message, senderParticipant, participant.getId(), summary, reactions, senderClientMessageId, replyTo, encryptedPayload)
                         : messageSupport.toResponse(message, senderParticipant, participant.getId(), summary, reactions, null, replyTo, encryptedPayload);
@@ -236,10 +245,8 @@ class MessageDispatchService {
             participantCount = participants.size();
             MessageSupport.MessageReceiptSummary summary = messageSupport.loadReceiptSummaries(List.of(message.getId()))
                     .getOrDefault(message.getId(), MessageSupport.MessageReceiptSummary.empty());
-            Map<UUID, MessageSnippetResponse> repliesByMessageId = messageSupport.loadReplySnippetsByMessageId(
-                    List.of(message),
-                    participants.stream().collect(Collectors.toMap(UserAccount::getId, Function.identity()))
-            );
+            Map<UUID, UserAccount> participantsById = participants.stream()
+                    .collect(Collectors.toMap(UserAccount::getId, Function.identity()));
             Map<String, List<MessageReaction>> reactionsByKey = messageReactionRepository.findAllByMessageIdIn(
                             List.of(message.getId())
                     ).stream()
@@ -251,7 +258,12 @@ class MessageDispatchService {
                     summary,
                     messageSupport.summarizeReactions(reactionsByKey, sender.getId()),
                     senderClientMessageId,
-                    repliesByMessageId.get(message.getId()),
+                    messageSupport.loadReplySnippetsByMessageId(
+                            List.of(message),
+                            participantsById,
+                            room,
+                            sender.getId()
+                    ).get(message.getId()),
                     messageSupport.toEncryptedPayload(message)
             );
             realtimeMessagingGateway.sendToUser(sender.getUsername(), MESSAGE_ACK_DESTINATION, response);

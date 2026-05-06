@@ -1,0 +1,10 @@
+app:
+  auth:
+    refresh-cookie:
+      name: north_refresh_token
+      path: /api/auth
+      same-site: Lax
+      secure: false
+  e2ee:
+    escrow:
+      secret: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=

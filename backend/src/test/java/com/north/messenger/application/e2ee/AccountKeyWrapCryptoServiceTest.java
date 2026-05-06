@@ -1,6 +1,7 @@
 package com.north.messenger.application.e2ee;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -35,7 +36,7 @@ class AccountKeyWrapCryptoServiceTest {
     @Test
     void wrapHistoryKeyGrantShouldUseHybridEnvelopeForLargePayload() throws Exception {
         KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("RSA");
-        keyPairGenerator.initialize(2048);
+        keyPairGenerator.initialize(3072);
         KeyPair keyPair = keyPairGenerator.generateKeyPair();
         String publicKeyJwk = serializePublicKey((RSAPublicKey) keyPair.getPublic());
         String recipientUserId = "9e1667f8-68a5-414e-8609-72cc86679e56";
@@ -92,6 +93,23 @@ class AccountKeyWrapCryptoServiceTest {
         );
 
         assertThat(decryptedGrantPayload).isEqualTo(longGrantPayload);
+    }
+
+    @Test
+    void wrapHistoryKeyGrantShouldRejectWeakAccountPublicKey() throws Exception {
+        KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("RSA");
+        keyPairGenerator.initialize(2048);
+        KeyPair keyPair = keyPairGenerator.generateKeyPair();
+
+        assertThatThrownBy(() -> service.wrapHistoryKeyGrant(
+                serializePublicKey((RSAPublicKey) keyPair.getPublic()),
+                java.util.UUID.randomUUID(),
+                1L,
+                """
+                {"aadVersion":1,"context":"north.group-history-key-grant.v1","chatId":"81b795ab-3b04-49fa-9e84-b2941d0c16af","historyKeyId":"f9ee3a01-67cb-4141-8df4-f5f79a0b78a8","historyKey":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=","membershipVersion":4,"historyPolicy":"FULL_HISTORY","createdAt":"2026-05-02T11:12:09.000Z"}
+                """
+        )).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Failed to wrap group history key grant");
     }
 
     private String serializePublicKey(RSAPublicKey publicKey) throws Exception {

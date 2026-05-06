@@ -1156,6 +1156,37 @@ export function resetOwnEncryptionIdentity(
   });
 }
 
+export function sessionResetOwnEncryptionIdentity(
+  token: string,
+  body: {
+    publicKey: string;
+    accountKeyVersion: number;
+    identityGeneration: number;
+    identitySigningPublicKey: string;
+    identityKeyAlgorithm: string;
+    accountKeyAlgorithm: string;
+    signedAt: string;
+    signature: string;
+  }
+) {
+  return request<{
+    publicKey: string;
+    accountKeyVersion: number;
+    identityGeneration: number;
+    identitySigningPublicKey: string;
+    identityKeyAlgorithm: string;
+    accountKeyAlgorithm: string;
+    signedAt: string;
+    signature: string;
+    createdAt: string;
+    updatedAt: string;
+  }>("/api/e2ee/account-keys/me/session-reset", {
+    method: "POST",
+    token,
+    body,
+  });
+}
+
 export function upsertOwnEncryptionRecoverySnapshot(
   token: string,
   body: {

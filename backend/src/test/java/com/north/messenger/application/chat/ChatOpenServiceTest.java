@@ -2,6 +2,7 @@ package com.north.messenger.application.chat;
 
 import com.north.messenger.api.dto.ChatOpenResponse;
 import com.north.messenger.api.dto.ChatSummaryResponse;
+import com.north.messenger.api.dto.ChatCapabilitiesResponse;
 import com.north.messenger.api.dto.GroupHistoryKeyAccessResponse;
 import com.north.messenger.api.dto.MessagePageResponse;
 import com.north.messenger.api.dto.MessageResponse;
@@ -54,6 +55,8 @@ class ChatOpenServiceTest {
                 true,
                 "North",
                 null,
+                "chat-version-1",
+                new ChatCapabilitiesResponse(false, false, false, false, false, false, false, false),
                 null,
                 List.of(),
                 List.of(),
@@ -115,6 +118,8 @@ class ChatOpenServiceTest {
                 false,
                 "Group",
                 null,
+                "chat-version-2",
+                new ChatCapabilitiesResponse(true, true, true, true, true, true, true, false),
                 currentUser.getId(),
                 List.of(),
                 List.of(),

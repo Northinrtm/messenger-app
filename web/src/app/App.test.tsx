@@ -7,7 +7,7 @@ vi.mock("../lib/api", () => ({
 }));
 
 vi.mock("../lib/e2ee", () => ({
-  hasUnlockedPrivateEncryptionKey: vi.fn(() => true),
+  ensureEncryptionReadyForActiveSession: vi.fn(() => Promise.resolve()),
   lockUnlockedEncryptionState: vi.fn(),
   syncEncryptionState: vi.fn(() => Promise.resolve()),
 }));
@@ -31,10 +31,6 @@ vi.mock("../features/auth/AuthCard", () => ({
       </button>
     </div>
   ),
-}));
-
-vi.mock("../features/auth/UnlockCard", () => ({
-  UnlockCard: () => <div>unlock-card</div>,
 }));
 
 vi.mock("../features/chat/NorthMessengerWorkspace", () => ({

@@ -16,10 +16,6 @@ export type RememberedUnlockedIdentityRecord = {
   createdAt: string;
 };
 
-type AutoUnlockedIdentityRecord = StoredLocalIdentity & {
-  createdAt: string;
-};
-
 function normalizeLocalIdentity(value: unknown): StoredLocalIdentity | null {
   if (!value || typeof value !== "object") {
     return null;
@@ -388,24 +384,28 @@ export function readUnlockedIdentityFromPersistentAutoStorage(options: {
     return null;
   }
 
-  const storageKey = options.getAutoUnlockedIdentityStorageKey(options.userId);
-
   try {
-    const rawValue = window.localStorage.getItem(storageKey);
+    const rawValue = window.localStorage.getItem(
+      options.getAutoUnlockedIdentityStorageKey(options.userId)
+    );
     if (!rawValue) {
       return null;
     }
 
     const parsedIdentity = normalizeLocalIdentity(JSON.parse(rawValue) as unknown);
     if (!parsedIdentity) {
-      window.localStorage.removeItem(storageKey);
+      window.localStorage.removeItem(
+        options.getAutoUnlockedIdentityStorageKey(options.userId)
+      );
       return null;
     }
 
     return parsedIdentity;
   } catch {
     try {
-      window.localStorage.removeItem(storageKey);
+      window.localStorage.removeItem(
+        options.getAutoUnlockedIdentityStorageKey(options.userId)
+      );
     } catch {
       return null;
     }
@@ -419,26 +419,15 @@ export function writeUnlockedIdentityToPersistentAutoStorage(options: {
   getAutoUnlockedIdentityStorageKey: (userId: string) => string;
   now?: () => string;
 }) {
+  void options.now;
   if (typeof window === "undefined") {
     return;
   }
 
-  const record: AutoUnlockedIdentityRecord = {
-    publicKey: options.identity.publicKey,
-    privateKey: options.identity.privateKey,
-    accountPublicKey: options.identity.accountPublicKey,
-    accountPrivateKey: options.identity.accountPrivateKey,
-    accountKeyVersion: options.identity.accountKeyVersion,
-    identityGeneration: options.identity.identityGeneration,
-    identitySigningPublicKey: options.identity.identitySigningPublicKey,
-    identitySigningPrivateKey: options.identity.identitySigningPrivateKey,
-    createdAt: options.now?.() ?? new Date().toISOString(),
-  };
-
   try {
     window.localStorage.setItem(
       options.getAutoUnlockedIdentityStorageKey(options.userId),
-      JSON.stringify(record)
+      JSON.stringify(options.identity)
     );
   } catch {
     return;

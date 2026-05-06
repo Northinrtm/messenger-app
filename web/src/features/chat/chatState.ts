@@ -6,11 +6,13 @@ import type {
   MessageReactionEvent,
   MessageStatusEvent,
 } from "../../lib/types";
+import {
+  isUnreadableEncryptedMessagePreview,
+} from "../../lib/e2eeShared";
 import { buildMessagePreview } from "./messagePresentation";
 
 export const MESSAGE_PAGE_SIZE = 50;
 const ENCRYPTED_MESSAGE_UNAVAILABLE = "[Encrypted message unavailable]";
-const ENCRYPTED_MESSAGE_PLACEHOLDER = "Encrypted message";
 export type ChatPreviewOverride = {
   lastMessage: string;
   lastMessageAt: string;
@@ -27,6 +29,10 @@ export function getMessageIdentityKey(message: Pick<ChatMessage, "id" | "clientM
 
 export function upsertChat(current: ChatSummary[] | undefined, nextChat: ChatSummary) {
   const list = current ?? [];
+  const existingChat = list.find((chat) => chat.id === nextChat.id);
+  if (existingChat && existingChat.chatVersion === nextChat.chatVersion) {
+    return current ?? [nextChat];
+  }
   const withoutCurrent = list.filter((chat) => chat.id !== nextChat.id);
   return [nextChat, ...withoutCurrent].sort(compareChatActivity);
 }
@@ -836,5 +842,5 @@ function isEncryptedMessageUnavailable(content: string) {
 }
 
 function isEncryptedPreviewPlaceholder(preview: string) {
-  return preview === ENCRYPTED_MESSAGE_PLACEHOLDER || preview === ENCRYPTED_MESSAGE_UNAVAILABLE;
+  return isUnreadableEncryptedMessagePreview(preview);
 }

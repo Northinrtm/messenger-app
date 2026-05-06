@@ -23,6 +23,8 @@ public class IdentitySignedAccountKeyService {
     public static final String ACCOUNT_KEY_SIGNATURE_CONTEXT = "north.account-key-bundle.v2";
     public static final String IDENTITY_KEY_ALGORITHM = "RSA-PSS-SHA256";
     public static final String ACCOUNT_KEY_ALGORITHM = "RSA-OAEP-3072-SHA256";
+    private static final int MIN_RSA_MODULUS_BITS = 3072;
+    private static final BigInteger REQUIRED_RSA_PUBLIC_EXPONENT = BigInteger.valueOf(65537L);
     private static final PSSParameterSpec RSA_PSS_SHA256_PARAMETERS = new PSSParameterSpec(
             "SHA-256",
             "MGF1",
@@ -140,9 +142,17 @@ public class IdentitySignedAccountKeyService {
         }
 
         KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+        BigInteger parsedModulus = new BigInteger(1, decodeBase64Url(modulus));
+        BigInteger parsedExponent = new BigInteger(1, decodeBase64Url(exponent));
+        if (parsedModulus.bitLength() < MIN_RSA_MODULUS_BITS) {
+            throw new IllegalArgumentException("Identity signing public key must use at least 3072-bit RSA modulus");
+        }
+        if (!REQUIRED_RSA_PUBLIC_EXPONENT.equals(parsedExponent)) {
+            throw new IllegalArgumentException("Identity signing public key must use RSA public exponent 65537");
+        }
         return keyFactory.generatePublic(new RSAPublicKeySpec(
-                new BigInteger(1, decodeBase64Url(modulus)),
-                new BigInteger(1, decodeBase64Url(exponent))
+                parsedModulus,
+                parsedExponent
         ));
     }
 

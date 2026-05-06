@@ -4,6 +4,7 @@ import com.north.messenger.api.dto.ResolveEncryptionAccountKeysRequest;
 import com.north.messenger.api.dto.UserEncryptionAccountKeyRequest;
 import com.north.messenger.api.dto.UserEncryptionAccountKeyResolveResponse;
 import com.north.messenger.api.dto.UserEncryptionAccountKeyResponse;
+import com.north.messenger.api.dto.UserEncryptionSessionResetRequest;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.domain.model.UserEncryptionAccountKey;
 import com.north.messenger.domain.repository.UserEncryptionAccountKeyRepository;
@@ -361,5 +362,60 @@ class UserEncryptionAccountKeyServiceTest {
                 .hasMessageContaining("Identity signing key cannot be changed by account key rotation");
 
         verify(userEncryptionAccountKeyRepository, never()).save(any(UserEncryptionAccountKey.class));
+    }
+
+    @Test
+    void sessionResetOwnIdentityKeyBundleShouldResetWithoutPasswordChallenge() {
+        UUID userId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        Instant createdAt = Instant.parse("2026-04-10T10:00:00Z");
+        var user = testUserAccount(
+                userId,
+                "north",
+                "North",
+                "hash",
+                createdAt
+        );
+        UserEncryptionAccountKey existingAccountKey = new UserEncryptionAccountKey(
+                UUID.randomUUID(),
+                userId,
+                "{\"kty\":\"RSA\",\"kid\":\"old\"}",
+                1L,
+                "{\"kty\":\"RSA\",\"kid\":\"identity-old\"}",
+                IDENTITY_KEY_ALGORITHM,
+                ACCOUNT_KEY_ALGORITHM,
+                SIGNED_AT,
+                "old-signature",
+                createdAt,
+                createdAt
+        );
+
+        when(authService.requireAuthenticatedSession("north", "token"))
+                .thenReturn(new AuthService.AuthenticatedSession(user, sessionId));
+        when(userEncryptionAccountKeyRepository.findByUserId(userId))
+                .thenReturn(Optional.of(existingAccountKey));
+
+        UserEncryptionAccountKeyResponse response = userEncryptionAccountKeyService
+                .sessionResetOwnIdentityKeyBundle(
+                        "north",
+                        "token",
+                        new UserEncryptionSessionResetRequest(
+                                "{\"kty\":\"RSA\",\"kid\":\"new\"}",
+                                1L,
+                                2L,
+                                "{\"kty\":\"RSA\",\"kid\":\"identity-new\"}",
+                                IDENTITY_KEY_ALGORITHM,
+                                ACCOUNT_KEY_ALGORITHM,
+                                SIGNED_AT.toString(),
+                                "new-signature"
+                        )
+                );
+
+        assertThat(response.publicKey()).isEqualTo("{\"kty\":\"RSA\",\"kid\":\"new\"}");
+        assertThat(response.accountKeyVersion()).isEqualTo(1L);
+        assertThat(response.identityGeneration()).isEqualTo(2L);
+        verify(userEncryptionAccountKeyRepository).save(existingAccountKey);
+        verify(eventPublisher).publishEvent(new UserIdentityResetEvent(userId));
+        verify(eventPublisher).publishEvent(new UserAccountKeyChangedEvent(userId));
     }
 }

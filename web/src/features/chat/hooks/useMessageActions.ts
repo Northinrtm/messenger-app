@@ -171,7 +171,7 @@ export function useMessageActions({
       recordSendDiagnosticStep(input.clientMessageId, "mutationFn:start");
       const { sendEncryptedMessage } = await import("../../../lib/e2ee");
       const targetChat = chats.find((chat) => chat.id === input.chatId) ?? activeChat;
-      await upsertPendingOutgoingMessage(sessionToken, input.clientMessageId, {
+      void upsertPendingOutgoingMessage(sessionToken, input.clientMessageId, {
         chatId: input.chatId,
         content: input.content,
         createdAt: new Date().toISOString(),
@@ -180,9 +180,9 @@ export function useMessageActions({
         replyTo: input.replyTo ?? null,
         status: "SENDING",
         attachments: input.attachments ?? [],
-      });
+      }).catch(() => undefined);
       if (input.clearDraftOnMutate) {
-        await deleteChatDraft(sessionToken, input.chatId).catch(() => undefined);
+        void deleteChatDraft(sessionToken, input.chatId).catch(() => undefined);
       }
       return withSendAttemptTimeout(sendEncryptedMessage(
         sessionToken,
@@ -253,9 +253,6 @@ export function useMessageActions({
       );
       applyChatPreviewMessage(nextMessage);
       applyServerChatPreviewMessage(nextMessage, "clear");
-      if (input.clearDraftOnMutate) {
-        clearDraftForChat(input.chatId);
-      }
       if (input.replyTo) {
         clearComposerContext("reply");
       }

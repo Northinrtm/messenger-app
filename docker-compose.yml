@@ -32,6 +32,23 @@ services:
       timeout: 5s
       retries: 10
 
+  vault:
+    image: hashicorp/vault:1.21.4
+    profiles:
+      - vault
+    container_name: messenger-vault
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_ADDR: http://127.0.0.1:8200
+    command: server
+    ports:
+      - "8200:8200"
+    volumes:
+      - ./deploy/vault/dev.hcl:/vault/config/vault.hcl:ro
+      - vault_data:/vault/file
+      - vault_logs:/vault/logs
+
   mailpit:
     image: axllent/mailpit:v1.27
     container_name: messenger-mailpit
@@ -212,8 +229,15 @@ services:
       APP_REALTIME_REDIS_ENABLED: ${APP_REALTIME_REDIS_ENABLED:-false}
       APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
       APP_JWT_SECRET: ${APP_JWT_SECRET:-MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}
+      APP_E2EE_ESCROW_PROVIDER: ${APP_E2EE_ESCROW_PROVIDER:-local}
       APP_E2EE_ESCROW_SECRET: ${APP_E2EE_ESCROW_SECRET:-bWVzc2VuZ2VyLWRldi1lc2Nyb3ctc2VjcmV0LTMyISE=}
-      APP_E2EE_ESCROW_GENERATE_SECRET_IF_MISSING: ${APP_E2EE_ESCROW_GENERATE_SECRET_IF_MISSING:-false}
+      APP_E2EE_ESCROW_VAULT_ADDRESS: ${APP_E2EE_ESCROW_VAULT_ADDRESS:-http://vault:8200}
+      APP_E2EE_ESCROW_VAULT_TOKEN: ${APP_E2EE_ESCROW_VAULT_TOKEN:-root}
+      APP_E2EE_ESCROW_VAULT_NAMESPACE: ${APP_E2EE_ESCROW_VAULT_NAMESPACE:-}
+      APP_E2EE_ESCROW_VAULT_MOUNT_PATH: ${APP_E2EE_ESCROW_VAULT_MOUNT_PATH:-transit}
+      APP_E2EE_ESCROW_VAULT_KEY_NAME: ${APP_E2EE_ESCROW_VAULT_KEY_NAME:-messenger-history-escrow}
+      APP_E2EE_ESCROW_VAULT_CONNECT_TIMEOUT: ${APP_E2EE_ESCROW_VAULT_CONNECT_TIMEOUT:-PT2S}
+      APP_E2EE_ESCROW_VAULT_REQUEST_TIMEOUT: ${APP_E2EE_ESCROW_VAULT_REQUEST_TIMEOUT:-PT5S}
       APP_JWT_REFRESH_TOKEN_TTL: P30D
       APP_AUTH_REGISTRATION_ALLOWED_EMAIL_DOMAINS: ${APP_AUTH_REGISTRATION_ALLOWED_EMAIL_DOMAINS:-gmail.com,googlemail.com,outlook.com,hotmail.com,live.com,msn.com,yahoo.com,icloud.com,me.com,mac.com,yandex.ru,yandex.com,ya.ru,mail.ru,bk.ru,inbox.ru,list.ru}
       APP_AUTH_EMAIL_VERIFICATION_ENABLED: ${APP_AUTH_EMAIL_VERIFICATION_ENABLED:-true}
@@ -313,3 +337,5 @@ volumes:
   conference_recordings_raw:
   conference_recordings_archive:
   message_attachments:
+  vault_data:
+  vault_logs:

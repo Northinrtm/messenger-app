@@ -108,7 +108,6 @@ import {
   mergeTypingParticipants,
   normalizeAccountDeletionConfirmation,
   readFileAsDataUrl,
-  shouldPrimeEncryptionRecipientsOnChatOpen,
   syncChatTypingParticipants,
   getLatestUnreadChatActivityAt,
   type TimelineItem,
@@ -276,6 +275,8 @@ export function NorthMessengerWorkspace({
   const [contactSearch, setContactSearch] = useState("");
   const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
   const [mobilePane, setMobilePane] = useState<MobilePane>(initialNavigationState.mobilePane);
+  const [hasExplicitlyOpenedActiveChatThisSession, setHasExplicitlyOpenedActiveChatThisSession] =
+    useState(false);
   const [isConferenceInfoOpen, setIsConferenceInfoOpen] = useState(false);
   const [conferenceRecordingState, setConferenceRecordingState] =
     useState<ConferenceRecordingState>("idle");
@@ -322,6 +323,7 @@ export function NorthMessengerWorkspace({
     setConferenceViewportMode(restoredNavigationState.conferenceViewportMode);
     setActiveListTab(restoredNavigationState.activeListTab);
     setMobilePane(restoredNavigationState.mobilePane);
+    setHasExplicitlyOpenedActiveChatThisSession(false);
     setSidebarSheet(null);
     setIsMenuOpen(false);
     setIsChatMenuOpen(false);
@@ -467,10 +469,15 @@ export function NorthMessengerWorkspace({
   const workspaceBootstrapUpdatedAt = workspaceBootstrapData
     ? workspaceBootstrapQuery.dataUpdatedAt
     : undefined;
+  const appliedWorkspaceBootstrapVersionRef = useRef<string | null>(null);
   useEffect(() => {
     if (!workspaceBootstrapData) {
       return;
     }
+    if (appliedWorkspaceBootstrapVersionRef.current === workspaceBootstrapData.workspaceVersion) {
+      return;
+    }
+    appliedWorkspaceBootstrapVersionRef.current = workspaceBootstrapData.workspaceVersion;
 
     queryClient.setQueryData(["profile", session.token], workspaceBootstrapData.profile);
     queryClient.setQueryData(["chats", session.token], workspaceBootstrapData.chats);
@@ -496,6 +503,7 @@ export function NorthMessengerWorkspace({
   const {
     activeDraft,
     clearDraftForChat,
+    commitDraftForChat,
     composerTextareaRef,
     draftsByChatId,
     draftsQuery,
@@ -514,6 +522,7 @@ export function NorthMessengerWorkspace({
   const {
     clearTypingParticipant,
     handleComposerChange,
+    hasActiveComposerTextRef,
     scheduleTypingStop,
     scheduleTypingTimeout,
     sendTypingHeartbeat,
@@ -533,32 +542,18 @@ export function NorthMessengerWorkspace({
   const activePendingOutgoingCount = activeChatId
     ? pendingOutgoingCountByChatId[activeChatId] ?? 0
     : 0;
-  const shouldAutoReloadBuildUpdate = useMemo(
-    () =>
-      shouldAutoReloadForBuildUpdate({
-        hasAvailableBuildUpdate: availableBuildUpdate !== null,
-        activeConferenceId,
-        activeDraft,
-        draftsByChatId,
-        pendingOutgoingCountByChatId,
-        replyingToMessageId,
-        editingMessageId,
-        forwardingMessageIds,
-        selectedMessageIds,
-      }),
-    [
+  useEffect(() => {
+    const shouldAutoReloadBuildUpdate = shouldAutoReloadForBuildUpdate({
+      hasAvailableBuildUpdate: availableBuildUpdate !== null,
       activeConferenceId,
-      activeDraft,
-      availableBuildUpdate,
+      hasActiveComposerText: hasActiveComposerTextRef.current,
       draftsByChatId,
-      editingMessageId,
-      forwardingMessageIds,
       pendingOutgoingCountByChatId,
       replyingToMessageId,
+      editingMessageId,
+      forwardingMessageIds,
       selectedMessageIds,
-    ]
-  );
-  useEffect(() => {
+    });
     if (
       !availableBuildUpdate ||
       !shouldAutoReloadBuildUpdate ||
@@ -575,8 +570,21 @@ export function NorthMessengerWorkspace({
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [availableBuildUpdate, shouldAutoReloadBuildUpdate]);
-  const isActiveChatOpen = Boolean(activeChatId) && mobilePane === "conversation";
+  }, [
+    activeConferenceId,
+    availableBuildUpdate,
+    draftsByChatId,
+    editingMessageId,
+    forwardingMessageIds,
+    pendingOutgoingCountByChatId,
+    replyingToMessageId,
+    selectedMessageIds,
+    hasActiveComposerTextRef,
+  ]);
+  const isActiveChatOpen =
+    Boolean(activeChatId) &&
+    mobilePane === "conversation" &&
+    hasExplicitlyOpenedActiveChatThisSession;
   const {
     activeTypingQuery,
     archivedChatsQuery,
@@ -628,7 +636,6 @@ export function NorthMessengerWorkspace({
   const {
     applyChatPreviewMessage,
     applyServerChatPreviewMessage,
-    clearChatPreviewOverride,
     refreshChatPreviewFromServer,
     syncChatPinnedSummary,
     syncChatPreviewFromCache,
@@ -777,27 +784,15 @@ export function NorthMessengerWorkspace({
         : false,
     [activeDirectParticipant, blockedUsers]
   );
-  const activeGroupOwnerUserId =
-    activeChat && !activeChat.direct
-      ? activeChat.ownerUserId
-      : null;
-  const activeChatIsOwnedByCurrentUser = activeGroupOwnerUserId === session.user.id;
-  const activeChatIsModerator = Boolean(
-    activeChat && !activeChat.direct && activeChat.moderatorUserIds.includes(session.user.id)
-  );
-  const activeChatCanModerateMembers = activeChatIsOwnedByCurrentUser || activeChatIsModerator;
-  const activeChatCanShareInviteLink = activeChatIsOwnedByCurrentUser || activeChatIsModerator;
+  const activeChatCapabilities = activeChat && !activeChat.direct ? activeChat.capabilities : null;
+  const activeChatCanDeleteGroup = Boolean(activeChatCapabilities?.canDeleteGroup);
+  const activeChatCanEditGroup = Boolean(activeChatCapabilities?.canEditGroup);
+  const activeChatCanManageInviteLink = Boolean(activeChatCapabilities?.canManageInviteLink);
+  const activeChatCanAddMembers = Boolean(activeChatCapabilities?.canAddMembers);
+  const activeChatCanManageRoles = Boolean(activeChatCapabilities?.canManageRoles);
+  const activeChatCanModerateMembers = Boolean(activeChatCapabilities?.canModerateMembers);
+  const activeChatCanLeaveGroup = Boolean(activeChatCapabilities?.canLeaveGroup);
   const activeChatEncryptionWarning = null;
-  const primeEncryptionRecipients = useEffectEvent(
-    async (participants: Participant[], forceRefresh = false) => {
-      const { primeEncryptedMessageRecipients } = await import("../../lib/e2ee");
-      return primeEncryptedMessageRecipients(session.token, participants, {
-        currentUserId: session.user.id,
-        session,
-        forceRefresh,
-      });
-    }
-  );
   const refreshPushNotifications = useEffectEvent(async () => {
     const nextState = await getPushNotificationState(session.token);
     setPushNotificationState(nextState);
@@ -909,12 +904,6 @@ export function NorthMessengerWorkspace({
           activeTypingQuery.data ?? []
         )
     : [];
-  const activeChatMemberIdsKey = activeChat
-    ? activeChat.members
-        .map((member) => member.id)
-        .sort()
-        .join(",")
-    : "";
   const conversationSubtitle = activeChat
     ? activeTypingParticipants.length > 0
       ? formatTypingParticipants(activeTypingParticipants)
@@ -1113,34 +1102,6 @@ export function NorthMessengerWorkspace({
   }, [activeChatId, activeTypingQuery.data, isRealtimeConnected]);
 
   useEffect(() => {
-    if (!activeChat || !shouldPrimeEncryptionRecipientsOnChatOpen(messagesLoading)) {
-      return;
-    }
-
-    let cancelled = false;
-    void primeEncryptionRecipients(activeChat.members).catch((error) => {
-      if (cancelled) {
-        return;
-      }
-
-      if (error instanceof ApiError && error.status === 401) {
-        onSessionChange(null);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    activeChat?.id,
-    activeChatMemberIdsKey,
-    messagesLoading,
-    onSessionChange,
-    primeEncryptionRecipients,
-    session.sessionId,
-  ]);
-
-  useEffect(() => {
     setIsChatMenuOpen(false);
     setIsChatMembersOpen(false);
   }, [activeChatId, activeConferenceId]);
@@ -1267,6 +1228,12 @@ export function NorthMessengerWorkspace({
       }
     }
   });
+  const clearReplyComposerContext = useEffectEvent(() => {
+    clearComposerContext("reply");
+  });
+  const clearEditComposerContext = useEffectEvent(() => {
+    clearComposerContext("edit");
+  });
 
   const {
     activateListTab,
@@ -1299,6 +1266,7 @@ export function NorthMessengerWorkspace({
     setConferenceTitle,
     setConferenceViewportMode,
     setDeleteAccountConfirmation,
+    setHasExplicitlyOpenedActiveChatThisSession,
     setInitialChatViewportHint,
     setIsConferenceInfoOpen,
     setIsMenuOpen,
@@ -1330,7 +1298,6 @@ export function NorthMessengerWorkspace({
       current?.filter((item) => item !== chatId) ?? []
     );
     queryClient.removeQueries({ queryKey: buildMessagesQueryKey(session.user.id, chatId) });
-    clearChatPreviewOverride(chatId);
     clearChatAttention(chatId);
     clearDraftForChat(chatId);
 
@@ -1675,7 +1642,7 @@ export function NorthMessengerWorkspace({
   });
 
   const handleGenerateGroupInviteLink = useEffectEvent(() => {
-    if (!activeChat || activeChat.direct || !activeChatCanShareInviteLink) {
+    if (!activeChat || activeChat.direct || !activeChatCanManageInviteLink) {
       return;
     }
 
@@ -1709,7 +1676,7 @@ export function NorthMessengerWorkspace({
   });
 
   const handleLeaveGroup = useEffectEvent(() => {
-    if (!activeChat || activeChat.direct || activeChatIsOwnedByCurrentUser) {
+    if (!activeChat || activeChat.direct || !activeChatCanLeaveGroup) {
       return;
     }
 
@@ -1721,7 +1688,7 @@ export function NorthMessengerWorkspace({
   });
 
   const handleDeleteGroup = useEffectEvent(() => {
-    if (!activeChat || activeChat.direct || !activeChatIsOwnedByCurrentUser) {
+    if (!activeChat || activeChat.direct || !activeChatCanDeleteGroup) {
       return;
     }
 
@@ -1769,7 +1736,7 @@ export function NorthMessengerWorkspace({
   });
 
   const handleAssignModeratorAction = useEffectEvent((participant: Participant) => {
-    if (!activeChat || activeChat.direct || !activeChatIsOwnedByCurrentUser || participant.id === session.user.id) {
+    if (!activeChat || activeChat.direct || !activeChatCanManageRoles || participant.id === session.user.id) {
       return;
     }
 
@@ -1781,7 +1748,7 @@ export function NorthMessengerWorkspace({
   });
 
   const handleRevokeModeratorAction = useEffectEvent((participant: Participant) => {
-    if (!activeChat || activeChat.direct || !activeChatIsOwnedByCurrentUser) {
+    if (!activeChat || activeChat.direct || !activeChatCanManageRoles) {
       return;
     }
 
@@ -1823,7 +1790,7 @@ export function NorthMessengerWorkspace({
   });
 
   useEffect(() => {
-    if (!isChatMenuOpen || !activeChat || activeChat.direct || !activeChatCanShareInviteLink) {
+    if (!isChatMenuOpen || !activeChat || activeChat.direct || !activeChatCanManageInviteLink) {
       return;
     }
 
@@ -1832,7 +1799,7 @@ export function NorthMessengerWorkspace({
     }
 
     createGroupInviteLinkMutation.mutate({ chatId: activeChat.id });
-  }, [activeChat, activeChatCanShareInviteLink, createGroupInviteLinkMutation, groupInviteCodesByChatId, isChatMenuOpen]);
+  }, [activeChat, activeChatCanManageInviteLink, createGroupInviteLinkMutation, groupInviteCodesByChatId, isChatMenuOpen]);
 
   useEffect(() => {
     const shouldSyncGroupDetails = isChatMenuOpen || sidebarSheet === "groupInfo";
@@ -1963,7 +1930,7 @@ export function NorthMessengerWorkspace({
     acknowledgeRead,
     activeChatId,
     isActiveChatOpen,
-    activeDraft,
+    hasActiveComposerTextRef,
     activePinnedMessageId: activeChat?.pinnedMessage?.id ?? null,
     applyChatPreviewMessage,
     applyServerChatPreviewMessage,
@@ -2246,7 +2213,6 @@ export function NorthMessengerWorkspace({
     activeChat,
     activeConference,
     groupInviteLinkUrl: activeGroupInviteUrl,
-    groupInviteLinkVisible: activeChatCanShareInviteLink,
     groupContacts,
     selectedGroupContacts,
     isGroupCreatePickerOpen,
@@ -2423,8 +2389,8 @@ export function NorthMessengerWorkspace({
           onOpenMessageContextMenu: openMessageContextMenu,
           onToggleReaction: toggleReactionForMessage,
           onJumpToMessage: scrollToMessage,
-          onClearReply: () => clearComposerContext("reply"),
-          onClearEdit: () => clearComposerContext("edit"),
+          onClearReply: clearReplyComposerContext,
+          onClearEdit: clearEditComposerContext,
           onToggleSelectedMessage: toggleMessageSelection,
           onCancelMessageSelection: clearMessageSelection,
           onForwardSelectedMessages: openSelectedMessagesForward,
@@ -2437,6 +2403,7 @@ export function NorthMessengerWorkspace({
           onDownloadAttachment: handleDownloadAttachment,
           onLoadAttachmentPreview: handleLoadAttachmentPreview,
           onComposerChange: handleComposerChange,
+          onCommitDraft: commitDraftForChat,
           onSubmit: handleSubmitActiveDraft,
           formatClock,
           getMessageStatusClassName,
@@ -2450,7 +2417,6 @@ export function NorthMessengerWorkspace({
     (!activeConference || isConferenceMinimized) && activeChat && isChatMenuOpen
       ? {
           activeChat,
-          sessionUserId: session.user.id,
           activeDirectParticipant,
           activeDirectInContacts,
           isDirectBlocked: activeDirectBlockedByMe,
@@ -2473,12 +2439,9 @@ export function NorthMessengerWorkspace({
           assignModeratorPending: assignGroupModeratorMutation.isPending,
           revokeModeratorPending: revokeGroupModeratorMutation.isPending,
           toggleBlockPending: blockUserMutation.isPending || unblockUserMutation.isPending,
-          canDeleteGroup: activeChatIsOwnedByCurrentUser,
-          canEditGroup: activeChatIsOwnedByCurrentUser,
-          canManageInviteLink: activeChatCanShareInviteLink,
-          canManageMembers: activeChatIsOwnedByCurrentUser,
-          canManageRoles: activeChatIsOwnedByCurrentUser,
-          canModerateMembers: activeChatCanModerateMembers,
+          canDeleteGroup: activeChatCanDeleteGroup,
+          canEditGroup: activeChatCanEditGroup,
+          canManageInviteLink: activeChatCanManageInviteLink,
           onClose: () => setIsChatMenuOpen(false),
           onOpenMembers: () => {
             setIsChatMenuOpen(false);
@@ -2518,8 +2481,8 @@ export function NorthMessengerWorkspace({
           removeGroupParticipantPending: removeGroupParticipantMutation.isPending,
           assignModeratorPending: assignGroupModeratorMutation.isPending,
           revokeModeratorPending: revokeGroupModeratorMutation.isPending,
-          canAddMembers: activeChatIsOwnedByCurrentUser,
-          canManageRoles: activeChatIsOwnedByCurrentUser,
+          canAddMembers: activeChatCanAddMembers,
+          canManageRoles: activeChatCanManageRoles,
           canModerateMembers: activeChatCanModerateMembers,
           availableGroupInviteContacts,
           selectedGroupInviteContacts,

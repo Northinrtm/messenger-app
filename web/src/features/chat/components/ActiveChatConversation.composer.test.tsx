@@ -33,6 +33,18 @@ function chatSummary(overrides: Partial<ChatSummary> = {}): ChatSummary {
     direct: overrides.direct ?? true,
     title: overrides.title ?? "North",
     avatarUrl: overrides.avatarUrl ?? null,
+    chatVersion: overrides.chatVersion ?? "chat-version-1",
+    capabilities:
+      overrides.capabilities ?? {
+        canEditGroup: false,
+        canDeleteGroup: false,
+        canManageInviteLink: false,
+        canAddMembers: false,
+        canManageRoles: false,
+        canModerateMembers: false,
+        canTogglePrejoinHistory: false,
+        canLeaveGroup: false,
+      },
     ownerUserId: overrides.ownerUserId ?? null,
     moderatorUserIds: overrides.moderatorUserIds ?? [],
     members:
@@ -133,6 +145,7 @@ function conversationProps(
     onDownloadAttachment: () => {},
     onLoadAttachmentPreview: () => Promise.resolve(new Blob()),
     onComposerChange: () => {},
+    onCommitDraft: () => {},
     onSubmit: () => true,
     formatClock: (value) => value,
     getMessageStatusClassName: () => "status",
@@ -209,6 +222,188 @@ describe("ActiveChatConversation composer", () => {
     expect(composerChangeSpy).toHaveBeenLastCalledWith("");
     expect(textarea.value).toBe("");
     expect(document.activeElement).toBe(textarea);
+  });
+
+  it("clears the textarea immediately on submit so rapid consecutive messages do not concatenate", async () => {
+    let resolveSubmit: ((value: boolean) => void) | null = null;
+    const submitSpy = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveSubmit = resolve;
+        })
+    );
+    const composerChangeSpy = vi.fn();
+
+    await act(async () => {
+      root!.render(
+        <ActiveChatConversation
+          {...conversationProps({
+            onComposerChange: composerChangeSpy,
+            onSubmit: submitSpy,
+          })}
+        />
+      );
+      await Promise.resolve();
+    });
+
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement | null;
+    if (!textarea) {
+      throw new Error("Composer textarea is missing");
+    }
+
+    await act(async () => {
+      setTextareaValue(textarea, "1");
+      textarea.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true })
+      );
+      await Promise.resolve();
+    });
+
+    expect(submitSpy).toHaveBeenCalledWith("1", []);
+    expect(textarea.value).toBe("");
+
+    await act(async () => {
+      resolveSubmit?.(true);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      setTextareaValue(textarea, "2");
+      await Promise.resolve();
+    });
+
+    expect(textarea.value).toBe("2");
+    expect(composerChangeSpy).toHaveBeenLastCalledWith("2");
+  });
+
+  it("does not restore stale parent draft text after the composer was cleared locally", async () => {
+    const props = conversationProps({
+      activeDraft: "abcdef",
+    });
+
+    await act(async () => {
+      root!.render(<ActiveChatConversation {...props} />);
+      await Promise.resolve();
+    });
+
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement | null;
+    if (!textarea) {
+      throw new Error("Composer textarea is missing");
+    }
+
+    await act(async () => {
+      setTextareaValue(textarea, "");
+      await Promise.resolve();
+    });
+
+    expect(textarea.value).toBe("");
+
+    await act(async () => {
+      root!.render(
+        <ActiveChatConversation
+          {...props}
+          activeDraft="abc"
+        />
+      );
+      await Promise.resolve();
+    });
+
+    expect(textarea.value).toBe("");
+
+    await act(async () => {
+      root!.render(
+        <ActiveChatConversation
+          {...props}
+          activeDraft=""
+        />
+      );
+      await Promise.resolve();
+    });
+
+    expect(textarea.value).toBe("");
+  });
+
+  it("does not wipe the next typed message when the parent catches up with a cleared draft", async () => {
+    const props = conversationProps({
+      activeDraft: "1",
+    });
+
+    await act(async () => {
+      root!.render(<ActiveChatConversation {...props} />);
+      await Promise.resolve();
+    });
+
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement | null;
+    if (!textarea) {
+      throw new Error("Composer textarea is missing");
+    }
+
+    await act(async () => {
+      setTextareaValue(textarea, "");
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      setTextareaValue(textarea, "2");
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      root!.render(
+        <ActiveChatConversation
+          {...props}
+          activeDraft=""
+        />
+      );
+      await Promise.resolve();
+    });
+
+    expect(textarea.value).toBe("2");
+  });
+
+  it("commits the previous local draft and loads the next chat draft on chat switch", async () => {
+    const commitDraftSpy = vi.fn();
+    const firstChat = chatSummary({ id: "chat-1" });
+    const secondChat = chatSummary({ id: "chat-2" });
+
+    await act(async () => {
+      root!.render(
+        <ActiveChatConversation
+          {...conversationProps({
+            activeChat: firstChat,
+            activeDraft: "",
+            onCommitDraft: commitDraftSpy,
+          })}
+        />
+      );
+      await Promise.resolve();
+    });
+
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement | null;
+    if (!textarea) {
+      throw new Error("Composer textarea is missing");
+    }
+
+    await act(async () => {
+      setTextareaValue(textarea, "local unsaved draft");
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      root!.render(
+        <ActiveChatConversation
+          {...conversationProps({
+            activeChat: secondChat,
+            activeDraft: "server draft",
+            onCommitDraft: commitDraftSpy,
+          })}
+        />
+      );
+      await Promise.resolve();
+    });
+
+    expect(commitDraftSpy).toHaveBeenCalledWith("chat-1", "local unsaved draft");
+    expect(textarea.value).toBe("server draft");
   });
 
   it("shows upload progress and can abort an in-flight attachment upload", async () => {

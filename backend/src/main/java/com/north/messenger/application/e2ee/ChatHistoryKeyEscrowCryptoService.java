@@ -2,7 +2,6 @@ package com.north.messenger.application.e2ee;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.jsonwebtoken.io.Decoders;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.Base64;
@@ -14,28 +13,45 @@ import org.springframework.stereotype.Service;
 @Service
 public class ChatHistoryKeyEscrowCryptoService {
 
-    private static final int LEGACY_AAD_VERSION = 1;
     private static final int AAD_VERSION = 2;
     private static final String ESCROW_CONTEXT = "north.chat-history-escrow.v2";
+    private static final String VAULT_TRANSIT_PROVIDER = "vault-transit";
     private static final int IV_BYTES = 12;
     private static final int TAG_BITS = 128;
 
     private final ObjectMapper objectMapper;
-    private final SecretKeySpec escrowKey;
+    private final E2eeEscrowProperties escrowProperties;
+    private final VaultTransitClient vaultTransitClient;
+    private final SecretKeySpec localEscrowKey;
     private final SecureRandom secureRandom = new SecureRandom();
 
-    public ChatHistoryKeyEscrowCryptoService(ObjectMapper objectMapper, E2eeEscrowProperties escrowProperties) {
+    public ChatHistoryKeyEscrowCryptoService(
+            ObjectMapper objectMapper,
+            E2eeEscrowProperties escrowProperties,
+            VaultTransitClient vaultTransitClient
+    ) {
         this.objectMapper = objectMapper;
-        this.escrowKey = new SecretKeySpec(resolveEscrowKey(escrowProperties), "AES");
+        this.escrowProperties = escrowProperties;
+        this.vaultTransitClient = vaultTransitClient;
+        this.localEscrowKey = escrowProperties.hasLocalEscrowSecret()
+                ? new SecretKeySpec(resolveEscrowKey(escrowProperties), "AES")
+                : null;
     }
 
     public String encryptGrantPayload(String grantPayloadJson) {
         try {
             EscrowGrantContext grantContext = parseGrantContext(grantPayloadJson);
+            if (escrowProperties.useVaultTransit()) {
+                return encryptGrantPayloadWithVaultTransit(grantContext, grantPayloadJson);
+            }
+
+            if (localEscrowKey == null) {
+                throw new IllegalStateException("Local escrow secret is not configured");
+            }
             byte[] iv = new byte[IV_BYTES];
             secureRandom.nextBytes(iv);
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-            cipher.init(Cipher.ENCRYPT_MODE, escrowKey, new GCMParameterSpec(TAG_BITS, iv));
+            cipher.init(Cipher.ENCRYPT_MODE, localEscrowKey, new GCMParameterSpec(TAG_BITS, iv));
             cipher.updateAAD(buildAdditionalData(grantContext));
             byte[] ciphertext = cipher.doFinal(grantPayloadJson.getBytes(StandardCharsets.UTF_8));
 
@@ -58,31 +74,88 @@ public class ChatHistoryKeyEscrowCryptoService {
     public String decryptGrantPayload(String encryptedGrantPayloadJson) {
         try {
             JsonNode payload = objectMapper.readTree(encryptedGrantPayloadJson);
+            if (VAULT_TRANSIT_PROVIDER.equals(payload.path("provider").asText())) {
+                return decryptGrantPayloadWithVaultTransit(payload);
+            }
+
             int aadVersion = payload.path("aadVersion").asInt(-1);
-            if (aadVersion != LEGACY_AAD_VERSION && aadVersion != AAD_VERSION) {
+            if (aadVersion != AAD_VERSION) {
                 throw new IllegalStateException("Unsupported chat history escrow payload version");
+            }
+            if (localEscrowKey == null) {
+                throw new IllegalStateException("Local escrow secret is not configured");
             }
 
             byte[] iv = Base64.getDecoder().decode(payload.path("iv").asText());
             byte[] ciphertext = Base64.getDecoder().decode(payload.path("ciphertext").asText());
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-            cipher.init(Cipher.DECRYPT_MODE, escrowKey, new GCMParameterSpec(TAG_BITS, iv));
-            if (aadVersion == AAD_VERSION) {
-                EscrowGrantContext grantContext = requireEnvelopeGrantContext(payload);
-                cipher.updateAAD(buildAdditionalData(grantContext));
-                String decryptedGrantPayload = new String(cipher.doFinal(ciphertext), StandardCharsets.UTF_8);
-                EscrowGrantContext decryptedContext = parseGrantContext(decryptedGrantPayload);
-                if (!grantContext.equals(decryptedContext)) {
-                    throw new IllegalStateException("Escrow payload metadata does not match encrypted grant payload");
-                }
-                return decryptedGrantPayload;
+            cipher.init(Cipher.DECRYPT_MODE, localEscrowKey, new GCMParameterSpec(TAG_BITS, iv));
+            EscrowGrantContext grantContext = requireEnvelopeGrantContext(payload);
+            cipher.updateAAD(buildAdditionalData(grantContext));
+            String decryptedGrantPayload = new String(cipher.doFinal(ciphertext), StandardCharsets.UTF_8);
+            EscrowGrantContext decryptedContext = parseGrantContext(decryptedGrantPayload);
+            if (!grantContext.equals(decryptedContext)) {
+                throw new IllegalStateException("Escrow payload metadata does not match encrypted grant payload");
             }
-
-            cipher.updateAAD(String.valueOf(LEGACY_AAD_VERSION).getBytes(StandardCharsets.UTF_8));
-            return new String(cipher.doFinal(ciphertext), StandardCharsets.UTF_8);
+            return decryptedGrantPayload;
         } catch (Exception exception) {
             throw new IllegalStateException("Failed to decrypt chat history escrow payload", exception);
         }
+    }
+
+    private String encryptGrantPayloadWithVaultTransit(
+            EscrowGrantContext grantContext,
+            String grantPayloadJson
+    ) throws Exception {
+        String mountPath = escrowProperties.normalizedVaultMountPath();
+        String keyName = escrowProperties.normalizedVaultKeyName();
+        String ciphertext = vaultTransitClient.encrypt(
+                mountPath,
+                keyName,
+                buildAdditionalData(grantContext),
+                grantPayloadJson
+        );
+        JsonNode payload = objectMapper.createObjectNode()
+                .put("provider", VAULT_TRANSIT_PROVIDER)
+                .put("aadVersion", AAD_VERSION)
+                .put("context", ESCROW_CONTEXT)
+                .put("mountPath", mountPath)
+                .put("keyName", keyName)
+                .put("chatId", grantContext.chatId())
+                .put("historyKeyId", grantContext.historyKeyId())
+                .put("membershipVersion", grantContext.membershipVersion())
+                .put("historyPolicy", grantContext.historyPolicy())
+                .put("createdAt", grantContext.createdAt())
+                .put("ciphertext", ciphertext);
+        return objectMapper.writeValueAsString(payload);
+    }
+
+    private String decryptGrantPayloadWithVaultTransit(JsonNode payload) throws Exception {
+        int aadVersion = payload.path("aadVersion").asInt(-1);
+        if (aadVersion != AAD_VERSION) {
+            throw new IllegalStateException("Unsupported Vault transit escrow payload version");
+        }
+
+        EscrowGrantContext grantContext = requireEnvelopeGrantContext(payload);
+        String mountPath = payload.path("mountPath").asText();
+        String keyName = payload.path("keyName").asText();
+        String ciphertext = payload.path("ciphertext").asText();
+        if (mountPath == null || mountPath.isBlank() || keyName == null || keyName.isBlank()
+                || ciphertext == null || ciphertext.isBlank()) {
+            throw new IllegalStateException("Vault transit escrow payload is incomplete");
+        }
+
+        String decryptedGrantPayload = vaultTransitClient.decrypt(
+                mountPath,
+                keyName,
+                buildAdditionalData(grantContext),
+                ciphertext
+        );
+        EscrowGrantContext decryptedContext = parseGrantContext(decryptedGrantPayload);
+        if (!grantContext.equals(decryptedContext)) {
+            throw new IllegalStateException("Escrow payload metadata does not match encrypted grant payload");
+        }
+        return decryptedGrantPayload;
     }
 
     private EscrowGrantContext parseGrantContext(String grantPayloadJson) throws Exception {
@@ -140,14 +213,7 @@ public class ChatHistoryKeyEscrowCryptoService {
     }
 
     private byte[] resolveEscrowKey(E2eeEscrowProperties escrowProperties) {
-        String configuredSecret = escrowProperties.secret();
-        if (configuredSecret != null && !configuredSecret.isBlank()) {
-            return Decoders.BASE64.decode(configuredSecret);
-        }
-
-        byte[] generatedSecret = new byte[32];
-        secureRandom.nextBytes(generatedSecret);
-        return generatedSecret;
+        return escrowProperties.decodedLocalEscrowSecret();
     }
 
     private record EscrowGrantContext(

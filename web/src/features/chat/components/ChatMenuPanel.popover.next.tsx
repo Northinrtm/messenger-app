@@ -3,7 +3,6 @@ import { AvatarCircle } from "./AvatarCircle";
 
 type Props = {
   activeChat: ChatSummary;
-  sessionUserId: string;
   activeDirectParticipant: Participant | null;
   activeDirectInContacts: boolean;
   isDirectBlocked: boolean;
@@ -28,9 +27,6 @@ type Props = {
   canDeleteGroup: boolean;
   canEditGroup: boolean;
   canManageInviteLink: boolean;
-  canManageMembers: boolean;
-  canManageRoles: boolean;
-  canModerateMembers: boolean;
   onClose: () => void;
   onOpenMembers: () => void;
   onGroupDetailsTitleChange: (value: string) => void;
@@ -99,7 +95,6 @@ function renderMemberCount(count: number) {
 
 export function ChatMenuPanel({
   activeChat,
-  sessionUserId,
   activeDirectParticipant,
   activeDirectInContacts,
   isDirectBlocked,
@@ -201,7 +196,8 @@ export function ChatMenuPanel({
 
   const normalizedGroupTitle = groupDetailsTitle.trim();
   const groupTitle = normalizedGroupTitle || activeChat.title;
-  const isCurrentUserOwner = activeChat.ownerUserId === sessionUserId;
+  const canLeaveGroup = activeChat.capabilities.canLeaveGroup;
+  const canTogglePrejoinHistory = activeChat.capabilities.canTogglePrejoinHistory;
   const isFullHistoryEnabled = groupDetailsPrejoinHistoryPolicy === "FULL_HISTORY";
   const groupChanged =
     groupTitle !== activeChat.title ||
@@ -351,7 +347,7 @@ export function ChatMenuPanel({
                   aria-checked={isFullHistoryEnabled}
                   aria-label={COPY.historyToggleLabel}
                   className={isFullHistoryEnabled ? "group-history-switch is-on" : "group-history-switch"}
-                  disabled={updateGroupPending}
+                  disabled={updateGroupPending || !canTogglePrejoinHistory}
                   onClick={() =>
                     onGroupDetailsPrejoinHistoryPolicyChange(
                       isFullHistoryEnabled ? "JOIN_ONLY" : "FULL_HISTORY"
@@ -367,7 +363,7 @@ export function ChatMenuPanel({
       ) : null}
 
       <div className="chat-menu-footer">
-        {!isCurrentUserOwner ? (
+        {canLeaveGroup ? (
           <button
             type="button"
             className="ghost-button compact"

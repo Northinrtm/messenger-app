@@ -5,6 +5,7 @@ import com.north.messenger.api.dto.GroupHistoryKeyResponse;
 import com.north.messenger.api.dto.ResolveEncryptionAccountKeysRequest;
 import com.north.messenger.api.dto.UserEncryptionAccountKeyRequest;
 import com.north.messenger.api.dto.UserEncryptionIdentityResetRequest;
+import com.north.messenger.api.dto.UserEncryptionSessionResetRequest;
 import com.north.messenger.api.dto.UserEncryptionAccountKeyResolveResponse;
 import com.north.messenger.api.dto.UserEncryptionAccountKeyResponse;
 import com.north.messenger.api.dto.UserEncryptionRecoverySnapshotRequest;
@@ -88,6 +89,19 @@ public class UserEncryptionController {
             @Valid @RequestBody UserEncryptionIdentityResetRequest request
     ) {
         return userEncryptionAccountKeyService.resetOwnIdentityKeyBundle(
+                authentication.getName(),
+                extractBearerToken(authorization),
+                request
+        );
+    }
+
+    @PostMapping("/account-keys/me/session-reset")
+    public UserEncryptionAccountKeyResponse sessionResetOwnIdentityKeyBundle(
+            Authentication authentication,
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
+            @Valid @RequestBody UserEncryptionSessionResetRequest request
+    ) {
+        return userEncryptionAccountKeyService.sessionResetOwnIdentityKeyBundle(
                 authentication.getName(),
                 extractBearerToken(authorization),
                 request

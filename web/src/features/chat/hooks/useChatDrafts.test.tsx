@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEffect } from "react";
 
+import { upsertChatDraft } from "../../../lib/api";
 import type { ChatDraft } from "../../../lib/types";
 import { useChatDrafts } from "./useChatDrafts";
 
@@ -121,6 +122,8 @@ describe("useChatDrafts reload recovery", () => {
       await flushMicrotasks();
     });
 
+    expect(vi.mocked(upsertChatDraft)).not.toHaveBeenCalled();
+
     if (!latestDraftStateRef.current) {
       throw new Error("Draft state was not initialized");
     }
@@ -174,11 +177,6 @@ describe("useChatDrafts reload recovery", () => {
 
     await act(async () => {
       latestDraftStateRef.current?.handleComposerChange("chat-1", "");
-      await flushMicrotasks();
-    });
-
-    await act(async () => {
-      vi.advanceTimersByTime(500);
       await flushMicrotasks();
     });
 

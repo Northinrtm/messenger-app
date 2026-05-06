@@ -3,13 +3,12 @@ package com.north.messenger.application.message;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.north.messenger.application.e2ee.ChatHistoryKeyEscrowCryptoService;
-import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.model.ChatHistoryKeyEscrow;
+import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.repository.ChatHistoryKeyEscrowRepository;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.time.Instant;
-import java.time.format.DateTimeParseException;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
@@ -34,15 +33,18 @@ public class EncryptedMessagePreviewService {
     private final ChatHistoryKeyEscrowRepository chatHistoryKeyEscrowRepository;
     private final ChatHistoryKeyEscrowCryptoService chatHistoryKeyEscrowCryptoService;
     private final ObjectMapper objectMapper;
+    private final E2eePreviewProperties previewProperties;
 
     public EncryptedMessagePreviewService(
             ChatHistoryKeyEscrowRepository chatHistoryKeyEscrowRepository,
             ChatHistoryKeyEscrowCryptoService chatHistoryKeyEscrowCryptoService,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            E2eePreviewProperties previewProperties
     ) {
         this.chatHistoryKeyEscrowRepository = chatHistoryKeyEscrowRepository;
         this.chatHistoryKeyEscrowCryptoService = chatHistoryKeyEscrowCryptoService;
         this.objectMapper = objectMapper;
+        this.previewProperties = previewProperties;
     }
 
     public String summarizeMessagePreview(ChatMessage message) {
@@ -52,6 +54,9 @@ public class EncryptedMessagePreviewService {
 
         if (!message.isEncrypted()) {
             return truncatePreview(message.getContent());
+        }
+        if (!previewProperties.decryptServerSide()) {
+            return ENCRYPTED_MESSAGE_PLACEHOLDER;
         }
 
         if (!CHAT_EPOCH_SCHEME.equals(message.getEncryptionScheme())
@@ -115,23 +120,19 @@ public class EncryptedMessagePreviewService {
     }
 
     private byte[] buildChatEpochEnvelopeAdditionalData(ChatEpochEnvelope envelope) {
-        try {
-            return objectMapper.createObjectNode()
-                    .put("aadVersion", envelope.aadVersion())
-                    .put("context", envelope.context())
-                    .put("chatId", envelope.chatId().toString())
-                    .put("senderUserId", envelope.senderUserId().toString())
-                    .put("historyKeyId", envelope.historyKeyId().toString())
-                    .put("membershipVersion", envelope.membershipVersion())
-                    .put("messageRefId", envelope.messageRefId())
-                    .put("createdAt", envelope.createdAt().toString())
-                    .put("contentType", envelope.contentType())
-                    .put("iv", envelope.iv())
-                    .toString()
-                    .getBytes(StandardCharsets.UTF_8);
-        } catch (RuntimeException exception) {
-            throw exception;
-        }
+        return objectMapper.createObjectNode()
+                .put("aadVersion", envelope.aadVersion())
+                .put("context", envelope.context())
+                .put("chatId", envelope.chatId().toString())
+                .put("senderUserId", envelope.senderUserId().toString())
+                .put("historyKeyId", envelope.historyKeyId().toString())
+                .put("membershipVersion", envelope.membershipVersion())
+                .put("messageRefId", envelope.messageRefId())
+                .put("createdAt", envelope.createdAt().toString())
+                .put("contentType", envelope.contentType())
+                .put("iv", envelope.iv())
+                .toString()
+                .getBytes(StandardCharsets.UTF_8);
     }
 
     private String summarizeDecryptedContent(String plaintext, String contentType) throws Exception {

@@ -1,7 +1,8 @@
 package com.north.messenger.application.chat;
 
-import com.north.messenger.api.dto.ChatSummaryResponse;
 import com.north.messenger.api.dto.ChatHistoryBackfillStatusResponse;
+import com.north.messenger.api.dto.ChatCapabilitiesResponse;
+import com.north.messenger.api.dto.ChatSummaryResponse;
 import com.north.messenger.api.dto.ChatRemovalEventResponse;
 import com.north.messenger.api.dto.CreateDirectChatRequest;
 import com.north.messenger.api.dto.CreateGroupChatRequest;
@@ -843,6 +844,18 @@ public class ChatService {
                 room.isDirect(),
                 title,
                 room.isDirect() ? null : room.getAvatarUrl(),
+                buildChatVersion(
+                        room,
+                        title,
+                        ownerUserId,
+                        moderatorUserIds,
+                        lastMessage,
+                        updatedAt,
+                        unreadCount,
+                        pinnedMessage,
+                        historyAccessStatus
+                ),
+                buildChatCapabilities(room, currentUserId, ownerUserId, moderatorUserIds),
                 room.isDirect() ? null : ownerUserId,
                 room.isDirect() ? List.of() : moderatorUserIds,
                 members,
@@ -856,6 +869,84 @@ public class ChatService {
                 pinnedMessage,
                 room.isDirect() ? null : historyAccessStatus,
                 room.isDirect() ? null : room.getPrejoinHistoryPolicy().name()
+        );
+    }
+
+    private String buildChatVersion(
+            ChatRoom room,
+            String title,
+            UUID ownerUserId,
+            List<UUID> moderatorUserIds,
+            ChatMessage lastMessage,
+            Instant updatedAt,
+            int unreadCount,
+            MessageSnippetResponse pinnedMessage,
+            ChatHistoryBackfillStatusResponse historyAccessStatus
+    ) {
+        String moderatorsVersion = moderatorUserIds.stream()
+                .map(UUID::toString)
+                .sorted()
+                .collect(Collectors.joining(","));
+        String historyStatusVersion = historyAccessStatus == null
+                ? "-"
+                : String.join(
+                        "|",
+                        historyAccessStatus.state(),
+                        Integer.toString(historyAccessStatus.requiredHistoryKeyCount()),
+                        Integer.toString(historyAccessStatus.grantedHistoryKeyCount()),
+                        String.valueOf(historyAccessStatus.primaryGrantorUserId()),
+                        String.valueOf(historyAccessStatus.joinedAt()),
+                        String.valueOf(historyAccessStatus.completedAt())
+                );
+        return String.join(
+                "|",
+                room.getId().toString(),
+                room.isDirect() ? "direct" : "group",
+                String.valueOf(title),
+                String.valueOf(room.getAvatarUrl()),
+                String.valueOf(updatedAt),
+                Long.toString(lastMessage != null && lastMessage.getServerOrder() != null ? lastMessage.getServerOrder() : Long.MIN_VALUE),
+                Long.toString(room.getMembershipVersion()),
+                String.valueOf(room.getActiveHistoryKeyId()),
+                String.valueOf(room.getPinnedMessageId()),
+                String.valueOf(room.getPinnedAt()),
+                String.valueOf(ownerUserId),
+                moderatorsVersion,
+                Integer.toString(unreadCount),
+                String.valueOf(room.getPrejoinHistoryPolicy()),
+                pinnedMessage == null
+                        ? "-"
+                        : String.join(
+                                "|",
+                                pinnedMessage.id().toString(),
+                                pinnedMessage.createdAt().toString(),
+                                pinnedMessage.preview()
+                        ),
+                historyStatusVersion
+        );
+    }
+
+    private ChatCapabilitiesResponse buildChatCapabilities(
+            ChatRoom room,
+            UUID currentUserId,
+            UUID ownerUserId,
+            List<UUID> moderatorUserIds
+    ) {
+        if (room.isDirect()) {
+            return new ChatCapabilitiesResponse(false, false, false, false, false, false, false, false);
+        }
+
+        boolean isOwner = Objects.equals(ownerUserId, currentUserId);
+        boolean isModerator = moderatorUserIds.contains(currentUserId);
+        return new ChatCapabilitiesResponse(
+                isOwner,
+                isOwner,
+                isOwner || isModerator,
+                isOwner,
+                isOwner,
+                isOwner || isModerator,
+                isOwner,
+                !isOwner
         );
     }
 

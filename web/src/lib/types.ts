@@ -59,6 +59,17 @@ export type ChatHistoryBackfillStatus = {
 
 export type ChatPrejoinHistoryPolicy = "JOIN_ONLY" | "FULL_HISTORY";
 
+export type ChatCapabilities = {
+  canEditGroup: boolean;
+  canDeleteGroup: boolean;
+  canManageInviteLink: boolean;
+  canAddMembers: boolean;
+  canManageRoles: boolean;
+  canModerateMembers: boolean;
+  canTogglePrejoinHistory: boolean;
+  canLeaveGroup: boolean;
+};
+
 export type ChatMessageAttachment = {
   id: string;
   fileName: string;
@@ -79,6 +90,8 @@ export type ChatSummary = {
   direct: boolean;
   title: string;
   avatarUrl: string | null;
+  chatVersion: string;
+  capabilities: ChatCapabilities;
   ownerUserId: string | null;
   moderatorUserIds: string[];
   members: Participant[];
@@ -114,6 +127,7 @@ export type PendingOutgoingMessage = {
 };
 
 export type WorkspaceBootstrap = {
+  workspaceVersion: string;
   profile: UserProfile;
   chats: ChatSummary[];
   archivedChatIds: string[];

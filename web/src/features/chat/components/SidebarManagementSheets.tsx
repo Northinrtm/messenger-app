@@ -50,7 +50,6 @@ type Props = {
   activeChat: ChatSummary | null;
   activeConference: VideoConference | null;
   groupInviteLinkUrl: string | null;
-  groupInviteLinkVisible: boolean;
   groupContacts: UserProfile[];
   selectedGroupContacts: UserProfile[];
   isGroupCreatePickerOpen: boolean;
@@ -151,7 +150,6 @@ export function SidebarManagementSheets({
   activeChat,
   activeConference,
   groupInviteLinkUrl,
-  groupInviteLinkVisible,
   groupContacts,
   selectedGroupContacts,
   isGroupCreatePickerOpen,
@@ -610,6 +608,7 @@ export function SidebarManagementSheets({
   }
 
   if (sheet === "groupInfo" && activeChat && !activeChat.direct) {
+    const groupCapabilities = activeChat.capabilities;
     const normalizedGroupTitle = groupDetailsTitle.trim();
     const isFullHistoryEnabled = groupDetailsPrejoinHistoryPolicy === "FULL_HISTORY";
     const groupDetailsChanged =
@@ -642,89 +641,93 @@ export function SidebarManagementSheets({
           </div>
         </div>
 
-        <div className="profile-line">
-          <span className="profile-label">Аватар группы</span>
-          <p className="profile-avatar-hint">
-            Измените название и аватар группы, затем сохраните изменения.
-          </p>
-          <div className="profile-avatar-actions">
-            <label htmlFor="group-avatar-input" className="ghost-button compact">
-              Выбрать фото
-            </label>
-            <input
-              id="group-avatar-input"
-              type="file"
-              accept="image/*"
-              className="profile-avatar-input"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) {
-                  onGroupAvatarSelected(file);
-                }
-                event.currentTarget.value = "";
-              }}
-            />
-            {groupDetailsAvatarUrl ? (
-              <button
-                type="button"
-                className="ghost-button compact"
-                onClick={onRemoveGroupAvatar}
-              >
-                Убрать фото
-              </button>
-            ) : null}
-          </div>
-        </div>
-
-        <form
-          className="profile-line profile-edit-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            onSubmitUpdateGroup();
-          }}
-        >
-          <span className="profile-label">Название группы</span>
-          <input
-            value={groupDetailsTitle}
-            onChange={(event) => onGroupDetailsTitleChange(event.target.value)}
-            placeholder="Название группы"
-            maxLength={120}
-          />
-          <button
-            type="submit"
-            className="secondary-button"
-            disabled={updateGroupPending || normalizedGroupTitle.length < 2 || !groupDetailsChanged}
-          >
-            {updateGroupPending ? "Сохраняем..." : "Сохранить"}
-          </button>
-          <div className="profile-line group-history-setting">
-            <div className="group-history-setting-row">
-              <div className="group-history-setting-copy">
-                <strong>Разрешить новым участникам группы видеть старую историю сообщений</strong>
-                <span>
-                  {isFullHistoryEnabled
-                    ? "Новые участники увидят историю группы полностью."
-                    : "Новые участники увидят только сообщения после вступления в группу."}
-                </span>
+        {groupCapabilities.canEditGroup ? (
+          <>
+            <div className="profile-line">
+              <span className="profile-label">Аватар группы</span>
+              <p className="profile-avatar-hint">
+                Измените название и аватар группы, затем сохраните изменения.
+              </p>
+              <div className="profile-avatar-actions">
+                <label htmlFor="group-avatar-input" className="ghost-button compact">
+                  Выбрать фото
+                </label>
+                <input
+                  id="group-avatar-input"
+                  type="file"
+                  accept="image/*"
+                  className="profile-avatar-input"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) {
+                      onGroupAvatarSelected(file);
+                    }
+                    event.currentTarget.value = "";
+                  }}
+                />
+                {groupDetailsAvatarUrl ? (
+                  <button
+                    type="button"
+                    className="ghost-button compact"
+                    onClick={onRemoveGroupAvatar}
+                  >
+                    Убрать фото
+                  </button>
+                ) : null}
               </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={isFullHistoryEnabled}
-                aria-label="Разрешить новым участникам группы видеть старую историю сообщений"
-                className={isFullHistoryEnabled ? "group-history-switch is-on" : "group-history-switch"}
-                disabled={updateGroupPending}
-                onClick={() =>
-                  onGroupDetailsPrejoinHistoryPolicyChange(
-                    isFullHistoryEnabled ? "JOIN_ONLY" : "FULL_HISTORY"
-                  )
-                }
-              >
-                <span className="group-history-switch-thumb" aria-hidden="true" />
-              </button>
             </div>
-          </div>
-        </form>
+
+            <form
+              className="profile-line profile-edit-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                onSubmitUpdateGroup();
+              }}
+            >
+              <span className="profile-label">Название группы</span>
+              <input
+                value={groupDetailsTitle}
+                onChange={(event) => onGroupDetailsTitleChange(event.target.value)}
+                placeholder="Название группы"
+                maxLength={120}
+              />
+              <button
+                type="submit"
+                className="secondary-button"
+                disabled={updateGroupPending || normalizedGroupTitle.length < 2 || !groupDetailsChanged}
+              >
+                {updateGroupPending ? "Сохраняем..." : "Сохранить"}
+              </button>
+              <div className="profile-line group-history-setting">
+                <div className="group-history-setting-row">
+                  <div className="group-history-setting-copy">
+                    <strong>Разрешить новым участникам группы видеть старую историю сообщений</strong>
+                    <span>
+                      {isFullHistoryEnabled
+                        ? "Новые участники увидят историю группы полностью."
+                        : "Новые участники увидят только сообщения после вступления в группу."}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={isFullHistoryEnabled}
+                    aria-label="Разрешить новым участникам группы видеть старую историю сообщений"
+                    className={isFullHistoryEnabled ? "group-history-switch is-on" : "group-history-switch"}
+                    disabled={updateGroupPending || !groupCapabilities.canTogglePrejoinHistory}
+                    onClick={() =>
+                      onGroupDetailsPrejoinHistoryPolicyChange(
+                        isFullHistoryEnabled ? "JOIN_ONLY" : "FULL_HISTORY"
+                      )
+                    }
+                  >
+                    <span className="group-history-switch-thumb" aria-hidden="true" />
+                  </button>
+                </div>
+              </div>
+            </form>
+          </>
+        ) : null}
 
         <div className="sheet-actions-stack">
           <button
@@ -738,26 +741,28 @@ export function SidebarManagementSheets({
             </div>
             <span className="member-pill">{activeChat.members.length}</span>
           </button>
-          <button
-            type="button"
-            className="sheet-row sheet-row-button"
-            onClick={() => onOpenGroupMembers({ openInvitePicker: true })}
-          >
-            <div className="sheet-row-copy">
-              <strong>Добавить из контактов</strong>
-              <span>
-                {availableGroupInviteContacts.length > 0
-                  ? "Выберите людей из контактов и добавьте их в группу."
-                  : "Все контакты уже добавлены в эту группу."}
+          {groupCapabilities.canAddMembers ? (
+            <button
+              type="button"
+              className="sheet-row sheet-row-button"
+              onClick={() => onOpenGroupMembers({ openInvitePicker: true })}
+            >
+              <div className="sheet-row-copy">
+                <strong>Добавить из контактов</strong>
+                <span>
+                  {availableGroupInviteContacts.length > 0
+                    ? "Выберите людей из контактов и добавьте их в группу."
+                    : "Все контакты уже добавлены в эту группу."}
+                </span>
+              </div>
+              <span className="member-pill">
+                {availableGroupInviteContacts.length > 0 ? "Добавить" : "Готово"}
               </span>
-            </div>
-            <span className="member-pill">
-              {availableGroupInviteContacts.length > 0 ? "Добавить" : "Готово"}
-            </span>
-          </button>
+            </button>
+          ) : null}
         </div>
 
-        {groupInviteLinkVisible ? (
+        {groupCapabilities.canManageInviteLink ? (
           <div className="invite-link-panel">
           <div className="invite-link-copy">
             <strong>Ссылка-приглашение</strong>
@@ -798,6 +803,7 @@ export function SidebarManagementSheets({
   }
 
   if (sheet === "groupMembers" && activeChat && !activeChat.direct) {
+    const groupCapabilities = activeChat.capabilities;
     return (
       <div className="sheet-card">
         <div className="sheet-head">
@@ -855,9 +861,11 @@ export function SidebarManagementSheets({
             </div>
           </div>
           <div className="sheet-section">
-            <button type="button" className="ghost-button" onClick={onToggleGroupInvitePicker}>
-              {isGroupInvitePickerOpen ? "Скрыть список контактов" : "Добавить участника"}
-            </button>
+            {groupCapabilities.canAddMembers ? (
+              <button type="button" className="ghost-button" onClick={onToggleGroupInvitePicker}>
+                {isGroupInvitePickerOpen ? "Скрыть список контактов" : "Добавить участника"}
+              </button>
+            ) : null}
             {selectedGroupInviteContacts.length > 0 ? (
               <div className="sheet-chip-list">
                 {selectedGroupInviteContacts.map((contact) => (
@@ -867,7 +875,7 @@ export function SidebarManagementSheets({
                 ))}
               </div>
             ) : null}
-            {isGroupInvitePickerOpen ? (
+            {groupCapabilities.canAddMembers && isGroupInvitePickerOpen ? (
               <>
                 <div className="group-picker-list">
                   {availableGroupInviteContacts.length === 0 ? (

@@ -68,12 +68,15 @@ describe("e2eeIdentityStore", () => {
       publicKey: "local-device-vault",
       privateKey: "vault-private",
     });
-    expect(
-      window.sessionStorage.getItem(unlockedIdentityStorageKey("self"))
-    ).toContain("vault-private");
+    expect(window.sessionStorage.getItem(unlockedIdentityStorageKey("self"))).toBe(
+      JSON.stringify({
+        publicKey: "local-device-vault",
+        privateKey: "vault-private",
+      })
+    );
   });
 
-  it("writes unlocked identity to memory, session, and persistent auto storage", () => {
+  it("writes unlocked identity to both session and persistent auto storage", () => {
     const unlockedIdentityByUserId = new Map();
 
     writeUnlockedIdentity({
@@ -102,12 +105,61 @@ describe("e2eeIdentityStore", () => {
       publicKey: "local-device-vault",
       privateKey: "vault-private",
     });
-    expect(
-      window.sessionStorage.getItem(unlockedIdentityStorageKey("self"))
-    ).toContain("vault-private");
-    expect(
-      window.localStorage.getItem(autoUnlockedIdentityStorageKey("self"))
-    ).toContain("vault-private");
+    expect(window.sessionStorage.getItem(unlockedIdentityStorageKey("self"))).toBe(
+      JSON.stringify({
+        publicKey: "local-device-vault",
+        privateKey: "vault-private",
+      })
+    );
+    expect(window.localStorage.getItem(autoUnlockedIdentityStorageKey("self"))).toBe(
+      JSON.stringify({
+        publicKey: "local-device-vault",
+        privateKey: "vault-private",
+      })
+    );
+  });
+
+  it("hydrates unlocked identity from the current tab session", () => {
+    window.sessionStorage.setItem(
+      unlockedIdentityStorageKey("self"),
+      JSON.stringify({
+        publicKey: "local-device-vault",
+        privateKey: "vault-private",
+      })
+    );
+
+    const unlockedIdentityByUserId = new Map();
+    const identity = readUnlockedIdentity({
+      userId: "self",
+      unlockedIdentityByUserId,
+      readUnlockedIdentityFromSession: (userId) =>
+        readUnlockedIdentityFromSession({
+          userId,
+          getUnlockedIdentityStorageKey: unlockedIdentityStorageKey,
+          removeUnlockedIdentityFromSession: (targetUserId) =>
+            removeUnlockedIdentityFromSession({
+              userId: targetUserId,
+              getUnlockedIdentityStorageKey: unlockedIdentityStorageKey,
+            }),
+        }),
+      readUnlockedIdentityFromPersistentAutoStorage: (userId) =>
+        readUnlockedIdentityFromPersistentAutoStorage({
+          userId,
+          getAutoUnlockedIdentityStorageKey: autoUnlockedIdentityStorageKey,
+        }),
+      writeUnlockedIdentityToSession: (userId, restoredIdentity) =>
+        writeUnlockedIdentityToSession({
+          userId,
+          identity: restoredIdentity,
+          getUnlockedIdentityStorageKey: unlockedIdentityStorageKey,
+        }),
+    });
+
+    expect(identity).toEqual({
+      publicKey: "local-device-vault",
+      privateKey: "vault-private",
+    });
+    expect(unlockedIdentityByUserId.get("self")).toEqual(identity);
   });
 
   it("round-trips remembered unlocked identity through encrypted localStorage", async () => {

@@ -11,6 +11,7 @@ OBSERVABILITY_SERVICES="${OBSERVABILITY_SERVICES:-postgres-exporter tempo otel-c
 DEPLOY_LOCK_FILE="${DEPLOY_LOCK_FILE:-/tmp/messenger-remote-update.lock}"
 DEPLOY_LOCK_WAIT_SECONDS="${DEPLOY_LOCK_WAIT_SECONDS:-1800}"
 STATUS_FILE="${DEPLOY_STATUS_FILE:-}"
+ESCROW_PROVIDER="${APP_E2EE_ESCROW_PROVIDER:-}"
 
 env_file_value() {
   local key="$1"
@@ -182,16 +183,26 @@ git pull --ff-only origin main
 WEB_APP_REVISION="$(git rev-parse HEAD)"
 export WEB_APP_REVISION
 
+bash "$APP_DIR/deploy/preflight-prod.sh" "$ENV_FILE"
+
 BACKEND_REPLICAS="${BACKEND_REPLICAS:-$(env_file_value BACKEND_REPLICAS 1)}"
 WEB_REPLICAS="${WEB_REPLICAS:-$(env_file_value WEB_REPLICAS 1)}"
 ENABLE_OBSERVABILITY_STACK="$(normalize_boolean_flag ENABLE_OBSERVABILITY_STACK "${ENABLE_OBSERVABILITY_STACK:-$(env_file_value ENABLE_OBSERVABILITY_STACK false)}")"
+ESCROW_PROVIDER="${ESCROW_PROVIDER:-$(env_file_value APP_E2EE_ESCROW_PROVIDER local)}"
 validate_replica_count BACKEND_REPLICAS "$BACKEND_REPLICAS"
 validate_replica_count WEB_REPLICAS "$WEB_REPLICAS"
 
 "${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" config >/dev/null
 echo "Building web revision: $WEB_APP_REVISION"
 "${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build $BUILD_SERVICES
-"${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d $SUPPORT_SERVICES
+effective_support_services="$SUPPORT_SERVICES"
+if [[ "$ESCROW_PROVIDER" == "vault-transit" && " $effective_support_services " != *" vault "* ]]; then
+  effective_support_services="$effective_support_services vault"
+fi
+"${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d $effective_support_services
+for service in $effective_support_services; do
+  wait_for_service_ready "$service" 1 300 2
+done
 echo "Runtime replicas: backend=${BACKEND_REPLICAS}, web=${WEB_REPLICAS}"
 
 deploy_order=(backend web edge)

@@ -20,9 +20,25 @@ APP_REALTIME_REDIS_ENABLED=true
 APP_AUTH_RATE_LIMIT_REDIS_ENABLED=true
 APP_REALTIME_REDIS_MAC_SECRET=<stable-random-secret>
 APP_JWT_SECRET=<stable-base64-secret>
-APP_E2EE_ESCROW_SECRET=<stable-base64-secret>
 APP_PUSH_VAPID_PUBLIC_KEY=<stable-vapid-public-key>
 APP_PUSH_VAPID_PRIVATE_KEY=<stable-vapid-private-key>
+```
+
+Choose one escrow backend and keep it stable across replicas:
+
+```bash
+# Option A: local secret
+APP_E2EE_ESCROW_PROVIDER=local
+APP_E2EE_ESCROW_SECRET=<stable-base64-secret>
+```
+
+```bash
+# Option B: Vault Transit
+APP_E2EE_ESCROW_PROVIDER=vault-transit
+APP_E2EE_ESCROW_VAULT_ADDRESS=http://vault:8200
+APP_E2EE_ESCROW_VAULT_TOKEN=<vault-token>
+APP_E2EE_ESCROW_VAULT_MOUNT_PATH=transit
+APP_E2EE_ESCROW_VAULT_KEY_NAME=messenger-history-escrow
 ```
 
 Do not rely on generated JWT, escrow, or VAPID secrets in production. Ephemeral secrets make
@@ -52,7 +68,7 @@ restarts and future replica rollout behave differently from normal operation.
 3. Confirm all stable secrets are set in `.env.prod`.
 4. Keep `APP_DB_MAX_POOL_SIZE` low enough that `BACKEND_REPLICAS * APP_DB_MAX_POOL_SIZE` fits
    Postgres headroom.
-5. Confirm restore rehearsal exists for PostgreSQL together with `APP_E2EE_ESCROW_SECRET`; DB backup alone is insufficient for managed E2EE history recovery.
+5. Confirm restore rehearsal exists for PostgreSQL together with the active escrow backend; DB backup alone is insufficient for managed E2EE history recovery.
 6. Run a smoke test covering:
    - health endpoint
    - login and refresh

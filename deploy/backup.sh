@@ -8,7 +8,7 @@ COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 ENV_FILE="${ENV_FILE:-.env.prod}"
 BACKUP_ROOT="${BACKUP_ROOT:-/opt/messenger-backups}"
 BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
-BACKUP_VOLUME_SUFFIXES="${BACKUP_VOLUME_SUFFIXES:-caddy_data conference_recordings_archive conference_recordings_raw message_attachments}"
+BACKUP_VOLUME_SUFFIXES="${BACKUP_VOLUME_SUFFIXES:-caddy_data conference_recordings_archive conference_recordings_raw message_attachments vault_data}"
 BACKUP_ARCHIVER_IMAGE="${BACKUP_ARCHIVER_IMAGE:-caddy:2.9-alpine}"
 POSTGRES_SERVICE="${POSTGRES_SERVICE:-postgres}"
 

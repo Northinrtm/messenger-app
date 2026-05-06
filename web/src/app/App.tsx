@@ -1,6 +1,5 @@
 import { Suspense, lazy, useEffect, useEffectEvent, useRef, useState } from "react";
 import { AuthCard } from "../features/auth/AuthCard";
-import { UnlockCard } from "../features/auth/UnlockCard";
 import { refreshSession } from "../lib/api";
 import {
   getSessionRefreshDelay,
@@ -10,7 +9,7 @@ import {
 } from "../lib/session";
 import type { AuthResponse } from "../lib/types";
 
-const SESSION_RESTORE_CARD_DELAY_MS = 180;
+const SESSION_RESTORE_CARD_DELAY_MS = 900;
 const INVITE_PATH_PREFIX = "/j/";
 const PASSWORD_RESET_QUERY_PARAM = "resetToken";
 const EMAIL_VERIFICATION_QUERY_PARAM = "verifyEmailToken";
@@ -62,7 +61,7 @@ export function App() {
   const [restoringSession, setRestoringSession] = useState(true);
   const [showRestoringSessionCard, setShowRestoringSessionCard] = useState(false);
   const [refreshingExpiredSession, setRefreshingExpiredSession] = useState(false);
-  const [sessionNeedsUnlock, setSessionNeedsUnlock] = useState(false);
+  const [preparingSessionEncryption, setPreparingSessionEncryption] = useState(false);
   const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(() =>
     typeof window === "undefined" ? null : extractInviteCodeFromPath(window.location.pathname)
   );
@@ -167,18 +166,24 @@ export function App() {
 
   useEffect(() => {
     if (passwordResetToken || emailVerificationToken || restoringSession || !session) {
-      setSessionNeedsUnlock(false);
+      setPreparingSessionEncryption(false);
       return;
     }
 
     let cancelled = false;
-    void import("../lib/e2ee").then(({ hasUnlockedPrivateEncryptionKey }) => {
-      if (cancelled) {
-        return;
-      }
-
-      setSessionNeedsUnlock(!hasUnlockedPrivateEncryptionKey(session.user.id));
-    });
+    setPreparingSessionEncryption(true);
+    void import("../lib/e2ee")
+      .then(async ({ ensureEncryptionReadyForActiveSession }) => {
+        await ensureEncryptionReadyForActiveSession(session);
+        if (!cancelled) {
+          setPreparingSessionEncryption(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPreparingSessionEncryption(false);
+        }
+      });
 
     return () => {
       cancelled = true;
@@ -268,9 +273,12 @@ export function App() {
   });
 
   const showBlockingRestore =
-    restoringSession || Boolean(session && refreshingExpiredSession && isAccessTokenExpired(session));
+    restoringSession ||
+    preparingSessionEncryption ||
+    Boolean(session && refreshingExpiredSession && isAccessTokenExpired(session));
   const showSessionRestoreCard =
     (restoringSession && showRestoringSessionCard) ||
+    preparingSessionEncryption ||
     Boolean(session && refreshingExpiredSession && isAccessTokenExpired(session));
 
   return (
@@ -311,40 +319,18 @@ export function App() {
           }}
         />
       ) : session ? (
-        <>
-          <Suspense
-            fallback={
-              <main className="auth-shell">
-                <section className="auth-card">
-                  <div className="eyebrow">Opening workspace</div>
-                  <h1>Preparing your chats.</h1>
-                  <p className="auth-copy">Loading the messenger workspace and secure messaging tools.</p>
-                </section>
-              </main>
-            }
-          >
-            <NorthMessengerWorkspace
-              session={session}
-              pendingInviteCode={pendingInviteCode}
-              onPendingInviteHandled={handlePendingInviteHandled}
-              onSessionChange={setSession}
-            />
-          </Suspense>
-          {sessionNeedsUnlock ? (
-            <UnlockCard
-              session={session}
-              variant="overlay"
-              onUnlocked={(nextSession) => {
-                setSessionNeedsUnlock(false);
-                setSession({ ...nextSession });
-              }}
-              onSignedOut={() => {
-                setSessionNeedsUnlock(false);
-                setSession(null);
-              }}
-            />
-          ) : null}
-        </>
+        <Suspense
+          fallback={
+            <main className="auth-shell" aria-hidden="true" />
+          }
+        >
+          <NorthMessengerWorkspace
+            session={session}
+            pendingInviteCode={pendingInviteCode}
+            onPendingInviteHandled={handlePendingInviteHandled}
+            onSessionChange={setSession}
+          />
+        </Suspense>
       ) : (
         <AuthCard onAuthenticated={setSession} />
       )}

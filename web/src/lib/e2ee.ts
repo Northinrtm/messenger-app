@@ -7,6 +7,7 @@ import {
   getOwnGroupHistoryKeys,
   getOwnEncryptionRecoverySnapshot,
   resetOwnEncryptionIdentity,
+  sessionResetOwnEncryptionIdentity,
   resolveEncryptionAccountKeys,
   upsertOwnEncryptionAccountKey,
   upsertOwnEncryptionRecoverySnapshot,
@@ -73,6 +74,7 @@ import {
 } from "./e2eeRecoverySnapshotLifecycle";
 import {
   clearCurrentGroupHistoryKeyRecord as clearCurrentGroupHistoryKeyRecordInternal,
+  type EncryptedGroupHistoryKeyStateRecord,
   persistGroupHistoryKeyRecord as persistGroupHistoryKeyRecordInternal,
   readCurrentGroupHistoryKeyRecord as readCurrentGroupHistoryKeyRecordInternal,
   readGroupHistorySyncState as readGroupHistorySyncStateInternal,
@@ -137,7 +139,6 @@ const UNLOCKED_IDENTITY_STORAGE_PREFIX = "north-messenger:unlocked-e2ee:";
 const AUTO_UNLOCKED_IDENTITY_STORAGE_PREFIX = "north-messenger:auto-unlocked-e2ee:";
 const REMEMBERED_UNLOCKED_IDENTITY_STORAGE_PREFIX = "north-messenger:remembered-e2ee:";
 const GROUP_HISTORY_KEY_STORAGE_PREFIX = "north-messenger:group-history-key-e2ee:";
-const DECRYPTED_MESSAGE_ARCHIVE_STORAGE_PREFIX = "north-messenger:decrypted-message-archive:";
 const E2EE_STORAGE_SCHEMA_VERSION_KEY = "north-messenger:e2ee-storage-schema-version";
 const E2EE_TRANSPORT_STORAGE_SCHEMA_VERSION = "5";
 const DECRYPTED_MESSAGE_ARCHIVE_DB_NAME = "north-messenger-decrypted-message-archive";
@@ -158,14 +159,15 @@ const IDENTITY_KEY_ALGORITHM_ID = "RSA-PSS-SHA256";
 const ACCOUNT_KEY_ALGORITHM_ID = "RSA-OAEP-3072-SHA256";
 const CHAT_EPOCH_ENVELOPE_AAD_VERSION = 1;
 const CHAT_EPOCH_ENVELOPE_CONTEXT = "north.chat-message.v1";
-const ACCOUNT_HISTORY_KEY_GRANT_LEGACY_AAD_VERSION = 1;
 const ACCOUNT_HISTORY_KEY_GRANT_AAD_VERSION = 2;
 const ACCOUNT_HISTORY_KEY_GRANT_CONTEXT = "north.account-history-key-grant.v2";
 const ACCOUNT_HISTORY_KEY_WRAP_LABEL = "north.account-history-key-grant.wrap.v2";
 const GROUP_HISTORY_KEY_GRANT_AAD_VERSION = 1;
 const GROUP_HISTORY_KEY_GRANT_CONTEXT = "north.group-history-key-grant.v1";
-const RECOVERY_SNAPSHOT_SYNC_DEBOUNCE_MS = 1_000;
-const RECOVERY_SNAPSHOT_SYNC_FRESH_TTL_MS = 10_000;
+const GROUP_HISTORY_KEY_STATE_RECORD_VERSION = 1;
+const GROUP_HISTORY_KEY_STATE_AAD_CONTEXT = "north.group-history-key-state.v1";
+const RECOVERY_SNAPSHOT_SYNC_DEBOUNCE_MS = 10_000;
+const RECOVERY_SNAPSHOT_SYNC_IDLE_TIMEOUT_MS = 2_000;
 const RECOVERY_SYNC_SESSION_WAIT_TIMEOUT_MS = 1_000;
 const RECOVERY_SYNC_SESSION_WAIT_POLL_MS = 25;
 const RECOVERY_SNAPSHOT_PAYLOAD_VERSION = 1;
@@ -206,7 +208,6 @@ export {
 export { hasTrustedBrowserUnlock, isTrustedBrowserUnlockSupported } from "./e2eeTrustedBrowser";
 
 const e2eeMessageReadbackStore = createE2eeMessageReadbackStore({
-  decryptedMessageArchiveStoragePrefix: DECRYPTED_MESSAGE_ARCHIVE_STORAGE_PREFIX,
   decryptedMessageArchiveDbName: DECRYPTED_MESSAGE_ARCHIVE_DB_NAME,
   decryptedMessageArchiveDbVersion: DECRYPTED_MESSAGE_ARCHIVE_DB_VERSION,
   decryptedMessageArchiveStoreName: DECRYPTED_MESSAGE_ARCHIVE_STORE_NAME,
@@ -395,7 +396,16 @@ function scheduleEncryptionRecoverySnapshotSync(userId: string) {
     if (!session) {
       return;
     }
-    void syncEncryptionRecoverySnapshot(session);
+    const startSync = () => {
+      void syncEncryptionRecoverySnapshot(session);
+    };
+    if (typeof window.requestIdleCallback === "function") {
+      window.requestIdleCallback(startSync, {
+        timeout: RECOVERY_SNAPSHOT_SYNC_IDLE_TIMEOUT_MS,
+      });
+      return;
+    }
+    startSync();
   }, RECOVERY_SNAPSHOT_SYNC_DEBOUNCE_MS);
 
   scheduledRecoverySnapshotSyncByUserId.set(userId, timerId);
@@ -643,30 +653,63 @@ export async function ensureEncryptionReady(session: AuthResponse, password: str
   });
 }
 
-function hasFreshCompletedRecoverySnapshotSync(userId: string) {
-  const completedAt = completedRecoverySnapshotSyncByUserId.get(userId);
-  return Boolean(
-    completedAt && Date.now() - completedAt < RECOVERY_SNAPSHOT_SYNC_FRESH_TTL_MS
-  );
-}
-
-async function ensureFreshPublishedAccountKey(
-  session: AuthResponse | undefined,
-  currentUserId: string
-) {
-  if (!session || session.user.id !== currentUserId) {
-    return;
-  }
-
+export async function ensureEncryptionReadyForActiveSession(session: AuthResponse) {
+  ensureE2eeTransportStorageSchema();
   rememberRecoverySyncSession(session);
-  if (!hasUnlockedPrivateEncryptionKey(currentUserId)) {
-    return;
-  }
-  if (hasFreshCompletedRecoverySnapshotSync(currentUserId)) {
+
+  const userId = session.user.id;
+  const unlockedIdentity = readUnlockedIdentity(userId);
+  if (unlockedIdentity) {
+    const ensuredIdentity = await ensureLocalIdentityHasAccountKeyPairForSession(
+      userId,
+      unlockedIdentity
+    );
+    writeUnlockedIdentity(userId, ensuredIdentity);
+    try {
+      await syncEncryptionRecoverySnapshot(session);
+    } catch {
+      // Best-effort only.
+    }
     return;
   }
 
-  await syncEncryptionRecoverySnapshot(session);
+  let publishedAccountKey:
+    | {
+        identityGeneration: number;
+      }
+    | null = null;
+  try {
+    publishedAccountKey = await getOwnEncryptionAccountKey(session.token);
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 404) {
+      throw error;
+    }
+  }
+
+  const baseIdentity: LocalIdentity =
+    publishedAccountKey && publishedAccountKey.identityGeneration >= 1
+      ? {
+          ...createLocalVaultIdentity(),
+          identityGeneration: publishedAccountKey.identityGeneration + 1,
+        }
+      : createLocalVaultIdentity();
+  const ensuredIdentity = await ensureLocalIdentityHasAccountKeyPairForSession(
+    userId,
+    baseIdentity
+  );
+
+  if (publishedAccountKey) {
+    await publishOwnEncryptionAccountKeyBundleAfterSessionReset(
+      session.token,
+      userId,
+      ensuredIdentity
+    );
+    removeTrustedBrowserUnlockRecord(userId);
+  } else {
+    await publishOwnEncryptionAccountKeyBundle(session.token, userId, ensuredIdentity);
+  }
+
+  writeUnlockedIdentity(userId, ensuredIdentity);
 }
 
 export async function resetEncryptionAfterPasswordReset(session: AuthResponse, password: string) {
@@ -1044,7 +1087,6 @@ export async function sendEncryptedMessage(
     chatId,
     resolvedClientMessageId,
     async () => {
-      await ensureFreshPublishedAccountKey(options.session, currentUserId);
       const encryptedContent = serializeMessageContent(normalizedContent, attachments);
       if (!resolvedClientMessageId) {
         throw new ApiError("Client message id is required", 400);
@@ -1086,8 +1128,11 @@ export async function sendEncryptedMessage(
           id: resolvedClientMessageId,
         });
       }
-      await rememberArchivedDecryptedMessages(currentUserId, archivedMessageVariants);
-      recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:archiveRemembered");
+      void rememberArchivedDecryptedMessages(currentUserId, archivedMessageVariants)
+        .then(() => {
+          recordSendDiagnosticStep(resolvedClientMessageId, "e2ee:archiveRemembered");
+        })
+        .catch(() => undefined);
       return sentMessage;
     }
   );
@@ -1123,7 +1168,6 @@ export async function updateEncryptedMessage(
 
   const currentUserId = options?.currentUserId ?? userId;
   return serializeEncryptedConversationSend(currentUserId, chatId, "", async () => {
-    await ensureFreshPublishedAccountKey(options?.session, currentUserId);
     const encryptedContent = serializeMessageContent(normalizedContent, attachments);
     const response = await updateEncryptedMessageWithActiveKeyRetry({
       token,
@@ -1142,7 +1186,7 @@ export async function updateEncryptedMessage(
       content: normalizedContent,
       attachments,
     } satisfies ChatMessage;
-    await rememberArchivedDecryptedMessage(currentUserId, hydratedMessage);
+    void rememberArchivedDecryptedMessage(currentUserId, hydratedMessage).catch(() => undefined);
     return hydratedMessage;
   });
 }
@@ -1158,13 +1202,11 @@ export async function primeEncryptedMessageRecipients(
     throw new ApiError(ENCRYPTION_INITIALIZING_MESSAGE, 409);
   }
 
-  await ensureFreshPublishedAccountKey(options.session, options.currentUserId);
-  await resolveConversationAccountKeyDirectory(
-    token,
-    options.currentUserId,
-    participants,
-    await ensureRuntimeAccountIdentity(options.currentUserId)
-  );
+  void token;
+  void participants;
+  void options.session;
+  void options.forceRefresh;
+  await ensureRuntimeAccountIdentity(options.currentUserId);
 }
 
 export async function hydrateChatMessage(
@@ -1618,16 +1660,16 @@ async function resolveConversationAccountKeyDirectory(
 type AccountHistoryKeyGrantEnvelope = {
   aadVersion: number;
   ciphertext: string;
-  context?: string;
-  chatId?: string;
-  historyKeyId?: string;
-  recipientUserId?: string;
-  recipientAccountKeyVersion?: number;
-  membershipVersion?: number;
-  historyPolicy?: GroupHistoryKeyGrantPayload["historyPolicy"];
-  createdAt?: string;
-  wrappedKey?: string;
-  iv?: string;
+  context: string;
+  chatId: string;
+  historyKeyId: string;
+  recipientUserId: string;
+  recipientAccountKeyVersion: number;
+  membershipVersion: number;
+  historyPolicy: GroupHistoryKeyGrantPayload["historyPolicy"];
+  createdAt: string;
+  wrappedKey: string;
+  iv: string;
 };
 
 type ConversationAccountKeyDirectoryEntry = {
@@ -1652,40 +1694,24 @@ type ChatEpochEnvelope = {
 function parseAccountHistoryKeyGrantEnvelope(value: string) {
   const parsed = JSON.parse(value) as Partial<AccountHistoryKeyGrantEnvelope>;
   if (
-    (parsed.aadVersion !== ACCOUNT_HISTORY_KEY_GRANT_AAD_VERSION &&
-      parsed.aadVersion !== ACCOUNT_HISTORY_KEY_GRANT_LEGACY_AAD_VERSION) ||
+    parsed.aadVersion !== ACCOUNT_HISTORY_KEY_GRANT_AAD_VERSION ||
+    parsed.context !== ACCOUNT_HISTORY_KEY_GRANT_CONTEXT ||
+    typeof parsed.chatId !== "string" ||
+    typeof parsed.historyKeyId !== "string" ||
+    typeof parsed.recipientUserId !== "string" ||
+    typeof parsed.recipientAccountKeyVersion !== "number" ||
+    typeof parsed.membershipVersion !== "number" ||
+    !Number.isFinite(parsed.membershipVersion) ||
+    parsed.membershipVersion < 0 ||
+    (parsed.historyPolicy !== "DIRECT" &&
+      parsed.historyPolicy !== "JOIN_ONLY" &&
+      parsed.historyPolicy !== "FULL_HISTORY") ||
+    typeof parsed.createdAt !== "string" ||
+    typeof parsed.wrappedKey !== "string" ||
+    typeof parsed.iv !== "string" ||
     typeof parsed.ciphertext !== "string"
   ) {
     throw new Error("Malformed account history key grant envelope");
-  }
-
-  const hasHybridFields = parsed.wrappedKey !== undefined || parsed.iv !== undefined;
-  if (
-    hasHybridFields &&
-    (typeof parsed.wrappedKey !== "string" || typeof parsed.iv !== "string")
-  ) {
-    throw new Error("Malformed account history key grant envelope");
-  }
-
-  if (parsed.aadVersion === ACCOUNT_HISTORY_KEY_GRANT_AAD_VERSION) {
-    if (
-      parsed.context !== ACCOUNT_HISTORY_KEY_GRANT_CONTEXT ||
-      typeof parsed.chatId !== "string" ||
-      typeof parsed.historyKeyId !== "string" ||
-      typeof parsed.recipientUserId !== "string" ||
-      typeof parsed.recipientAccountKeyVersion !== "number" ||
-      typeof parsed.membershipVersion !== "number" ||
-      !Number.isFinite(parsed.membershipVersion) ||
-      parsed.membershipVersion < 0 ||
-      (parsed.historyPolicy !== "DIRECT" &&
-        parsed.historyPolicy !== "JOIN_ONLY" &&
-        parsed.historyPolicy !== "FULL_HISTORY") ||
-      typeof parsed.createdAt !== "string" ||
-      typeof parsed.wrappedKey !== "string" ||
-      typeof parsed.iv !== "string"
-    ) {
-      throw new Error("Malformed account history key grant envelope");
-    }
   }
 
   return parsed as AccountHistoryKeyGrantEnvelope;
@@ -1729,65 +1755,43 @@ async function decryptAccountHistoryKeyGrantEnvelope(
   }
   const envelope = parseAccountHistoryKeyGrantEnvelope(wrappedPayloadJson);
   const privateKey = await importAccountPrivateKey(identity.accountPrivateKey);
-  let plaintext: ArrayBuffer;
-  if (envelope.wrappedKey && envelope.iv) {
-    const wrappingKeyDecryptAlgorithm =
-      envelope.aadVersion === ACCOUNT_HISTORY_KEY_GRANT_AAD_VERSION
-        ? {
-            name: ACCOUNT_KEY_ALGORITHM,
-            label: textEncoder.encode(ACCOUNT_HISTORY_KEY_WRAP_LABEL),
-          }
-        : {
-            name: ACCOUNT_KEY_ALGORITHM,
-          };
-    const wrappingKeyBytes = await window.crypto.subtle.decrypt(
-      wrappingKeyDecryptAlgorithm,
-      privateKey,
-      base64ToBytes(envelope.wrappedKey)
-    );
-    const wrappingKey = await window.crypto.subtle.importKey(
-      "raw",
-      wrappingKeyBytes,
-      "AES-GCM",
-      false,
-      ["decrypt"]
-    );
-    plaintext = await window.crypto.subtle.decrypt(
-      {
-        name: "AES-GCM",
-        iv: base64ToBytes(envelope.iv),
-        additionalData:
-          envelope.aadVersion === ACCOUNT_HISTORY_KEY_GRANT_AAD_VERSION
-            ? buildAccountHistoryKeyGrantAdditionalData(envelope)
-            : textEncoder.encode(String(ACCOUNT_HISTORY_KEY_GRANT_LEGACY_AAD_VERSION)),
-      },
-      wrappingKey,
-      base64ToBytes(envelope.ciphertext)
-    );
-  } else {
-    plaintext = await window.crypto.subtle.decrypt(
-      {
-        name: ACCOUNT_KEY_ALGORITHM,
-      },
-      privateKey,
-      base64ToBytes(envelope.ciphertext)
-    );
-  }
+  const wrappingKeyBytes = await window.crypto.subtle.decrypt(
+    {
+      name: ACCOUNT_KEY_ALGORITHM,
+      label: textEncoder.encode(ACCOUNT_HISTORY_KEY_WRAP_LABEL),
+    },
+    privateKey,
+    base64ToBytes(envelope.wrappedKey)
+  );
+  const wrappingKey = await window.crypto.subtle.importKey(
+    "raw",
+    wrappingKeyBytes,
+    "AES-GCM",
+    false,
+    ["decrypt"]
+  );
+  const plaintext = await window.crypto.subtle.decrypt(
+    {
+      name: "AES-GCM",
+      iv: base64ToBytes(envelope.iv),
+      additionalData: buildAccountHistoryKeyGrantAdditionalData(envelope),
+    },
+    wrappingKey,
+    base64ToBytes(envelope.ciphertext)
+  );
   const plaintextValue = textDecoder.decode(plaintext);
-  if (envelope.aadVersion === ACCOUNT_HISTORY_KEY_GRANT_AAD_VERSION) {
-    const grantPayload = parseGroupHistoryKeyGrantPayload(
-      plaintextValue,
-      GROUP_HISTORY_KEY_GRANT_AAD_VERSION
-    );
-    if (
-      grantPayload.chatId !== envelope.chatId ||
-      grantPayload.historyKeyId !== envelope.historyKeyId ||
-      grantPayload.membershipVersion !== envelope.membershipVersion ||
-      grantPayload.historyPolicy !== envelope.historyPolicy ||
-      grantPayload.createdAt !== envelope.createdAt
-    ) {
-      throw new Error("Account history key grant envelope metadata does not match the payload");
-    }
+  const grantPayload = parseGroupHistoryKeyGrantPayload(
+    plaintextValue,
+    GROUP_HISTORY_KEY_GRANT_AAD_VERSION
+  );
+  if (
+    grantPayload.chatId !== envelope.chatId ||
+    grantPayload.historyKeyId !== envelope.historyKeyId ||
+    grantPayload.membershipVersion !== envelope.membershipVersion ||
+    grantPayload.historyPolicy !== envelope.historyPolicy ||
+    grantPayload.createdAt !== envelope.createdAt
+  ) {
+    throw new Error("Account history key grant envelope metadata does not match the payload");
   }
   return plaintextValue;
 }
@@ -2165,6 +2169,77 @@ async function deriveWrappingKey(password: string, salt: Uint8Array, iterations:
     false,
     ["encrypt", "decrypt"]
   );
+}
+
+function buildGroupHistoryKeyStateAdditionalData(userId: string) {
+  return textEncoder.encode(
+    JSON.stringify({
+      context: GROUP_HISTORY_KEY_STATE_AAD_CONTEXT,
+      userId,
+      version: GROUP_HISTORY_KEY_STATE_RECORD_VERSION,
+    })
+  );
+}
+
+async function encryptPersistedGroupHistoryKeyState(
+  userId: string,
+  state: GroupHistoryKeyState
+): Promise<EncryptedGroupHistoryKeyStateRecord | null> {
+  const identity = readUnlockedIdentity(userId);
+  if (!identity?.privateKey) {
+    return null;
+  }
+
+  const salt = randomBytes(16);
+  const iv = randomBytes(12);
+  const wrappingKey = await deriveWrappingKey(identity.privateKey, salt, KDF_ITERATIONS);
+  const ciphertext = await window.crypto.subtle.encrypt(
+    {
+      name: "AES-GCM",
+      iv: toArrayBuffer(iv),
+      additionalData: buildGroupHistoryKeyStateAdditionalData(userId),
+    } satisfies AesGcmParams,
+    wrappingKey,
+    textEncoder.encode(JSON.stringify(state))
+  );
+
+  return {
+    version: GROUP_HISTORY_KEY_STATE_RECORD_VERSION,
+    salt: bytesToBase64(salt),
+    iv: bytesToBase64(iv),
+    ciphertext: bytesToBase64(new Uint8Array(ciphertext)),
+    createdAt: new Date().toISOString(),
+  };
+}
+
+async function decryptPersistedGroupHistoryKeyState(
+  userId: string,
+  record: EncryptedGroupHistoryKeyStateRecord
+) {
+  const identity = readUnlockedIdentity(userId);
+  if (!identity?.privateKey || record.version !== GROUP_HISTORY_KEY_STATE_RECORD_VERSION) {
+    return null;
+  }
+
+  try {
+    const wrappingKey = await deriveWrappingKey(
+      identity.privateKey,
+      base64ToBytes(record.salt),
+      KDF_ITERATIONS
+    );
+    const plaintext = await window.crypto.subtle.decrypt(
+      {
+        name: "AES-GCM",
+        iv: base64ToBytes(record.iv),
+        additionalData: buildGroupHistoryKeyStateAdditionalData(userId),
+      } satisfies AesGcmParams,
+      wrappingKey,
+      base64ToBytes(record.ciphertext)
+    );
+    return JSON.parse(textDecoder.decode(plaintext)) as unknown;
+  } catch {
+    return null;
+  }
 }
 
 async function importAccountPublicKey(serializedPublicKey: string) {
@@ -2632,6 +2707,36 @@ async function publishOwnEncryptionAccountKeyBundleAfterIdentityReset(
   });
 }
 
+async function publishOwnEncryptionAccountKeyBundleAfterSessionReset(
+  token: string,
+  userId: string,
+  identity: LocalIdentity
+) {
+  const upload = await buildOwnEncryptionAccountKeyUpload(userId, identity);
+  let currentBundle:
+    | {
+        identityGeneration: number;
+      }
+    | null = null;
+  try {
+    currentBundle = await getOwnEncryptionAccountKey(token);
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 404) {
+      throw error;
+    }
+  }
+
+  if (!currentBundle || upload.identityGeneration <= currentBundle.identityGeneration) {
+    return upsertOwnEncryptionAccountKey(token, upload);
+  }
+
+  if (upload.identityGeneration !== currentBundle.identityGeneration + 1) {
+    throw new ApiError(ENCRYPTION_RECOVERY_EXISTING_CHATS_MESSAGE, 409);
+  }
+
+  return sessionResetOwnEncryptionIdentity(token, upload);
+}
+
 async function ensureLocalIdentityHasAccountKeyPair(
   userId: string,
   identity: LocalIdentity,
@@ -2673,6 +2778,48 @@ async function ensureLocalIdentityHasAccountKeyPair(
   }
   writeUnlockedIdentity(userId, upgradedIdentity);
   await rememberUnlockedIdentity(userId, upgradedIdentity, password);
+  return upgradedIdentity;
+}
+
+async function ensureLocalIdentityHasAccountKeyPairForSession(
+  userId: string,
+  identity: LocalIdentity
+) {
+  if (hasAccountKeyPair(identity)) {
+    return identity;
+  }
+
+  let upgradedIdentity: LocalIdentity = { ...identity };
+  assertSignedAccountIdentityContinuity(upgradedIdentity);
+  if (!hasIdentitySigningKeyPair(upgradedIdentity)) {
+    const identitySigningKeyPair = await generateIdentitySigningKeyPair();
+    upgradedIdentity = {
+      ...upgradedIdentity,
+      identityGeneration: hasStoredIdentityGeneration(upgradedIdentity)
+        ? upgradedIdentity.identityGeneration
+        : 1,
+      identitySigningPublicKey: identitySigningKeyPair.publicKey,
+      identitySigningPrivateKey: identitySigningKeyPair.privateKey,
+    };
+  }
+  if (!hasStoredAccountKeyMaterial(upgradedIdentity)) {
+    const accountKeyPair = await generateAccountKeyPair();
+    const currentAccountKeyVersion = upgradedIdentity.accountKeyVersion;
+    const nextAccountKeyVersion =
+      typeof currentAccountKeyVersion === "number" && currentAccountKeyVersion >= 1
+        ? currentAccountKeyVersion + 1
+        : 1;
+    upgradedIdentity = {
+      ...upgradedIdentity,
+      accountPublicKey: accountKeyPair.publicKey,
+      accountPrivateKey: accountKeyPair.privateKey,
+      identityGeneration: hasStoredIdentityGeneration(upgradedIdentity)
+        ? upgradedIdentity.identityGeneration
+        : 1,
+      accountKeyVersion: nextAccountKeyVersion,
+    };
+  }
+  writeUnlockedIdentity(userId, upgradedIdentity);
   return upgradedIdentity;
 }
 
@@ -2749,6 +2896,8 @@ async function readGroupHistoryKeyState(userId: string): Promise<GroupHistoryKey
     userId,
     getGroupHistoryKeyStorageKey,
     removeGroupHistoryKeys,
+    decryptPersistedGroupHistoryKeyState: (record) =>
+      decryptPersistedGroupHistoryKeyState(userId, record),
   });
 }
 
@@ -2757,6 +2906,8 @@ function writeGroupHistoryKeyState(userId: string, state: GroupHistoryKeyState) 
     userId,
     state,
     getGroupHistoryKeyStorageKey,
+    encryptPersistedGroupHistoryKeyState: (nextState) =>
+      encryptPersistedGroupHistoryKeyState(userId, nextState),
   });
 }
 
@@ -3140,10 +3291,6 @@ function getRememberedUnlockedIdentityStorageKey(userId: string) {
 
 function getAutoUnlockedIdentityStorageKey(userId: string) {
   return `${AUTO_UNLOCKED_IDENTITY_STORAGE_PREFIX}${userId}`;
-}
-
-function getDecryptedMessageArchiveStorageKey(userId: string) {
-  return `${DECRYPTED_MESSAGE_ARCHIVE_STORAGE_PREFIX}${userId}`;
 }
 
 function getGroupHistoryKeyStorageKey(userId: string) {

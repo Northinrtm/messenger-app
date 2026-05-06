@@ -27,6 +27,7 @@ type UseWorkspaceNavigationParams = {
   setConferenceTitle: Dispatch<SetStateAction<string>>;
   setConferenceViewportMode: Dispatch<SetStateAction<ConferenceViewportMode>>;
   setDeleteAccountConfirmation: Dispatch<SetStateAction<string>>;
+  setHasExplicitlyOpenedActiveChatThisSession: Dispatch<SetStateAction<boolean>>;
   setInitialChatViewportHint: Dispatch<
     SetStateAction<{ chatId: string; unreadCount: number } | null>
   >;
@@ -70,6 +71,7 @@ export function useWorkspaceNavigation({
   setConferenceTitle,
   setConferenceViewportMode,
   setDeleteAccountConfirmation,
+  setHasExplicitlyOpenedActiveChatThisSession,
   setInitialChatViewportHint,
   setIsConferenceInfoOpen,
   setIsMenuOpen,
@@ -177,6 +179,7 @@ export function useWorkspaceNavigation({
       setConferenceViewportMode("mini");
       setIsConferenceInfoOpen(false);
     }
+    setHasExplicitlyOpenedActiveChatThisSession(true);
     setActiveChatId(chatId);
   });
 
@@ -188,6 +191,7 @@ export function useWorkspaceNavigation({
 
     setSidebarSheet(null);
     setMobilePane("sidebar");
+    setHasExplicitlyOpenedActiveChatThisSession(false);
     setActiveChatId(null);
   });
 
@@ -215,6 +219,7 @@ export function useWorkspaceNavigation({
     setConferenceEditingId(null);
     setConferenceViewportMode("full");
     setMobilePane("conversation");
+    setHasExplicitlyOpenedActiveChatThisSession(false);
     setActiveChatId(null);
     setActiveConferenceId(conferenceId);
   });
@@ -237,6 +242,7 @@ export function useWorkspaceNavigation({
     setConferenceEditingId(null);
     setConferenceViewportMode("full");
     setMobilePane("conversation");
+    setHasExplicitlyOpenedActiveChatThisSession(false);
     setActiveChatId(null);
   });
 

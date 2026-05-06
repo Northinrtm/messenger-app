@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.UUID;
 
 public record WorkspaceBootstrapResponse(
+        String workspaceVersion,
         UserProfileResponse profile,
         List<ChatSummaryResponse> chats,
         List<UUID> archivedChatIds,

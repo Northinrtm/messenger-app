@@ -160,7 +160,7 @@ Recommended next work, in priority order:
 4. Push notification hardening:
    add stable VAPID key generation docs/script and later implement encrypted push payload previews that can be decrypted by the service worker.
 5. Storage and backup hardening:
-   move attachments/recordings to S3-compatible object storage and add off-site backup replication with restore rehearsal for PostgreSQL plus `APP_E2EE_ESCROW_SECRET`.
+   move attachments/recordings to S3-compatible object storage and add off-site backup replication with restore rehearsal for PostgreSQL plus the managed-E2EE escrow backend (`APP_E2EE_ESCROW_SECRET` or Vault Transit storage).
 6. Scale path:
    move attachments/recordings to object storage, add distributed presence/last-seen, then introduce Kafka/NATS only if async delivery volume justifies it.
 
@@ -200,6 +200,10 @@ Useful profiles:
 
 ```bash
 docker compose --profile redis up --build
+```
+
+```bash
+docker compose --profile vault up --build
 ```
 
 ```bash
@@ -274,6 +278,7 @@ Base examples:
 
 - [`.env.example`](.env.example)
 - [`.env.prod.example`](.env.prod.example)
+- [`deploy/preflight-prod.sh`](deploy/preflight-prod.sh)
 
 Important app variables:
 
@@ -283,7 +288,12 @@ Important app variables:
 - `APP_CORS_ALLOWED_ORIGINS`
 - `APP_JWT_SECRET`
 - `APP_JWT_REFRESH_TOKEN_TTL`
+- `APP_E2EE_ESCROW_PROVIDER`
 - `APP_E2EE_ESCROW_SECRET`
+- `APP_E2EE_ESCROW_VAULT_ADDRESS`
+- `APP_E2EE_ESCROW_VAULT_TOKEN`
+- `APP_E2EE_ESCROW_VAULT_MOUNT_PATH`
+- `APP_E2EE_ESCROW_VAULT_KEY_NAME`
 - `APP_REALTIME_REDIS_ENABLED`
 - `APP_AUTH_RATE_LIMIT_REDIS_ENABLED`
 - `APP_REALTIME_REDIS_MAC_SECRET`
@@ -342,6 +352,8 @@ Normal account-key rotation keeps the same identity signing key and increases `a
 Identity reset changes the identity signing key, increases `identityGeneration`, requires fresh user authentication, and triggers server-side regrant plus epoch rotation for the affected chats.
 
 The server does not store plaintext chat messages, but it can recover and regrant history keys according to chat policy. The system should therefore be described as managed E2EE, not strict zero-knowledge E2EE.
+For production on a VPS, prefer `APP_E2EE_ESCROW_PROVIDER=vault-transit` backed by HashiCorp Vault Transit over a raw long-lived local escrow secret.
+Active chat history keys rotate on membership/security events and, by default, also rotate periodically after `P30D`.
 
 ## Email Verification and Password Reset
 
@@ -395,9 +407,25 @@ APP_REALTIME_REDIS_ENABLED=true
 APP_AUTH_RATE_LIMIT_REDIS_ENABLED=true
 APP_REALTIME_REDIS_MAC_SECRET=<stable-random-secret>
 APP_JWT_SECRET=<stable-base64-secret>
-APP_E2EE_ESCROW_SECRET=<stable-base64-secret>
 BACKEND_REPLICAS=2
 WEB_REPLICAS=2
+```
+
+Choose one managed-E2EE escrow backend and keep it stable across replicas:
+
+```bash
+# Option A: local secret
+APP_E2EE_ESCROW_PROVIDER=local
+APP_E2EE_ESCROW_SECRET=<stable-base64-secret>
+```
+
+```bash
+# Option B: Vault Transit (recommended for VPS/production)
+APP_E2EE_ESCROW_PROVIDER=vault-transit
+APP_E2EE_ESCROW_VAULT_ADDRESS=http://vault:8200
+APP_E2EE_ESCROW_VAULT_TOKEN=<vault-token>
+APP_E2EE_ESCROW_VAULT_MOUNT_PATH=transit
+APP_E2EE_ESCROW_VAULT_KEY_NAME=messenger-history-escrow
 ```
 
 Then deploy normally:
@@ -405,6 +433,13 @@ Then deploy normally:
 ```bash
 cd /opt/messenger-app
 ./deploy/remote-update.sh
+```
+
+Before the first rollout on a fresh server, validate `.env.prod` explicitly:
+
+```bash
+cd /opt/messenger-app
+bash deploy/preflight-prod.sh .env.prod
 ```
 
 `remote-update.sh` applies `--scale backend=<BACKEND_REPLICAS>` and `--scale web=<WEB_REPLICAS>`.
@@ -487,6 +522,7 @@ Repository backup helpers cover:
 - `caddy_data`
 - conference recording volumes
 - encrypted chat attachment volume
+- `vault_data` when the optional Vault profile is used with file storage
 
 See:
 

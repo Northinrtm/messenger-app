@@ -135,9 +135,23 @@ app:
     secret: ${APP_JWT_SECRET:}
     generate-secret-if-missing: ${APP_JWT_GENERATE_SECRET_IF_MISSING:false}
   e2ee:
+    active-history-key-rotation:
+      enabled: ${APP_E2EE_ACTIVE_HISTORY_KEY_ROTATION_ENABLED:true}
+      max-age: ${APP_E2EE_ACTIVE_HISTORY_KEY_ROTATION_MAX_AGE:P30D}
+      batch-size: ${APP_E2EE_ACTIVE_HISTORY_KEY_ROTATION_BATCH_SIZE:128}
+      scan-fixed-delay-ms: ${APP_E2EE_ACTIVE_HISTORY_KEY_ROTATION_SCAN_FIXED_DELAY_MS:3600000}
     escrow:
+      provider: ${APP_E2EE_ESCROW_PROVIDER:local}
       secret: ${APP_E2EE_ESCROW_SECRET:}
-      generate-secret-if-missing: ${APP_E2EE_ESCROW_GENERATE_SECRET_IF_MISSING:true}
+      vault-address: ${APP_E2EE_ESCROW_VAULT_ADDRESS:}
+      vault-token: ${APP_E2EE_ESCROW_VAULT_TOKEN:}
+      vault-namespace: ${APP_E2EE_ESCROW_VAULT_NAMESPACE:}
+      vault-mount-path: ${APP_E2EE_ESCROW_VAULT_MOUNT_PATH:transit}
+      vault-key-name: ${APP_E2EE_ESCROW_VAULT_KEY_NAME:messenger-history-escrow}
+      vault-connect-timeout: ${APP_E2EE_ESCROW_VAULT_CONNECT_TIMEOUT:PT2S}
+      vault-request-timeout: ${APP_E2EE_ESCROW_VAULT_REQUEST_TIMEOUT:PT5S}
+    preview:
+      decrypt-server-side: ${APP_E2EE_PREVIEW_DECRYPT_SERVER_SIDE:true}
   outbox:
     message-dispatch:
       batch-size: ${APP_OUTBOX_MESSAGE_DISPATCH_BATCH_SIZE:128}

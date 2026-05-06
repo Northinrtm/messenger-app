@@ -3,6 +3,7 @@ package com.north.messenger.application.e2ee;
 import com.north.messenger.api.dto.ResolveEncryptionAccountKeysRequest;
 import com.north.messenger.api.dto.UserEncryptionAccountKeyRequest;
 import com.north.messenger.api.dto.UserEncryptionIdentityResetRequest;
+import com.north.messenger.api.dto.UserEncryptionSessionResetRequest;
 import com.north.messenger.api.dto.UserEncryptionAccountKeyResolveResponse;
 import com.north.messenger.api.dto.UserEncryptionAccountKeyResponse;
 import com.north.messenger.application.auth.AuthService;
@@ -159,6 +160,41 @@ public class UserEncryptionAccountKeyService {
         return toResponse(savedAccountKey);
     }
 
+    @Transactional
+    public UserEncryptionAccountKeyResponse sessionResetOwnIdentityKeyBundle(
+            String username,
+            String accessToken,
+            UserEncryptionSessionResetRequest request
+    ) {
+        AuthService.AuthenticatedSession authenticatedSession =
+                authService.requireAuthenticatedSession(username, accessToken);
+        UUID userId = authenticatedSession.user().getId();
+        Instant now = Instant.now();
+        UserEncryptionAccountKey existingAccountKey = userEncryptionAccountKeyRepository.findByUserId(userId)
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.CONFLICT,
+                        "Encryption identity cannot be reset before the first account key bootstrap"
+                ));
+        validateSessionIdentityResetRequest(userId, existingAccountKey, request);
+        Instant signedAt = identitySignedAccountKeyService.parseSignedAt(request.signedAt());
+
+        existingAccountKey.update(
+                request.publicKey(),
+                request.accountKeyVersion(),
+                request.identityGeneration(),
+                request.identitySigningPublicKey(),
+                request.identityKeyAlgorithm(),
+                request.accountKeyAlgorithm(),
+                signedAt,
+                request.signature(),
+                now
+        );
+        UserEncryptionAccountKey savedAccountKey = userEncryptionAccountKeyRepository.save(existingAccountKey);
+        eventPublisher.publishEvent(new UserIdentityResetEvent(userId));
+        eventPublisher.publishEvent(new UserAccountKeyChangedEvent(userId));
+        return toResponse(savedAccountKey);
+    }
+
     private void validateSignedAccountKeyRequest(
             UUID userId,
             UserEncryptionAccountKey existingAccountKey,
@@ -263,6 +299,49 @@ public class UserEncryptionAccountKeyService {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.BAD_REQUEST,
                     "Identity reset must use the current account key algorithms"
+            );
+        }
+    }
+
+    private void validateSessionIdentityResetRequest(
+            UUID userId,
+            UserEncryptionAccountKey existingAccountKey,
+            UserEncryptionSessionResetRequest request
+    ) {
+        identitySignedAccountKeyService.verifySignedAccountKeyBundle(
+                userId,
+                request.publicKey(),
+                request.accountKeyVersion(),
+                request.identityGeneration(),
+                request.identitySigningPublicKey(),
+                request.identityKeyAlgorithm(),
+                request.accountKeyAlgorithm(),
+                request.signedAt(),
+                request.signature()
+        );
+        if (request.accountKeyVersion() != 1L) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "Session identity reset must publish a fresh account key at version 1"
+            );
+        }
+        if (request.identityGeneration() != existingAccountKey.getIdentityGeneration() + 1L) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.CONFLICT,
+                    "Session identity reset must increase identity generation by exactly one"
+            );
+        }
+        if (existingAccountKey.getIdentitySigningPublicKey().equals(request.identitySigningPublicKey())) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.CONFLICT,
+                    "Session identity reset must publish a new identity signing key"
+            );
+        }
+        if (!IdentitySignedAccountKeyService.IDENTITY_KEY_ALGORITHM.equals(request.identityKeyAlgorithm())
+                || !IdentitySignedAccountKeyService.ACCOUNT_KEY_ALGORITHM.equals(request.accountKeyAlgorithm())) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "Session identity reset must use the current account key algorithms"
             );
         }
     }

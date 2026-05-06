@@ -22,6 +22,7 @@ vi.mock("./api", () => {
     getOwnEncryptionRecoverySnapshot: vi.fn(),
     resolveEncryptionAccountKeys: vi.fn(),
     resetOwnEncryptionIdentity: vi.fn(),
+    sessionResetOwnEncryptionIdentity: vi.fn(),
     updateMessage: vi.fn(),
     upsertOwnEncryptionAccountKey: vi.fn(),
     upsertOwnEncryptionRecoverySnapshot: vi.fn(),
@@ -56,6 +57,8 @@ import {
   primeEncryptedMessageRecipients,
   sendEncryptedMessage,
 } from "./e2ee";
+import type { GroupHistoryKeyRecord } from "./e2eeGroupEngine";
+import { writeGroupHistoryKeyState as writeGroupHistoryKeyStateToStore } from "./e2eeGroupStateStore";
 import { ENCRYPTION_RECOVERY_EXISTING_CHATS_MESSAGE } from "./e2eeShared";
 import { readMessageHydrationDiagnostics } from "./messageHydrationDiagnostics";
 import type { ApiChatMessage } from "./types";
@@ -259,6 +262,172 @@ function createDeferred<T>() {
   return { promise, resolve, reject };
 }
 
+function createIndexedDbMock() {
+  const persistedEntries = new Map<string, unknown>();
+  let hasStore = false;
+  const idbKeyRange = {
+    bound: (lower: unknown[], upper: unknown[]) => ({ lower, upper }),
+  };
+
+  const database = {
+    objectStoreNames: {
+      contains: (name: string) => hasStore && name === "messages",
+    },
+    createObjectStore: () => {
+      hasStore = true;
+      return {
+        indexNames: {
+          contains: () => false,
+        },
+        createIndex: () => undefined,
+      };
+    },
+    transaction: (_storeName: string, _mode: string) => {
+      const transaction = {
+        oncomplete: null as (() => void) | null,
+        onerror: null as (() => void) | null,
+        error: null as Error | null,
+        objectStore: () => ({
+          put: (value: { userId: string; messageId: string; chatId: string; createdAt: string }) => {
+            persistedEntries.set(`${value.userId}:${value.messageId}`, value);
+            queueMicrotask(() => transaction.oncomplete?.());
+          },
+          get: ([userId, messageId]: [string, string]) => {
+            const request = {
+              result: persistedEntries.get(`${userId}:${messageId}`),
+              error: null as Error | null,
+              onsuccess: null as (() => void) | null,
+              onerror: null as (() => void) | null,
+            };
+            queueMicrotask(() => request.onsuccess?.());
+            return request;
+          },
+          openCursor: (range?: { lower?: unknown[]; upper?: unknown[] }) => {
+            const entries = (Array.from(persistedEntries.values()) as Array<Record<string, unknown>>)
+              .filter((value) =>
+                !range?.lower?.length ||
+                (typeof range.lower[0] === "string" && value.userId === range.lower[0])
+              );
+            let index = 0;
+            const request = {
+              result: null as
+                | {
+                    value: unknown;
+                    continue: () => void;
+                    delete: () => void;
+                  }
+                | null,
+              error: null as Error | null,
+              onsuccess: null as (() => void) | null,
+              onerror: null as (() => void) | null,
+            };
+            const advance = () => {
+              if (index >= entries.length) {
+                request.result = null;
+                queueMicrotask(() => transaction.oncomplete?.());
+              } else {
+                const value = entries[index];
+                request.result = {
+                  value,
+                  continue: () => {
+                    index += 1;
+                    queueMicrotask(() => {
+                      advance();
+                      request.onsuccess?.();
+                    });
+                  },
+                  delete: () => {
+                    persistedEntries.delete(`${value.userId}:${value.messageId}`);
+                  },
+                };
+              }
+            };
+            queueMicrotask(() => {
+              advance();
+              request.onsuccess?.();
+            });
+            return request;
+          },
+          index: () => ({
+            openCursor: (range?: { lower?: unknown[]; upper?: unknown[] }, direction?: string) => {
+              const entries = Array.from(persistedEntries.values())
+                .filter((value): value is Record<string, unknown> => !!value && typeof value === "object")
+                .filter((value) =>
+                  !range?.lower?.length ||
+                  (typeof range.lower[0] === "string" &&
+                    typeof range.lower[1] === "string" &&
+                    value.userId === range.lower[0] &&
+                    value.chatId === range.lower[1])
+                )
+                .sort((left, right) =>
+                  String(left.createdAt).localeCompare(String(right.createdAt))
+                );
+              const selectedEntry =
+                direction === "prev" ? entries[entries.length - 1] ?? null : entries[0] ?? null;
+              const request = {
+                result: selectedEntry ? { value: selectedEntry } : null,
+                error: null as Error | null,
+                onsuccess: null as (() => void) | null,
+                onerror: null as (() => void) | null,
+              };
+              queueMicrotask(() => request.onsuccess?.());
+              return request;
+            },
+          }),
+        }),
+      };
+      return transaction;
+    },
+  } as unknown as IDBDatabase;
+
+  return {
+    idbKeyRange,
+    indexedDb: {
+      open: () => {
+        const request = {
+          result: database,
+          error: null as Error | null,
+          onupgradeneeded: null as (() => void) | null,
+          onsuccess: null as (() => void) | null,
+          onerror: null as (() => void) | null,
+          onblocked: null as (() => void) | null,
+          transaction: {
+            objectStore: () => ({
+              indexNames: {
+                contains: () => false,
+              },
+              createIndex: () => undefined,
+            }),
+          },
+        };
+        queueMicrotask(() => {
+          request.onupgradeneeded?.();
+          request.onsuccess?.();
+        });
+        return request;
+      },
+    },
+  };
+}
+
+function writeLocalGroupHistoryState(state: {
+  currentKeyIdsByChatId: Record<string, string>;
+  keysById: Record<string, GroupHistoryKeyRecord>;
+  syncCursorByChatId?: Record<string, string>;
+  fullySyncedChatIds?: string[];
+}) {
+  writeGroupHistoryKeyStateToStore({
+    userId: USER_ID,
+    state: {
+      currentKeyIdsByChatId: state.currentKeyIdsByChatId,
+      syncCursorByChatId: state.syncCursorByChatId ?? {},
+      fullySyncedChatIds: state.fullySyncedChatIds ?? [],
+      keysById: state.keysById,
+    },
+    getGroupHistoryKeyStorageKey: (userId) => `north-messenger:group-history-key-e2ee:${userId}`,
+  });
+}
+
 function mockGeneratedAccountKeyPair() {
   const accountPublicKey = { kind: "account-public" } as unknown as CryptoKey;
   const accountPrivateKey = { kind: "account-private" } as unknown as CryptoKey;
@@ -295,7 +464,10 @@ function mockGeneratedAccountKeyPair() {
 
 describe("e2ee hardening", () => {
   beforeEach(() => {
-    clearUnlockedEncryptionState();
+    const { indexedDb, idbKeyRange } = createIndexedDbMock();
+    vi.stubGlobal("indexedDB", indexedDb);
+    vi.stubGlobal("IDBKeyRange", idbKeyRange);
+    clearUnlockedEncryptionState(USER_ID);
     window.sessionStorage.clear();
     window.localStorage.clear();
     window.localStorage.setItem(STORAGE_SCHEMA_KEY, "5");
@@ -363,9 +535,10 @@ describe("e2ee hardening", () => {
   });
 
   afterEach(() => {
-    clearUnlockedEncryptionState();
+    clearUnlockedEncryptionState(USER_ID);
     window.sessionStorage.clear();
     window.localStorage.clear();
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -387,7 +560,9 @@ describe("e2ee hardening", () => {
     );
 
     expect(hasUnlockedPrivateEncryptionKey(USER_ID)).toBe(true);
-    expect(JSON.parse(window.sessionStorage.getItem(SESSION_KEY) ?? "{}")).toMatchObject(identity);
+    expect(window.sessionStorage.getItem(SESSION_KEY)).toBe(
+      JSON.stringify(identity)
+    );
   });
 
   it("removes remembered identity remnants when the encryption state is cleared", () => {
@@ -409,7 +584,7 @@ describe("e2ee hardening", () => {
     expect(window.localStorage.getItem(REMEMBERED_KEY)).toBeNull();
   });
 
-  it("reports missing participant account keys with current account-key wording", async () => {
+  it("does not resolve participant account keys during runtime priming anymore", async () => {
     vi.mocked(resolveEncryptionAccountKeys).mockResolvedValue([]);
 
     await expect(
@@ -418,11 +593,8 @@ describe("e2ee hardening", () => {
         [selfParticipant, participant],
         { currentUserId: USER_ID }
       )
-    ).rejects.toMatchObject({
-      message: "Encrypted chat is unavailable because some participants have not initialized account encryption yet",
-      status: 409,
-      details: ["Remote User"],
-    });
+    ).resolves.toBeUndefined();
+    expect(resolveEncryptionAccountKeys).not.toHaveBeenCalled();
   });
 
   it("fails with a recovery error instead of silently rekeying when the identity signing key is missing", async () => {
@@ -598,23 +770,20 @@ describe("e2ee hardening", () => {
     const localCreatedAt = "2026-04-19T10:00:00.000Z";
     const localKeyMaterial = utf8ToBase64("local-active-history-key");
 
-    window.sessionStorage.setItem(
-      GROUP_HISTORY_KEY,
-      JSON.stringify({
-        currentKeyIdsByChatId: {
-          "chat-id": localHistoryKeyId,
+    writeLocalGroupHistoryState({
+      currentKeyIdsByChatId: {
+        "chat-id": localHistoryKeyId,
+      },
+      keysById: {
+        [localHistoryKeyId]: {
+          historyKeyId: localHistoryKeyId,
+          chatId: "chat-id",
+          keyMaterial: localKeyMaterial,
+          createdAt: localCreatedAt,
+          updatedAt: localCreatedAt,
         },
-        keysById: {
-          [localHistoryKeyId]: {
-            historyKeyId: localHistoryKeyId,
-            chatId: "chat-id",
-            keyMaterial: localKeyMaterial,
-            createdAt: localCreatedAt,
-            updatedAt: localCreatedAt,
-          },
-        },
-      })
-    );
+      },
+    });
 
     vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
     mockGeneratedAccountKeyPair();
@@ -660,23 +829,20 @@ describe("e2ee hardening", () => {
     const staleCreatedAt = "2026-04-18T10:00:00.000Z";
     const activeCreatedAt = "2026-04-20T10:00:00.000Z";
 
-    window.sessionStorage.setItem(
-      GROUP_HISTORY_KEY,
-      JSON.stringify({
-        currentKeyIdsByChatId: {
-          "chat-id": staleHistoryKeyId,
+    writeLocalGroupHistoryState({
+      currentKeyIdsByChatId: {
+        "chat-id": staleHistoryKeyId,
+      },
+      keysById: {
+        [staleHistoryKeyId]: {
+          historyKeyId: staleHistoryKeyId,
+          chatId: "chat-id",
+          keyMaterial: utf8ToBase64("stale-active-history-key"),
+          createdAt: staleCreatedAt,
+          updatedAt: staleCreatedAt,
         },
-        keysById: {
-          [staleHistoryKeyId]: {
-            historyKeyId: staleHistoryKeyId,
-            chatId: "chat-id",
-            keyMaterial: utf8ToBase64("stale-active-history-key"),
-            createdAt: staleCreatedAt,
-            updatedAt: staleCreatedAt,
-          },
-        },
-      })
-    );
+      },
+    });
 
     vi.spyOn(window.crypto.subtle, "importKey").mockResolvedValue({} as CryptoKey);
     mockGeneratedAccountKeyPair();

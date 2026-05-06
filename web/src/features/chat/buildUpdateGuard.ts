@@ -1,7 +1,7 @@
 export type BuildUpdateAutoReloadState = {
   hasAvailableBuildUpdate: boolean;
   activeConferenceId: string | null;
-  activeDraft: string;
+  hasActiveComposerText: boolean;
   draftsByChatId: Record<string, string>;
   pendingOutgoingCountByChatId: Record<string, number>;
   replyingToMessageId: string | null;
@@ -19,7 +19,7 @@ export function shouldAutoReloadForBuildUpdate(state: BuildUpdateAutoReloadState
     return false;
   }
 
-  if (state.activeDraft.trim().length > 0) {
+  if (state.hasActiveComposerText) {
     return false;
   }
 

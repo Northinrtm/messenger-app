@@ -41,6 +41,17 @@ export function useTypingSignals({
     lastInputAt: 0,
   });
   const previousActiveChatIdRef = useRef<string | null>(null);
+  const hasActiveComposerTextRef = useRef(activeDraft.trim().length > 0);
+  const scheduledTypingHeartbeatRef = useRef<number | null>(null);
+
+  const clearScheduledTypingHeartbeat = useEffectEvent(() => {
+    if (scheduledTypingHeartbeatRef.current === null) {
+      return;
+    }
+
+    window.clearTimeout(scheduledTypingHeartbeatRef.current);
+    scheduledTypingHeartbeatRef.current = null;
+  });
 
   const clearTypingParticipant = useEffectEvent((chatId: string, participantId: string) => {
     const key = `${chatId}:${participantId}`;
@@ -59,6 +70,7 @@ export function useTypingSignals({
   });
 
   const sendTypingHeartbeat = useEffectEvent((chatId: string) => {
+    clearScheduledTypingHeartbeat();
     const now = Date.now();
     if (!shouldSendTypingHeartbeat(typingActivityRef.current, chatId, now, idleMs)) {
       return;
@@ -102,6 +114,7 @@ export function useTypingSignals({
   });
 
   const stopTyping = useEffectEvent((chatId?: string | null) => {
+    clearScheduledTypingHeartbeat();
     const currentSignal = typingSignalRef.current;
     const targetChatId = chatId ?? currentSignal.chatId;
     if (targetChatId && typingActivityRef.current.chatId === targetChatId) {
@@ -167,14 +180,22 @@ export function useTypingSignals({
       return;
     }
 
+    const nextHasComposerText = nextValue.trim().length > 0;
+    hasActiveComposerTextRef.current = nextHasComposerText;
+
     setComposerDraft(composerChatId, nextValue);
 
-    if (nextValue.trim()) {
+    if (nextHasComposerText) {
       typingActivityRef.current = {
         chatId: composerChatId,
         lastInputAt: Date.now(),
       };
-      sendTypingHeartbeat(composerChatId);
+      if (scheduledTypingHeartbeatRef.current === null) {
+        scheduledTypingHeartbeatRef.current = window.setTimeout(() => {
+          scheduledTypingHeartbeatRef.current = null;
+          sendTypingHeartbeat(composerChatId);
+        }, 180);
+      }
       return;
     }
 
@@ -187,10 +208,11 @@ export function useTypingSignals({
 
   useEffect(() => {
     return () => {
+      clearScheduledTypingHeartbeat();
       typingTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
       typingTimeoutsRef.current.clear();
     };
-  }, []);
+  }, [clearScheduledTypingHeartbeat]);
 
   useEffect(() => {
     return () => {
@@ -208,7 +230,12 @@ export function useTypingSignals({
   }, [activeChatId, stopTyping]);
 
   useEffect(() => {
-    if (!activeChatId || !activeDraft.trim()) {
+    const nextHasComposerText = activeDraft.trim().length > 0;
+    hasActiveComposerTextRef.current = nextHasComposerText;
+  }, [activeChatId, activeDraft]);
+
+  useEffect(() => {
+    if (!activeChatId || !hasActiveComposerTextRef.current) {
       if (activeChatId) {
         stopTyping(activeChatId);
       } else {
@@ -238,11 +265,12 @@ export function useTypingSignals({
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [activeChatId, activeDraft, idleMs, sendTypingHeartbeat, stopTyping]);
+  }, [activeChatId, idleMs, sendTypingHeartbeat, stopTyping]);
 
   return {
     clearTypingParticipant,
     handleComposerChange,
+    hasActiveComposerTextRef,
     scheduleTypingStop,
     scheduleTypingTimeout,
     sendTypingHeartbeat,

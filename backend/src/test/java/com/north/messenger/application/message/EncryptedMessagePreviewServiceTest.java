@@ -3,6 +3,7 @@ package com.north.messenger.application.message;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.north.messenger.application.e2ee.ChatHistoryKeyEscrowCryptoService;
 import com.north.messenger.application.e2ee.E2eeEscrowProperties;
+import com.north.messenger.application.e2ee.VaultTransitClient;
 import com.north.messenger.domain.model.ChatHistoryKeyEscrow;
 import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.repository.ChatHistoryKeyEscrowRepository;
@@ -38,17 +39,27 @@ class EncryptedMessagePreviewServiceTest {
     void setUp() {
         chatHistoryKeyEscrowRepository = mock(ChatHistoryKeyEscrowRepository.class);
         objectMapper = new ObjectMapper();
+        E2eeEscrowProperties escrowProperties = new E2eeEscrowProperties(
+                E2eeEscrowProperties.PROVIDER_LOCAL,
+                Base64.getEncoder().encodeToString("0123456789abcdef0123456789abcdef".getBytes(StandardCharsets.UTF_8)),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
         chatHistoryKeyEscrowCryptoService = new ChatHistoryKeyEscrowCryptoService(
                 objectMapper,
-                new E2eeEscrowProperties(
-                        Base64.getEncoder().encodeToString("0123456789abcdef0123456789abcdef".getBytes(StandardCharsets.UTF_8)),
-                        false
-                )
+                escrowProperties,
+                new VaultTransitClient(objectMapper, escrowProperties)
         );
         encryptedMessagePreviewService = new EncryptedMessagePreviewService(
                 chatHistoryKeyEscrowRepository,
                 chatHistoryKeyEscrowCryptoService,
-                objectMapper
+                objectMapper,
+                new E2eePreviewProperties(true)
         );
     }
 
@@ -135,6 +146,30 @@ class EncryptedMessagePreviewServiceTest {
 
         assertThat(encryptedMessagePreviewService.summarizeMessagePreview(message))
                 .isEqualTo("Файл: report.pdf");
+    }
+
+    @Test
+    void summarizeMessagePreviewShouldReturnPlaceholderWhenServerSideDecryptIsDisabled() {
+        EncryptedMessagePreviewService previewService = new EncryptedMessagePreviewService(
+                chatHistoryKeyEscrowRepository,
+                chatHistoryKeyEscrowCryptoService,
+                objectMapper,
+                new E2eePreviewProperties(false)
+        );
+        ChatMessage message = new ChatMessage(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                "{\"aadVersion\":1}",
+                CHAT_EPOCH_SCHEME,
+                "iv",
+                UUID.randomUUID(),
+                null,
+                null,
+                Instant.parse("2026-05-03T11:15:00Z")
+        );
+
+        assertThat(previewService.summarizeMessagePreview(message)).isEqualTo("Encrypted message");
     }
 
     private ChatHistoryKeyEscrow createEscrow(UUID chatId, UUID historyKeyId, String historyKeyMaterial, String createdAt)

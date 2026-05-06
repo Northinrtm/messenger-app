@@ -96,9 +96,9 @@ class MessageCommandService {
         chatService.assertChatInteractionAllowed(room, currentUser);
         List<UserAccount> participants = chatService.findParticipants(chatId);
         String clientMessageId = messageSupport.normalizeClientMessageId(request.clientMessageId());
-        UUID replyToMessageId = messageSupport.validateReplyTarget(chatId, request.replyToMessageId());
+        UUID replyToMessageId = messageSupport.validateReplyTarget(room, currentUser, request.replyToMessageId());
 
-        MessageResponse existingResponse = messageSupport.findExistingMessageResponse(chatId, currentUser, clientMessageId);
+        MessageResponse existingResponse = messageSupport.findExistingMessageResponse(room, currentUser, clientMessageId);
         if (existingResponse != null) {
             ChatMessage existingMessage = chatMessageRepository
                     .findByChatIdAndSenderIdAndClientMessageId(chatId, currentUser.getId(), clientMessageId)
@@ -192,7 +192,9 @@ class MessageCommandService {
             MessageSupport.MessageReceiptSummary summary = messageSupport.summarizeReceipts(receipts);
             MessageSnippetResponse replyTo = messageSupport.loadReplySnippetsByMessageId(
                     List.of(persistedMessage),
-                    Map.of(currentUser.getId(), currentUser)
+                    Map.of(currentUser.getId(), currentUser),
+                    room,
+                    currentUser.getId()
             ).get(persistedMessage.getId());
             var responsePayload = messageSupport.toEncryptedPayload(
                     persistedMessage
@@ -234,7 +236,7 @@ class MessageCommandService {
             ChatMessage existingMessage = chatMessageRepository
                     .findByChatIdAndSenderIdAndClientMessageId(chatId, currentUser.getId(), clientMessageId)
                     .orElse(null);
-            MessageResponse deduplicatedResponse = messageSupport.findExistingMessageResponse(chatId, currentUser, clientMessageId);
+            MessageResponse deduplicatedResponse = messageSupport.findExistingMessageResponse(room, currentUser, clientMessageId);
             if (deduplicatedResponse != null) {
                 if (existingMessage != null) {
                     messageDispatchOutboxService.enqueue(new MessageDispatchEvent(
@@ -469,7 +471,12 @@ class MessageCommandService {
         UserAccount sender = userAccountRepository.findById(message.getSenderId()).orElse(currentUser);
         MessageSupport.MessageReceiptSummary summary = messageSupport.loadReceiptSummaries(List.of(message.getId()))
                 .getOrDefault(message.getId(), MessageSupport.MessageReceiptSummary.empty());
-        MessageSnippetResponse replyTo = messageSupport.loadReplySnippetsByMessageId(List.of(message), Map.of(sender.getId(), sender))
+        MessageSnippetResponse replyTo = messageSupport.loadReplySnippetsByMessageId(
+                List.of(message),
+                Map.of(sender.getId(), sender),
+                room,
+                currentUser.getId()
+        )
                 .get(message.getId());
         var responsePayload = messageSupport.toEncryptedPayload(
                 message

@@ -1,10 +1,12 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { useEffectEvent } from "react";
-import { isUnavailableEncryptedMessage } from "../../../lib/e2eeShared";
+import {
+  isEncryptedMessagePreviewPlaceholder,
+  isUnreadableEncryptedMessagePreview,
+} from "../../../lib/e2eeShared";
 import type { ChatMessage, ChatSummary, MessageSnippet } from "../../../lib/types";
 import {
   applyChatMessageActivity,
-  clearChatMessageActivity,
   updateChatPinnedMessage,
   type ChatMessageActivityMode,
 } from "../chatState";
@@ -20,12 +22,14 @@ export function useChatPreviews({
   queryClient,
   token,
 }: UseChatPreviewsOptions) {
-  const clearChatPreviewOverride = useEffectEvent((_chatId: string) => undefined);
-
   const applyChatPreviewMessage = useEffectEvent(
     (message: Pick<ChatMessage, "chatId" | "content" | "createdAt" | "replyTo">) => {
       const previewText = formatPreviewText(message);
-      if (!previewText.trim() || isUnavailableEncryptedMessage(message.content)) {
+      if (
+        !previewText.trim() ||
+        isUnreadableEncryptedMessagePreview(message.content) ||
+        isEncryptedMessagePreviewPlaceholder(previewText)
+      ) {
         return;
       }
 
@@ -55,7 +59,11 @@ export function useChatPreviews({
   const applyServerChatPreviewMessage = useEffectEvent(
     (message: ChatMessage, unreadMode: ChatMessageActivityMode = "keep") => {
       const previewText = formatPreviewText(message);
-      if (!previewText.trim() || isUnavailableEncryptedMessage(message.content)) {
+      if (
+        !previewText.trim() ||
+        isUnreadableEncryptedMessagePreview(message.content) ||
+        isEncryptedMessagePreviewPlaceholder(previewText)
+      ) {
         return;
       }
 
@@ -72,18 +80,13 @@ export function useChatPreviews({
     }
   );
 
-  const refreshChatPreviewFromServer = useEffectEvent(async (chatId: string) => {
-    const currentChatSummary =
-      (queryClient.getQueryData<ChatSummary[]>(["chats", token]) ?? []).find((chat) => chat.id === chatId) ??
-      null;
-    if (!currentChatSummary?.lastMessageAt) {
-      queryClient.setQueryData<ChatSummary[]>(["chats", token], (current) =>
-        clearChatMessageActivity(current, chatId)
-      );
+  const refreshChatPreviewFromServer = useEffectEvent((chatId: string) => {
+    const currentChats = queryClient.getQueryData<ChatSummary[]>(["chats", token]) ?? [];
+    if (!currentChats.some((chat) => chat.id === chatId)) {
       return;
     }
 
-    await queryClient.invalidateQueries({ queryKey: ["chats", token] });
+    return queryClient.invalidateQueries({ queryKey: ["chats", token] });
   });
 
   const syncChatPreviewFromCache = useEffectEvent((chatId: string) => {
@@ -99,7 +102,6 @@ export function useChatPreviews({
   return {
     applyChatPreviewMessage,
     applyServerChatPreviewMessage,
-    clearChatPreviewOverride,
     refreshChatPreviewFromServer,
     syncChatPinnedSummary,
     syncChatPreviewFromCache,

@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   ChatMessage,
   ChatMessageAttachment,
   ChatSummary,
@@ -80,6 +80,28 @@ const MESSAGE_SELECTION_COPY = {
     "\u0421\u043D\u044F\u0442\u044C \u0432\u044B\u0434\u0435\u043B\u0435\u043D\u0438\u0435",
 };
 
+const COMPOSER_COPY = {
+  blockedPlaceholder: "\u041F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044C \u0437\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D",
+  refreshPlaceholder:
+    "\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u0435 \u0447\u0430\u0442, \u0447\u0442\u043E\u0431\u044B \u043F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C",
+  editPlaceholder: "\u0418\u0437\u043C\u0435\u043D\u0438\u0442\u0435 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435",
+  replyPlaceholder: "\u041D\u0430\u043F\u0438\u0448\u0438\u0442\u0435 \u043E\u0442\u0432\u0435\u0442",
+  messagePlaceholder: "\u041D\u0430\u043F\u0438\u0448\u0438\u0442\u0435 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435",
+  replyLabel: "\u041E\u0442\u0432\u0435\u0442",
+  editLabel: "\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435",
+  cancelReplyAria: "\u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C \u043E\u0442\u0432\u0435\u0442",
+  cancelEditAria:
+    "\u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435",
+  refreshing: "\u041E\u0431\u043D\u043E\u0432\u043B\u044F\u0435\u043C...",
+  attachmentsAria:
+    "\u041F\u0440\u0438\u043A\u0440\u0435\u043F\u043B\u0435\u043D\u043D\u044B\u0435 \u0444\u0430\u0439\u043B\u044B",
+  removeAttachmentAria: "\u0423\u0431\u0440\u0430\u0442\u044C \u0444\u0430\u0439\u043B",
+  cancelUpload: "\u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C",
+  attachFile: "\u041F\u0440\u0438\u043A\u0440\u0435\u043F\u0438\u0442\u044C \u0444\u0430\u0439\u043B",
+  closeGlyph: "\u00D7",
+  submitEditGlyph: "\u2713",
+} as const;
+
 type Props = {
   activeChat: ChatSummary;
   activeDirectParticipant: Participant | null;
@@ -139,6 +161,7 @@ type Props = {
   onDownloadAttachment: (chatId: string, attachment: ChatMessageAttachment) => void;
   onLoadAttachmentPreview: (chatId: string, attachment: ChatMessageAttachment) => Promise<Blob>;
   onComposerChange: (value: string) => void;
+  onCommitDraft: (chatId: string, value: string) => void;
   onSubmit: (draft: string, files?: File[], options?: SubmitDraftOptions) => boolean | Promise<boolean>;
   formatClock: (value: string) => string;
   getMessageStatusClassName: (status: MessageStatus | null) => string;
@@ -199,6 +222,7 @@ export function ActiveChatConversation({
   onDownloadAttachment,
   onLoadAttachmentPreview,
   onComposerChange,
+  onCommitDraft,
   onSubmit,
   formatClock,
   getMessageStatusClassName,
@@ -207,103 +231,7 @@ export function ActiveChatConversation({
   getReactionOption,
   buildMessagePreview,
 }: Props) {
-  const [composerValue, setComposerValue] = useState(activeDraft);
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [isSubmittingComposer, setIsSubmittingComposer] = useState(false);
-  const [attachmentUploadProgress, setAttachmentUploadProgress] =
-    useState<AttachmentUploadProgress | null>(null);
-  const [shouldRestoreComposerFocus, setShouldRestoreComposerFocus] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const uploadAbortControllerRef = useRef<AbortController | null>(null);
-  const composerUnavailable = isDirectChatBlocked || Boolean(encryptionIdentityWarning);
   const allowDeleteSelectedMessagesForSelf = activeChat.direct;
-
-  useEffect(() => {
-    setComposerValue(activeDraft);
-  }, [activeDraft]);
-
-  useEffect(() => {
-    uploadAbortControllerRef.current?.abort();
-    uploadAbortControllerRef.current = null;
-    setSelectedFiles([]);
-    setAttachmentUploadProgress(null);
-  }, [activeChat.id, editingMessage?.id]);
-
-  useEffect(() => {
-    return () => {
-      uploadAbortControllerRef.current?.abort();
-    };
-  }, []);
-
-  useLayoutEffect(() => {
-    if (!shouldRestoreComposerFocus || isSubmittingComposer || composerUnavailable) {
-      return;
-    }
-
-    composerTextareaRef.current?.focus();
-    setShouldRestoreComposerFocus(false);
-  }, [composerTextareaRef, composerUnavailable, isSubmittingComposer, shouldRestoreComposerFocus]);
-
-  const attachmentsDisabled = composerUnavailable || Boolean(editingMessage) || isSubmittingComposer;
-  const selectedFileCount = editingMessage ? 0 : selectedFiles.length;
-  const canSubmitComposer =
-    !composerUnavailable &&
-    !isSubmittingComposer &&
-    (composerValue.trim().length > 0 || selectedFileCount > 0);
-  const composerPlaceholder = isDirectChatBlocked
-    ? "Пользователь заблокирован"
-    : encryptionIdentityWarning
-      ? "Обновите чат, чтобы продолжить"
-      : editingMessage
-      ? "Измените сообщение"
-      : replyingToMessage
-        ? "Напишите ответ"
-        : "Напишите сообщение";
-
-  const addSelectedFiles = (fileList: FileList | File[]) => {
-    const nextFiles = Array.from(fileList).filter((file) => file.size > 0);
-    if (nextFiles.length === 0) {
-      return;
-    }
-
-    setSelectedFiles((current) => [...current, ...nextFiles]);
-  };
-
-  const submitComposer = async () => {
-    if (!canSubmitComposer) {
-      return;
-    }
-
-    const submitFiles = editingMessage ? [] : selectedFiles;
-    const uploadAbortController = submitFiles.length > 0 ? new AbortController() : null;
-    uploadAbortControllerRef.current = uploadAbortController;
-    setAttachmentUploadProgress(
-      uploadAbortController ? buildInitialAttachmentUploadProgress(submitFiles) : null
-    );
-    setIsSubmittingComposer(true);
-    try {
-      const submitted = uploadAbortController
-        ? await onSubmit(composerValue, submitFiles, {
-            signal: uploadAbortController.signal,
-            onAttachmentProgress: setAttachmentUploadProgress,
-          })
-        : await onSubmit(composerValue, submitFiles);
-      if (submitted) {
-        setComposerValue("");
-        setSelectedFiles([]);
-        onComposerChange("");
-      }
-    } finally {
-      if (uploadAbortControllerRef.current === uploadAbortController) {
-        uploadAbortControllerRef.current = null;
-      }
-      setAttachmentUploadProgress(null);
-      setIsSubmittingComposer(false);
-      composerTextareaRef.current?.focus();
-      setShouldRestoreComposerFocus(true);
-    }
-  };
-
   return (
     <>
       <header
@@ -529,206 +457,23 @@ export function ActiveChatConversation({
           </div>
         ) : null}
       </div>
-
-      <form
-        className="composer north-composer"
-        onDragOver={(event) => {
-          if (!attachmentsDisabled && Array.from(event.dataTransfer.types).includes("Files")) {
-            event.preventDefault();
-          }
-        }}
-        onDrop={(event) => {
-          if (attachmentsDisabled || event.dataTransfer.files.length === 0) {
-            return;
-          }
-          event.preventDefault();
-          addSelectedFiles(event.dataTransfer.files);
-        }}
-        onSubmit={(event) => {
-          event.preventDefault();
-          void submitComposer();
-        }}
-      >
-        {replyingToMessage ? (
-          <div className="composer-context">
-            <button
-              type="button"
-              className="composer-reply-preview"
-              onClick={() => onJumpToMessage(replyingToMessage.chatId, replyingToMessage.id)}
-            >
-              <span className="message-reply-accent" aria-hidden="true" />
-              <span className="composer-context-copy">
-                <span className="composer-context-label">Ответ</span>
-                <strong>{replyingToMessage.sender.displayName}</strong>
-                <span>{buildMessagePreview(replyingToMessage.content, 120)}</span>
-              </span>
-            </button>
-            <button
-              type="button"
-              className="composer-context-close"
-              onClick={onClearReply}
-              aria-label="Отменить ответ"
-            >
-              ×
-            </button>
-          </div>
-        ) : null}
-        {editingMessage ? (
-          <div className="composer-context">
-            <div className="composer-context-edit">
-              <span className="message-reply-accent" aria-hidden="true" />
-              <span className="composer-context-copy">
-                <span className="composer-context-label">Редактирование</span>
-                <strong>{editingMessage.sender.displayName}</strong>
-                <span>{buildMessagePreview(editingMessage.content, 120)}</span>
-              </span>
-            </div>
-            <button
-              type="button"
-              className="composer-context-close"
-              onClick={onClearEdit}
-              aria-label="Отменить редактирование"
-            >
-              ×
-            </button>
-          </div>
-        ) : null}
-        {encryptionIdentityWarning ? (
-          <div className="composer-encryption-warning" role="alert" aria-live="polite">
-            <div className="composer-encryption-warning-copy">
-              <strong>{encryptionIdentityWarning.title}</strong>
-              <span>{encryptionIdentityWarning.description}</span>
-              {encryptionIdentityWarning.errorText ? (
-                <span className="composer-encryption-warning-error">
-                  {encryptionIdentityWarning.errorText}
-                </span>
-              ) : null}
-            </div>
-            <button
-              type="button"
-              className="ghost-button compact composer-encryption-warning-action"
-              onClick={onRecoverEncryptionIdentity}
-              disabled={encryptionIdentityWarning.isPending}
-            >
-              {encryptionIdentityWarning.isPending ? "Обновляем..." : encryptionIdentityWarning.actionLabel}
-            </button>
-          </div>
-        ) : null}
-        {selectedFileCount > 0 ? (
-          <div className="composer-attachments" aria-label="Прикрепленные файлы">
-            {selectedFiles.map((file, index) => (
-              <span className="composer-attachment-chip" key={`${file.name}-${file.size}-${index}`}>
-                <span className="composer-attachment-name">{file.name}</span>
-                <span className="composer-attachment-size">{formatFileSize(file.size)}</span>
-                <button
-                  type="button"
-                  className="composer-attachment-remove"
-                  onClick={() =>
-                    setSelectedFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))
-                  }
-                  aria-label="Убрать файл"
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-          </div>
-        ) : null}
-        {attachmentUploadProgress ? (
-          <div className="composer-upload-progress" role="status" aria-live="polite">
-            <div className="composer-upload-progress-copy">
-              <span>{formatAttachmentUploadProgress(attachmentUploadProgress)}</span>
-              <button
-                type="button"
-                className="ghost-button compact composer-upload-cancel"
-                onClick={() => uploadAbortControllerRef.current?.abort()}
-              >
-                Отменить
-              </button>
-            </div>
-            <div className="composer-upload-progress-track" aria-hidden="true">
-              <span
-                className="composer-upload-progress-bar"
-                style={{ width: `${Math.round(attachmentUploadProgress.ratio * 100)}%` }}
-              />
-            </div>
-          </div>
-        ) : null}
-        <div className="north-composer-body">
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            className="composer-file-input"
-            disabled={attachmentsDisabled}
-            onChange={(event) => {
-              if (event.target.files) {
-                addSelectedFiles(event.target.files);
-              }
-              event.currentTarget.value = "";
-            }}
-          />
-          <button
-            type="button"
-            className="ghost-button compact composer-attachment-button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={attachmentsDisabled}
-            title="Прикрепить файл"
-            aria-label="Прикрепить файл"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path
-                d="M7.4 12.7 14.9 5.2a3.4 3.4 0 0 1 4.8 4.8l-8.7 8.7a5 5 0 0 1-7.1-7.1l8.9-8.9"
-                fill="none"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-              />
-              <path
-                d="m8.9 14.1 7.6-7.6"
-                fill="none"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeWidth="2"
-              />
-            </svg>
-          </button>
-          <textarea
-            ref={composerTextareaRef}
-            value={composerValue}
-            disabled={composerUnavailable || isSubmittingComposer}
-            onChange={(event) => {
-              const nextValue = event.target.value;
-              setComposerValue(nextValue);
-              onComposerChange(nextValue);
-            }}
-            onPaste={(event) => {
-              if (attachmentsDisabled || event.clipboardData.files.length === 0) {
-                return;
-              }
-              addSelectedFiles(event.clipboardData.files);
-              event.preventDefault();
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                void submitComposer();
-              }
-            }}
-            placeholder={composerPlaceholder}
-            rows={1}
-          />
-          <button
-            type="submit"
-            className="primary-button north-send-button"
-            disabled={!canSubmitComposer}
-            onMouseDown={(event) => event.preventDefault()}
-          >
-            {editingMessage ? "✓" : ">"}
-          </button>
-        </div>
-      </form>
+      <ConversationComposer
+        activeChatId={activeChat.id}
+        activeDraft={activeDraft}
+        replyingToMessage={replyingToMessage}
+        editingMessage={editingMessage}
+        isDirectChatBlocked={isDirectChatBlocked}
+        encryptionIdentityWarning={encryptionIdentityWarning}
+        composerTextareaRef={composerTextareaRef}
+        onComposerChange={onComposerChange}
+        onCommitDraft={onCommitDraft}
+        onSubmit={onSubmit}
+        onJumpToMessage={onJumpToMessage}
+        onClearReply={onClearReply}
+        onClearEdit={onClearEdit}
+        onRecoverEncryptionIdentity={onRecoverEncryptionIdentity}
+        buildMessagePreview={buildMessagePreview}
+      />
       {isDeleteSelectedMessagesDialogOpen ? (
         <div className="message-selection-dialog-backdrop" role="presentation">
           <div
@@ -787,6 +532,408 @@ export function ActiveChatConversation({
     </>
   );
 }
+
+type ConversationComposerProps = {
+  activeChatId: string;
+  activeDraft: string;
+  replyingToMessage: ChatMessage | null;
+  editingMessage: ChatMessage | null;
+  isDirectChatBlocked: boolean;
+  encryptionIdentityWarning: EncryptionIdentityWarning | null;
+  composerTextareaRef: RefObject<HTMLTextAreaElement | null>;
+  onComposerChange: (value: string) => void;
+  onCommitDraft: (chatId: string, value: string) => void;
+  onSubmit: Props["onSubmit"];
+  onJumpToMessage: (chatId: string, messageId: string) => void;
+  onClearReply: () => void;
+  onClearEdit: () => void;
+  onRecoverEncryptionIdentity: () => void;
+  buildMessagePreview: (content: string, maxLength?: number) => string;
+};
+
+const ConversationComposer = memo(function ConversationComposer({
+  activeChatId,
+  activeDraft,
+  replyingToMessage,
+  editingMessage,
+  isDirectChatBlocked,
+  encryptionIdentityWarning,
+  composerTextareaRef,
+  onComposerChange,
+  onCommitDraft,
+  onSubmit,
+  onJumpToMessage,
+  onClearReply,
+  onClearEdit,
+  onRecoverEncryptionIdentity,
+  buildMessagePreview,
+}: ConversationComposerProps) {
+  const [hasComposerText, setHasComposerText] = useState(activeDraft.trim().length > 0);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [isSubmittingComposer, setIsSubmittingComposer] = useState(false);
+  const [attachmentUploadProgress, setAttachmentUploadProgress] =
+    useState<AttachmentUploadProgress | null>(null);
+  const [shouldRestoreComposerFocus, setShouldRestoreComposerFocus] = useState(false);
+  const previousActiveDraftRef = useRef(activeDraft);
+  const previousChatIdRef = useRef(activeChatId);
+  const latestComposerValueRef = useRef(activeDraft);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadAbortControllerRef = useRef<AbortController | null>(null);
+  const composerUnavailable = isDirectChatBlocked || Boolean(encryptionIdentityWarning);
+  const attachmentsDisabled =
+    composerUnavailable || Boolean(editingMessage) || isSubmittingComposer;
+  const selectedFileCount = editingMessage ? 0 : selectedFiles.length;
+  const canSubmitComposer =
+    !composerUnavailable &&
+    !isSubmittingComposer &&
+    (hasComposerText || selectedFileCount > 0);
+  const composerPlaceholder = isDirectChatBlocked
+    ? COMPOSER_COPY.blockedPlaceholder
+    : encryptionIdentityWarning
+      ? COMPOSER_COPY.refreshPlaceholder
+      : editingMessage
+        ? COMPOSER_COPY.editPlaceholder
+        : replyingToMessage
+          ? COMPOSER_COPY.replyPlaceholder
+          : COMPOSER_COPY.messagePlaceholder;
+
+  useEffect(() => {
+    const previousChatId = previousChatIdRef.current;
+    if (previousChatId !== activeChatId) {
+      onCommitDraft(previousChatId, latestComposerValueRef.current);
+      previousChatIdRef.current = activeChatId;
+      previousActiveDraftRef.current = activeDraft;
+      latestComposerValueRef.current = activeDraft;
+      if (composerTextareaRef.current) {
+        composerTextareaRef.current.value = activeDraft;
+      }
+      setHasComposerText(activeDraft.trim().length > 0);
+      return;
+    }
+
+    const previousActiveDraft = previousActiveDraftRef.current;
+    previousActiveDraftRef.current = activeDraft;
+    const currentValue = composerTextareaRef.current?.value ?? latestComposerValueRef.current;
+    if (currentValue === activeDraft) {
+      return;
+    }
+
+    if (currentValue === previousActiveDraft) {
+      latestComposerValueRef.current = activeDraft;
+      if (composerTextareaRef.current) {
+        composerTextareaRef.current.value = activeDraft;
+      }
+      setHasComposerText(activeDraft.trim().length > 0);
+    }
+  }, [activeChatId, activeDraft, composerTextareaRef, onCommitDraft]);
+
+  useEffect(() => {
+    uploadAbortControllerRef.current?.abort();
+    uploadAbortControllerRef.current = null;
+    setSelectedFiles([]);
+    setAttachmentUploadProgress(null);
+  }, [activeChatId, editingMessage?.id]);
+
+  useEffect(() => {
+    return () => {
+      uploadAbortControllerRef.current?.abort();
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!shouldRestoreComposerFocus || isSubmittingComposer || composerUnavailable) {
+      return;
+    }
+
+    composerTextareaRef.current?.focus();
+    setShouldRestoreComposerFocus(false);
+  }, [composerTextareaRef, composerUnavailable, isSubmittingComposer, shouldRestoreComposerFocus]);
+
+  const addSelectedFiles = (fileList: FileList | File[]) => {
+    const nextFiles = Array.from(fileList).filter((file) => file.size > 0);
+    if (nextFiles.length === 0) {
+      return;
+    }
+
+    setSelectedFiles((current) => [...current, ...nextFiles]);
+  };
+
+  const submitComposer = async () => {
+    if (!canSubmitComposer) {
+      return;
+    }
+
+    const previousComposerValue = latestComposerValueRef.current;
+    const previousSelectedFiles = selectedFiles;
+    const submitFiles = editingMessage ? [] : selectedFiles;
+    const uploadAbortController = submitFiles.length > 0 ? new AbortController() : null;
+    uploadAbortControllerRef.current = uploadAbortController;
+    setAttachmentUploadProgress(
+      uploadAbortController ? buildInitialAttachmentUploadProgress(submitFiles) : null
+    );
+    setIsSubmittingComposer(true);
+    latestComposerValueRef.current = '';
+    if (composerTextareaRef.current) {
+      composerTextareaRef.current.value = '';
+    }
+    setHasComposerText(false);
+    if (!editingMessage) {
+      setSelectedFiles([]);
+    }
+    onComposerChange('');
+    try {
+      const submitted = uploadAbortController
+        ? await onSubmit(previousComposerValue, submitFiles, {
+            signal: uploadAbortController.signal,
+            onAttachmentProgress: setAttachmentUploadProgress,
+          })
+        : await onSubmit(previousComposerValue, submitFiles);
+      if (!submitted) {
+        latestComposerValueRef.current = previousComposerValue;
+        if (composerTextareaRef.current) {
+          composerTextareaRef.current.value = previousComposerValue;
+        }
+        setHasComposerText(previousComposerValue.trim().length > 0);
+        if (!editingMessage) {
+          setSelectedFiles(previousSelectedFiles);
+        }
+        onComposerChange(previousComposerValue);
+      }
+    } catch (error) {
+      latestComposerValueRef.current = previousComposerValue;
+      if (composerTextareaRef.current) {
+        composerTextareaRef.current.value = previousComposerValue;
+      }
+      setHasComposerText(previousComposerValue.trim().length > 0);
+      if (!editingMessage) {
+        setSelectedFiles(previousSelectedFiles);
+      }
+      onComposerChange(previousComposerValue);
+      throw error;
+    } finally {
+      if (uploadAbortControllerRef.current === uploadAbortController) {
+        uploadAbortControllerRef.current = null;
+      }
+      setAttachmentUploadProgress(null);
+      setIsSubmittingComposer(false);
+      composerTextareaRef.current?.focus();
+      setShouldRestoreComposerFocus(true);
+    }
+  };
+
+  return (
+    <form
+      className="composer north-composer"
+      onDragOver={(event) => {
+        if (!attachmentsDisabled && Array.from(event.dataTransfer.types).includes('Files')) {
+          event.preventDefault();
+        }
+      }}
+      onDrop={(event) => {
+        if (attachmentsDisabled || event.dataTransfer.files.length === 0) {
+          return;
+        }
+        event.preventDefault();
+        addSelectedFiles(event.dataTransfer.files);
+      }}
+      onSubmit={(event) => {
+        event.preventDefault();
+        void submitComposer();
+      }}
+    >
+      {replyingToMessage ? (
+        <div className="composer-context">
+          <button
+            type="button"
+            className="composer-reply-preview"
+            onClick={() => onJumpToMessage(replyingToMessage.chatId, replyingToMessage.id)}
+          >
+            <span className="message-reply-accent" aria-hidden="true" />
+            <span className="composer-context-copy">
+              <span className="composer-context-label">{COMPOSER_COPY.replyLabel}</span>
+              <strong>{replyingToMessage.sender.displayName}</strong>
+              <span>{buildMessagePreview(replyingToMessage.content, 120)}</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            className="composer-context-close"
+            onClick={onClearReply}
+            aria-label={COMPOSER_COPY.cancelReplyAria}
+          >
+            {COMPOSER_COPY.closeGlyph}
+          </button>
+        </div>
+      ) : null}
+      {editingMessage ? (
+        <div className="composer-context">
+          <div className="composer-context-edit">
+            <span className="message-reply-accent" aria-hidden="true" />
+            <span className="composer-context-copy">
+              <span className="composer-context-label">{COMPOSER_COPY.editLabel}</span>
+              <strong>{editingMessage.sender.displayName}</strong>
+              <span>{buildMessagePreview(editingMessage.content, 120)}</span>
+            </span>
+          </div>
+          <button
+            type="button"
+            className="composer-context-close"
+            onClick={onClearEdit}
+            aria-label={COMPOSER_COPY.cancelEditAria}
+          >
+            {COMPOSER_COPY.closeGlyph}
+          </button>
+        </div>
+      ) : null}
+      {encryptionIdentityWarning ? (
+        <div className="composer-encryption-warning" role="alert" aria-live="polite">
+          <div className="composer-encryption-warning-copy">
+            <strong>{encryptionIdentityWarning.title}</strong>
+            <span>{encryptionIdentityWarning.description}</span>
+            {encryptionIdentityWarning.errorText ? (
+              <span className="composer-encryption-warning-error">
+                {encryptionIdentityWarning.errorText}
+              </span>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            className="ghost-button compact composer-encryption-warning-action"
+            onClick={onRecoverEncryptionIdentity}
+            disabled={encryptionIdentityWarning.isPending}
+          >
+            {encryptionIdentityWarning.isPending
+              ? COMPOSER_COPY.refreshing
+              : encryptionIdentityWarning.actionLabel}
+          </button>
+        </div>
+      ) : null}
+      {selectedFileCount > 0 ? (
+        <div className="composer-attachments" aria-label={COMPOSER_COPY.attachmentsAria}>
+          {selectedFiles.map((file, index) => (
+            <span className="composer-attachment-chip" key={`${file.name}-${file.size}-${index}`}>
+              <span className="composer-attachment-name">{file.name}</span>
+              <span className="composer-attachment-size">{formatFileSize(file.size)}</span>
+              <button
+                type="button"
+                className="composer-attachment-remove"
+                onClick={() =>
+                  setSelectedFiles((current) =>
+                    current.filter((_, itemIndex) => itemIndex !== index)
+                  )
+                }
+                aria-label={COMPOSER_COPY.removeAttachmentAria}
+              >
+                {COMPOSER_COPY.closeGlyph}
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {attachmentUploadProgress ? (
+        <div className="composer-upload-progress" role="status" aria-live="polite">
+          <div className="composer-upload-progress-copy">
+            <span>{formatAttachmentUploadProgress(attachmentUploadProgress)}</span>
+            <button
+              type="button"
+              className="ghost-button compact composer-upload-cancel"
+              onClick={() => uploadAbortControllerRef.current?.abort()}
+            >
+              {COMPOSER_COPY.cancelUpload}
+            </button>
+          </div>
+          <div className="composer-upload-progress-track" aria-hidden="true">
+            <span
+              className="composer-upload-progress-bar"
+              style={{ width: `${Math.round(attachmentUploadProgress.ratio * 100)}%` }}
+            />
+          </div>
+        </div>
+      ) : null}
+      <div className="north-composer-body">
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="composer-file-input"
+          disabled={attachmentsDisabled}
+          onChange={(event) => {
+            if (event.target.files) {
+              addSelectedFiles(event.target.files);
+            }
+            event.currentTarget.value = '';
+          }}
+        />
+        <button
+          type="button"
+          className="ghost-button compact composer-attachment-button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={attachmentsDisabled}
+          title={COMPOSER_COPY.attachFile}
+          aria-label={COMPOSER_COPY.attachFile}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path
+              d="M7.4 12.7 14.9 5.2a3.4 3.4 0 0 1 4.8 4.8l-8.7 8.7a5 5 0 0 1-7.1-7.1l8.9-8.9"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+            />
+            <path
+              d="m8.9 14.1 7.6-7.6"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeWidth="2"
+            />
+          </svg>
+        </button>
+        <textarea
+          ref={composerTextareaRef}
+          defaultValue={activeDraft}
+          disabled={composerUnavailable}
+          onChange={(event) => {
+            const nextValue = event.target.value;
+            latestComposerValueRef.current = nextValue;
+            const nextHasComposerText = nextValue.trim().length > 0;
+            setHasComposerText((current) =>
+              current === nextHasComposerText ? current : nextHasComposerText
+            );
+            onComposerChange(nextValue);
+          }}
+          onBlur={() => onCommitDraft(activeChatId, latestComposerValueRef.current)}
+          onPaste={(event) => {
+            if (attachmentsDisabled || event.clipboardData.files.length === 0) {
+              return;
+            }
+            addSelectedFiles(event.clipboardData.files);
+            event.preventDefault();
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault();
+              void submitComposer();
+            }
+          }}
+          placeholder={composerPlaceholder}
+          rows={1}
+        />
+        <button
+          type="submit"
+          className="primary-button north-send-button"
+          disabled={!canSubmitComposer}
+          onMouseDown={(event) => event.preventDefault()}
+        >
+          {editingMessage ? COMPOSER_COPY.submitEditGlyph : '>'}
+        </button>
+      </div>
+    </form>
+  );
+});
+
+ConversationComposer.displayName = 'ConversationComposer';
 
 type ConversationTimelineProps = {
   activeChatId: string;
@@ -1439,4 +1586,6 @@ function formatFileSize(sizeBytes: number) {
   }
   return `${size.toFixed(size >= 10 ? 0 : 1)} ${units[unitIndex]}`;
 }
+
+
 

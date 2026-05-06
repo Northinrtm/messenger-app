@@ -5,23 +5,50 @@ x-default-logging: &default-logging
     max-file: "${DOCKER_LOG_MAX_FILE:-5}"
 
 services:
+  vault:
+    image: hashicorp/vault:1.21.4
+    profiles:
+      - vault
+    container_name: messenger-vault
+    restart: unless-stopped
+    logging: *default-logging
+    cpus: 0.25
+    mem_limit: 128m
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_ADDR: http://127.0.0.1:8200
+    command: server
+    ports:
+      - "127.0.0.1:8200:8200"
+    volumes:
+      - ./deploy/vault/prod.hcl:/vault/config/vault.hcl:ro
+      - vault_data:/vault/file
+      - vault_logs:/vault/logs
+    healthcheck:
+      test: ["CMD", "vault", "status", "-address=http://127.0.0.1:8200"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
   postgres:
     image: postgres:17
     container_name: messenger-postgres
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.5
-    mem_limit: 256m
+    mem_limit: 192m
     command:
       - postgres
       - -c
-      - shared_buffers=64MB
+      - shared_buffers=48MB
       - -c
       - work_mem=4MB
       - -c
-      - maintenance_work_mem=32MB
+      - maintenance_work_mem=24MB
       - -c
-      - effective_cache_size=128MB
+      - effective_cache_size=96MB
     environment:
       POSTGRES_DB: messenger
       POSTGRES_USER: messenger
@@ -67,7 +94,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.25
-    mem_limit: 96m
+    mem_limit: 64m
     hostname: xmpp.meet.jitsi
     environment:
       ENABLE_AUTH: "0"
@@ -105,7 +132,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.25
-    mem_limit: 128m
+    mem_limit: 96m
     depends_on:
       - jitsi-prosody
     environment:
@@ -137,7 +164,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.5
-    mem_limit: 256m
+    mem_limit: 192m
     depends_on:
       - jitsi-prosody
     environment:
@@ -167,7 +194,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.25
-    mem_limit: 96m
+    mem_limit: 64m
     depends_on:
       - jitsi-prosody
       - jitsi-jicofo
@@ -239,10 +266,10 @@ services:
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.75
-    mem_limit: 768m
+    mem_limit: 640m
     environment:
       SPRING_PROFILES_ACTIVE: prod,json-logs
-      JAVA_TOOL_OPTIONS: "${JAVA_TOOL_OPTIONS:--XX:InitialRAMPercentage=15 -XX:MaxRAMPercentage=52 -XX:MaxMetaspaceSize=160m -XX:ReservedCodeCacheSize=32m -XX:+UseSerialGC -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/messenger-backend-oom.hprof -Xlog:gc*:file=/tmp/messenger-backend-gc.log:time,level,tags:filecount=5,filesize=10M -XX:+ExitOnOutOfMemoryError}"
+      JAVA_TOOL_OPTIONS: "${JAVA_TOOL_OPTIONS:--XX:InitialRAMPercentage=15 -XX:MaxRAMPercentage=52 -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=32m -XX:+UseSerialGC -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/messenger-backend-oom.hprof -Xlog:gc*:file=/tmp/messenger-backend-gc.log:time,level,tags:filecount=5,filesize=10M -XX:+ExitOnOutOfMemoryError}"
       SERVER_PORT: 8080
       DB_URL: ${DB_URL:-jdbc:postgresql://postgres:5432/messenger}
       DB_USERNAME: ${DB_USERNAME:-messenger}
@@ -258,8 +285,15 @@ services:
       APP_REALTIME_WEBSOCKET_SEND_BUFFER_SIZE_LIMIT_BYTES: ${APP_REALTIME_WEBSOCKET_SEND_BUFFER_SIZE_LIMIT_BYTES:-8388608}
       APP_REALTIME_WEBSOCKET_SEND_TIME_LIMIT_MS: ${APP_REALTIME_WEBSOCKET_SEND_TIME_LIMIT_MS:-20000}
       APP_E2EE_MAX_ACTIVE_DEVICES_PER_USER: ${APP_E2EE_MAX_ACTIVE_DEVICES_PER_USER:-3}
-      APP_E2EE_ESCROW_SECRET: ${APP_E2EE_ESCROW_SECRET:?APP_E2EE_ESCROW_SECRET must be set}
-      APP_E2EE_ESCROW_GENERATE_SECRET_IF_MISSING: ${APP_E2EE_ESCROW_GENERATE_SECRET_IF_MISSING:-false}
+      APP_E2EE_ESCROW_PROVIDER: ${APP_E2EE_ESCROW_PROVIDER:-local}
+      APP_E2EE_ESCROW_SECRET: ${APP_E2EE_ESCROW_SECRET:-}
+      APP_E2EE_ESCROW_VAULT_ADDRESS: ${APP_E2EE_ESCROW_VAULT_ADDRESS:-http://vault:8200}
+      APP_E2EE_ESCROW_VAULT_TOKEN: ${APP_E2EE_ESCROW_VAULT_TOKEN:-}
+      APP_E2EE_ESCROW_VAULT_NAMESPACE: ${APP_E2EE_ESCROW_VAULT_NAMESPACE:-}
+      APP_E2EE_ESCROW_VAULT_MOUNT_PATH: ${APP_E2EE_ESCROW_VAULT_MOUNT_PATH:-transit}
+      APP_E2EE_ESCROW_VAULT_KEY_NAME: ${APP_E2EE_ESCROW_VAULT_KEY_NAME:-messenger-history-escrow}
+      APP_E2EE_ESCROW_VAULT_CONNECT_TIMEOUT: ${APP_E2EE_ESCROW_VAULT_CONNECT_TIMEOUT:-PT2S}
+      APP_E2EE_ESCROW_VAULT_REQUEST_TIMEOUT: ${APP_E2EE_ESCROW_VAULT_REQUEST_TIMEOUT:-PT5S}
       APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:?APP_CORS_ALLOWED_ORIGINS must be set}
       APP_JWT_SECRET: ${APP_JWT_SECRET:?APP_JWT_SECRET must be set}
       APP_JWT_REFRESH_TOKEN_TTL: ${APP_JWT_REFRESH_TOKEN_TTL:-P30D}
@@ -486,7 +520,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.25
-    mem_limit: 128m
+    mem_limit: 96m
     depends_on:
       backend:
         condition: service_healthy
@@ -505,7 +539,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.25
-    mem_limit: 96m
+    mem_limit: 64m
     depends_on:
       web:
         condition: service_healthy
@@ -526,6 +560,8 @@ volumes:
   caddy_data:
   postgres_data:
   redis_data:
+  vault_data:
+  vault_logs:
   grafana_data:
   alertmanager_data:
   loki_data:

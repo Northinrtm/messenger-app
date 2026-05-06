@@ -16,6 +16,7 @@ import com.north.messenger.application.push.PushNotificationDeliveryService;
 import com.north.messenger.observability.MessengerTelemetry;
 import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.model.ChatParticipant;
+import com.north.messenger.domain.model.ChatPrejoinHistoryPolicy;
 import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.MessageReceipt;
 import com.north.messenger.domain.model.MessageReaction;
@@ -99,9 +100,11 @@ class MessageServiceTest {
         MessageSupport messageSupport = new MessageSupport(
                 authService,
                 chatMessageRepository,
+                chatParticipantRepository,
                 messageReceiptRepository,
                 messageReactionRepository,
                 userAccountRepository,
+                userDeletedMessageRepository,
                 telemetry,
                 objectMapper,
                 mock(EncryptedMessagePreviewService.class)
@@ -1057,6 +1060,57 @@ class MessageServiceTest {
 
         verify(userDeletedMessageRepository, never()).saveAll(any());
         verify(chatMessageRepository, never()).deleteAll(any());
+    }
+
+    @Test
+    void sendMessageShouldRejectReplyTargetOutsideVisibleHistoryWindow() {
+        UUID chatId = UUID.randomUUID();
+        UserAccount currentUser = user("north");
+        UserAccount recipient = user("alice");
+        ChatRoom room = new ChatRoom(chatId, "group", false, Instant.parse("2026-05-01T00:00:00Z"));
+        room.updateGroupDetails("group", null, ChatPrejoinHistoryPolicy.JOIN_ONLY);
+        ChatMessage hiddenReplyTarget = new ChatMessage(
+                UUID.randomUUID(),
+                chatId,
+                recipient.getId(),
+                "older message",
+                Instant.parse("2026-05-01T12:00:00Z")
+        );
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
+        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(room);
+        when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, recipient));
+        when(chatParticipantRepository.findByChatIdAndUserId(chatId, currentUser.getId())).thenReturn(Optional.of(
+                new ChatParticipant(
+                        UUID.randomUUID(),
+                        chatId,
+                        currentUser.getId(),
+                        Instant.parse("2026-05-02T00:00:00Z")
+                )
+        ));
+        when(chatMessageRepository.findById(hiddenReplyTarget.getId())).thenReturn(Optional.of(hiddenReplyTarget));
+        when(userDeletedMessageRepository.existsByUserIdAndMessageId(currentUser.getId(), hiddenReplyTarget.getId()))
+                .thenReturn(false);
+
+        assertThatThrownBy(() -> messageService.sendMessage(
+                chatId,
+                "north",
+                new CreateMessageRequest(
+                        clientMessageId(),
+                        hiddenReplyTarget.getId(),
+                        new EncryptedMessagePayloadRequest(
+                                "CHAT-EPOCH-KEY-AES-GCM",
+                                chatEpochSharedEnvelope(
+                                        chatId,
+                                        currentUser.getId(),
+                                        clientMessageId(),
+                                        "ciphertext-hidden-reply",
+                                        "iv-hidden-reply"
+                                )
+                        )
+                )
+        ))
+                .hasMessageContaining("Reply target not found");
     }
 
     private UserAccount user(String username) {

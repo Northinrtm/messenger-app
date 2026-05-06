@@ -12,6 +12,7 @@ The production backup script stores local timestamped snapshots with:
   - `conference_recordings_archive`
   - `conference_recordings_raw`
   - `message_attachments`
+  - `vault_data` when the optional Vault profile is used with file storage
 - metadata files with timestamp, current git revision, and `docker compose ps`
 
 Default backup root:
@@ -62,8 +63,9 @@ High-level restore flow on a fresh server:
 3. Start only `postgres`.
 4. Restore globals from `postgres-globals.sql.gz`.
 5. Restore the main database from `postgres.dump`.
-6. Restore `caddy_data`, conference recording, and `message_attachments` volume archives if needed.
-7. Start the rest of the stack.
+6. Restore `caddy_data`, conference recording, `message_attachments`, and `vault_data` volume archives if needed.
+7. If Vault Transit is used, restore the Vault init/unseal material from your secure secret-management process and unseal Vault before starting `backend`.
+8. Start the rest of the stack.
 
 Example database restore:
 
@@ -82,3 +84,8 @@ docker run --rm -i \
   -lc 'rm -rf /restore/* /restore/.[!.]* /restore/..?* 2>/dev/null || true; tar -C /restore -xzf -' \
   < volume-caddy_data.tar.gz
 ```
+
+Managed E2EE restore rule:
+
+- if `APP_E2EE_ESCROW_PROVIDER=local`, the restored server must use the same `APP_E2EE_ESCROW_SECRET`
+- if `APP_E2EE_ESCROW_PROVIDER=vault-transit`, the restored server must use the same Vault Transit key material and working Vault unseal path

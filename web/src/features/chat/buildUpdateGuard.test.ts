@@ -8,7 +8,7 @@ function createState(
   return {
     hasAvailableBuildUpdate: true,
     activeConferenceId: null,
-    activeDraft: "",
+    hasActiveComposerText: false,
     draftsByChatId: {},
     pendingOutgoingCountByChatId: {},
     replyingToMessageId: null,
@@ -32,7 +32,7 @@ describe("buildUpdateGuard", () => {
 
   it("blocks auto-reload while a draft is open in the active chat", () => {
     expect(
-      shouldAutoReloadForBuildUpdate(createState({ activeDraft: "draft message" }))
+      shouldAutoReloadForBuildUpdate(createState({ hasActiveComposerText: true }))
     ).toBe(false);
   });
 

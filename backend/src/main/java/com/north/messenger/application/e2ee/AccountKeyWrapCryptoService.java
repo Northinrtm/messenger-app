@@ -23,6 +23,8 @@ public class AccountKeyWrapCryptoService {
 
     private static final int ACCOUNT_HISTORY_KEY_GRANT_AAD_VERSION = 2;
     private static final String ACCOUNT_HISTORY_KEY_GRANT_CONTEXT = "north.account-history-key-grant.v2";
+    private static final int MIN_RSA_MODULUS_BITS = 3072;
+    private static final BigInteger REQUIRED_RSA_PUBLIC_EXPONENT = BigInteger.valueOf(65537L);
     private static final byte[] ACCOUNT_HISTORY_KEY_WRAP_LABEL =
             "north.account-history-key-grant.wrap.v2".getBytes(StandardCharsets.UTF_8);
     private static final int WRAPPING_KEY_BYTES = 32;
@@ -146,9 +148,17 @@ public class AccountKeyWrapCryptoService {
         }
 
         KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+        BigInteger parsedModulus = new BigInteger(1, decodeBase64Url(modulus));
+        BigInteger parsedExponent = new BigInteger(1, decodeBase64Url(exponent));
+        if (parsedModulus.bitLength() < MIN_RSA_MODULUS_BITS) {
+            throw new IllegalStateException("Account public key must use at least 3072-bit RSA modulus");
+        }
+        if (!REQUIRED_RSA_PUBLIC_EXPONENT.equals(parsedExponent)) {
+            throw new IllegalStateException("Account public key must use RSA public exponent 65537");
+        }
         return keyFactory.generatePublic(new RSAPublicKeySpec(
-                new BigInteger(1, decodeBase64Url(modulus)),
-                new BigInteger(1, decodeBase64Url(exponent))
+                parsedModulus,
+                parsedExponent
         ));
     }
 

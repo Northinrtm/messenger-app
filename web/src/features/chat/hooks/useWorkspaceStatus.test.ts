@@ -9,6 +9,18 @@ function chat(overrides: Partial<ChatSummary>): ChatSummary {
     direct: overrides.direct ?? true,
     title: overrides.title ?? "Chat",
     avatarUrl: null,
+    chatVersion: overrides.chatVersion ?? "chat-version-1",
+    capabilities:
+      overrides.capabilities ?? {
+        canEditGroup: false,
+        canDeleteGroup: false,
+        canManageInviteLink: false,
+        canAddMembers: false,
+        canManageRoles: false,
+        canModerateMembers: false,
+        canTogglePrejoinHistory: false,
+        canLeaveGroup: false,
+      },
     ownerUserId: null,
     moderatorUserIds: [],
     members: overrides.members ?? [],

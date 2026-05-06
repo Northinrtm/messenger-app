@@ -3,6 +3,36 @@ import type {
   GroupHistoryKeyState,
 } from "./e2eeGroupEngine";
 
+const GROUP_HISTORY_KEY_DB_NAME = "north-messenger-e2ee-group-history";
+const GROUP_HISTORY_KEY_DB_VERSION = 1;
+const GROUP_HISTORY_KEY_STORE_NAME = "states";
+const groupHistoryKeyStateMemoryByUserId = new Map<string, GroupHistoryKeyState>();
+const groupHistoryKeyPersistenceQueueByUserId = new Map<string, Promise<void>>();
+let groupHistoryKeyDatabasePromise: Promise<IDBDatabase> | null = null;
+
+export type EncryptedGroupHistoryKeyStateRecord = {
+  version: number;
+  salt: string;
+  iv: string;
+  ciphertext: string;
+  createdAt: string;
+};
+
+type PersistedGroupHistoryKeyStateRecord = {
+  userId?: string;
+  state?: unknown;
+  encryptedState?: unknown;
+};
+
+function emptyGroupHistoryKeyState(): GroupHistoryKeyState {
+  return {
+    currentKeyIdsByChatId: {},
+    syncCursorByChatId: {},
+    fullySyncedChatIds: [],
+    keysById: {},
+  };
+}
+
 function normalizeGroupHistoryKeyRecord(
   value: unknown
 ): GroupHistoryKeyRecord | null {
@@ -88,37 +118,218 @@ function normalizeGroupHistoryKeyState(
   };
 }
 
+function normalizeEncryptedGroupHistoryKeyStateRecord(
+  value: unknown
+): EncryptedGroupHistoryKeyStateRecord | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const candidate = value as Partial<EncryptedGroupHistoryKeyStateRecord>;
+  if (
+    typeof candidate.version !== "number" ||
+    !Number.isFinite(candidate.version) ||
+    candidate.version < 1 ||
+    typeof candidate.salt !== "string" ||
+    typeof candidate.iv !== "string" ||
+    typeof candidate.ciphertext !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    version: candidate.version,
+    salt: candidate.salt,
+    iv: candidate.iv,
+    ciphertext: candidate.ciphertext,
+    createdAt: typeof candidate.createdAt === "string" ? candidate.createdAt : "",
+  };
+}
+
+function isIndexedDbAvailable() {
+  return typeof window !== "undefined" && typeof window.indexedDB?.open === "function";
+}
+
+function openGroupHistoryKeyDatabase() {
+  if (!isIndexedDbAvailable()) {
+    return null;
+  }
+
+  if (!groupHistoryKeyDatabasePromise) {
+    groupHistoryKeyDatabasePromise = new Promise<IDBDatabase>((resolve, reject) => {
+      const request = window.indexedDB.open(
+        GROUP_HISTORY_KEY_DB_NAME,
+        GROUP_HISTORY_KEY_DB_VERSION
+      );
+
+      request.onupgradeneeded = () => {
+        const database = request.result;
+        if (!database.objectStoreNames.contains(GROUP_HISTORY_KEY_STORE_NAME)) {
+          database.createObjectStore(GROUP_HISTORY_KEY_STORE_NAME, {
+            keyPath: "userId",
+          });
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () =>
+        reject(request.error ?? new Error("Failed to open group history key database"));
+    }).catch((error) => {
+      groupHistoryKeyDatabasePromise = null;
+      throw error;
+    });
+  }
+
+  return groupHistoryKeyDatabasePromise;
+}
+
+async function readPersistedGroupHistoryKeyState(userId: string) {
+  const databasePromise = openGroupHistoryKeyDatabase();
+  if (!databasePromise) {
+    return null;
+  }
+
+  try {
+    await groupHistoryKeyPersistenceQueueByUserId.get(userId);
+    const database = await databasePromise;
+    return await new Promise<PersistedGroupHistoryKeyStateRecord | null>((resolve, reject) => {
+      const transaction = database.transaction(GROUP_HISTORY_KEY_STORE_NAME, "readonly");
+      const request = transaction.objectStore(GROUP_HISTORY_KEY_STORE_NAME).get(userId);
+      request.onsuccess = () => {
+        resolve((request.result as PersistedGroupHistoryKeyStateRecord | undefined) ?? null);
+      };
+      request.onerror = () =>
+        reject(request.error ?? new Error("Failed to read group history key state"));
+    });
+  } catch {
+    return null;
+  }
+}
+
+function enqueueGroupHistoryKeyPersistence(userId: string, operation: () => Promise<void>) {
+  const previousOperation = groupHistoryKeyPersistenceQueueByUserId.get(userId) ?? Promise.resolve();
+  const nextOperation = previousOperation
+    .catch(() => undefined)
+    .then(operation)
+    .finally(() => {
+      if (groupHistoryKeyPersistenceQueueByUserId.get(userId) === nextOperation) {
+        groupHistoryKeyPersistenceQueueByUserId.delete(userId);
+      }
+    });
+  groupHistoryKeyPersistenceQueueByUserId.set(userId, nextOperation);
+  return nextOperation;
+}
+
+async function persistGroupHistoryKeyState(userId: string, state: GroupHistoryKeyState) {
+  const databasePromise = openGroupHistoryKeyDatabase();
+  if (!databasePromise) {
+    return;
+  }
+
+  try {
+    const database = await databasePromise;
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction(GROUP_HISTORY_KEY_STORE_NAME, "readwrite");
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () =>
+        reject(transaction.error ?? new Error("Failed to persist group history key state"));
+      transaction.objectStore(GROUP_HISTORY_KEY_STORE_NAME).put({
+        userId,
+        state,
+      });
+    });
+  } catch {
+    return;
+  }
+}
+
+async function persistEncryptedGroupHistoryKeyState(
+  userId: string,
+  encryptedState: EncryptedGroupHistoryKeyStateRecord
+) {
+  const databasePromise = openGroupHistoryKeyDatabase();
+  if (!databasePromise) {
+    return;
+  }
+
+  try {
+    const database = await databasePromise;
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction(GROUP_HISTORY_KEY_STORE_NAME, "readwrite");
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () =>
+        reject(
+          transaction.error ??
+            new Error("Failed to persist encrypted group history key state")
+        );
+      transaction.objectStore(GROUP_HISTORY_KEY_STORE_NAME).put({
+        userId,
+        encryptedState,
+      } satisfies PersistedGroupHistoryKeyStateRecord);
+    });
+  } catch {
+    return;
+  }
+}
+
+async function removePersistedGroupHistoryKeyState(userId: string) {
+  const databasePromise = openGroupHistoryKeyDatabase();
+  if (!databasePromise) {
+    return;
+  }
+
+  try {
+    const database = await databasePromise;
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction(GROUP_HISTORY_KEY_STORE_NAME, "readwrite");
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () =>
+        reject(transaction.error ?? new Error("Failed to remove group history key state"));
+      transaction.objectStore(GROUP_HISTORY_KEY_STORE_NAME).delete(userId);
+    });
+  } catch {
+    return;
+  }
+}
+
 export async function readGroupHistoryKeyState(options: {
   userId: string;
   getGroupHistoryKeyStorageKey: (userId: string) => string;
   removeGroupHistoryKeys: (userId: string) => void;
+  decryptPersistedGroupHistoryKeyState?: (
+    record: EncryptedGroupHistoryKeyStateRecord
+  ) => Promise<unknown | null>;
 }) {
   if (typeof window === "undefined") {
-    return {
-      currentKeyIdsByChatId: {},
-      syncCursorByChatId: {},
-      fullySyncedChatIds: [],
-      keysById: {},
-    } satisfies GroupHistoryKeyState;
+    return emptyGroupHistoryKeyState();
+  }
+
+  const inMemoryState = groupHistoryKeyStateMemoryByUserId.get(options.userId);
+  if (inMemoryState) {
+    return inMemoryState;
   }
 
   try {
-    const rawValue = window.sessionStorage.getItem(
-      options.getGroupHistoryKeyStorageKey(options.userId)
+    const persistedState = await readPersistedGroupHistoryKeyState(options.userId);
+    let parsedState: GroupHistoryKeyState | null = null;
+    const encryptedRecord = normalizeEncryptedGroupHistoryKeyStateRecord(
+      persistedState?.encryptedState
     );
-    if (!rawValue) {
-      return {
-        currentKeyIdsByChatId: {},
-        syncCursorByChatId: {},
-        fullySyncedChatIds: [],
-        keysById: {},
-      } satisfies GroupHistoryKeyState;
+    if (encryptedRecord) {
+      if (!options.decryptPersistedGroupHistoryKeyState) {
+        return emptyGroupHistoryKeyState();
+      }
+      const decryptedState = await options.decryptPersistedGroupHistoryKeyState(
+        encryptedRecord
+      );
+      parsedState = normalizeGroupHistoryKeyState(decryptedState);
+      if (!parsedState) {
+        return emptyGroupHistoryKeyState();
+      }
+    } else {
+      parsedState = normalizeGroupHistoryKeyState(persistedState?.state ?? null);
     }
-
-    const parsedState = normalizeGroupHistoryKeyState(
-      JSON.parse(rawValue) as unknown
-    );
     if (parsedState) {
+      groupHistoryKeyStateMemoryByUserId.set(options.userId, parsedState);
       return parsedState;
     }
   } catch {
@@ -126,48 +337,40 @@ export async function readGroupHistoryKeyState(options: {
   }
 
   options.removeGroupHistoryKeys(options.userId);
-  return {
-    currentKeyIdsByChatId: {},
-    syncCursorByChatId: {},
-    fullySyncedChatIds: [],
-    keysById: {},
-  } satisfies GroupHistoryKeyState;
+  return emptyGroupHistoryKeyState();
 }
 
 export function writeGroupHistoryKeyState(options: {
   userId: string;
   state: GroupHistoryKeyState;
   getGroupHistoryKeyStorageKey: (userId: string) => string;
+  encryptPersistedGroupHistoryKeyState?: (
+    state: GroupHistoryKeyState
+  ) => Promise<EncryptedGroupHistoryKeyStateRecord | null>;
 }) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.sessionStorage.setItem(
-      options.getGroupHistoryKeyStorageKey(options.userId),
-      JSON.stringify(options.state)
-    );
-  } catch {
-    return;
-  }
+  void options.getGroupHistoryKeyStorageKey;
+  groupHistoryKeyStateMemoryByUserId.set(options.userId, options.state);
+  void enqueueGroupHistoryKeyPersistence(options.userId, async () => {
+    const encryptedState = options.encryptPersistedGroupHistoryKeyState
+      ? await options.encryptPersistedGroupHistoryKeyState(options.state)
+      : null;
+    if (encryptedState) {
+      await persistEncryptedGroupHistoryKeyState(options.userId, encryptedState);
+      return;
+    }
+    await persistGroupHistoryKeyState(options.userId, options.state);
+  });
 }
 
 export function removeGroupHistoryKeys(options: {
   userId: string;
   getGroupHistoryKeyStorageKey: (userId: string) => string;
 }) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.sessionStorage.removeItem(
-      options.getGroupHistoryKeyStorageKey(options.userId)
-    );
-  } catch {
-    return;
-  }
+  void options.getGroupHistoryKeyStorageKey;
+  groupHistoryKeyStateMemoryByUserId.delete(options.userId);
+  void enqueueGroupHistoryKeyPersistence(options.userId, () =>
+    removePersistedGroupHistoryKeyState(options.userId)
+  );
 }
 
 export async function clearCurrentGroupHistoryKeyRecord(options: {

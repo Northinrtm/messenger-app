@@ -1,6 +1,7 @@
 import { ApiError } from "./api";
 
 export const ENCRYPTED_MESSAGE_UNAVAILABLE = "[Encrypted message unavailable]";
+export const ENCRYPTED_MESSAGE_PLACEHOLDER = "Encrypted message";
 export const ENCRYPTION_INITIALIZING_MESSAGE =
   "Encrypted chat is still initializing in this browser session. Try again.";
 export const ENCRYPTION_RECOVERY_PASSWORD_RESTORE_FAILED_MESSAGE =
@@ -23,6 +24,17 @@ const RESETTABLE_ENCRYPTION_RECOVERY_MESSAGES = new Set([
 
 export function isUnavailableEncryptedMessage(content: string) {
   return content === ENCRYPTED_MESSAGE_UNAVAILABLE;
+}
+
+export function isEncryptedMessagePreviewPlaceholder(content: string) {
+  return content === ENCRYPTED_MESSAGE_PLACEHOLDER;
+}
+
+export function isUnreadableEncryptedMessagePreview(content: string) {
+  return (
+    isUnavailableEncryptedMessage(content) ||
+    isEncryptedMessagePreviewPlaceholder(content)
+  );
 }
 
 export function isResettableEncryptionRecoveryError(error: unknown) {

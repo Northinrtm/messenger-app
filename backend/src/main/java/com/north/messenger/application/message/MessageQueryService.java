@@ -156,7 +156,9 @@ class MessageQueryService {
         );
         Map<UUID, MessageSnippetResponse> repliesByMessageId = messageSupport.loadReplySnippetsByMessageId(
                 recentMessages,
-                usersById
+                usersById,
+                room,
+                currentUser.getId()
         );
 
         List<RenderedMessage> renderedMessages = recentMessages.stream()

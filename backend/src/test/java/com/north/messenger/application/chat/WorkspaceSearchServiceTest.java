@@ -1,6 +1,7 @@
 package com.north.messenger.application.chat;
 
 import com.north.messenger.api.dto.ChatSummaryResponse;
+import com.north.messenger.api.dto.ChatCapabilitiesResponse;
 import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.api.dto.UserProfileResponse;
 import com.north.messenger.api.dto.VideoConferenceResponse;
@@ -71,6 +72,8 @@ class WorkspaceSearchServiceTest {
                         false,
                         "Remote Team",
                         null,
+                        "chat-version-active",
+                        new ChatCapabilitiesResponse(false, false, false, false, false, false, false, true),
                         null,
                         List.<UUID>of(),
                         List.of(new ParticipantResponse(UUID.randomUUID(), "remote_user", "Remote User", null, true)),
@@ -90,6 +93,8 @@ class WorkspaceSearchServiceTest {
                         false,
                         "Archived Remote",
                         null,
+                        "chat-version-archived",
+                        new ChatCapabilitiesResponse(false, false, false, false, false, false, false, true),
                         null,
                         List.<UUID>of(),
                         List.of(new ParticipantResponse(UUID.randomUUID(), "archived_user", "Archived User", null, true)),

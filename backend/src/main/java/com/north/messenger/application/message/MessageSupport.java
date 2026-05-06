@@ -15,14 +15,18 @@ import com.north.messenger.api.dto.MessageStatusResponse;
 import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.domain.model.ChatMessage;
+import com.north.messenger.domain.model.ChatParticipant;
+import com.north.messenger.domain.model.ChatPrejoinHistoryPolicy;
 import com.north.messenger.domain.model.MessageReceipt;
 import com.north.messenger.domain.model.MessageReaction;
 import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.repository.ChatMessageRepository;
+import com.north.messenger.domain.repository.ChatParticipantRepository;
 import com.north.messenger.domain.repository.MessageReceiptRepository;
 import com.north.messenger.domain.repository.MessageReactionRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
+import com.north.messenger.domain.repository.UserDeletedMessageRepository;
 import com.north.messenger.observability.MessengerTelemetry;
 import java.util.Collection;
 import java.util.HashMap;
@@ -51,9 +55,11 @@ class MessageSupport {
 
     private final AuthService authService;
     private final ChatMessageRepository chatMessageRepository;
+    private final ChatParticipantRepository chatParticipantRepository;
     private final MessageReceiptRepository messageReceiptRepository;
     private final MessageReactionRepository messageReactionRepository;
     private final UserAccountRepository userAccountRepository;
+    private final UserDeletedMessageRepository userDeletedMessageRepository;
     private final MessengerTelemetry telemetry;
     private final ObjectMapper objectMapper;
     private final EncryptedMessagePreviewService encryptedMessagePreviewService;
@@ -61,18 +67,22 @@ class MessageSupport {
     MessageSupport(
             AuthService authService,
             ChatMessageRepository chatMessageRepository,
+            ChatParticipantRepository chatParticipantRepository,
             MessageReceiptRepository messageReceiptRepository,
             MessageReactionRepository messageReactionRepository,
             UserAccountRepository userAccountRepository,
+            UserDeletedMessageRepository userDeletedMessageRepository,
             MessengerTelemetry telemetry,
             ObjectMapper objectMapper,
             EncryptedMessagePreviewService encryptedMessagePreviewService
     ) {
         this.authService = authService;
         this.chatMessageRepository = chatMessageRepository;
+        this.chatParticipantRepository = chatParticipantRepository;
         this.messageReceiptRepository = messageReceiptRepository;
         this.messageReactionRepository = messageReactionRepository;
         this.userAccountRepository = userAccountRepository;
+        this.userDeletedMessageRepository = userDeletedMessageRepository;
         this.telemetry = telemetry;
         this.objectMapper = objectMapper;
         this.encryptedMessagePreviewService = encryptedMessagePreviewService;
@@ -80,7 +90,9 @@ class MessageSupport {
 
     Map<UUID, MessageSnippetResponse> loadReplySnippetsByMessageId(
             Collection<ChatMessage> messages,
-            Map<UUID, UserAccount> knownUsersById
+            Map<UUID, UserAccount> knownUsersById,
+            ChatRoom room,
+            UUID viewerUserId
     ) {
         List<ChatMessage> messagesWithReply = messages.stream()
                 .filter(message -> message.getReplyToMessageId() != null)
@@ -88,6 +100,16 @@ class MessageSupport {
         if (messagesWithReply.isEmpty()) {
             return Map.of();
         }
+        if (room == null || viewerUserId == null) {
+            return Map.of();
+        }
+
+        ChatParticipant membership = chatParticipantRepository.findByChatIdAndUserId(room.getId(), viewerUserId)
+                .orElse(null);
+        if (membership == null) {
+            return Map.of();
+        }
+        Instant visibleFrom = resolveVisibleHistoryStart(room, membership);
 
         Map<UUID, ChatMessage> referencedMessagesById = chatMessageRepository.findAllById(
                         messagesWithReply.stream().map(ChatMessage::getReplyToMessageId).distinct().toList()
@@ -114,6 +136,9 @@ class MessageSupport {
                     if (referencedMessage == null) {
                         return null;
                     }
+                    if (!canViewMessageForReplySnippet(referencedMessage, viewerUserId, visibleFrom)) {
+                        return null;
+                    }
 
                     UserAccount sender = usersById.get(referencedMessage.getSenderId());
                     if (sender == null) {
@@ -134,13 +159,13 @@ class MessageSupport {
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
-    MessageResponse findExistingMessageResponse(UUID chatId, UserAccount currentUser, String clientMessageId) {
+    MessageResponse findExistingMessageResponse(ChatRoom room, UserAccount currentUser, String clientMessageId) {
         if (clientMessageId == null) {
             return null;
         }
 
         ChatMessage existingMessage = chatMessageRepository
-                .findByChatIdAndSenderIdAndClientMessageId(chatId, currentUser.getId(), clientMessageId)
+                .findByChatIdAndSenderIdAndClientMessageId(room.getId(), currentUser.getId(), clientMessageId)
                 .orElse(null);
         if (existingMessage == null) {
             return null;
@@ -159,7 +184,12 @@ class MessageSupport {
                 summary,
                 reactions,
                 existingMessage.getClientMessageId(),
-                loadReplySnippetsByMessageId(List.of(existingMessage), Map.of(currentUser.getId(), currentUser))
+                loadReplySnippetsByMessageId(
+                        List.of(existingMessage),
+                        Map.of(currentUser.getId(), currentUser),
+                        room,
+                        currentUser.getId()
+                )
                         .get(existingMessage.getId())
         );
     }
@@ -350,15 +380,24 @@ class MessageSupport {
         return normalized;
     }
 
-    UUID validateReplyTarget(UUID chatId, UUID replyToMessageId) {
+    UUID validateReplyTarget(ChatRoom room, UserAccount currentUser, UUID replyToMessageId) {
         if (replyToMessageId == null) {
             return null;
         }
 
+        ChatParticipant membership = chatParticipantRepository.findByChatIdAndUserId(room.getId(), currentUser.getId())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.FORBIDDEN,
+                        "Access denied for this chat"
+                ));
         ChatMessage replyTarget = chatMessageRepository.findById(replyToMessageId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reply target not found"));
-        if (!replyTarget.getChatId().equals(chatId)) {
+        if (!replyTarget.getChatId().equals(room.getId())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Reply target must belong to the same chat");
+        }
+        Instant visibleFrom = resolveVisibleHistoryStart(room, membership);
+        if (!canViewMessageForReplySnippet(replyTarget, currentUser.getId(), visibleFrom)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Reply target not found");
         }
 
         return replyTarget.getId();
@@ -531,6 +570,22 @@ class MessageSupport {
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
         }
+    }
+
+    private boolean canViewMessageForReplySnippet(ChatMessage message, UUID viewerUserId, Instant visibleFrom) {
+        if (userDeletedMessageRepository.existsByUserIdAndMessageId(viewerUserId, message.getId())) {
+            return false;
+        }
+        return visibleFrom == null || !message.getCreatedAt().isBefore(visibleFrom);
+    }
+
+    private Instant resolveVisibleHistoryStart(ChatRoom room, ChatParticipant membership) {
+        if (room.isDirect()
+                || room.getPrejoinHistoryPolicy() == ChatPrejoinHistoryPolicy.FULL_HISTORY
+                || membership.getPrejoinHistoryAccessGrantedAt() != null) {
+            return null;
+        }
+        return membership.getJoinedAt();
     }
 
     EncryptedMessagePayloadResponse toEncryptedPayload(ChatMessage message) {

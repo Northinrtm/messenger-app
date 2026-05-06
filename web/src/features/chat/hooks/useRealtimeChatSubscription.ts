@@ -1,7 +1,9 @@
 import { type InfiniteData, type QueryClient } from "@tanstack/react-query";
 import { useEffect, useEffectEvent, useRef } from "react";
 import { invalidateActiveGroupHistoryKeyCache } from "../../../lib/e2ee";
-import { isUnavailableEncryptedMessage } from "../../../lib/e2eeShared";
+import {
+  isUnavailableEncryptedMessage,
+} from "../../../lib/e2eeShared";
 import { replaceSubscribedChatIds, subscribeToChats } from "../../../lib/realtime";
 import type {
   ChatMessage,
@@ -34,7 +36,7 @@ import { shouldAcknowledgeIncomingMessageAsRead } from "./messageReadVisibility"
 type UseRealtimeChatSubscriptionOptions = {
   activeChatId: string | null;
   isActiveChatOpen: boolean;
-  activeDraft: string;
+  hasActiveComposerTextRef: { current: boolean };
   activePinnedMessageId: string | null;
   chatIdsKey: string;
   clearChatUnreadIndicator: (chatId: string) => void;
@@ -126,7 +128,7 @@ export function useRealtimeChatSubscription({
   acknowledgeRead,
   activeChatId,
   isActiveChatOpen,
-  activeDraft,
+  hasActiveComposerTextRef,
   activePinnedMessageId,
   applyChatPreviewMessage,
   applyServerChatPreviewMessage,
@@ -222,6 +224,9 @@ export function useRealtimeChatSubscription({
   const handleRealtimeChat = useEffectEvent((chat: ChatSummary) => {
     const currentChats = queryClient.getQueryData<ChatSummary[]>(["chats", sessionToken]) ?? [];
     const existingChat = currentChats.find((currentChat) => currentChat.id === chat.id) ?? null;
+    if (existingChat?.chatVersion === chat.chatVersion) {
+      return;
+    }
     const isNewChat = existingChat === null;
     const shouldRefreshActiveChat = shouldRefreshActiveChatOnRealtimeChatUpdate(chat, {
       activeChatId,
@@ -243,10 +248,6 @@ export function useRealtimeChatSubscription({
 
     if (isNewChat) {
       void queryClient.invalidateQueries({ queryKey: ["chats", sessionToken] });
-    }
-
-    if (chat.lastMessageAt && chat.lastMessage === "Encrypted message") {
-      void refreshChatPreviewFromServer(chat.id);
     }
 
     if (shouldRefreshActiveChat) {
@@ -286,7 +287,7 @@ export function useRealtimeChatSubscription({
     if (shouldRefreshActiveChat) {
       void queryClient.invalidateQueries({ queryKey: getMessagesKey(currentActiveChatId) });
     }
-    if (activeDraft.trim()) {
+    if (hasActiveComposerTextRef.current) {
       sendTypingHeartbeat(currentActiveChatId);
     }
   });

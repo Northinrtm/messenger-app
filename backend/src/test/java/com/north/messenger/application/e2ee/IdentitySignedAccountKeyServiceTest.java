@@ -87,8 +87,45 @@ class IdentitySignedAccountKeyServiceTest {
     }
 
     private KeyPair generateIdentitySigningKeyPair() throws Exception {
+        return generateIdentitySigningKeyPair(3072);
+    }
+
+    @Test
+    void verifySignedAccountKeyBundleShouldRejectWeakIdentitySigningKey() throws Exception {
+        IdentitySignedAccountKeyService service = new IdentitySignedAccountKeyService(new ObjectMapper());
+        UUID userId = UUID.randomUUID();
+        String publicKey = "{\"kty\":\"RSA\",\"kid\":\"account\"}";
+        long accountKeyVersion = 3L;
+        long identityGeneration = 2L;
+        KeyPair weakIdentityKeyPair = generateIdentitySigningKeyPair(2048);
+        String identitySigningPublicKey = toRsaJwk((RSAPublicKey) weakIdentityKeyPair.getPublic());
+
+        String signature = signBundle(
+                weakIdentityKeyPair,
+                userId,
+                publicKey,
+                accountKeyVersion,
+                identityGeneration,
+                identitySigningPublicKey
+        );
+
+        assertThatThrownBy(() -> service.verifySignedAccountKeyBundle(
+                userId,
+                publicKey,
+                accountKeyVersion,
+                identityGeneration,
+                identitySigningPublicKey,
+                IDENTITY_KEY_ALGORITHM,
+                ACCOUNT_KEY_ALGORITHM,
+                SIGNED_AT,
+                signature
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("3072-bit RSA modulus");
+    }
+
+    private KeyPair generateIdentitySigningKeyPair(int keySize) throws Exception {
         KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
-        generator.initialize(2048);
+        generator.initialize(keySize);
         return generator.generateKeyPair();
     }
 

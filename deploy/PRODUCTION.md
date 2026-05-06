@@ -17,6 +17,7 @@ Keep production deploys short and avoid long-lived interactive `root` SSH sessio
 Repository helpers:
 
 - `deploy/server-bootstrap.sh`
+- `deploy/preflight-prod.sh`
 - `deploy/disable-ssh-passwords.sh`
 - `deploy/backup.sh`
 - `deploy/install-backup-timer.sh`
@@ -53,12 +54,13 @@ The deploy job uploads `deploy/remote-update.sh` and runs it on the server.
 
 1. verify the server checkout is clean
 2. fast-forward `main`
-3. validate the production compose config against `.env.prod`
-4. rebuild `web`, `backend`, and `edge`
-5. ensure the required support services are running: `postgres`, `redis`, `jitsi-prosody`, `jitsi-jicofo`, `jitsi-jvb`, and `jitsi-web`
-6. recreate the deploy-time application runtime: `web`, `backend`, and `edge`
-7. stop and remove observability containers unless `ENABLE_OBSERVABILITY_STACK=true`
-8. print `docker compose ps`
+3. run a production preflight against `.env.prod`
+4. validate the production compose config against `.env.prod`
+5. rebuild `web`, `backend`, and `edge`
+6. ensure the required support services are running and ready: `postgres`, `redis`, `jitsi-prosody`, `jitsi-jicofo`, `jitsi-jvb`, `jitsi-web`, and `vault` when `APP_E2EE_ESCROW_PROVIDER=vault-transit`
+7. recreate the deploy-time application runtime: `web`, `backend`, and `edge`
+8. stop and remove observability containers unless `ENABLE_OBSERVABILITY_STACK=true`
+9. print `docker compose ps`
 
 This default deploy path is intentional for small hosts such as `2 vCPU / 2 GB RAM`.
 It keeps the core app running and avoids spending scarce memory on Grafana/Prometheus/Tempo/Loki by default.
@@ -95,6 +97,13 @@ Required `.env.prod` values:
 - `MANAGEMENT_OTLP_TRACING_ENDPOINT`
 - `ALERTMANAGER_WEBHOOK_URL` if you want external alert delivery
 
+You can run the same deploy preflight manually before the first production rollout:
+
+```bash
+cd /opt/messenger-app
+bash deploy/preflight-prod.sh .env.prod
+```
+
 Production compose fails closed if the Prometheus scrape credentials are missing.
 Set explicit values in `.env.prod` before enabling the observability stack.
 When `ENABLE_OBSERVABILITY_STACK=false`, `/observability/` intentionally returns `404`.
@@ -107,6 +116,10 @@ Recommended memory policy on a `2 GB RAM` VPS:
 
 - set `ENABLE_OBSERVABILITY_STACK=false`
 - set `MANAGEMENT_TRACING_ENABLED=false`
+- keep the always-on core stack within the compose limits budget:
+  `vault 128m + postgres 192m + redis 64m + jitsi-prosody 64m + jitsi-jicofo 96m + jitsi-jvb 192m + jitsi-web 64m + backend 640m + web 96m + edge 64m ~= 1.6 GB`
+- enable at least `2G` of swap on the host for burst protection:
+  `sudo bash deploy/enable-swap.sh 2G`
 - use observability only temporarily during diagnostics
 - plan a bigger host before keeping Grafana, Prometheus, Tempo, Loki, and Jitsi active together
 - use the `Production WebSocket Guard` GitHub Actions workflow as the lightweight default alert path for websocket storms on small hosts
@@ -125,9 +138,25 @@ APP_REALTIME_REDIS_ENABLED=true
 APP_AUTH_RATE_LIMIT_REDIS_ENABLED=true
 APP_REALTIME_REDIS_MAC_SECRET=<stable-random-secret>
 APP_JWT_SECRET=<stable-base64-secret>
-APP_E2EE_ESCROW_SECRET=<stable-base64-secret>
 BACKEND_REPLICAS=2
 WEB_REPLICAS=2
+```
+
+Choose one escrow backend and keep it identical on every backend replica:
+
+```bash
+# Option A: local escrow secret
+APP_E2EE_ESCROW_PROVIDER=local
+APP_E2EE_ESCROW_SECRET=<stable-base64-secret>
+```
+
+```bash
+# Option B: Vault Transit (recommended for VPS / production)
+APP_E2EE_ESCROW_PROVIDER=vault-transit
+APP_E2EE_ESCROW_VAULT_ADDRESS=http://vault:8200
+APP_E2EE_ESCROW_VAULT_TOKEN=<vault-token>
+APP_E2EE_ESCROW_VAULT_MOUNT_PATH=transit
+APP_E2EE_ESCROW_VAULT_KEY_NAME=messenger-history-escrow
 ```
 
 Run the normal deploy:
@@ -189,7 +218,50 @@ Operationally important consequences:
 
 - ordinary account-key rotation should be transparent to users
 - identity reset should be treated like a security-sensitive account recovery flow
-- loss of PostgreSQL data or `APP_E2EE_ESCROW_SECRET` breaks managed history recovery even if message ciphertext still exists
+- loss of PostgreSQL data plus the active escrow backend breaks managed history recovery even if message ciphertext still exists
+- active chat history keys should rotate on membership/security events and also periodically by age; the default deploy policy now rotates stale active keys after `P30D`
+
+## Vault Transit On A VPS
+
+For a single VPS, `vault-transit` is the preferred production escrow backend.
+It keeps the escrow master key inside Vault Transit instead of inside the backend process environment.
+
+Minimum production flow:
+
+1. Set in `.env.prod`:
+
+```bash
+APP_E2EE_ESCROW_PROVIDER=vault-transit
+APP_E2EE_ESCROW_VAULT_ADDRESS=http://vault:8200
+APP_E2EE_ESCROW_VAULT_TOKEN=<vault-token>
+APP_E2EE_ESCROW_VAULT_MOUNT_PATH=transit
+APP_E2EE_ESCROW_VAULT_KEY_NAME=messenger-history-escrow
+```
+
+2. Bring up Vault once:
+
+```bash
+cd /opt/messenger-app
+docker compose -f docker-compose.prod.yml --profile vault up -d vault
+```
+
+3. Initialize and unseal Vault using the standard Vault operator flow.
+4. Bootstrap the Transit mount and key:
+
+```bash
+cd /opt/messenger-app
+export VAULT_ADDR=http://127.0.0.1:8200
+export VAULT_TOKEN=<vault-token>
+bash deploy/vault/bootstrap-transit.sh
+```
+
+5. Deploy the rest of the stack normally with `./deploy/remote-update.sh`.
+
+Notes:
+
+- keep Vault init/unseal material outside the application repo and outside PostgreSQL backups
+- `docker-compose.prod.yml` exposes Vault only on `127.0.0.1:8200`; keep it that way on a single VPS unless you have a separate secure access path
+- if you stay on `APP_E2EE_ESCROW_PROVIDER=local`, treat `APP_E2EE_ESCROW_SECRET` like a production root secret and rotate it only with a planned migration
 
 ## E2EE Coverage Diagnostics
 
@@ -229,6 +301,7 @@ Default coverage:
 - `conference_recordings_archive`
 - `conference_recordings_raw`
 - `message_attachments`
+- `vault_data` when the optional Vault profile is used with file storage
 
 Default schedule:
 
@@ -241,7 +314,10 @@ Default retention:
 This is intentionally a local-on-server backup setup.
 It is much better than having no backups, but it is not a substitute for off-site replication.
 
-For managed E2EE, the backup plan is only valid if the corresponding `APP_E2EE_ESCROW_SECRET` is preserved and restore-tested together with PostgreSQL.
+For managed E2EE, the backup plan is only valid if the active escrow backend is preserved and restore-tested together with PostgreSQL:
+
+- for `APP_E2EE_ESCROW_PROVIDER=local`, preserve `APP_E2EE_ESCROW_SECRET`
+- for `APP_E2EE_ESCROW_PROVIDER=vault-transit`, preserve Vault storage such as `vault_data` plus the Vault init/unseal material
 
 ## Emergency manual deploy
 
