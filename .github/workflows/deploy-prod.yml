@@ -2,7 +2,18 @@ name: Deploy Production
 
 on:
   workflow_call:
+    inputs:
+      full_reset:
+        required: false
+        type: boolean
+        default: false
   workflow_dispatch:
+    inputs:
+      full_reset:
+        description: "Remove containers and named volumes before deploy for a fresh start"
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: production-deploy
@@ -19,6 +30,7 @@ jobs:
       PROD_SSH_HOST: ${{ vars.PROD_SSH_HOST || secrets.PROD_SSH_HOST || '83.147.244.194' }}
       PROD_SSH_PORT: ${{ vars.PROD_SSH_PORT || secrets.PROD_SSH_PORT || '22' }}
       PROD_SSH_USER: ${{ vars.PROD_SSH_USER || secrets.PROD_SSH_USER || 'deploy' }}
+      FULL_RESET: ${{ inputs.full_reset && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -62,7 +74,7 @@ jobs:
             -o ServerAliveInterval=30 \
             -o ServerAliveCountMax=10 \
             "$PROD_SSH_USER@$PROD_SSH_HOST" \
-            "rm -f '$REMOTE_LOG' '$REMOTE_EXIT' && chmod +x /tmp/messenger-remote-update.sh && nohup env DEPLOY_STATUS_FILE='$REMOTE_EXIT' PROD_PUBLIC_BASE_URL='${PROD_PUBLIC_BASE_URL}' PROD_PUBLIC_IP='${PROD_SSH_HOST}' /tmp/messenger-remote-update.sh '${PROD_APP_DIR:-/opt/messenger-app}' > '$REMOTE_LOG' 2>&1 </dev/null &"
+            "rm -f '$REMOTE_LOG' '$REMOTE_EXIT' && chmod +x /tmp/messenger-remote-update.sh && nohup env DEPLOY_STATUS_FILE='$REMOTE_EXIT' PROD_PUBLIC_BASE_URL='${PROD_PUBLIC_BASE_URL}' PROD_PUBLIC_IP='${PROD_SSH_HOST}' FULL_RESET='${FULL_RESET}' /tmp/messenger-remote-update.sh '${PROD_APP_DIR:-/opt/messenger-app}' > '$REMOTE_LOG' 2>&1 </dev/null &"
 
           for attempt in $(seq 1 "$WAIT_ATTEMPTS"); do
             output="$(ssh \

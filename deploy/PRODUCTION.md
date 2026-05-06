@@ -62,6 +62,21 @@ The deploy job uploads `deploy/remote-update.sh` and runs it on the server.
 8. stop and remove observability containers unless `ENABLE_OBSERVABILITY_STACK=true`
 9. print `docker compose ps`
 
+By default this keeps persistent production data in Docker volumes.
+If you need a truly fresh rollout, run the manual `Deploy Production` workflow with `full_reset=true`.
+That mode performs:
+
+1. a clean server checkout reset
+2. `docker compose down --volumes --remove-orphans`
+3. a full rebuild and bootstrap from the current repository state
+
+`full_reset=true` is destructive for server-side state stored in named volumes:
+
+- PostgreSQL data
+- Redis data
+- Vault file storage if the `vault` profile is used
+- message attachments / recordings / bundled Jitsi state
+
 This default deploy path is intentional for small hosts such as `2 vCPU / 2 GB RAM`.
 It keeps the core app running and avoids spending scarce memory on Grafana/Prometheus/Tempo/Loki by default.
 

@@ -12,6 +12,7 @@ DEPLOY_LOCK_FILE="${DEPLOY_LOCK_FILE:-/tmp/messenger-remote-update.lock}"
 DEPLOY_LOCK_WAIT_SECONDS="${DEPLOY_LOCK_WAIT_SECONDS:-1800}"
 STATUS_FILE="${DEPLOY_STATUS_FILE:-}"
 ESCROW_PROVIDER="${APP_E2EE_ESCROW_PROVIDER:-}"
+FULL_RESET="${FULL_RESET:-false}"
 
 env_file_value() {
   local key="$1"
@@ -191,10 +192,21 @@ BACKEND_REPLICAS="${BACKEND_REPLICAS:-$(env_file_value BACKEND_REPLICAS 1)}"
 WEB_REPLICAS="${WEB_REPLICAS:-$(env_file_value WEB_REPLICAS 1)}"
 ENABLE_OBSERVABILITY_STACK="$(normalize_boolean_flag ENABLE_OBSERVABILITY_STACK "${ENABLE_OBSERVABILITY_STACK:-$(env_file_value ENABLE_OBSERVABILITY_STACK false)}")"
 ESCROW_PROVIDER="${ESCROW_PROVIDER:-$(env_file_value APP_E2EE_ESCROW_PROVIDER local)}"
+FULL_RESET="$(normalize_boolean_flag FULL_RESET "$FULL_RESET")"
 validate_replica_count BACKEND_REPLICAS "$BACKEND_REPLICAS"
 validate_replica_count WEB_REPLICAS "$WEB_REPLICAS"
 
 "${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" config >/dev/null
+if [[ "$FULL_RESET" == "true" ]]; then
+  echo "FULL_RESET=true: stopping the stack and removing named volumes for a fresh deployment"
+  "${compose_cmd[@]}" \
+    --profile observability \
+    --profile jibri \
+    --profile vault \
+    -f "$COMPOSE_FILE" \
+    --env-file "$ENV_FILE" \
+    down --volumes --remove-orphans || true
+fi
 echo "Building web revision: $WEB_APP_REVISION"
 "${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build $BUILD_SERVICES
 effective_support_services="$SUPPORT_SERVICES"
