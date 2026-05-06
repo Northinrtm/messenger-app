@@ -635,6 +635,20 @@ class AuthServiceTest {
         assertThat(snapshotCaptor.getValue().getWrappedPasswordVersion()).isEqualTo(2L);
     }
 
+    @Test
+    void updateAvatarShouldAcceptLongDataUrl() {
+        UserAccount user = userAccount("north");
+        String avatarUrl = "data:image/png;base64," + "A".repeat(1024);
+
+        when(userAccountRepository.findByUsernameIgnoreCase("north")).thenReturn(Optional.of(user));
+        when(userAccountRepository.save(any(UserAccount.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        authService.updateAvatar("north", avatarUrl);
+
+        assertThat(user.getAvatarUrl()).isEqualTo(avatarUrl);
+        verify(userAccountRepository).save(user);
+    }
+
     private UserAccount userAccount(String username) {
         return testUserAccount(
                 UUID.randomUUID(),

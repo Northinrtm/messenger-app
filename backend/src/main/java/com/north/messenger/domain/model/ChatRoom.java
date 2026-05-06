@@ -19,7 +19,7 @@ public class ChatRoom {
     @Column(name = "title")
     private String title;
 
-    @Column(name = "avatar_url")
+    @Column(name = "avatar_url", columnDefinition = "text")
     private String avatarUrl;
 
     @Column(name = "owner_user_id")

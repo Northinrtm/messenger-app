@@ -27,7 +27,7 @@ public class UserAccount {
     @Column(name = "profession", length = 160)
     private String profession;
 
-    @Column(name = "avatar_url")
+    @Column(name = "avatar_url", columnDefinition = "text")
     private String avatarUrl;
 
     @Column(name = "password_hash", nullable = false, length = 255)

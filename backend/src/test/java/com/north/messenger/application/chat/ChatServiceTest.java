@@ -974,7 +974,7 @@ class ChatServiceTest {
                 currentUser.getId(),
                 Instant.parse("2026-03-21T12:00:00Z")
         );
-        String avatarUrl = "data:image/png;base64,AAA";
+        String avatarUrl = "data:image/png;base64," + "A".repeat(1024);
 
         when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
         when(chatRoomRepository.findById(chatId)).thenReturn(Optional.of(room));
