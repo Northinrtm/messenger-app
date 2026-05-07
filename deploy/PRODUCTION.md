@@ -25,6 +25,8 @@ Current production access model:
 
 ## Main scripts
 
+- `.github/workflows/deploy-production.yml`
+- `deploy/deploy-via-ssh.sh`
 - `deploy/deploy-prod-button.cmd`
 - `deploy/deploy-prod-button.ps1`
 - `deploy/remote-update.sh`
@@ -34,6 +36,23 @@ Current production access model:
 - `deploy/install-backup-timer.sh`
 
 ## Deploy flow
+
+GitHub button trigger:
+
+1. Create a GitHub `production` environment or repository secrets.
+2. Add:
+   - `PROD_SSH_HOST`
+   - `PROD_SSH_PORT`
+   - `PROD_SSH_USER`
+   - `PROD_APP_DIR`
+   - `PROD_PUBLIC_BASE_URL`
+   - `PROD_SSH_PRIVATE_KEY`
+   - `PROD_SSH_KNOWN_HOSTS`
+3. Open `Actions -> Deploy Production`.
+4. Click `Run workflow`.
+5. Optionally enable `full_reset` only for destructive fresh redeploys.
+
+The workflow checks out the repo, configures the deploy SSH key, runs `deploy/deploy-via-ssh.sh`, uploads `deploy/remote-update.sh`, and verifies the public `build-meta.json` revision.
 
 Local operator trigger:
 
@@ -53,6 +72,12 @@ Local operator trigger:
 7. starts required support services
 8. rolls `backend`, `web`, and `edge`
 9. optionally manages observability services
+
+Generate the `PROD_SSH_KNOWN_HOSTS` secret from a trusted machine:
+
+```bash
+ssh-keyscan -H pishi.ktsf.ru
+```
 
 Run by button from Windows:
 

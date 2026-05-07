@@ -149,6 +149,20 @@ Main files:
 - [`deploy/PRODUCTION.md`](deploy/PRODUCTION.md)
 - [`deploy/BACKUPS.md`](deploy/BACKUPS.md)
 - [`docs/horizontal-scaling-readiness.md`](docs/horizontal-scaling-readiness.md)
+- [`.github/workflows/deploy-production.yml`](.github/workflows/deploy-production.yml)
+
+Manual deploy from GitHub Actions:
+
+1. Create a GitHub `production` environment or repository secrets.
+2. Add:
+   - `PROD_SSH_HOST`
+   - `PROD_SSH_PORT`
+   - `PROD_SSH_USER`
+   - `PROD_APP_DIR`
+   - `PROD_PUBLIC_BASE_URL`
+   - `PROD_SSH_PRIVATE_KEY`
+   - `PROD_SSH_KNOWN_HOSTS`
+3. Open `Actions -> Deploy Production -> Run workflow`.
 
 Manual deploy from your workstation:
 
