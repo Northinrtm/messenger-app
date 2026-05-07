@@ -9,11 +9,10 @@ import {
   deletePendingOutgoingMessage,
   upsertPendingOutgoingMessage,
 } from "../../../lib/api";
-import { ENCRYPTION_INITIALIZING_MESSAGE } from "../../../lib/e2eeShared";
 import type { PendingOutgoingMessage } from "../../../lib/types";
-vi.mock("../../../lib/e2ee", () => ({
-  sendEncryptedMessage: vi.fn(),
-  updateEncryptedMessage: vi.fn(),
+vi.mock("../../../lib/plainMessages", () => ({
+  sendPlainMessage: vi.fn(),
+  updatePlainMessage: vi.fn(),
 }));
 vi.mock("../../../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../../../lib/api")>("../../../lib/api");
@@ -35,7 +34,7 @@ vi.mock("../../../lib/api", async () => {
   };
 });
 
-import { sendEncryptedMessage } from "../../../lib/e2ee";
+import { sendPlainMessage } from "../../../lib/plainMessages";
 import type { AuthResponse, ChatSummary, UserProfile } from "../../../lib/types";
 import { useMessageActions } from "./useMessageActions";
 
@@ -234,7 +233,7 @@ describe("useMessageActions send failure recovery", () => {
   });
 
   it("keeps the composer empty and relies on the failed pending bubble after send rejection", async () => {
-    vi.mocked(sendEncryptedMessage).mockRejectedValueOnce(new Error("send failed"));
+    vi.mocked(sendPlainMessage).mockRejectedValueOnce(new Error("send failed"));
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: {
@@ -283,7 +282,7 @@ describe("useMessageActions send failure recovery", () => {
   });
 
   it("clears the draft even when parent draft state lags behind the submitted textarea", async () => {
-    vi.mocked(sendEncryptedMessage).mockRejectedValueOnce(new Error("send failed"));
+    vi.mocked(sendPlainMessage).mockRejectedValueOnce(new Error("send failed"));
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: {
@@ -333,7 +332,7 @@ describe("useMessageActions send failure recovery", () => {
 
       return originalSetItem.call(this, key, value);
     });
-    vi.mocked(sendEncryptedMessage).mockRejectedValueOnce(new Error("send failed"));
+    vi.mocked(sendPlainMessage).mockRejectedValueOnce(new Error("send failed"));
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: {
@@ -363,7 +362,7 @@ describe("useMessageActions send failure recovery", () => {
       await flushMicrotasks(10);
     });
 
-    expect(vi.mocked(sendEncryptedMessage)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sendPlainMessage)).toHaveBeenCalledTimes(1);
     expect(latestStateRef.current?.draftsByChatId["chat-1"] ?? "").toBe("");
     expect(queryClient.getQueryData(["pending-outgoing-messages", "user-1"])).toEqual([
       expect.objectContaining({
@@ -376,7 +375,7 @@ describe("useMessageActions send failure recovery", () => {
   it("does not persist an optimistic chat preview before the server confirms the send", async () => {
     const applyChatPreviewMessage = vi.fn();
     const applyServerChatPreviewMessage = vi.fn();
-    vi.mocked(sendEncryptedMessage).mockRejectedValueOnce(new Error("send failed"));
+    vi.mocked(sendPlainMessage).mockRejectedValueOnce(new Error("send failed"));
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: {
@@ -419,7 +418,7 @@ describe("useMessageActions send failure recovery", () => {
   });
 
   it("marks transient realtime send failures as failed for explicit retry", async () => {
-    vi.mocked(sendEncryptedMessage).mockRejectedValueOnce(
+    vi.mocked(sendPlainMessage).mockRejectedValueOnce(
       new ApiError("Realtime connection was interrupted before the message was confirmed.", 503)
     );
     const queryClient = new QueryClient({
@@ -464,9 +463,9 @@ describe("useMessageActions send failure recovery", () => {
     ]);
   });
 
-  it("marks retryable encrypted initialization errors as failed for explicit retry", async () => {
-    vi.mocked(sendEncryptedMessage).mockRejectedValueOnce(
-      new ApiError(ENCRYPTION_INITIALIZING_MESSAGE, 409)
+  it("marks request conflicts as failed for explicit retry", async () => {
+    vi.mocked(sendPlainMessage).mockRejectedValueOnce(
+      new ApiError("Message send is already pending", 409)
     );
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -494,7 +493,7 @@ describe("useMessageActions send failure recovery", () => {
     });
 
     await act(async () => {
-      latestStateRef.current?.submitActiveDraft("message waits for encryption init");
+      latestStateRef.current?.submitActiveDraft("message hits a request conflict");
       await flushMicrotasks();
     });
 
@@ -512,7 +511,7 @@ describe("useMessageActions send failure recovery", () => {
   });
 
   it("marks gateway transport failures as failed for explicit retry", async () => {
-    vi.mocked(sendEncryptedMessage).mockRejectedValueOnce(
+    vi.mocked(sendPlainMessage).mockRejectedValueOnce(
       new ApiError("Backend is unavailable", 502)
     );
     const queryClient = new QueryClient({
@@ -560,7 +559,7 @@ describe("useMessageActions send failure recovery", () => {
 
   it("marks a timed out send attempt as failed without auto retrying it", async () => {
     vi.useFakeTimers();
-    vi.mocked(sendEncryptedMessage)
+    vi.mocked(sendPlainMessage)
       .mockImplementationOnce(() => new Promise(() => undefined));
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -592,8 +591,8 @@ describe("useMessageActions send failure recovery", () => {
       await flushMicrotasks();
     });
 
-    const firstClientMessageId = vi.mocked(sendEncryptedMessage).mock.calls[0]?.[4] as string;
-    expect(vi.mocked(sendEncryptedMessage)).toHaveBeenCalledTimes(1);
+    const firstClientMessageId = vi.mocked(sendPlainMessage).mock.calls[0]?.[5] as string;
+    expect(vi.mocked(sendPlainMessage)).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       vi.advanceTimersByTime(90_000);
@@ -606,7 +605,7 @@ describe("useMessageActions send failure recovery", () => {
         status: "FAILED",
       }),
     ]);
-    expect(vi.mocked(sendEncryptedMessage)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sendPlainMessage)).toHaveBeenCalledTimes(1);
   });
 
   it("marks recovered sending messages as failed on startup without auto resending them", async () => {
@@ -644,7 +643,7 @@ describe("useMessageActions send failure recovery", () => {
       await flushMicrotasks(10);
     });
 
-    expect(vi.mocked(sendEncryptedMessage)).not.toHaveBeenCalled();
+    expect(vi.mocked(sendPlainMessage)).not.toHaveBeenCalled();
     expect(queryClient.getQueryData(["pending-outgoing-messages", "user-1"])).toEqual([
       expect.objectContaining({
         clientMessageId: "client-recovered",
@@ -731,7 +730,7 @@ describe("useMessageActions send failure recovery", () => {
       pages: [[]],
       pageParams: [undefined],
     });
-    expect(vi.mocked(sendEncryptedMessage)).not.toHaveBeenCalled();
+    expect(vi.mocked(sendPlainMessage)).not.toHaveBeenCalled();
     expect(vi.mocked(deletePendingOutgoingMessage)).toHaveBeenCalledWith(
       "session-token",
       "client-recovered"
@@ -789,7 +788,7 @@ describe("useMessageActions send failure recovery", () => {
       ],
       pageParams: [undefined],
     });
-    vi.mocked(sendEncryptedMessage).mockResolvedValueOnce(sentMessage("client-new"));
+    vi.mocked(sendPlainMessage).mockResolvedValueOnce(sentMessage("client-new"));
     const latestStateRef: { current: HarnessState | null } = { current: null };
 
     root = createRoot(container);
@@ -818,9 +817,9 @@ describe("useMessageActions send failure recovery", () => {
     });
 
     expect(queryClient.getQueryData(["pending-outgoing-messages", "user-1"])).toEqual([]);
-    expect(vi.mocked(sendEncryptedMessage)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(sendEncryptedMessage).mock.calls[0]?.[2]).toBe("fresh message after delete");
-    expect(vi.mocked(sendEncryptedMessage).mock.calls[0]?.[4]).not.toBe("client-recovered");
+    expect(vi.mocked(sendPlainMessage)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sendPlainMessage).mock.calls[0]?.[3]).toBe("fresh message after delete");
+    expect(vi.mocked(sendPlainMessage).mock.calls[0]?.[5]).not.toBe("client-recovered");
     confirmSpy.mockRestore();
   });
 

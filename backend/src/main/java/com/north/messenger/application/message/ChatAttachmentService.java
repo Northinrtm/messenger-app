@@ -1,6 +1,8 @@
 package com.north.messenger.application.message;
 
-import com.north.messenger.api.dto.ChatAttachmentUploadResponse;
+import com.north.messenger.api.dto.ChatAttachmentDownloadUrlResponse;
+import com.north.messenger.api.dto.ChatAttachmentUploadTargetRequest;
+import com.north.messenger.api.dto.ChatAttachmentUploadTargetResponse;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.chat.ChatService;
 import com.north.messenger.application.support.ClusterJobLockService;
@@ -12,12 +14,10 @@ import java.time.Instant;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.UUID;
-import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
@@ -50,42 +50,80 @@ public class ChatAttachmentService {
     }
 
     @Transactional
-    public ChatAttachmentUploadResponse uploadAttachment(String username, UUID chatId, MultipartFile file) {
+    public ChatAttachmentUploadTargetResponse initiateDirectUpload(
+            String username,
+            UUID chatId,
+            ChatAttachmentUploadTargetRequest request
+    ) {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
         ChatRoom room = chatService.requireChatMembership(chatId, currentUser);
         chatService.assertChatInteractionAllowed(room, currentUser);
-        validateUpload(file);
+        validateUpload(request.sizeBytes());
 
         UUID attachmentId = UUID.randomUUID();
-        ChatAttachmentStorage.StoredChatAttachment storedAttachment =
-                chatAttachmentStorage.store(attachmentId, file);
+        String normalizedFileName = normalizeFileName(request.fileName());
+        String normalizedMimeType = normalizeMimeType(request.mimeType());
+        Instant createdAt = Instant.now();
+
+        ChatAttachmentStorage.DirectUploadTarget uploadTarget = chatAttachmentStorage.createDirectUpload(
+                attachmentId,
+                normalizedFileName,
+                normalizedMimeType,
+                request.sizeBytes()
+        );
+
         ChatAttachment attachment = chatAttachmentRepository.save(
                 new ChatAttachment(
                         attachmentId,
                         chatId,
                         currentUser.getId(),
-                        storedAttachment.storageKey(),
-                        file.getSize(),
-                        Instant.now()
+                        uploadTarget.storageKey(),
+                        normalizedFileName,
+                        normalizedMimeType,
+                        request.sizeBytes(),
+                        createdAt
                 )
         );
-        return new ChatAttachmentUploadResponse(
+        return new ChatAttachmentUploadTargetResponse(
                 attachment.getId(),
-                attachment.getCiphertextSizeBytes(),
-                attachment.getCreatedAt()
+                attachment.getFileName(),
+                attachment.getMimeType(),
+                attachment.getSizeBytes(),
+                attachment.getCreatedAt(),
+                uploadTarget.url().toString(),
+                uploadTarget.method(),
+                uploadTarget.headers(),
+                uploadTarget.expiresAt()
         );
     }
 
-    public ChatAttachmentDownload downloadAttachment(String username, UUID chatId, UUID attachmentId) {
+    public ChatAttachmentDownloadUrlResponse createDownloadUrl(String username, UUID chatId, UUID attachmentId) {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
         chatService.requireChatMembership(chatId, currentUser);
         ChatAttachment attachment = chatAttachmentRepository.findByIdAndChatId(attachmentId, chatId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Chat attachment not found"));
-        return new ChatAttachmentDownload(
-                attachment,
-                chatAttachmentStorage.loadAsResource(attachment.getStorageKey()),
-                attachment.getId() + ".bin"
+        if (!chatAttachmentStorage.exists(attachment.getStorageKey())) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Chat attachment binary is missing");
+        }
+        ChatAttachmentStorage.DirectDownloadTarget downloadTarget = chatAttachmentStorage.createDirectDownload(
+                attachment.getStorageKey(),
+                attachment.getFileName(),
+                attachment.getMimeType()
         );
+        return new ChatAttachmentDownloadUrlResponse(
+                attachment.getId(),
+                attachment.getFileName(),
+                attachment.getMimeType(),
+                downloadTarget.url().toString(),
+                downloadTarget.expiresAt()
+        );
+    }
+
+    public boolean hasAttachments(UUID messageId) {
+        if (messageId == null) {
+            return false;
+        }
+        return chatAttachmentRepository.existsByMessageId(messageId);
     }
 
     @Transactional
@@ -111,6 +149,9 @@ public class ChatAttachmentService {
             }
             if (attachment.getMessageId() != null && !attachment.getMessageId().equals(messageId)) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "Attachment is already linked to a message");
+            }
+            if (!chatAttachmentStorage.exists(attachment.getStorageKey())) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Attachment upload is incomplete");
             }
 
             attachment.attachToMessage(messageId);
@@ -159,19 +200,22 @@ public class ChatAttachmentService {
         return orphanedAttachments.size();
     }
 
-    private void validateUpload(MultipartFile file) {
-        if (file.isEmpty()) {
+    private void validateUpload(long sizeBytes) {
+        if (sizeBytes <= 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Attachment file is empty");
         }
-        if (file.getSize() > storageProperties.maxSizeBytes()) {
+        if (sizeBytes > storageProperties.maxSizeBytes()) {
             throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, "Attachment file is too large");
         }
     }
 
-    public record ChatAttachmentDownload(
-            ChatAttachment attachment,
-            Resource resource,
-            String downloadFileName
-    ) {
+    private String normalizeFileName(String fileName) {
+        String normalized = fileName == null ? "" : fileName.trim();
+        return normalized.isEmpty() ? "attachment" : normalized;
+    }
+
+    private String normalizeMimeType(String mimeType) {
+        String normalized = mimeType == null ? "" : mimeType.trim();
+        return normalized.isEmpty() ? "application/octet-stream" : normalized;
     }
 }

@@ -157,7 +157,7 @@ describe("useIncomingToasts", () => {
     ).toBe(4);
   });
 
-  it("shows a browser notification with the decrypted preview when enabled and hidden", async () => {
+  it("shows a browser notification with the formatted preview when enabled and hidden", async () => {
     const notifications: Array<{ title: string; options?: NotificationOptions }> = [];
     class MockNotification {
       static permission = "granted" as const;

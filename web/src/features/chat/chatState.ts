@@ -6,13 +6,9 @@ import type {
   MessageReactionEvent,
   MessageStatusEvent,
 } from "../../lib/types";
-import {
-  isUnreadableEncryptedMessagePreview,
-} from "../../lib/e2eeShared";
-import { buildMessagePreview } from "./messagePresentation";
+import { buildMessageContentPreview } from "./messagePresentation";
 
 export const MESSAGE_PAGE_SIZE = 50;
-const ENCRYPTED_MESSAGE_UNAVAILABLE = "[Encrypted message unavailable]";
 export type ChatPreviewOverride = {
   lastMessage: string;
   lastMessageAt: string;
@@ -71,8 +67,9 @@ export function applyChatPreviewOverrides(
 
 export function upsertChatPreviewOverride(
   current: Record<string, ChatPreviewOverride>,
-  message: Pick<ChatMessage, "chatId" | "content" | "createdAt">
+  message: Pick<ChatMessage, "chatId" | "content" | "createdAt" | "attachments">
 ) {
+  const preview = buildMessageContentPreview(message, 88);
   const existing = current[message.chatId];
   if (existing && existing.lastMessageAt.localeCompare(message.createdAt) > 0) {
     return current;
@@ -81,7 +78,7 @@ export function upsertChatPreviewOverride(
   if (
     existing &&
     existing.lastMessageAt === message.createdAt &&
-    existing.lastMessage === message.content
+    existing.lastMessage === preview
   ) {
     return current;
   }
@@ -89,7 +86,7 @@ export function upsertChatPreviewOverride(
   return {
     ...current,
     [message.chatId]: {
-      lastMessage: message.content,
+      lastMessage: preview,
       lastMessageAt: message.createdAt,
     },
   };
@@ -157,7 +154,7 @@ export function applyChatMessageActivity(
       changed = true;
       return {
         ...chat,
-        lastMessage: message.content,
+        lastMessage: buildMessageContentPreview(message, 88),
         lastMessageAt: message.createdAt,
         lastMessageServerOrder: message.serverOrder ?? chat.lastMessageServerOrder,
         updatedAt: message.createdAt,
@@ -550,11 +547,11 @@ function hydrateReplySnippetPreviews(messages: ChatMessage[]) {
     }
 
     const replyTarget = messagesById.get(message.replyTo.id);
-    if (!replyTarget || replyTarget.content === "[Encrypted message unavailable]") {
+    if (!replyTarget) {
       return message;
     }
 
-    const nextPreview = buildMessagePreview(replyTarget.content, 88);
+    const nextPreview = buildMessageContentPreview(replyTarget, 88);
     const nextSender = replyTarget.sender;
 
     if (
@@ -637,20 +634,6 @@ function matchesMessageIdentity(left: ChatMessage, right: ChatMessage) {
 }
 
 function shouldPreferMessage(current: ChatMessage, incoming: ChatMessage) {
-  if (
-    isEncryptedMessageUnavailable(current.content) &&
-    !isEncryptedMessageUnavailable(incoming.content)
-  ) {
-    return true;
-  }
-
-  if (
-    !isEncryptedMessageUnavailable(current.content) &&
-    isEncryptedMessageUnavailable(incoming.content)
-  ) {
-    return false;
-  }
-
   if (incoming.createdAt.localeCompare(current.createdAt) > 0) {
     return true;
   }
@@ -679,46 +662,33 @@ function getMessageSortTieBreaker(message: Pick<ChatMessage, "id" | "clientMessa
 }
 
 function reconcileChatMessage(current: ChatMessage, incoming: ChatMessage): ChatMessage {
-  const nextContent =
-    isEncryptedMessageUnavailable(incoming.content) &&
-    !isEncryptedMessageUnavailable(current.content)
-      ? current.content
-      : incoming.content;
   const nextReplyTo = reconcileMessageSnippet(current.replyTo, incoming.replyTo);
   const nextStatus = pickPreferredMessageStatus(current.status, incoming.status);
   const nextEditedAt = pickLatestTimestamp(current.editedAt, incoming.editedAt);
   const nextClientMessageId = incoming.clientMessageId ?? current.clientMessageId ?? null;
   const nextServerOrder = incoming.serverOrder ?? current.serverOrder ?? null;
   const nextLocalOrder = incoming.localOrder ?? current.localOrder ?? null;
-  const nextAttachments =
-    isEncryptedMessageUnavailable(incoming.content) &&
-    !isEncryptedMessageUnavailable(current.content)
-      ? current.attachments
-      : incoming.attachments;
 
   if (
-    nextContent === incoming.content &&
     nextReplyTo === incoming.replyTo &&
     nextStatus === incoming.status &&
     nextEditedAt === incoming.editedAt &&
     nextClientMessageId === (incoming.clientMessageId ?? null) &&
     nextServerOrder === (incoming.serverOrder ?? null) &&
-    nextLocalOrder === (incoming.localOrder ?? null) &&
-    nextAttachments === incoming.attachments
+    nextLocalOrder === (incoming.localOrder ?? null)
   ) {
     return incoming;
   }
 
   return {
     ...incoming,
-    content: nextContent,
     replyTo: nextReplyTo,
     status: nextStatus,
     editedAt: nextEditedAt,
     clientMessageId: nextClientMessageId,
     serverOrder: nextServerOrder,
     localOrder: nextLocalOrder,
-    attachments: nextAttachments,
+    attachments: incoming.attachments,
   };
 }
 
@@ -764,19 +734,7 @@ function reconcileMessageSnippet(current: MessageSnippet | null, incoming: Messa
     return current;
   }
 
-  const nextPreview =
-    isEncryptedPreviewPlaceholder(incoming.preview) && !isEncryptedPreviewPlaceholder(current.preview)
-      ? current.preview
-      : incoming.preview;
-
-  if (nextPreview === incoming.preview) {
-    return incoming;
-  }
-
-  return {
-    ...incoming,
-    preview: nextPreview,
-  };
+  return incoming;
 }
 
 function pickPreferredMessageStatus(current: ChatMessage["status"], incoming: ChatMessage["status"]) {
@@ -835,12 +793,4 @@ function pickLatestTimestamp(current: string | null, incoming: string | null) {
   }
 
   return incoming.localeCompare(current) >= 0 ? incoming : current;
-}
-
-function isEncryptedMessageUnavailable(content: string) {
-  return content === ENCRYPTED_MESSAGE_UNAVAILABLE;
-}
-
-function isEncryptedPreviewPlaceholder(preview: string) {
-  return isUnreadableEncryptedMessagePreview(preview);
 }

@@ -26,8 +26,14 @@ public class ChatAttachment {
     @Column(name = "storage_key", nullable = false, updatable = false, length = 255)
     private String storageKey;
 
-    @Column(name = "ciphertext_size_bytes", nullable = false, updatable = false)
-    private long ciphertextSizeBytes;
+    @Column(name = "file_name", nullable = false, updatable = false, length = 255)
+    private String fileName;
+
+    @Column(name = "mime_type", nullable = false, updatable = false, length = 255)
+    private String mimeType;
+
+    @Column(name = "size_bytes", nullable = false, updatable = false)
+    private long sizeBytes;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -40,14 +46,18 @@ public class ChatAttachment {
             UUID chatId,
             UUID uploaderId,
             String storageKey,
-            long ciphertextSizeBytes,
+            String fileName,
+            String mimeType,
+            long sizeBytes,
             Instant createdAt
     ) {
         this.id = id;
         this.chatId = chatId;
         this.uploaderId = uploaderId;
         this.storageKey = storageKey;
-        this.ciphertextSizeBytes = ciphertextSizeBytes;
+        this.fileName = fileName;
+        this.mimeType = mimeType;
+        this.sizeBytes = sizeBytes;
         this.createdAt = createdAt;
     }
 
@@ -71,8 +81,16 @@ public class ChatAttachment {
         return storageKey;
     }
 
-    public long getCiphertextSizeBytes() {
-        return ciphertextSizeBytes;
+    public String getFileName() {
+        return fileName;
+    }
+
+    public String getMimeType() {
+        return mimeType;
+    }
+
+    public long getSizeBytes() {
+        return sizeBytes;
     }
 
     public Instant getCreatedAt() {

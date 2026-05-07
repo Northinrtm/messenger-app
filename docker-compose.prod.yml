@@ -5,33 +5,6 @@ x-default-logging: &default-logging
     max-file: "${DOCKER_LOG_MAX_FILE:-5}"
 
 services:
-  vault:
-    image: hashicorp/vault:1.21.4
-    profiles:
-      - vault
-    container_name: messenger-vault
-    restart: unless-stopped
-    logging: *default-logging
-    cpus: 0.25
-    mem_limit: 128m
-    cap_add:
-      - IPC_LOCK
-    environment:
-      VAULT_ADDR: http://127.0.0.1:8200
-    command: server
-    ports:
-      - "127.0.0.1:8200:8200"
-    volumes:
-      - ./deploy/vault/prod.hcl:/vault/config/vault.hcl:ro
-      - vault_data:/vault/file
-      - vault_logs:/vault/logs
-    healthcheck:
-      test: ["CMD", "vault", "status", "-address=http://127.0.0.1:8200"]
-      interval: 15s
-      timeout: 5s
-      retries: 20
-      start_period: 20s
-
   postgres:
     image: postgres:17
     container_name: messenger-postgres
@@ -87,6 +60,20 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: messenger-minio
+    restart: unless-stopped
+    logging: *default-logging
+    cpus: 0.25
+    mem_limit: 256m
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER must be set}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set}
+    volumes:
+      - minio_data:/data
 
   jitsi-prosody:
     image: jitsi/prosody:stable
@@ -284,16 +271,6 @@ services:
       APP_REALTIME_WEBSOCKET_MESSAGE_SIZE_LIMIT_BYTES: ${APP_REALTIME_WEBSOCKET_MESSAGE_SIZE_LIMIT_BYTES:-8388608}
       APP_REALTIME_WEBSOCKET_SEND_BUFFER_SIZE_LIMIT_BYTES: ${APP_REALTIME_WEBSOCKET_SEND_BUFFER_SIZE_LIMIT_BYTES:-8388608}
       APP_REALTIME_WEBSOCKET_SEND_TIME_LIMIT_MS: ${APP_REALTIME_WEBSOCKET_SEND_TIME_LIMIT_MS:-20000}
-      APP_E2EE_MAX_ACTIVE_DEVICES_PER_USER: ${APP_E2EE_MAX_ACTIVE_DEVICES_PER_USER:-3}
-      APP_E2EE_ESCROW_PROVIDER: ${APP_E2EE_ESCROW_PROVIDER:-local}
-      APP_E2EE_ESCROW_SECRET: ${APP_E2EE_ESCROW_SECRET:-}
-      APP_E2EE_ESCROW_VAULT_ADDRESS: ${APP_E2EE_ESCROW_VAULT_ADDRESS:-http://vault:8200}
-      APP_E2EE_ESCROW_VAULT_TOKEN: ${APP_E2EE_ESCROW_VAULT_TOKEN:-}
-      APP_E2EE_ESCROW_VAULT_NAMESPACE: ${APP_E2EE_ESCROW_VAULT_NAMESPACE:-}
-      APP_E2EE_ESCROW_VAULT_MOUNT_PATH: ${APP_E2EE_ESCROW_VAULT_MOUNT_PATH:-transit}
-      APP_E2EE_ESCROW_VAULT_KEY_NAME: ${APP_E2EE_ESCROW_VAULT_KEY_NAME:-messenger-history-escrow}
-      APP_E2EE_ESCROW_VAULT_CONNECT_TIMEOUT: ${APP_E2EE_ESCROW_VAULT_CONNECT_TIMEOUT:-PT2S}
-      APP_E2EE_ESCROW_VAULT_REQUEST_TIMEOUT: ${APP_E2EE_ESCROW_VAULT_REQUEST_TIMEOUT:-PT5S}
       APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:?APP_CORS_ALLOWED_ORIGINS must be set}
       APP_JWT_SECRET: ${APP_JWT_SECRET:?APP_JWT_SECRET must be set}
       APP_JWT_REFRESH_TOKEN_TTL: ${APP_JWT_REFRESH_TOKEN_TTL:-P30D}
@@ -322,10 +299,18 @@ services:
       MANAGEMENT_OTLP_TRACING_ENDPOINT: ${MANAGEMENT_OTLP_TRACING_ENDPOINT:-http://otel-collector:4318/v1/traces}
       APP_MEDIA_CONFERENCE_RECORDINGS_DIRECTORY: /app/storage/conference-recordings
       APP_MEDIA_CONFERENCE_RECORDINGS_IMPORT_DIRECTORY: /jibri-recordings
-      APP_MEDIA_MESSAGE_ATTACHMENTS_DIRECTORY: /app/storage/message-attachments
       APP_MEDIA_MESSAGE_ATTACHMENTS_MAX_SIZE_BYTES: ${APP_MEDIA_MESSAGE_ATTACHMENTS_MAX_SIZE_BYTES:-26214400}
       APP_MEDIA_MESSAGE_ATTACHMENTS_ORPHAN_TTL: ${APP_MEDIA_MESSAGE_ATTACHMENTS_ORPHAN_TTL:-PT1H}
       APP_MEDIA_MESSAGE_ATTACHMENTS_ORPHAN_CLEANUP_FIXED_DELAY_MS: ${APP_MEDIA_MESSAGE_ATTACHMENTS_ORPHAN_CLEANUP_FIXED_DELAY_MS:-900000}
+      APP_MEDIA_MESSAGE_ATTACHMENTS_MINIO_ENDPOINT: ${APP_MEDIA_MESSAGE_ATTACHMENTS_MINIO_ENDPOINT:-http://minio:9000}
+      APP_MEDIA_MESSAGE_ATTACHMENTS_MINIO_PUBLIC_ENDPOINT: ${APP_MEDIA_MESSAGE_ATTACHMENTS_MINIO_PUBLIC_ENDPOINT:?APP_MEDIA_MESSAGE_ATTACHMENTS_MINIO_PUBLIC_ENDPOINT must be set}
+      APP_MEDIA_MESSAGE_ATTACHMENTS_MINIO_ACCESS_KEY: ${APP_MEDIA_MESSAGE_ATTACHMENTS_MINIO_ACCESS_KEY:?APP_MEDIA_MESSAGE_ATTACHMENTS_MINIO_ACCESS_KEY must be set}
+      APP_MEDIA_MESSAGE_ATTACHMENTS_MINIO_SECRET_KEY: ${APP_MEDIA_MESSAGE_ATTACHMENTS_MINIO_SECRET_KEY:?APP_MEDIA_MESSAGE_ATTACHMENTS_MINIO_SECRET_KEY must be set}
+      APP_MEDIA_MESSAGE_ATTACHMENTS_MINIO_BUCKET: ${APP_MEDIA_MESSAGE_ATTACHMENTS_MINIO_BUCKET:-message-attachments}
+      APP_MEDIA_MESSAGE_ATTACHMENTS_MINIO_REGION: ${APP_MEDIA_MESSAGE_ATTACHMENTS_MINIO_REGION:-us-east-1}
+      APP_MEDIA_MESSAGE_ATTACHMENTS_MINIO_PATH_STYLE_ACCESS: ${APP_MEDIA_MESSAGE_ATTACHMENTS_MINIO_PATH_STYLE_ACCESS:-true}
+      APP_MEDIA_MESSAGE_ATTACHMENTS_MINIO_AUTO_CREATE_BUCKET: ${APP_MEDIA_MESSAGE_ATTACHMENTS_MINIO_AUTO_CREATE_BUCKET:-true}
+      APP_MEDIA_MESSAGE_ATTACHMENTS_MINIO_PRESIGNED_URL_TTL: ${APP_MEDIA_MESSAGE_ATTACHMENTS_MINIO_PRESIGNED_URL_TTL:-PT10M}
       APP_PUSH_ENABLED: ${APP_PUSH_ENABLED:-true}
       APP_PUSH_SUBJECT: ${APP_PUSH_SUBJECT:-mailto:no-reply@localhost.test}
       APP_PUSH_VAPID_PUBLIC_KEY: ${APP_PUSH_VAPID_PUBLIC_KEY:-}
@@ -337,6 +322,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/actuator/health"]
       interval: 15s
@@ -345,7 +332,6 @@ services:
       start_period: 90s
     volumes:
       - conference_recordings_archive:/app/storage/conference-recordings
-      - message_attachments:/app/storage/message-attachments
       - conference_recordings_raw:/jibri-recordings:ro
 
   postgres-exporter:
@@ -560,8 +546,7 @@ volumes:
   caddy_data:
   postgres_data:
   redis_data:
-  vault_data:
-  vault_logs:
+  minio_data:
   grafana_data:
   alertmanager_data:
   loki_data:
@@ -574,5 +559,4 @@ volumes:
   tempo_data:
   conference_recordings_raw:
   conference_recordings_archive:
-  message_attachments:
   promtail_positions:

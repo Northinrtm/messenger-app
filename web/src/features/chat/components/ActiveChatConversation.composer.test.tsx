@@ -117,7 +117,6 @@ function conversationProps(
     isChatMenuOpen: false,
     isDirectChatBlocked: false,
     historyAccessNotice: null,
-    encryptionIdentityWarning: null,
     chatMenuButtonRef: { current: null },
     messageStreamRef: { current: null },
     composerTextareaRef: { current: null },
@@ -140,7 +139,6 @@ function conversationProps(
     onCloseDeleteSelectedMessagesDialog: () => {},
     onDeleteSelectedMessagesForSelf: () => {},
     onDeleteSelectedMessagesForEveryone: () => {},
-    onRecoverEncryptionIdentity: () => {},
     onRetryMessage: (_message: ChatMessage) => {},
     onDownloadAttachment: () => {},
     onLoadAttachmentPreview: () => Promise.resolve(new Blob()),
@@ -485,7 +483,7 @@ describe("ActiveChatConversation composer", () => {
     expect(container.querySelector(".composer-attachment-chip")?.textContent).toContain("image.png");
   });
 
-  it("renders a group history access notice when older encrypted messages are still unavailable", async () => {
+  it("renders a history access notice when older messages are still unavailable", async () => {
     await act(async () => {
       root!.render(
         <ActiveChatConversation

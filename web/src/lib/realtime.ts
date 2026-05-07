@@ -5,11 +5,11 @@ import {
   type IFrame,
   type StompSubscription,
 } from "@stomp/stompjs";
-import { ApiError, createMessage } from "./api";
+import { ApiError } from "./api";
 import { WS_URL } from "./config";
+import { hydrateApiChatMessage } from "./messagePayload";
 import { recordSendDiagnosticStep } from "./sendDiagnostics";
 import type {
-  ActiveGroupHistoryKeyEvent,
   ApiChatMessage,
   ChatRemovalEvent,
   ChatMessage,
@@ -82,8 +82,6 @@ const REALTIME_RECONNECT_FAILURE_THRESHOLD = 5;
 const REALTIME_RECONNECT_COOLDOWN_MS = 60_000;
 const REALTIME_VISIBILITY_PAUSE_DELAY_MS = 15_000;
 const REALTIME_SEND_ACK_TIMEOUT_MS = 2_000;
-const REALTIME_SEND_ACK_TIMEOUT_GROUP_MS = 6_000;
-const RETRYABLE_REALTIME_FALLBACK_STATUSES = new Set([500, 502, 503, 504]);
 const WEB_SOCKET_OPEN_STATE = 1;
 const WEB_SOCKET_CLOSING_STATE = 2;
 const WEB_SOCKET_CLOSED_STATE = 3;
@@ -183,15 +181,6 @@ export function subscribeToChats({
     }
 
     connection.userSubscriptions.push(
-      client.subscribe("/user/queue/group-history-active-keys", (frame) => {
-        const payload = JSON.parse(frame.body) as ActiveGroupHistoryKeyEvent;
-        void import("./e2ee").then(({ hydrateOwnActiveGroupHistoryKeyAccess }) =>
-          hydrateOwnActiveGroupHistoryKeyAccess(connection.currentUserId, payload)
-        );
-      })
-    );
-
-    connection.userSubscriptions.push(
       client.subscribe("/user/queue/message-acks", (frame) => {
         resolvePendingSendRequest(JSON.parse(frame.body) as ApiChatMessage);
       })
@@ -206,11 +195,8 @@ export function subscribeToChats({
     connection.userSubscriptions.push(
       client.subscribe("/user/queue/messages", (frame) => {
         const payload = JSON.parse(frame.body) as ApiChatMessage;
-        void import("./e2ee").then(({ hydrateChatMessage }) =>
-          hydrateChatMessage(payload, connection.currentUserId).then((message) => {
-            connection.onMessage(message);
-          })
-        );
+        void connection.currentUserId;
+        connection.onMessage(hydrateApiChatMessage(payload));
       })
     );
 
@@ -613,9 +599,8 @@ export function sendMessageRealtime(input: {
   chatId: string;
   clientMessageId: string;
   replyToMessageId?: string | null;
-  encryptedPayload: {
-    scheme: string;
-    sharedEnvelope?: string | null;
+  plainPayload: {
+    content: string;
   };
   attachmentIds?: string[];
   timeoutMs?: number;
@@ -661,7 +646,7 @@ export function sendMessageRealtime(input: {
           clientMessageId: input.clientMessageId,
           replyToMessageId: input.replyToMessageId ?? null,
           attachmentIds: input.attachmentIds ?? [],
-          encryptedPayload: input.encryptedPayload,
+          plainPayload: input.plainPayload,
         }),
       });
       recordSendDiagnosticStep(input.clientMessageId, "realtime:publish:end");
@@ -680,90 +665,29 @@ export function sendMessageRaw(
   body: {
     clientMessageId?: string;
     replyToMessageId?: string | null;
-    encryptedPayload: {
-      scheme: string;
-      sharedEnvelope?: string | null;
+    plainPayload: {
+      content: string;
     };
     attachmentIds?: string[];
   }
 ) {
+  void token;
   const connection = activeConnection;
   const realtimeReady = Boolean(connection && isRealtimeClientReady(connection.client));
-  const realtimeAckTimeoutMs = resolveRealtimeAckTimeoutMs(body.encryptedPayload);
-  if (!connection || !realtimeReady) {
-    if (connection && shouldReportRealtimeClientFailure(connection)) {
-      handleConnectionFailure(connection);
-    }
-
-    recordSendDiagnosticStep(body.clientMessageId ?? "", "transport:selected", {
-      transport: "http",
-      realtimeReady,
-      reason: "realtime-unavailable",
-    });
-    return createMessage(token, chatId, {
-      clientMessageId: body.clientMessageId ?? "",
-      replyToMessageId: body.replyToMessageId ?? null,
-      attachmentIds: body.attachmentIds ?? [],
-      encryptedPayload: body.encryptedPayload,
-    });
-  }
 
   recordSendDiagnosticStep(body.clientMessageId ?? "", "transport:selected", {
     transport: "ws",
-    realtimeReady: true,
-    reason: "realtime-ready",
+    realtimeReady,
+    reason: realtimeReady ? "realtime-ready" : "websocket-required",
   });
   return sendMessageRealtime({
     chatId,
     clientMessageId: body.clientMessageId ?? "",
     replyToMessageId: body.replyToMessageId ?? null,
-    encryptedPayload: body.encryptedPayload,
+    plainPayload: body.plainPayload,
     attachmentIds: body.attachmentIds ?? [],
-    timeoutMs: realtimeAckTimeoutMs,
-  }).catch((error) => {
-    if (
-      !(error instanceof ApiError) ||
-      !RETRYABLE_REALTIME_FALLBACK_STATUSES.has(error.status)
-    ) {
-      throw error;
-    }
-
-    recordSendDiagnosticStep(body.clientMessageId ?? "", "transport:httpFallback:start", {
-      triggerStatus: error.status,
-      triggerMessage: error.message,
-    });
-    return createMessage(token, chatId, {
-      clientMessageId: body.clientMessageId ?? "",
-      replyToMessageId: body.replyToMessageId ?? null,
-      attachmentIds: body.attachmentIds ?? [],
-      encryptedPayload: body.encryptedPayload,
-    })
-      .then((response) => {
-        recordSendDiagnosticStep(body.clientMessageId ?? "", "transport:httpFallback:end", {
-          messageId: response.id,
-          serverOrder: response.serverOrder ?? null,
-        });
-        return response;
-      })
-      .catch((fallbackError) => {
-        recordSendDiagnosticStep(body.clientMessageId ?? "", "transport:httpFallback:error", {
-          status: fallbackError instanceof ApiError ? fallbackError.status : null,
-          message:
-            fallbackError instanceof Error ? fallbackError.message : "HTTP fallback failed",
-          details: fallbackError instanceof ApiError ? fallbackError.details : [],
-        });
-        throw fallbackError;
-      });
+    timeoutMs: REALTIME_SEND_ACK_TIMEOUT_MS,
   });
-}
-
-function resolveRealtimeAckTimeoutMs(input: {
-  scheme: string;
-  sharedEnvelope?: string | null;
-}) {
-  return Boolean(input.sharedEnvelope)
-    ? REALTIME_SEND_ACK_TIMEOUT_GROUP_MS
-    : REALTIME_SEND_ACK_TIMEOUT_MS;
 }
 
 function resolvePendingSendRequest(message: ApiChatMessage) {

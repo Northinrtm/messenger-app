@@ -5,13 +5,12 @@ APP_DIR="${1:-/opt/messenger-app}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 ENV_FILE="${ENV_FILE:-.env.prod}"
 BUILD_SERVICES="${BUILD_SERVICES:-web backend edge}"
-SUPPORT_SERVICES="${SUPPORT_SERVICES:-postgres redis jitsi-prosody jitsi-jicofo jitsi-jvb jitsi-web}"
+SUPPORT_SERVICES="${SUPPORT_SERVICES:-postgres redis minio jitsi-prosody jitsi-jicofo jitsi-jvb jitsi-web}"
 RUNTIME_SERVICES="${RUNTIME_SERVICES:-web backend edge}"
 OBSERVABILITY_SERVICES="${OBSERVABILITY_SERVICES:-postgres-exporter tempo otel-collector alertmanager loki promtail prometheus grafana}"
 DEPLOY_LOCK_FILE="${DEPLOY_LOCK_FILE:-/tmp/messenger-remote-update.lock}"
 DEPLOY_LOCK_WAIT_SECONDS="${DEPLOY_LOCK_WAIT_SECONDS:-1800}"
 STATUS_FILE="${DEPLOY_STATUS_FILE:-}"
-ESCROW_PROVIDER="${APP_E2EE_ESCROW_PROVIDER:-}"
 FULL_RESET="${FULL_RESET:-false}"
 
 env_file_value() {
@@ -62,6 +61,17 @@ normalize_boolean_flag() {
       exit 1
       ;;
   esac
+}
+
+list_untracked_checkout_files() {
+  mapfile -t untracked_files < <(git ls-files --others --exclude-standard)
+
+  for file in "${untracked_files[@]}"; do
+    if [[ "$file" == "$ENV_FILE" || "$file" == "./$ENV_FILE" ]]; then
+      continue
+    fi
+    printf "%s\n" "$file"
+  done
 }
 
 scale_for_service() {
@@ -173,10 +183,11 @@ cd "$APP_DIR"
 
 git config --global --add safe.directory "$APP_DIR" >/dev/null 2>&1 || true
 
-if ! git diff --quiet || ! git diff --cached --quiet || [[ -n "$(git status --short --untracked-files=normal)" ]]; then
+UNTRACKED_CHECKOUT_FILES="$(list_untracked_checkout_files)"
+if ! git diff --quiet || ! git diff --cached --quiet || [[ -n "$UNTRACKED_CHECKOUT_FILES" ]]; then
   echo "Resetting server checkout to a clean state in $APP_DIR"
   git reset --hard HEAD
-  git clean -fd
+  git clean -fd -e "$ENV_FILE"
 fi
 
 git fetch origin main
@@ -191,7 +202,6 @@ bash "$APP_DIR/deploy/preflight-prod.sh" "$ENV_FILE"
 BACKEND_REPLICAS="${BACKEND_REPLICAS:-$(env_file_value BACKEND_REPLICAS 1)}"
 WEB_REPLICAS="${WEB_REPLICAS:-$(env_file_value WEB_REPLICAS 1)}"
 ENABLE_OBSERVABILITY_STACK="$(normalize_boolean_flag ENABLE_OBSERVABILITY_STACK "${ENABLE_OBSERVABILITY_STACK:-$(env_file_value ENABLE_OBSERVABILITY_STACK false)}")"
-ESCROW_PROVIDER="${ESCROW_PROVIDER:-$(env_file_value APP_E2EE_ESCROW_PROVIDER local)}"
 FULL_RESET="$(normalize_boolean_flag FULL_RESET "$FULL_RESET")"
 validate_replica_count BACKEND_REPLICAS "$BACKEND_REPLICAS"
 validate_replica_count WEB_REPLICAS "$WEB_REPLICAS"
@@ -202,7 +212,6 @@ if [[ "$FULL_RESET" == "true" ]]; then
   "${compose_cmd[@]}" \
     --profile observability \
     --profile jibri \
-    --profile vault \
     -f "$COMPOSE_FILE" \
     --env-file "$ENV_FILE" \
     down --volumes --remove-orphans || true
@@ -210,9 +219,6 @@ fi
 echo "Building web revision: $WEB_APP_REVISION"
 "${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build $BUILD_SERVICES
 effective_support_services="$SUPPORT_SERVICES"
-if [[ "$ESCROW_PROVIDER" == "vault-transit" && " $effective_support_services " != *" vault "* ]]; then
-  effective_support_services="$effective_support_services vault"
-fi
 "${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d $effective_support_services
 for service in $effective_support_services; do
   wait_for_service_ready "$service" 1 300 2

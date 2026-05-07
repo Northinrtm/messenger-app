@@ -8,7 +8,6 @@ import type {
   MessagePage,
   ChatSummary,
   ChatDraft,
-  GroupHistoryKeyAccess,
   InviteAcceptance,
   InviteLink,
   MessageReactionEvent,
@@ -16,8 +15,6 @@ import type {
   Participant,
   PushNotificationConfig,
   PushSubscriptionPayload,
-  UserEncryptionAccountKey,
-  UserEncryptionRecoverySnapshot,
   VideoConference,
   UserProfile,
   UserSessionInfo,
@@ -60,17 +57,34 @@ type RequestOptions = {
 
 type ChatAttachmentUploadResponse = {
   id: string;
-  ciphertextSizeBytes: number;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
   createdAt: string;
 };
 
-type UploadProgress = {
+type ChatAttachmentUploadTargetResponse = ChatAttachmentUploadResponse & {
+  uploadUrl: string;
+  uploadMethod: string;
+  uploadHeaders: Record<string, string>;
+  expiresAt: string;
+};
+
+type ChatAttachmentDownloadUrlResponse = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  url: string;
+  expiresAt: string;
+};
+
+export type UploadProgress = {
   loadedBytes: number;
   totalBytes: number;
   ratio: number;
 };
 
-type UploadEncryptedChatAttachmentOptions = {
+type UploadChatAttachmentOptions = {
   signal?: AbortSignal;
   onProgress?: (progress: UploadProgress) => void;
 };
@@ -314,8 +328,6 @@ export function changePassword(
   input: {
     currentPassword: string;
     newPassword: string;
-    recoverySnapshotPayloadJson?: string | null;
-    recoveryWrappedIdentityRecordJson?: string | null;
   }
 ) {
   return request<void>("/api/auth/password", {
@@ -468,61 +480,72 @@ export async function downloadConferenceRecording(token: string, conferenceId: s
   };
 }
 
-export async function uploadEncryptedChatAttachment(
+export async function uploadChatAttachment(
   token: string,
   chatId: string,
-  ciphertext: Blob,
-  options: UploadEncryptedChatAttachmentOptions = {}
+  file: Blob,
+  fileName = "attachment.bin",
+  options: UploadChatAttachmentOptions = {}
 ) {
+  const uploadTarget = await request<ChatAttachmentUploadTargetResponse>(
+    `/api/chats/${chatId}/attachments/initiate`,
+    {
+      method: "POST",
+      token,
+      body: {
+        fileName,
+        mimeType: file.type || "application/octet-stream",
+        sizeBytes: file.size,
+      },
+    }
+  );
+
   if (options.onProgress) {
-    return uploadEncryptedChatAttachmentWithProgress(token, chatId, ciphertext, options);
+    await uploadWithProgress(uploadTarget, file, options);
+  } else {
+    await uploadWithoutProgress(uploadTarget, file, options.signal);
   }
 
-  const formData = new FormData();
-  formData.set("file", ciphertext, "attachment.bin");
-  const response = await fetch(buildRequestUrl(`/api/chats/${chatId}/attachments`), {
-    method: "POST",
+  return {
+    id: uploadTarget.id,
+    fileName: uploadTarget.fileName,
+    mimeType: uploadTarget.mimeType,
+    sizeBytes: uploadTarget.sizeBytes,
+    createdAt: uploadTarget.createdAt,
+  } satisfies ChatAttachmentUploadResponse;
+}
+
+async function uploadWithoutProgress(
+  uploadTarget: ChatAttachmentUploadTargetResponse,
+  file: Blob,
+  signal?: AbortSignal
+) {
+  const response = await fetch(uploadTarget.uploadUrl, {
+    method: uploadTarget.uploadMethod,
     cache: "no-store",
-    credentials: "include",
-    signal: options.signal,
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-    body: formData,
+    signal,
+    headers: uploadTarget.uploadHeaders,
+    body: file,
   });
 
   if (!response.ok) {
-    let payload: ApiErrorResponse | null = null;
-    try {
-      payload = (await response.json()) as ApiErrorResponse;
-    } catch {
-      payload = null;
-    }
-
     throw new ApiError(
-      payload?.error ?? resolveHttpErrorMessage(response.status, response.statusText, ""),
-      response.status,
-      payload?.details ?? []
+      resolveHttpErrorMessage(response.status, response.statusText, "Attachment upload failed"),
+      response.status
     );
   }
-
-  return (await response.json()) as ChatAttachmentUploadResponse;
 }
 
-function uploadEncryptedChatAttachmentWithProgress(
-  token: string,
-  chatId: string,
-  ciphertext: Blob,
-  options: UploadEncryptedChatAttachmentOptions
+function uploadWithProgress(
+  uploadTarget: ChatAttachmentUploadTargetResponse,
+  file: Blob,
+  options: UploadChatAttachmentOptions
 ) {
-  return new Promise<ChatAttachmentUploadResponse>((resolve, reject) => {
+  return new Promise<void>((resolve, reject) => {
     if (options.signal?.aborted) {
       reject(createAbortError());
       return;
     }
-
-    const formData = new FormData();
-    formData.set("file", ciphertext, "attachment.bin");
 
     const request = new XMLHttpRequest();
     const cleanup = () => {
@@ -532,11 +555,12 @@ function uploadEncryptedChatAttachmentWithProgress(
       request.abort();
     };
 
-    request.open("POST", buildRequestUrl(`/api/chats/${chatId}/attachments`).toString());
-    request.withCredentials = true;
-    request.setRequestHeader("Authorization", `Bearer ${token}`);
+    request.open(uploadTarget.uploadMethod, uploadTarget.uploadUrl);
+    Object.entries(uploadTarget.uploadHeaders ?? {}).forEach(([key, value]) => {
+      request.setRequestHeader(key, value);
+    });
     request.upload.onprogress = (event) => {
-      const totalBytes = event.lengthComputable ? event.total : ciphertext.size;
+      const totalBytes = event.lengthComputable ? event.total : file.size;
       const loadedBytes = event.loaded;
       const ratio = totalBytes > 0 ? Math.min(1, loadedBytes / totalBytes) : 0;
       options.onProgress?.({ loadedBytes, totalBytes, ratio });
@@ -544,15 +568,16 @@ function uploadEncryptedChatAttachmentWithProgress(
     request.onload = () => {
       cleanup();
       if (request.status >= 200 && request.status < 300) {
-        try {
-          resolve(JSON.parse(request.responseText) as ChatAttachmentUploadResponse);
-        } catch (error) {
-          reject(error);
-        }
+        resolve();
         return;
       }
 
-      reject(parseUploadError(request.status, request.statusText, request.responseText));
+      reject(
+        new ApiError(
+          resolveHttpErrorMessage(request.status, request.statusText, "Attachment upload failed"),
+          request.status
+        )
+      );
     };
     request.onerror = () => {
       cleanup();
@@ -564,23 +589,8 @@ function uploadEncryptedChatAttachmentWithProgress(
     };
 
     options.signal?.addEventListener("abort", abortUpload, { once: true });
-    request.send(formData);
+    request.send(file);
   });
-}
-
-function parseUploadError(status: number, statusText: string, responseText: string) {
-  let payload: ApiErrorResponse | null = null;
-  try {
-    payload = JSON.parse(responseText) as ApiErrorResponse;
-  } catch {
-    payload = null;
-  }
-
-  return new ApiError(
-    payload?.error ?? resolveHttpErrorMessage(status, statusText, ""),
-    status,
-    payload?.details ?? []
-  );
 }
 
 function createAbortError() {
@@ -598,38 +608,35 @@ export function isAbortError(error: unknown) {
   );
 }
 
-export async function downloadEncryptedChatAttachment(
+export async function downloadChatAttachment(
   token: string,
   chatId: string,
   attachmentId: string
 ) {
-  const response = await fetch(
-    buildRequestUrl(`/api/chats/${chatId}/attachments/${attachmentId}`),
+  const downloadTarget = await request<ChatAttachmentDownloadUrlResponse>(
+    `/api/chats/${chatId}/attachments/${attachmentId}/download-url`,
     {
-      cache: "no-store",
-      credentials: "include",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
+      token,
     }
   );
 
-  if (!response.ok) {
-    let payload: ApiErrorResponse | null = null;
-    try {
-      payload = (await response.json()) as ApiErrorResponse;
-    } catch {
-      payload = null;
-    }
+  const response = await fetch(downloadTarget.url, {
+    method: "GET",
+    cache: "no-store",
+  });
 
+  if (!response.ok) {
     throw new ApiError(
-      payload?.error ?? resolveHttpErrorMessage(response.status, response.statusText, ""),
-      response.status,
-      payload?.details ?? []
+      resolveHttpErrorMessage(response.status, response.statusText, "Attachment download failed"),
+      response.status
     );
   }
 
-  return response.arrayBuffer();
+  return {
+    blob: await response.blob(),
+    fileName: downloadTarget.fileName || "attachment",
+    mimeType: response.headers.get("content-type") ?? downloadTarget.mimeType,
+  };
 }
 
 export function endVideoConference(token: string, conferenceId: string) {
@@ -742,51 +749,13 @@ export function getMessagesPage(
   });
 }
 
-export function createMessage(
-  token: string,
-  chatId: string,
-  body: {
-    clientMessageId: string;
-    replyToMessageId?: string | null;
-    attachmentIds?: string[];
-    encryptedPayload: {
-      scheme: string;
-      sharedEnvelope?: string | null;
-    };
-  }
-) {
-  const clientMessageId = body.clientMessageId.trim();
-  recordSendDiagnosticStep(clientMessageId, "http:createMessage:start", {
-    path: `/api/chats/${chatId}/messages`,
-  });
-  return request<ApiChatMessage>(`/api/chats/${chatId}/messages`, {
-    method: "POST",
-    token,
-    body,
-  }).then((response) => {
-    recordSendDiagnosticStep(clientMessageId, "http:createMessage:end", {
-      messageId: response.id,
-      serverOrder: response.serverOrder ?? null,
-    });
-    return response;
-  }).catch((error) => {
-    recordSendDiagnosticStep(clientMessageId, "http:createMessage:error", {
-      message: describeError(error),
-      status: error instanceof ApiError ? error.status : null,
-      details: error instanceof ApiError ? error.details : [],
-    });
-    throw error;
-  });
-}
-
 export function updateMessage(
   token: string,
   chatId: string,
   messageId: string,
   body: {
-    encryptedPayload: {
-      scheme: string;
-      sharedEnvelope?: string | null;
+    plainPayload: {
+      content: string;
     };
   }
 ) {
@@ -969,9 +938,6 @@ export function upsertPendingOutgoingMessage(
       fileName: string;
       mimeType: string;
       sizeBytes: number;
-      ciphertextSizeBytes: number;
-      key: string;
-      iv: string;
     }>;
   }
 ) {
@@ -1022,182 +988,6 @@ export function searchWorkspace(token: string, query: string) {
   return request<WorkspaceSearch>("/api/search", {
     token,
     query: { query },
-  });
-}
-
-export function getOwnEncryptionRecoverySnapshot(token: string) {
-  return request<UserEncryptionRecoverySnapshot>("/api/e2ee/recovery-snapshot/me", {
-    token,
-  });
-}
-
-export function getOwnGroupHistoryKeys(
-  token: string,
-  chatId: string,
-  cursor?: string | null
-) {
-  return request<GroupHistoryKeyAccess[]>(`/api/e2ee/group-history/chats/${chatId}/keys/me`, {
-    token,
-    query: {
-      cursor,
-    },
-  });
-}
-
-export function getOwnActiveGroupHistoryKey(token: string, chatId: string) {
-  return request<GroupHistoryKeyAccess>(
-    `/api/e2ee/group-history/chats/${chatId}/active-key/me`,
-    {
-      token,
-    }
-  );
-}
-
-export function resolveEncryptionAccountKeys(token: string, userIds: string[]) {
-  return request<UserEncryptionAccountKey[]>("/api/e2ee/account-keys/resolve", {
-    method: "POST",
-    token,
-    body: {
-      userIds,
-    },
-  });
-}
-
-export function rotateOwnActiveGroupHistoryKey(token: string, chatId: string) {
-  return request<{ historyKeyId: string; createdAt: string }>(
-    `/api/e2ee/group-history/chats/${chatId}/rotate`,
-    {
-      method: "POST",
-      token,
-    }
-  );
-}
-
-export function getOwnEncryptionAccountKey(token: string) {
-  return request<{
-    publicKey: string;
-    accountKeyVersion: number;
-    identityGeneration: number;
-    identitySigningPublicKey: string;
-    identityKeyAlgorithm: string;
-    accountKeyAlgorithm: string;
-    signedAt: string;
-    signature: string;
-    createdAt: string;
-    updatedAt: string;
-  }>("/api/e2ee/account-keys/me", {
-    token,
-  });
-}
-
-export function upsertOwnEncryptionAccountKey(
-  token: string,
-  body: {
-    publicKey: string;
-    accountKeyVersion: number;
-    identityGeneration: number;
-    identitySigningPublicKey: string;
-    identityKeyAlgorithm: string;
-    accountKeyAlgorithm: string;
-    signedAt: string;
-    signature: string;
-  }
-) {
-  return request<{
-    publicKey: string;
-    accountKeyVersion: number;
-    identityGeneration: number;
-    identitySigningPublicKey: string;
-    identityKeyAlgorithm: string;
-    accountKeyAlgorithm: string;
-    signedAt: string;
-    signature: string;
-    createdAt: string;
-    updatedAt: string;
-  }>(
-    "/api/e2ee/account-keys/me",
-    {
-      method: "PUT",
-      token,
-      body,
-    }
-  );
-}
-
-export function resetOwnEncryptionIdentity(
-  token: string,
-  body: {
-    currentPassword: string;
-    publicKey: string;
-    accountKeyVersion: number;
-    identityGeneration: number;
-    identitySigningPublicKey: string;
-    identityKeyAlgorithm: string;
-    accountKeyAlgorithm: string;
-    signedAt: string;
-    signature: string;
-  }
-) {
-  return request<{
-    publicKey: string;
-    accountKeyVersion: number;
-    identityGeneration: number;
-    identitySigningPublicKey: string;
-    identityKeyAlgorithm: string;
-    accountKeyAlgorithm: string;
-    signedAt: string;
-    signature: string;
-    createdAt: string;
-    updatedAt: string;
-  }>("/api/e2ee/account-keys/me/reset", {
-    method: "POST",
-    token,
-    body,
-  });
-}
-
-export function sessionResetOwnEncryptionIdentity(
-  token: string,
-  body: {
-    publicKey: string;
-    accountKeyVersion: number;
-    identityGeneration: number;
-    identitySigningPublicKey: string;
-    identityKeyAlgorithm: string;
-    accountKeyAlgorithm: string;
-    signedAt: string;
-    signature: string;
-  }
-) {
-  return request<{
-    publicKey: string;
-    accountKeyVersion: number;
-    identityGeneration: number;
-    identitySigningPublicKey: string;
-    identityKeyAlgorithm: string;
-    accountKeyAlgorithm: string;
-    signedAt: string;
-    signature: string;
-    createdAt: string;
-    updatedAt: string;
-  }>("/api/e2ee/account-keys/me/session-reset", {
-    method: "POST",
-    token,
-    body,
-  });
-}
-
-export function upsertOwnEncryptionRecoverySnapshot(
-  token: string,
-  body: {
-    snapshotPayloadJson: string;
-    wrappedIdentityRecordJson: string;
-  }
-) {
-  return request<UserEncryptionRecoverySnapshot>("/api/e2ee/recovery-snapshot/me", {
-    method: "PUT",
-    token,
-    body,
   });
 }
 

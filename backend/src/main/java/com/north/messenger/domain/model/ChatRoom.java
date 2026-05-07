@@ -41,9 +41,6 @@ public class ChatRoom {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
-    @Column(name = "active_history_key_id")
-    private UUID activeHistoryKeyId;
-
     @Column(name = "membership_version", nullable = false)
     private long membershipVersion;
 
@@ -115,10 +112,6 @@ public class ChatRoom {
         return pinnedMessageId;
     }
 
-    public UUID getActiveHistoryKeyId() {
-        return activeHistoryKeyId;
-    }
-
     public long getMembershipVersion() {
         return membershipVersion;
     }
@@ -139,10 +132,6 @@ public class ChatRoom {
 
     public void updateOwnerUserId(UUID ownerUserId) {
         this.ownerUserId = ownerUserId;
-    }
-
-    public void updateActiveHistoryKeyId(UUID activeHistoryKeyId) {
-        this.activeHistoryKeyId = activeHistoryKeyId;
     }
 
     public void incrementMembershipVersion() {

@@ -19,10 +19,8 @@ class ProductionDeploymentConfigTest {
                 .contains("APP_REALTIME_REDIS_ENABLED: ${APP_REALTIME_REDIS_ENABLED:-true}")
                 .contains("APP_AUTH_RATE_LIMIT_REDIS_ENABLED: ${APP_AUTH_RATE_LIMIT_REDIS_ENABLED:-true}")
                 .contains("APP_REALTIME_REDIS_MAC_SECRET: ${APP_REALTIME_REDIS_MAC_SECRET:-}")
-                .contains("APP_E2EE_ESCROW_PROVIDER: ${APP_E2EE_ESCROW_PROVIDER:-local}")
-                .contains("APP_E2EE_ESCROW_SECRET: ${APP_E2EE_ESCROW_SECRET:-}")
-                .contains("APP_E2EE_ESCROW_VAULT_ADDRESS: ${APP_E2EE_ESCROW_VAULT_ADDRESS:-http://vault:8200}")
-                .contains("APP_E2EE_ESCROW_VAULT_TOKEN: ${APP_E2EE_ESCROW_VAULT_TOKEN:-}")
+                .doesNotContain("APP_E2EE_")
+                .doesNotContain("vault:")
                 .doesNotContain("container_name: messenger-backend")
                 .doesNotContain("container_name: messenger-web")
                 .contains("APP_ACTUATOR_SCRAPE_USERNAME: ${APP_ACTUATOR_SCRAPE_USERNAME:-}")
@@ -69,23 +67,23 @@ class ProductionDeploymentConfigTest {
     }
 
     @Test
-    void docsShouldDescribeChatEpochCryptoAndAvoidWeakPrometheusFallback() throws Exception {
+    void docsShouldDescribeServerTrustedMessagingAndAvoidWeakPrometheusFallback() throws Exception {
         String readme = readRepoFile("README.md");
         String productionRunbook = readRepoFile("deploy", "PRODUCTION.md");
 
         assertThat(readme)
-                .contains("CHAT-EPOCH-KEY-AES-GCM")
-                .contains("account-level encryption keys")
-                .contains("chat history epoch keys")
-                .contains("APP_E2EE_ESCROW_SECRET")
-                .contains("APP_E2EE_ESCROW_PROVIDER")
-                .contains("Vault Transit")
+                .contains("server-trusted")
+                .contains("PlainMessagePayload")
+                .contains("This project must not be described as E2EE.")
+                .doesNotContain("APP_E2EE_")
+                .doesNotContain("Vault Transit")
                 .doesNotContain("prometheus/prometheus");
         assertThat(productionRunbook)
-                .contains("shared-envelope coverage")
-                .contains("APP_E2EE_ESCROW_SECRET")
-                .contains("vault-transit")
-                .contains("deploy/vault/bootstrap-transit.sh")
+                .contains("server-trusted")
+                .contains("Do not describe the product as E2EE.")
+                .doesNotContain("APP_E2EE_")
+                .doesNotContain("vault-transit")
+                .doesNotContain("deploy/vault/bootstrap-transit.sh")
                 .doesNotContain("prometheus/prometheus");
     }
 

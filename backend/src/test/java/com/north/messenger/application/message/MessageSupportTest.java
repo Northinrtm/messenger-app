@@ -1,14 +1,13 @@
 package com.north.messenger.application.message;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.north.messenger.api.dto.ParticipantResponse;
-import com.north.messenger.observability.MessengerTelemetry;
+import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.model.ChatParticipant;
 import com.north.messenger.domain.model.ChatPrejoinHistoryPolicy;
 import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.UserAccount;
-import com.north.messenger.application.auth.AuthService;
+import com.north.messenger.domain.repository.ChatAttachmentRepository;
 import com.north.messenger.domain.repository.ChatMessageRepository;
 import com.north.messenger.domain.repository.ChatParticipantRepository;
 import com.north.messenger.domain.repository.MessageReceiptRepository;
@@ -25,7 +24,7 @@ import org.junit.jupiter.api.Test;
 
 import static com.north.messenger.support.TestUserAccounts.testUserAccount;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -33,97 +32,52 @@ class MessageSupportTest {
 
     private MessageSupport messageSupport;
     private AuthService authService;
+    private ChatAttachmentRepository chatAttachmentRepository;
     private ChatMessageRepository chatMessageRepository;
     private ChatParticipantRepository chatParticipantRepository;
     private UserAccountRepository userAccountRepository;
     private UserDeletedMessageRepository userDeletedMessageRepository;
+    private MessageContentCryptoService messageContentCryptoService;
 
     @BeforeEach
     void setUp() {
-        ObjectMapper objectMapper = new ObjectMapper();
         authService = mock(AuthService.class);
+        chatAttachmentRepository = mock(ChatAttachmentRepository.class);
         chatMessageRepository = mock(ChatMessageRepository.class);
         chatParticipantRepository = mock(ChatParticipantRepository.class);
         userAccountRepository = mock(UserAccountRepository.class);
         userDeletedMessageRepository = mock(UserDeletedMessageRepository.class);
+        messageContentCryptoService = mock(MessageContentCryptoService.class);
+        when(chatAttachmentRepository.findAllByMessageIdInOrderByCreatedAtAsc(any())).thenReturn(List.of());
+        when(messageContentCryptoService.requirePlainContent(any(ChatMessage.class))).thenAnswer(invocation -> {
+            ChatMessage message = invocation.getArgument(0);
+            return message.getContent();
+        });
         messageSupport = new MessageSupport(
                 authService,
+                chatAttachmentRepository,
                 chatMessageRepository,
                 chatParticipantRepository,
                 mock(MessageReceiptRepository.class),
                 mock(MessageReactionRepository.class),
                 userAccountRepository,
                 userDeletedMessageRepository,
-                mock(MessengerTelemetry.class),
-                objectMapper,
-                mock(EncryptedMessagePreviewService.class)
+                mock(MessagePreviewService.class),
+                messageContentCryptoService
         );
     }
 
     @Test
-    void toEncryptedPayloadShouldReturnChatEpochEnvelope() {
-        UUID senderId = UUID.randomUUID();
-        UUID chatId = UUID.randomUUID();
-        String sharedEnvelope = """
-                {"aadVersion":1,"chatId":"%s","senderUserId":"%s","historyKeyId":"%s","ciphertext":"Y2lwaGVydGV4dA==","iv":"MDEyMzQ1Njc4OTAx"}
-                """.formatted(chatId, senderId, UUID.randomUUID());
-        ChatMessage message = new ChatMessage(
-                UUID.randomUUID(),
-                chatId,
-                senderId,
-                sharedEnvelope,
-                "CHAT-EPOCH-KEY-AES-GCM",
-                "MDEyMzQ1Njc4OTAx",
-                UUID.randomUUID(),
-                "client-message-id",
-                null,
-                Instant.parse("2026-04-30T13:09:37Z")
-        );
-
-        var response = messageSupport.toEncryptedPayload(message);
-
-        assertThat(response.scheme()).isEqualTo("CHAT-EPOCH-KEY-AES-GCM");
-        assertThat(response.sharedEnvelope()).isEqualTo(sharedEnvelope);
-    }
-
-    @Test
-    void toEncryptedPayloadShouldRejectNonEncryptedChatEpochMessages() {
+    void toPlainPayloadShouldReturnStoredContent() {
         ChatMessage message = new ChatMessage(
                 UUID.randomUUID(),
                 UUID.randomUUID(),
                 UUID.randomUUID(),
-                "",
-                "CHAT-EPOCH-KEY-AES-GCM",
-                "iv",
-                UUID.randomUUID(),
-                "client-message-id",
-                null,
+                "hello",
                 Instant.parse("2026-04-30T13:09:37Z")
         );
 
-        assertThatThrownBy(() -> messageSupport.toEncryptedPayload(message))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Encrypted chat epoch envelope is missing");
-    }
-
-    @Test
-    void toEncryptedPayloadShouldRejectUnsupportedEncryptedMessageScheme() {
-        ChatMessage message = new ChatMessage(
-                UUID.randomUUID(),
-                UUID.randomUUID(),
-                UUID.randomUUID(),
-                "ciphertext",
-                "UNSUPPORTED-SCHEME",
-                "iv",
-                null,
-                "client-message-id",
-                null,
-                Instant.parse("2026-04-30T13:09:37Z")
-        );
-
-        assertThatThrownBy(() -> messageSupport.toEncryptedPayload(message))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Unsupported encrypted message scheme");
+        assertThat(messageSupport.toPlainPayload(message)).isEqualTo(new com.north.messenger.api.dto.PlainMessagePayloadResponse("hello"));
     }
 
     @Test
@@ -151,8 +105,6 @@ class MessageSupportTest {
                 chatId,
                 viewerUserId,
                 "new message",
-                null,
-                null,
                 null,
                 referencedMessage.getId(),
                 Instant.parse("2026-05-03T10:00:00Z")

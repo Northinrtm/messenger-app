@@ -276,8 +276,17 @@ export function useWorkspaceEffects({
     }
 
     applyChatPreviewMessage(lastMessage);
-    applyServerChatPreviewMessage(lastMessage, "clear");
-  }, [activeChatId, applyChatPreviewMessage, applyServerChatPreviewMessage, lastMessage]);
+    applyServerChatPreviewMessage(
+      lastMessage,
+      getActiveChatPreviewUnreadMode(isActiveChatOpen)
+    );
+  }, [
+    activeChatId,
+    applyChatPreviewMessage,
+    applyServerChatPreviewMessage,
+    isActiveChatOpen,
+    lastMessage,
+  ]);
 
   useEffect(() => {
     if (!activeChat?.id || !activeChat.pinnedMessage || !hydratedPinnedMessage) {
@@ -309,4 +318,10 @@ export function useWorkspaceEffects({
       window.removeEventListener("focus", handleWindowFocus);
     };
   }, [acknowledgeVisibleMessagesAsRead]);
+}
+
+export function getActiveChatPreviewUnreadMode(
+  isActiveChatOpen: boolean
+): ChatMessageActivityMode {
+  return isActiveChatOpen ? "clear" : "keep";
 }

@@ -1,339 +1,115 @@
-# Функциональные требования к проекту
+# Functional Requirements
 
-## 1. Назначение документа
+## Product goal
 
-Этот документ описывает функциональные требования к `Messenger App`.
+`Messenger App` is a realtime messenger that lets users:
 
-Он отвечает на вопрос:
-- что именно должен делать продукт для пользователя;
+- register and sign in
+- communicate in direct and group chats
+- send text messages and file attachments
+- receive realtime updates and notifications
+- manage contacts, blocks, drafts, archives, and group membership
+- join conferences
 
-а не на вопросы:
-- как команда тестирует продукт;
-- какие smoke-проверки обязательны перед релизом;
-- какие инфраструктурные условия нужны для запуска.
+## Messaging model
 
-Связанный документ:
-- [qa-requirements.md](./qa-requirements.md) описывает требования к тестированию, QA-проверкам и критериям приемки.
+The system uses a `server-trusted` model:
 
-## 2. Назначение продукта
+- clients send plain message payloads
+- the backend stores message content in readable form
+- the backend is authoritative for history, ordering, receipts, and delivery
+- the product must not promise E2EE semantics
 
-`Messenger App` — это realtime-мессенджер, который позволяет пользователям:
-- регистрироваться и входить в систему;
-- общаться в личных чатах;
-- общаться в группах;
-- отправлять сообщения и вложения;
-- получать уведомления о новых событиях;
-- участвовать в видеоконференциях;
-- использовать защищённые encrypted chats.
+## Account and session requirements
 
-## 3. Пользовательские роли
+The product must support:
 
-Система должна поддерживать следующие роли:
-- неавторизованный посетитель;
-- авторизованный пользователь;
-- участник чата;
-- владелец группы;
-- модератор группы;
-- пользователь, для которого действие ограничено правилами доступа или блокировкой.
+- registration with domain allowlist checks
+- login with username and password
+- refreshable sessions
+- session listing and session revocation
+- profile update and avatar update
+- password change
+- password reset by email
+- email verification when enabled
+- account deletion
 
-## 4. Требования к аккаунту и доступу
+## Chat requirements
 
-### 4.1 Регистрация
+The product must support:
 
-Система должна позволять новому пользователю создать аккаунт.
+- direct chats
+- group chats
+- group owners and moderators
+- bans and invite links
+- `JOIN_ONLY` and `FULL_HISTORY` prejoin-history policy
+- unread counters
+- archive-for-self and delete-chat-for-self
+- per-chat drafts
 
-После успешной регистрации система должна:
-- создать пользователя;
-- создать профиль пользователя;
-- перевести пользователя в авторизованное состояние либо в следующий обязательный шаг, если включена дополнительная верификация.
+## Message requirements
 
-### 4.2 Вход
+The product must support:
 
-Система должна позволять существующему пользователю войти в систему по корректным учетным данным.
+- send message
+- idempotent resend by `clientMessageId`
+- reply
+- edit
+- pin and unpin
+- forward
+- reactions
+- delete for self
+- delete for everyone where allowed
+- typing indicators
+- delivered and read receipts
 
-Система должна:
-- отклонять неверные данные для входа;
-- создавать и поддерживать пользовательскую сессию;
-- сохранять разделение между обычной авторизацией и разблокировкой encrypted chats.
+The backend must remain authoritative for:
 
-### 4.3 Сессии
+- ordering by `serverOrder`
+- visibility after reload
+- message status after reconnect
 
-Система должна:
-- восстанавливать активную сессию после reload, если сессионные данные валидны;
-- позволять пользователю выйти из аккаунта;
-- показывать список активных сессий, если этот функционал включен;
-- позволять отзывать другие активные сессии;
-- запрещать revoked session дальнейший доступ по HTTP и realtime-каналам.
+## Attachment requirements
 
-### 4.4 Смена и восстановление пароля
+The product must support:
 
-Система должна поддерживать:
-- подтверждение email, если оно включено;
-- сброс пароля;
-- смену пароля из авторизованной сессии.
+- attachment upload before message send
+- attachment-to-message linking
+- image preview
+- safe orphan cleanup for unattached uploads
+- size limits configured on the backend
 
-Штатная смена пароля не должна ломать дальнейший доступ к encrypted chats в поддерживаемом сценарии.
+## Push requirements
 
-### 4.5 Профиль
+The product must support Web Push subscriptions.
 
-Система должна позволять пользователю:
-- менять отображаемые данные профиля;
-- менять аватар, если этот сценарий доступен;
-- удалить аккаунт, если функция удаления включена.
+Push payloads sent by the backend must remain generic and must not contain message text previews.
 
-## 5. Требования к encrypted chats
+## Conference requirements
 
-### 5.1 Общая модель
+The product must support:
 
-Система должна поддерживать encrypted chats с локальным браузерным криптографическим состоянием.
+- instant conferences
+- scheduled conferences
+- participant invites
+- Jitsi embed
+- recording import and archive download flow
 
-Система должна:
-- использовать managed E2EE chat-epoch model, а не strict zero-knowledge E2EE;
-- шифровать direct и group messages клиентским `chat history / epoch key`;
-- выдавать доступ к history keys через account encryption public key пользователя;
-- публиковать account encryption public key только как signed bundle, подписанный стабильным identity signing key;
-- регистрировать первый identity signing key в рамках аутентифицированного onboarding;
-- допускать server escrow history keys для recovery и regrant по политике чата;
-- отделять обычный login session от доступа к encrypted chats;
-- требовать отдельный unlock encrypted chats, если локальный приватный ключ недоступен в текущей вкладке или устройстве;
-- поддерживать разблокировку по паролю;
-- поддерживать trusted-browser unlock, если он доступен в окружении пользователя;
-- поддерживать сценарий восстановления или пересоздания encrypted-chat state.
+## Access control requirements
 
-### 5.2 Разблокировка
+The backend must enforce:
 
-Система должна:
-- явно объяснять пользователю, что аккаунт уже авторизован, но encrypted chats ещё заблокированы;
-- позволять разблокировать encrypted chats без полного повторного логина;
-- позволять отказаться от восстановления старого encrypted state и создать новый, при честном предупреждении о недоступности части старых сообщений.
+- chat membership checks
+- moderator and owner permissions
+- blocked-user messaging restrictions
+- message ownership checks for mutable actions
+- attachment ownership and chat ownership checks
 
-### 5.3 Совместимость со сменой пароля
+## Non-goals for the current model
 
-Если пароль меняется штатным способом через приложение, система должна сохранить согласованность encrypted-chat recovery state с новым паролем.
+The current product does not require:
 
-Если recovery state всё ещё зависит от предыдущего пароля, система должна сообщать об этом явно.
-
-### 5.4 Ротация и reset ключей
-
-Система должна различать:
-- штатную ротацию account encryption key;
-- reset identity signing key как отдельное security event.
-
-Штатная ротация account encryption key должна:
-- сохранять тот же identity signing key;
-- увеличивать `accountKeyVersion` строго монотонно;
-- автоматически приниматься клиентами при валидной подписи bundle.
-
-Identity reset должен:
-- требовать свежую аутентификацию пользователя;
-- публиковать новый identity signing key и новый account encryption key;
-- увеличивать `identityGeneration`;
-- запускать server-side regrant history keys и ротацию active chat epoch там, где это требуется политикой продукта.
-
-## 6. Требования к личным чатам
-
-### 6.1 Создание и открытие
-
-Система должна позволять пользователю:
-- создать личный чат с другим пользователем либо открыть уже существующий;
-- видеть историю личного чата в соответствии с правами доступа и состоянием удаления.
-
-### 6.2 Отправка сообщений
-
-Система должна позволять участнику личного чата:
-- отправить текстовое сообщение;
-- получить входящее сообщение в realtime;
-- после reload снова видеть это сообщение в persisted history;
-- видеть статус доставки и чтения, если эти функции включены.
-
-### 6.3 Действия над сообщением
-
-Система должна поддерживать, где это разрешено:
-- reply;
-- edit;
-- delete for self;
-- delete for everyone;
-- forward;
-- pin и unpin;
-- reactions;
-- copy text;
-- multi-select действия, если такой режим доступен в интерфейсе.
-
-## 7. Требования к групповым чатам
-
-### 7.1 Создание группы
-
-Система должна позволять авторизованному пользователю создать групповой чат с названием и начальными участниками в рамках правил продукта.
-
-### 7.2 Участники и роли
-
-Система должна поддерживать:
-- добавление участников;
-- удаление участников;
-- права владельца;
-- права модератора, если они предусмотрены;
-- выход из группы;
-- invite links, если они доступны;
-- ban и другие ограничения доступа, если они реализованы.
-
-### 7.3 История до вступления
-
-Система должна поддерживать для группового чата явную политику доступа к истории до вступления нового участника:
-- `JOIN_ONLY` - новый участник не получает сообщения и history keys, созданные до его вступления;
-- `FULL_HISTORY` - новый участник может получить доступ к более ранним epoch keys и сообщениям через server-managed grants.
-
-Переключение политики в `FULL_HISTORY` должно позволять server-side backfill допустимой истории для текущих участников.
-
-Возврат политики из `FULL_HISTORY` в `JOIN_ONLY` не должен обещать отзыв уже выданных history keys, но должен применяться к будущим новым участникам.
-
-### 7.4 Групповые сообщения
-
-Система должна позволять участникам группы:
-- отправлять group messages;
-- получать group messages в realtime;
-- читать историю группы после reload;
-- продолжать общение после изменения состава группы, если права и encryption state остаются валидными.
-
-### 7.5 Действия над сообщением в группе
-
-Система должна поддерживать, где это разрешено:
-- reply;
-- edit;
-- delete for self;
-- delete for everyone в пределах прав;
-- forward;
-- pin и unpin;
-- reactions;
-- multi-select действия.
-
-## 8. Требования к доставке сообщений
-
-### 8.1 Путь отправки
-
-После действия пользователя “отправить сообщение” система должна:
-- создать локальное pending-состояние сообщения;
-- попытаться доставить сообщение на сервер;
-- после успешного подтверждения перевести сообщение в согласованное persisted state;
-- не создавать дубли одного и того же сообщения для пользователя;
-- сохранять порядок сообщений согласно серверной модели упорядочивания.
-
-### 8.2 Realtime-поведение
-
-Система должна поддерживать realtime-обновления для:
-- sender acknowledgement;
-- входящих сообщений;
-- read receipts;
-- typing indicators;
-- edits и deletes, если они поддерживаются.
-
-### 8.3 Согласованность после reload
-
-После reload или reconnect система должна восстанавливать состояние чата так, чтобы persisted history совпадала с успешно сохранённым состоянием на сервере.
-
-## 9. Требования к статусам сообщений
-
-Система должна поддерживать пользовательские состояния сообщений, включая:
-- pending или sending;
-- sent;
-- delivered, если это поддерживается;
-- read, если это поддерживается;
-- failed или retry для реально неуспешной отправки.
-
-Сообщение не должно отображаться как failed, если отправка завершилась успешно.
-
-## 10. Требования к typing и read receipts
-
-Система должна поддерживать:
-- typing в личных чатах;
-- typing в группах, если функция включена;
-- read status в личных чатах;
-- read status в группах в соответствии с реализованной продуктовой моделью.
-
-Typing не должен зависать навсегда после остановки ввода или разрыва соединения.
-
-Read status должен меняться только в соответствии с фактической логикой прочтения, реализованной клиентом и сервером.
-
-## 11. Требования к отображению истории и читаемости
-
-Система должна:
-- показывать пользователю согласованную историю чата;
-- после reload восстанавливать историю без потери уже сохранённых сообщений;
-- поддерживать локальное восстановление собственных encrypted messages в рамках поддерживаемой модели;
-- честно показывать, когда старое encrypted content действительно недоступно для расшифровки текущим локальным состоянием.
-
-Preview чата, поток сообщений и persisted history не должны системно расходиться между собой.
-
-## 12. Требования к вложениям
-
-Система должна поддерживать, если функция включена:
-- загрузку вложений;
-- привязку вложения к сообщению;
-- preview поддерживаемых типов файлов;
-- открытие или скачивание вложения;
-- удаление сообщения вместе с соответствующим пользовательским доступом к вложению.
-
-## 13. Требования к уведомлениям
-
-Система должна поддерживать push notification subscription, если push включен.
-
-Система должна:
-- уведомлять о новых входящих событиях;
-- не раскрывать plaintext там, где encrypted model этого не допускает;
-- показывать браузерные уведомления в пределах доступных клиентских возможностей и текущего unlock state.
-
-## 14. Требования к архиву, черновикам и счётчикам
-
-Система должна поддерживать:
-- archive chat for self;
-- restore from archive;
-- delete chat for self, если это предусмотрено;
-- per-chat drafts;
-- unread counters;
-- first unread navigation, если она реализована.
-
-Эти действия должны применяться к текущему пользователю, если явно не указано иное.
-
-## 15. Требования к видеоконференциям
-
-Система должна поддерживать, где это включено:
-- создание мгновенной конференции;
-- создание запланированной конференции;
-- присоединение к конференции;
-- приглашение участников;
-- встроенные точки входа в конференцию;
-- import/download recording flow, если он предусмотрен продуктом.
-
-## 16. Требования к правам доступа
-
-Система должна контролировать права на:
-- доступ к чату;
-- отправку сообщений;
-- edit и delete;
-- административные действия в группе;
-- доступ к вложениям;
-- участие в конференции, если оно ограничено.
-
-Пользователь не должен получать доступ к чужому чату, сообщениям или административным действиям без соответствующих прав.
-
-## 17. Требования к обработке ошибок
-
-Система должна:
-- показывать понятные ошибки для неуспешного login;
-- отличать auth problem от encrypted-chat unlock problem;
-- показывать `Retry` только для действительно неуспешной отправки;
-- позволять восстановить поддерживаемый пользовательский сценарий после reconnect или reload;
-- не терять сообщения silently.
-
-## 18. Минимальный функциональный baseline
-
-Продукт считается функционально соответствующим базовым требованиям, если:
-- новый пользователь может зарегистрироваться и войти;
-- пользователь может открыть личный чат и группу;
-- encrypted chats можно разблокировать в поддерживаемом сценарии;
-- первый identity signing key и первый account encryption key публикуются в рамках штатного onboarding;
-- штатная account-key rotation и отдельный identity reset работают по правилам продукта;
-- direct и group messages можно отправить и потом снова прочитать из persisted history;
-- политика `JOIN_ONLY` / `FULL_HISTORY` определяет доступ новых участников к истории группы;
-- основные действия над сообщениями работают по правилам продукта;
-- read receipts и typing работают в штатном сценарии;
-- продукт остаётся пригодным к использованию после reload и reconnect.
+- client-side message decryption
+- browser-local message unlock flows
+- client-managed message keys
+- client-managed message recovery flows

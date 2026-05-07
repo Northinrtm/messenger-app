@@ -4,9 +4,6 @@ public record PendingOutgoingMessageAttachmentPayload(
         String id,
         String fileName,
         String mimeType,
-        long sizeBytes,
-        long ciphertextSizeBytes,
-        String key,
-        String iv
+        long sizeBytes
 ) {
 }

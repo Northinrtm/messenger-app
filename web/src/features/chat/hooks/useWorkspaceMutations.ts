@@ -326,8 +326,6 @@ export function useWorkspaceMutations({
   const signOutMutation = useMutation({
     mutationFn: () => logout(),
     onSettled: async () => {
-      const { lockUnlockedEncryptionState } = await import("../../../lib/e2ee");
-      lockUnlockedEncryptionState(currentSession.user.id);
       onSessionChange(null);
     },
   });
@@ -350,40 +348,11 @@ export function useWorkspaceMutations({
   });
 
   const changePasswordMutation = useMutation({
-    mutationFn: async (input: { currentPassword: string; newPassword: string }) => {
-      const {
-        buildOwnEncryptionRecoverySnapshotUpload,
-        resecureLocalEncryptionStateForPasswordChange,
-      } = await import("../../../lib/e2ee");
-      await resecureLocalEncryptionStateForPasswordChange(
-        currentSession.user.id,
-        input.currentPassword,
-        input.newPassword
-      );
-      const recoverySnapshotUpload = await buildOwnEncryptionRecoverySnapshotUpload(
-        currentSession.user.id
-      );
-      try {
-        return await changePasswordRequest(token, {
-          currentPassword: input.currentPassword,
-          newPassword: input.newPassword,
-          recoverySnapshotPayloadJson: recoverySnapshotUpload?.snapshotPayloadJson ?? null,
-          recoveryWrappedIdentityRecordJson:
-            recoverySnapshotUpload?.wrappedIdentityRecordJson ?? null,
-        });
-      } catch (error) {
-        try {
-          await resecureLocalEncryptionStateForPasswordChange(
-            currentSession.user.id,
-            input.newPassword,
-            input.currentPassword
-          );
-        } catch {
-          // Best-effort rollback. If it fails, the original server-side error is still the one that matters here.
-        }
-        throw error;
-      }
-    },
+    mutationFn: async (input: { currentPassword: string; newPassword: string }) =>
+      changePasswordRequest(token, {
+        currentPassword: input.currentPassword,
+        newPassword: input.newPassword,
+      }),
     onSuccess: () => {
       onPasswordChanged?.();
       queryClient.clear();

@@ -30,8 +30,6 @@ public interface MessageReceiptRepository extends JpaRepository<MessageReceipt, 
             where receipt.messageId = message.id
               and receipt.userId = :userId
               and receipt.readAt is null
-              and message.encryptionScheme is not null
-              and message.encryptionScheme <> ''
               and message.chatId in :chatIds
               and not exists (
                 select deleted.id
@@ -51,8 +49,6 @@ public interface MessageReceiptRepository extends JpaRepository<MessageReceipt, 
             from MessageReceipt receipt, ChatMessage message
             where receipt.messageId = message.id
               and receipt.readAt is null
-              and message.encryptionScheme is not null
-              and message.encryptionScheme <> ''
               and message.chatId = :chatId
               and not exists (
                 select deleted.id

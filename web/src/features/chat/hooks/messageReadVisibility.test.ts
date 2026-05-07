@@ -59,7 +59,7 @@ describe("messageReadVisibility", () => {
     ).toBe(true);
   });
 
-  it("tracks readable incoming messages so read-ack can rerun after hydration", () => {
+  it("tracks readable incoming messages so read-ack can rerun after updates", () => {
     expect(
       buildReadableIncomingMessageIdsKey(
         [
@@ -75,7 +75,7 @@ describe("messageReadVisibility", () => {
               avatarUrl: null,
               online: true,
             },
-            content: "[Encrypted message unavailable]",
+            content: "message-1",
             createdAt: "2026-04-27T09:00:00.000Z",
             editedAt: null,
             status: null,
@@ -110,6 +110,6 @@ describe("messageReadVisibility", () => {
         ],
         "user-1"
       )
-    ).toBe("message-2");
+    ).toBe("message-1,message-2");
   });
 });

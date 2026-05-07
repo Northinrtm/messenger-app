@@ -4,8 +4,11 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import java.time.Instant;
 import java.util.UUID;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "chat_messages")
@@ -20,17 +23,19 @@ public class ChatMessage {
     @Column(name = "sender_id", nullable = false, updatable = false)
     private UUID senderId;
 
-    @Column(name = "content", nullable = false, columnDefinition = "text")
-    private String content;
+    @Column(name = "content_ciphertext", nullable = false)
+    @JdbcTypeCode(SqlTypes.VARBINARY)
+    private byte[] contentCiphertext;
 
-    @Column(name = "encryption_scheme", length = 120)
-    private String encryptionScheme;
+    @Column(name = "content_iv", nullable = false)
+    @JdbcTypeCode(SqlTypes.VARBINARY)
+    private byte[] contentIv;
 
-    @Column(name = "encryption_iv", length = 255)
-    private String encryptionIv;
+    @Column(name = "content_key_version", nullable = false)
+    private int contentKeyVersion;
 
-    @Column(name = "history_key_id")
-    private UUID historyKeyId;
+    @Column(name = "content_algorithm", nullable = false, length = 32)
+    private String contentAlgorithm;
 
     @Column(name = "client_message_id", length = 120, updatable = false)
     private String clientMessageId;
@@ -47,11 +52,14 @@ public class ChatMessage {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    @Transient
+    private String content;
+
     protected ChatMessage() {
     }
 
     public ChatMessage(UUID id, UUID chatId, UUID senderId, String content, Instant createdAt) {
-        this(id, chatId, senderId, content, null, null, null, null, null, createdAt);
+        this(id, chatId, senderId, content, null, null, createdAt);
     }
 
     public ChatMessage(
@@ -59,57 +67,6 @@ public class ChatMessage {
             UUID chatId,
             UUID senderId,
             String content,
-            String encryptionScheme,
-            String encryptionIv,
-            Instant createdAt
-    ) {
-        this(
-                id,
-                chatId,
-                senderId,
-                content,
-                encryptionScheme,
-                encryptionIv,
-                null,
-                null,
-                null,
-                createdAt
-        );
-    }
-
-    public ChatMessage(
-            UUID id,
-            UUID chatId,
-            UUID senderId,
-            String content,
-            String encryptionScheme,
-            String encryptionIv,
-            String clientMessageId,
-            UUID replyToMessageId,
-            Instant createdAt
-    ) {
-        this(
-                id,
-                chatId,
-                senderId,
-                content,
-                encryptionScheme,
-                encryptionIv,
-                null,
-                clientMessageId,
-                replyToMessageId,
-                createdAt
-        );
-    }
-
-    public ChatMessage(
-            UUID id,
-            UUID chatId,
-            UUID senderId,
-            String content,
-            String encryptionScheme,
-            String encryptionIv,
-            UUID historyKeyId,
             String clientMessageId,
             UUID replyToMessageId,
             Instant createdAt
@@ -118,9 +75,30 @@ public class ChatMessage {
         this.chatId = chatId;
         this.senderId = senderId;
         this.content = content;
-        this.encryptionScheme = encryptionScheme;
-        this.encryptionIv = encryptionIv;
-        this.historyKeyId = historyKeyId;
+        this.clientMessageId = clientMessageId;
+        this.replyToMessageId = replyToMessageId;
+        this.createdAt = createdAt;
+    }
+
+    public ChatMessage(
+            UUID id,
+            UUID chatId,
+            UUID senderId,
+            byte[] contentCiphertext,
+            byte[] contentIv,
+            int contentKeyVersion,
+            String contentAlgorithm,
+            String clientMessageId,
+            UUID replyToMessageId,
+            Instant createdAt
+    ) {
+        this.id = id;
+        this.chatId = chatId;
+        this.senderId = senderId;
+        this.contentCiphertext = contentCiphertext;
+        this.contentIv = contentIv;
+        this.contentKeyVersion = contentKeyVersion;
+        this.contentAlgorithm = contentAlgorithm;
         this.clientMessageId = clientMessageId;
         this.replyToMessageId = replyToMessageId;
         this.createdAt = createdAt;
@@ -142,16 +120,20 @@ public class ChatMessage {
         return content;
     }
 
-    public String getEncryptionScheme() {
-        return encryptionScheme;
+    public byte[] getContentCiphertext() {
+        return contentCiphertext;
     }
 
-    public String getEncryptionIv() {
-        return encryptionIv;
+    public byte[] getContentIv() {
+        return contentIv;
     }
 
-    public UUID getHistoryKeyId() {
-        return historyKeyId;
+    public int getContentKeyVersion() {
+        return contentKeyVersion;
+    }
+
+    public String getContentAlgorithm() {
+        return contentAlgorithm;
     }
 
     public String getClientMessageId() {
@@ -174,31 +156,23 @@ public class ChatMessage {
         return createdAt;
     }
 
-    public boolean isEncrypted() {
-        return (encryptionScheme != null && !encryptionScheme.isBlank())
-                || (encryptionIv != null && !encryptionIv.isBlank());
-    }
-
-    public void encrypt(
-            String ciphertext,
-            String encryptionScheme,
-            String encryptionIv,
-            UUID historyKeyId
-    ) {
-        this.content = ciphertext;
-        this.encryptionScheme = encryptionScheme;
-        this.encryptionIv = encryptionIv;
-        this.historyKeyId = historyKeyId;
+    public void cacheDecryptedContent(String content) {
+        this.content = content;
     }
 
     public void updateEncryptedContent(
-            String ciphertext,
-            String encryptionScheme,
-            String encryptionIv,
-            UUID historyKeyId,
+            byte[] contentCiphertext,
+            byte[] contentIv,
+            int contentKeyVersion,
+            String contentAlgorithm,
+            String decryptedContent,
             Instant editedAt
     ) {
-        encrypt(ciphertext, encryptionScheme, encryptionIv, historyKeyId);
+        this.contentCiphertext = contentCiphertext;
+        this.contentIv = contentIv;
+        this.contentKeyVersion = contentKeyVersion;
+        this.contentAlgorithm = contentAlgorithm;
+        this.content = decryptedContent;
         this.editedAt = editedAt;
     }
 }

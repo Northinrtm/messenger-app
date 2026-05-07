@@ -1,6 +1,5 @@
 package com.north.messenger.observability;
 
-import com.north.messenger.domain.repository.E2eeMaintenanceOutboxRepository;
 import com.north.messenger.domain.repository.MessageDispatchOutboxRepository;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -21,15 +20,11 @@ public class OutboxMetrics {
     private static final Logger log = LoggerFactory.getLogger(OutboxMetrics.class);
 
     private final MessageDispatchOutboxRepository messageDispatchOutboxRepository;
-    private final E2eeMaintenanceOutboxRepository e2eeMaintenanceOutboxRepository;
-
     public OutboxMetrics(
             MeterRegistry meterRegistry,
-            MessageDispatchOutboxRepository messageDispatchOutboxRepository,
-            E2eeMaintenanceOutboxRepository e2eeMaintenanceOutboxRepository
+            MessageDispatchOutboxRepository messageDispatchOutboxRepository
     ) {
         this.messageDispatchOutboxRepository = messageDispatchOutboxRepository;
-        this.e2eeMaintenanceOutboxRepository = e2eeMaintenanceOutboxRepository;
 
         registerCountGauge(
                 meterRegistry,
@@ -51,25 +46,6 @@ public class OutboxMetrics {
                 this::messageDispatchOldestDueLagSeconds
         );
 
-        registerCountGauge(
-                meterRegistry,
-                "messenger.outbox.pending",
-                "Pending outbox entries that have not been processed yet",
-                "e2ee_maintenance",
-                this::e2eeMaintenancePendingCount
-        );
-        registerCountGauge(
-                meterRegistry,
-                "messenger.outbox.due",
-                "Pending outbox entries that are already due for processing",
-                "e2ee_maintenance",
-                this::e2eeMaintenanceDueCount
-        );
-        registerLagGauge(
-                meterRegistry,
-                "e2ee_maintenance",
-                this::e2eeMaintenanceOldestDueLagSeconds
-        );
     }
 
     double messageDispatchPendingCount() {
@@ -90,27 +66,6 @@ public class OutboxMetrics {
                 "message_dispatch.oldest_due_lag",
                 now,
                 () -> messageDispatchOutboxRepository.findOldestDueAvailableAt(now)
-        );
-    }
-
-    double e2eeMaintenancePendingCount() {
-        return safeCount("e2ee_maintenance.pending", e2eeMaintenanceOutboxRepository::countByProcessedAtIsNull);
-    }
-
-    double e2eeMaintenanceDueCount() {
-        Instant now = Instant.now();
-        return safeCount(
-                "e2ee_maintenance.due",
-                () -> e2eeMaintenanceOutboxRepository.countByProcessedAtIsNullAndAvailableAtLessThanEqual(now)
-        );
-    }
-
-    double e2eeMaintenanceOldestDueLagSeconds() {
-        Instant now = Instant.now();
-        return safeLag(
-                "e2ee_maintenance.oldest_due_lag",
-                now,
-                () -> e2eeMaintenanceOutboxRepository.findOldestDueAvailableAt(now)
         );
     }
 

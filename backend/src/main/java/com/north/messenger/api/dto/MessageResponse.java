@@ -15,7 +15,8 @@ public record MessageResponse(
         String clientMessageId,
         MessageSnippetResponse replyTo,
         List<MessageReactionSummaryResponse> reactions,
-        EncryptedMessagePayloadResponse encryptedPayload
+        PlainMessagePayloadResponse plainPayload,
+        List<ChatAttachmentResponse> attachments
 ) {
 }
 

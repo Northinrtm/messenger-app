@@ -38,11 +38,6 @@ export function buildTimeline(messages: ChatMessage[]): TimelineItem[] {
   return items;
 }
 
-export function shouldPrimeEncryptionRecipientsOnChatOpen(messagesLoading: boolean) {
-  void messagesLoading;
-  return true;
-}
-
 export function getLatestUnreadChatActivityAt(chats: ChatSummary[]) {
   return chats.reduce<string | null>((latest, chat) => {
     if (chat.unreadCount <= 0) {

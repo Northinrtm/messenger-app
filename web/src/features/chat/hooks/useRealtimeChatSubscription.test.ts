@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   getRealtimeUnreadMode,
-  shouldInvalidateActiveHistoryKeyCacheOnRealtimeChatUpdate,
   shouldRefreshActiveChatOnRealtimeChatUpdate,
   shouldRefreshChatListOnRealtimeConnect,
   shouldRefreshActiveChatOnRealtimeConnect,
@@ -95,81 +94,45 @@ describe("getRealtimeUnreadMode", () => {
 });
 
 describe("shouldRefreshActiveChatOnRealtimeChatUpdate", () => {
-  const groupChat = {
+  const chat = {
     id: "chat-1",
-    direct: false,
   } as ChatSummary;
 
   const cachedMessages = {
     pages: [
       [
         {
-          content: "[Encrypted message unavailable]",
+          content: "message-1",
         } as ChatMessage,
       ],
     ],
     pageParams: [null],
   };
 
-  it("refreshes the active group chat when cached messages still contain unavailable placeholders", () => {
+  it("does not trigger an eager active chat refresh on realtime updates", () => {
     expect(
-      shouldRefreshActiveChatOnRealtimeChatUpdate(groupChat, {
+      shouldRefreshActiveChatOnRealtimeChatUpdate(chat, {
         activeChatId: "chat-1",
-        cachedMessages,
+        cachedMessages: undefined,
       })
-    ).toBe(true);
+    ).toBe(false);
   });
 
-  it("skips refresh for other chats, direct chats, and fully readable caches", () => {
+  it("skips refresh for other chats and chats with cached messages", () => {
     expect(
-      shouldRefreshActiveChatOnRealtimeChatUpdate(groupChat, {
+      shouldRefreshActiveChatOnRealtimeChatUpdate(chat, {
         activeChatId: "chat-2",
         cachedMessages,
       })
     ).toBe(false);
     expect(
-      shouldRefreshActiveChatOnRealtimeChatUpdate(
-        { ...groupChat, direct: true },
-        {
-          activeChatId: "chat-1",
-          cachedMessages,
-        }
-      )
-    ).toBe(false);
-    expect(
-      shouldRefreshActiveChatOnRealtimeChatUpdate(groupChat, {
+      shouldRefreshActiveChatOnRealtimeChatUpdate(chat, {
         activeChatId: "chat-1",
         cachedMessages: {
           pages: [[{ content: "hello" } as ChatMessage]],
           pageParams: [null],
         },
       })
-    ).toBe(false);
-  });
-});
-
-describe("shouldInvalidateActiveHistoryKeyCacheOnRealtimeChatUpdate", () => {
-  it("invalidates when the active history key pointer changes for an existing chat", () => {
-    expect(
-      shouldInvalidateActiveHistoryKeyCacheOnRealtimeChatUpdate(
-        { activeHistoryKeyId: "history-1" } as ChatSummary,
-        { activeHistoryKeyId: "history-2" } as ChatSummary
-      )
-    ).toBe(true);
-  });
-
-  it("skips invalidation for new chats and unchanged pointers", () => {
-    expect(
-      shouldInvalidateActiveHistoryKeyCacheOnRealtimeChatUpdate(
-        null,
-        { activeHistoryKeyId: "history-1" } as ChatSummary
-      )
-    ).toBe(false);
-    expect(
-      shouldInvalidateActiveHistoryKeyCacheOnRealtimeChatUpdate(
-        { activeHistoryKeyId: "history-1" } as ChatSummary,
-        { activeHistoryKeyId: "history-1" } as ChatSummary
-      )
     ).toBe(false);
   });
 });

@@ -16,17 +16,10 @@ import {
   getVideoConferences,
   searchWorkspace,
 } from "../../../lib/api";
-import {
-  isUnavailableEncryptedMessage,
-} from "../../../lib/e2eeShared";
-import {
-  E2EE_ENCRYPTION_STATE_SYNCED_EVENT,
-  type E2eeEncryptionStateSyncedDetail,
-} from "../../../lib/e2eeEvents";
 import { deletePendingOutgoingMessage } from "../../../lib/api";
+import { hydrateApiChatMessage } from "../../../lib/messagePayload";
 import { toRecoveredPendingChatMessage } from "../../../lib/pendingOutgoingMessages";
 import type {
-  ApiChatMessage,
   ChatMessage,
   ChatSummary,
   PendingOutgoingMessage,
@@ -40,7 +33,6 @@ import {
   MESSAGE_PAGE_SIZE,
   reconcileMessageInfiniteData,
   upsertChat,
-  updateMessageById,
 } from "../chatState";
 
 type UseWorkspaceQueriesOptions = {
@@ -65,7 +57,6 @@ type UseWorkspaceQueriesOptions = {
 };
 
 const INITIAL_MESSAGE_PAGE_SIZE = 30;
-const MESSAGE_HYDRATION_RETRY_DELAYS_MS = [250, 1_000, 3_000] as const;
 const CONNECTED_CHATS_REFETCH_INTERVAL_MS = 60_000;
 const FALLBACK_CHATS_REFETCH_INTERVAL_MS = 15_000;
 const FALLBACK_TYPING_REFETCH_INTERVAL_MS = 5_000;
@@ -74,46 +65,6 @@ const CHATS_QUERY_STALE_TIME_MS = 15_000;
 
 function isDocumentVisibleNow() {
   return typeof document === "undefined" || document.visibilityState === "visible";
-}
-
-export function buildMessageHydrationKey(
-  chatId: string,
-  message: Pick<ApiChatMessage, "id" | "editedAt">
-) {
-  return `${chatId}:${message.id}:${message.editedAt ?? ""}`;
-}
-
-export function resetMessageHydrationStateForChat(options: {
-  chatId: string;
-  queuedHydrationKeys: Set<string>;
-  hydrationQueue: Map<string, { chatId: string; rawMessage: ApiChatMessage }>;
-  hydrationRetryCounts: Map<string, number>;
-  hydrationRetryTimeoutIds: Map<string, number>;
-  clearTimeout: (timeoutId: number) => void;
-}) {
-  const prefix = `${options.chatId}:`;
-  [...options.queuedHydrationKeys].forEach((hydrationKey) => {
-    if (hydrationKey.startsWith(prefix)) {
-      options.queuedHydrationKeys.delete(hydrationKey);
-    }
-  });
-  [...options.hydrationQueue.keys()].forEach((hydrationKey) => {
-    if (hydrationKey.startsWith(prefix)) {
-      options.hydrationQueue.delete(hydrationKey);
-    }
-  });
-  [...options.hydrationRetryCounts.keys()].forEach((hydrationKey) => {
-    if (hydrationKey.startsWith(prefix)) {
-      options.hydrationRetryCounts.delete(hydrationKey);
-    }
-  });
-  [...options.hydrationRetryTimeoutIds.entries()].forEach(([hydrationKey, timeoutId]) => {
-    if (!hydrationKey.startsWith(prefix)) {
-      return;
-    }
-    options.clearTimeout(timeoutId);
-    options.hydrationRetryTimeoutIds.delete(hydrationKey);
-  });
 }
 
 export type MessagePageCursor = {
@@ -126,10 +77,6 @@ export function createInitialMessagePageCursor(): MessagePageCursor {
     cursor: null,
     limit: INITIAL_MESSAGE_PAGE_SIZE,
   };
-}
-
-export function buildRawMessagesQueryKey(userId: string, chatId: string | null | undefined) {
-  return ["messages-raw", userId, chatId ?? null] as const;
 }
 
 export function getChatsQueryRefreshStrategy(options: {
@@ -205,100 +152,8 @@ export function getNextMessagePageCursor(nextCursor: string | null | undefined) 
   } satisfies MessagePageCursor;
 }
 
-export function upsertRawMessagePage(
-  current: InfiniteData<ApiChatMessage[]> | undefined,
-  nextPage: ApiChatMessage[],
-  pageParam: MessagePageCursor
-): InfiniteData<ApiChatMessage[]> {
-  const normalizedPageParam = {
-    cursor: pageParam.cursor ?? null,
-    limit: pageParam.limit,
-  } satisfies MessagePageCursor;
-
-  if (!current) {
-    return {
-      pages: [nextPage],
-      pageParams: [normalizedPageParam],
-    };
-  }
-
-  const pageIndex = current.pageParams.findIndex((currentPageParam) => {
-    const candidate = (currentPageParam ?? null) as MessagePageCursor | null;
-    return (
-      (candidate?.cursor ?? null) === normalizedPageParam.cursor &&
-      (candidate?.limit ?? INITIAL_MESSAGE_PAGE_SIZE) === normalizedPageParam.limit
-    );
-  });
-
-  if (pageIndex < 0) {
-    return {
-      pages: [...current.pages, nextPage],
-      pageParams: [...current.pageParams, normalizedPageParam],
-    };
-  }
-
-  return {
-    pages: current.pages.map((page, index) => (index === pageIndex ? nextPage : page)),
-    pageParams: current.pageParams.map((currentPageParam, index) =>
-      index === pageIndex ? normalizedPageParam : currentPageParam
-    ),
-  };
-}
-
 function buildMessagePageRequestKey(pageParam: MessagePageCursor | null | undefined) {
   return `${pageParam?.cursor ?? "initial"}|${pageParam?.limit ?? INITIAL_MESSAGE_PAGE_SIZE}`;
-}
-
-export function mergeHydratedMessageSnapshot(
-  currentMessage: ChatMessage,
-  hydratedMessage: ChatMessage
-) {
-  const nextContent =
-    isUnavailableEncryptedMessage(hydratedMessage.content) &&
-    !isUnavailableEncryptedMessage(currentMessage.content)
-      ? currentMessage.content
-      : hydratedMessage.content;
-  const nextClientMessageId =
-    hydratedMessage.clientMessageId ?? currentMessage.clientMessageId ?? null;
-  const nextServerOrder = hydratedMessage.serverOrder ?? currentMessage.serverOrder ?? null;
-  const nextEditedAt = hydratedMessage.editedAt ?? currentMessage.editedAt ?? null;
-  const nextStatus = hydratedMessage.status ?? currentMessage.status;
-  const nextReplyTo = hydratedMessage.replyTo ?? currentMessage.replyTo;
-  const nextLocalOrder = currentMessage.localOrder ?? hydratedMessage.localOrder ?? null;
-
-  if (
-    nextContent === currentMessage.content &&
-    nextClientMessageId === (currentMessage.clientMessageId ?? null) &&
-    nextServerOrder === (currentMessage.serverOrder ?? null) &&
-    nextEditedAt === currentMessage.editedAt &&
-    nextStatus === currentMessage.status &&
-    nextReplyTo === currentMessage.replyTo &&
-    nextLocalOrder === (currentMessage.localOrder ?? null)
-  ) {
-    return currentMessage;
-  }
-
-  return {
-    ...currentMessage,
-    ...hydratedMessage,
-    content: nextContent,
-    clientMessageId: nextClientMessageId,
-    serverOrder: nextServerOrder,
-    editedAt: nextEditedAt,
-    status: nextStatus,
-    replyTo: nextReplyTo,
-    localOrder: nextLocalOrder,
-  } satisfies ChatMessage;
-}
-
-export function shouldRetryUnavailableHydration(
-  currentMessage: Pick<ChatMessage, "content">,
-  hydratedMessage: Pick<ChatMessage, "content">
-) {
-  return (
-    isUnavailableEncryptedMessage(currentMessage.content) &&
-    isUnavailableEncryptedMessage(hydratedMessage.content)
-  );
 }
 
 export function useWorkspaceQueries({
@@ -323,13 +178,6 @@ export function useWorkspaceQueries({
 }: UseWorkspaceQueriesOptions) {
   const queryClient = useQueryClient();
   const [isDocumentVisible, setIsDocumentVisible] = useState(isDocumentVisibleNow);
-  const queuedMessageHydrationKeysRef = useRef(new Set<string>());
-  const messageHydrationQueueRef = useRef(
-    new Map<string, { chatId: string; rawMessage: ApiChatMessage }>()
-  );
-  const messageHydrationWorkerRunningRef = useRef(false);
-  const messageHydrationRetryCountRef = useRef(new Map<string, number>());
-  const messageHydrationRetryTimeoutIdRef = useRef(new Map<string, number>());
   const nextMessageCursorByRequestKeyRef = useRef(new Map<string, string | null>());
   const shouldFetchSessions = sidebarSheet === "sessions";
   const shouldAggressivelyRefreshConferences =
@@ -527,7 +375,6 @@ export function useWorkspaceQueries({
   const messagesQuery = useInfiniteQuery({
     queryKey: buildMessagesQueryKey(userId, activeChat?.id),
     queryFn: async ({ pageParam }) => {
-      const { getEncryptedMessagesSnapshot } = await import("../../../lib/e2ee");
       const resolvedPageParam = {
         cursor: pageParam?.cursor ?? null,
         limit: pageParam?.limit ?? INITIAL_MESSAGE_PAGE_SIZE,
@@ -562,23 +409,7 @@ export function useWorkspaceQueries({
           messagePage?.confirmedPendingOutgoingClientMessageIds ??
           []
       );
-      const { hydratedMessages, rawMessages } = await getEncryptedMessagesSnapshot(
-        sessionToken,
-        userId,
-        activeChat!.id,
-        {
-          limit: resolvedPageParam.limit,
-          prefetchedRawMessages: chatOpen?.initialMessages ?? messagePage?.messages,
-          prefetchedActiveGroupHistoryKeyAccess: chatOpen?.activeHistoryKeyAccess ?? null,
-        }
-      );
-
-      queryClient.setQueryData<InfiniteData<ApiChatMessage[]>>(
-        buildRawMessagesQueryKey(userId, activeChat!.id),
-        (current) => upsertRawMessagePage(current, rawMessages, resolvedPageParam)
-      );
-
-      return hydratedMessages;
+      return (chatOpen?.initialMessages ?? messagePage?.messages ?? []).map(hydrateApiChatMessage);
     },
     enabled: Boolean(activeChat?.id),
     initialPageParam: createInitialMessagePageCursor(),
@@ -629,162 +460,6 @@ export function useWorkspaceQueries({
     () => flattenMessagePages(mergedMessagePages?.pages),
     [mergedMessagePages?.pages]
   );
-
-  useEffect(() => {
-    if (!activeChat?.id || typeof window === "undefined") {
-      return;
-    }
-
-    const handleEncryptionStateSync = (event: Event) => {
-      const detail = (event as CustomEvent<E2eeEncryptionStateSyncedDetail>).detail;
-      if (detail?.userId !== userId) {
-        return;
-      }
-
-      resetMessageHydrationStateForChat({
-        chatId: activeChat.id,
-        queuedHydrationKeys: queuedMessageHydrationKeysRef.current,
-        hydrationQueue: messageHydrationQueueRef.current,
-        hydrationRetryCounts: messageHydrationRetryCountRef.current,
-        hydrationRetryTimeoutIds: messageHydrationRetryTimeoutIdRef.current,
-        clearTimeout: (timeoutId) => window.clearTimeout(timeoutId),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: buildMessagesQueryKey(userId, activeChat.id),
-      });
-    };
-
-    window.addEventListener(E2EE_ENCRYPTION_STATE_SYNCED_EVENT, handleEncryptionStateSync);
-    return () => {
-      window.removeEventListener(E2EE_ENCRYPTION_STATE_SYNCED_EVENT, handleEncryptionStateSync);
-    };
-  }, [activeChat?.id, queryClient, userId]);
-
-  useEffect(() => {
-    const drainMessageHydrationQueue = async () => {
-      const clearHydrationRetry = (hydrationKey: string) => {
-        const timeoutId = messageHydrationRetryTimeoutIdRef.current.get(hydrationKey);
-        if (timeoutId !== undefined) {
-          window.clearTimeout(timeoutId);
-          messageHydrationRetryTimeoutIdRef.current.delete(hydrationKey);
-        }
-        messageHydrationRetryCountRef.current.delete(hydrationKey);
-      };
-
-      const scheduleHydrationRetry = (
-        hydrationKey: string,
-        queuedMessage: { chatId: string; rawMessage: ApiChatMessage }
-      ) => {
-        if (messageHydrationRetryTimeoutIdRef.current.has(hydrationKey)) {
-          return;
-        }
-
-        const currentAttempt = messageHydrationRetryCountRef.current.get(hydrationKey) ?? 0;
-        const retryDelay = MESSAGE_HYDRATION_RETRY_DELAYS_MS[currentAttempt];
-        if (retryDelay === undefined) {
-          return;
-        }
-
-        messageHydrationRetryCountRef.current.set(hydrationKey, currentAttempt + 1);
-        queuedMessageHydrationKeysRef.current.delete(hydrationKey);
-        const timeoutId = window.setTimeout(() => {
-          messageHydrationRetryTimeoutIdRef.current.delete(hydrationKey);
-          queuedMessageHydrationKeysRef.current.add(hydrationKey);
-          messageHydrationQueueRef.current.set(hydrationKey, queuedMessage);
-          void drainMessageHydrationQueue();
-        }, retryDelay);
-        messageHydrationRetryTimeoutIdRef.current.set(hydrationKey, timeoutId);
-      };
-
-      if (messageHydrationWorkerRunningRef.current) {
-        return;
-      }
-
-      messageHydrationWorkerRunningRef.current = true;
-      try {
-        const { hydrateChatMessage } = await import("../../../lib/e2ee");
-        while (messageHydrationQueueRef.current.size > 0) {
-          const nextQueuedMessage = messageHydrationQueueRef.current.entries().next().value as
-            | [string, { chatId: string; rawMessage: ApiChatMessage }]
-            | undefined;
-          if (!nextQueuedMessage) {
-            break;
-          }
-
-          const [hydrationKey, queuedMessage] = nextQueuedMessage;
-          messageHydrationQueueRef.current.delete(hydrationKey);
-
-          try {
-            const hydratedMessage = await hydrateChatMessage(queuedMessage.rawMessage, userId);
-            let shouldRetry = false;
-            queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
-              buildMessagesQueryKey(userId, queuedMessage.chatId),
-              (current) =>
-                updateMessageById(current, hydratedMessage.id, (currentMessage) =>
-                  {
-                    shouldRetry = shouldRetryUnavailableHydration(
-                      currentMessage,
-                      hydratedMessage
-                    );
-                    return mergeHydratedMessageSnapshot(currentMessage, hydratedMessage);
-                  }
-                )
-            );
-            if (shouldRetry) {
-              scheduleHydrationRetry(hydrationKey, queuedMessage);
-            } else {
-              clearHydrationRetry(hydrationKey);
-            }
-          } catch {
-            scheduleHydrationRetry(hydrationKey, queuedMessage);
-          }
-        }
-      } finally {
-        messageHydrationWorkerRunningRef.current = false;
-        if (messageHydrationQueueRef.current.size > 0) {
-          void drainMessageHydrationQueue();
-        }
-      }
-    };
-
-    if (!activeChat?.id) {
-      return;
-    }
-
-    const rawMessages = queryClient.getQueryData<InfiniteData<ApiChatMessage[]>>(
-      buildRawMessagesQueryKey(userId, activeChat.id)
-    );
-    if (!rawMessages?.pages.length) {
-      return;
-    }
-
-    rawMessages.pages.forEach((page) => {
-      page.forEach((rawMessage) => {
-        const hydrationKey = buildMessageHydrationKey(activeChat.id, rawMessage);
-        if (queuedMessageHydrationKeysRef.current.has(hydrationKey)) {
-          return;
-        }
-
-        queuedMessageHydrationKeysRef.current.add(hydrationKey);
-        messageHydrationQueueRef.current.set(hydrationKey, {
-          chatId: activeChat.id,
-          rawMessage,
-        });
-      });
-    });
-
-    void drainMessageHydrationQueue();
-  }, [activeChat?.id, messagesQuery.data?.pages, queryClient, userId]);
-
-  useEffect(() => {
-    return () => {
-      messageHydrationRetryTimeoutIdRef.current.forEach((timeoutId) => {
-        window.clearTimeout(timeoutId);
-      });
-      messageHydrationRetryTimeoutIdRef.current.clear();
-      messageHydrationRetryCountRef.current.clear();
-    };
-  }, []);
 
   return {
     activeTypingQuery,

@@ -1,13 +1,11 @@
 package com.north.messenger.application.message;
 
 import com.north.messenger.api.dto.CreateMessageRequest;
-import com.north.messenger.api.dto.EncryptedMessagePayloadRequest;
 import com.north.messenger.api.dto.MessageResponse;
 import com.north.messenger.api.dto.MessageSnippetResponse;
 import com.north.messenger.api.dto.UpdateMessageRequest;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.chat.ChatService;
-import com.north.messenger.application.e2ee.ChatGroupHistoryKeyService;
 import jakarta.persistence.EntityManager;
 import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.model.ChatRoom;
@@ -51,10 +49,10 @@ class MessageCommandService {
     private final MessengerTelemetry telemetry;
     private final MessageSupport messageSupport;
     private final MessageDispatchOutboxService messageDispatchOutboxService;
-    private final ChatGroupHistoryKeyService chatGroupHistoryKeyService;
     private final ChatAttachmentService chatAttachmentService;
     private final PendingOutgoingMessageService pendingOutgoingMessageService;
     private final EntityManager entityManager;
+    private final MessageContentCryptoService messageContentCryptoService;
 
     MessageCommandService(
             AuthService authService,
@@ -67,10 +65,10 @@ class MessageCommandService {
             MessengerTelemetry telemetry,
             MessageSupport messageSupport,
             MessageDispatchOutboxService messageDispatchOutboxService,
-            ChatGroupHistoryKeyService chatGroupHistoryKeyService,
             ChatAttachmentService chatAttachmentService,
             PendingOutgoingMessageService pendingOutgoingMessageService,
-            EntityManager entityManager
+            EntityManager entityManager,
+            MessageContentCryptoService messageContentCryptoService
     ) {
         this.authService = authService;
         this.chatService = chatService;
@@ -82,10 +80,10 @@ class MessageCommandService {
         this.telemetry = telemetry;
         this.messageSupport = messageSupport;
         this.messageDispatchOutboxService = messageDispatchOutboxService;
-        this.chatGroupHistoryKeyService = chatGroupHistoryKeyService;
         this.chatAttachmentService = chatAttachmentService;
         this.pendingOutgoingMessageService = pendingOutgoingMessageService;
         this.entityManager = entityManager;
+        this.messageContentCryptoService = messageContentCryptoService;
     }
 
     @Transactional
@@ -132,37 +130,32 @@ class MessageCommandService {
             return existingResponse;
         }
 
-        EncryptedMessagePayloadRequest encryptedPayload = request.encryptedPayload();
-        if (encryptedPayload == null) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "End-to-end encrypted payload is required"
-            );
-        }
-
-        MessageSupport.ValidatedEncryptedPayload validatedEncryptedPayload = messageSupport.validateEncryptedPayload(
-                encryptedPayload,
-                room,
-                currentUser,
-                clientMessageId
-        );
-        chatGroupHistoryKeyService.validateMessageHistoryKey(room, validatedEncryptedPayload.historyKeyId());
+        boolean attachmentsPresent = request.attachmentIds() != null && !request.attachmentIds().isEmpty();
+        String plainContent = messageSupport.validatePlainPayload(request.plainPayload(), attachmentsPresent);
 
         try {
+            UUID messageId = UUID.randomUUID();
+            EncryptedMessageContent encryptedContent = messageContentCryptoService.encrypt(
+                    chatId,
+                    messageId,
+                    currentUser.getId(),
+                    plainContent
+            );
             ChatMessage message = new ChatMessage(
-                    UUID.randomUUID(),
+                    messageId,
                     chatId,
                     currentUser.getId(),
-                    validatedEncryptedPayload.sharedEnvelope(),
-                    encryptedPayload.scheme(),
-                    validatedEncryptedPayload.iv(),
-                    validatedEncryptedPayload.historyKeyId(),
+                    encryptedContent.ciphertext(),
+                    encryptedContent.iv(),
+                    encryptedContent.keyVersion(),
+                    encryptedContent.algorithm(),
                     clientMessageId,
                     replyToMessageId,
                     Instant.now()
             );
             ChatMessage persistedMessage = chatMessageRepository.saveAndFlush(message);
             entityManager.refresh(persistedMessage);
+            persistedMessage.cacheDecryptedContent(plainContent);
             chatAttachmentService.attachUploadedAttachments(
                     currentUser,
                     chatId,
@@ -196,9 +189,6 @@ class MessageCommandService {
                     room,
                     currentUser.getId()
             ).get(persistedMessage.getId());
-            var responsePayload = messageSupport.toEncryptedPayload(
-                    persistedMessage
-            );
             MessageResponse responseForSender = messageSupport.toResponse(
                     persistedMessage,
                     currentUser,
@@ -207,7 +197,9 @@ class MessageCommandService {
                     List.of(),
                     clientMessageId,
                     replyTo,
-                    responsePayload
+                    messageSupport.toPlainPayload(persistedMessage),
+                    messageSupport.loadAttachmentResponses(List.of(persistedMessage.getId()))
+                            .getOrDefault(persistedMessage.getId(), List.of())
             );
 
             messageDispatchOutboxService.enqueue(new MessageDispatchEvent(
@@ -440,24 +432,23 @@ class MessageCommandService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the sender can edit the message");
         }
 
-        EncryptedMessagePayloadRequest encryptedPayload = request.encryptedPayload();
-        if (encryptedPayload == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Encrypted payload is required");
-        }
-
         List<UserAccount> participants = chatService.findParticipants(chatId);
-        MessageSupport.ValidatedEncryptedPayload validatedEncryptedPayload = messageSupport.validateEncryptedPayload(
-                encryptedPayload,
-                room,
-                currentUser,
-                messageId.toString()
+        String plainContent = messageSupport.validatePlainPayload(
+                request.plainPayload(),
+                chatAttachmentService.hasAttachments(message.getId())
         );
-        chatGroupHistoryKeyService.validateMessageHistoryKey(room, validatedEncryptedPayload.historyKeyId());
+        EncryptedMessageContent encryptedContent = messageContentCryptoService.encrypt(
+                chatId,
+                message.getId(),
+                currentUser.getId(),
+                plainContent
+        );
         message.updateEncryptedContent(
-                validatedEncryptedPayload.sharedEnvelope(),
-                encryptedPayload.scheme(),
-                validatedEncryptedPayload.iv(),
-                validatedEncryptedPayload.historyKeyId(),
+                encryptedContent.ciphertext(),
+                encryptedContent.iv(),
+                encryptedContent.keyVersion(),
+                encryptedContent.algorithm(),
+                plainContent,
                 Instant.now()
         );
         chatMessageRepository.saveAndFlush(message);
@@ -478,9 +469,17 @@ class MessageCommandService {
                 currentUser.getId()
         )
                 .get(message.getId());
-        var responsePayload = messageSupport.toEncryptedPayload(
-                message
+        return messageSupport.toResponse(
+                message,
+                sender,
+                currentUser.getId(),
+                summary,
+                List.of(),
+                null,
+                replyTo,
+                messageSupport.toPlainPayload(message),
+                messageSupport.loadAttachmentResponses(List.of(message.getId()))
+                        .getOrDefault(message.getId(), List.of())
         );
-        return messageSupport.toResponse(message, sender, currentUser.getId(), summary, List.of(), null, replyTo, responsePayload);
     }
 }

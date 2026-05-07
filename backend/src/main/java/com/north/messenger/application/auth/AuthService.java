@@ -10,15 +10,11 @@ import com.north.messenger.api.dto.UserProfileResponse;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.UserBlock;
 import com.north.messenger.domain.model.UserContact;
-import com.north.messenger.domain.model.UserEncryptionAccountKey;
-import com.north.messenger.domain.model.UserEncryptionRecoverySnapshot;
 import com.north.messenger.domain.model.UserSession;
 import com.north.messenger.domain.repository.ChatRoomRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import com.north.messenger.domain.repository.UserBlockRepository;
 import com.north.messenger.domain.repository.UserContactRepository;
-import com.north.messenger.domain.repository.UserEncryptionAccountKeyRepository;
-import com.north.messenger.domain.repository.UserEncryptionRecoverySnapshotRepository;
 import com.north.messenger.domain.repository.UserSessionRepository;
 import com.north.messenger.security.JwtService;
 import java.nio.charset.StandardCharsets;
@@ -31,7 +27,6 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collection;
 import java.util.HexFormat;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -59,8 +54,6 @@ public class AuthService {
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static final int REFRESH_TOKEN_BYTES = 32;
     private static final Duration ONLINE_WINDOW = Duration.ofMinutes(2);
-    private static final String MISSING_ACCOUNT_ENCRYPTION_MESSAGE =
-            "Encrypted chat is unavailable because some participants have not initialized account encryption yet";
     private static final Pattern USERNAME_PATTERN = Pattern.compile("^[a-z][a-z0-9_]{2,23}$");
     private static final Pattern EMAIL_PATTERN = Pattern.compile(
             "^[a-z0-9._%+-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
@@ -73,8 +66,6 @@ public class AuthService {
     private final UserContactRepository userContactRepository;
     private final UserBlockRepository userBlockRepository;
     private final UserSessionRepository userSessionRepository;
-    private final UserEncryptionAccountKeyRepository userEncryptionAccountKeyRepository;
-    private final UserEncryptionRecoverySnapshotRepository userEncryptionRecoverySnapshotRepository;
     private final ChatRoomRepository chatRoomRepository;
     private final PasswordEncoder passwordEncoder;
     private final PasswordPolicyService passwordPolicyService;
@@ -89,8 +80,6 @@ public class AuthService {
             UserContactRepository userContactRepository,
             UserBlockRepository userBlockRepository,
             UserSessionRepository userSessionRepository,
-            UserEncryptionAccountKeyRepository userEncryptionAccountKeyRepository,
-            UserEncryptionRecoverySnapshotRepository userEncryptionRecoverySnapshotRepository,
             ChatRoomRepository chatRoomRepository,
             PasswordEncoder passwordEncoder,
             PasswordPolicyService passwordPolicyService,
@@ -104,8 +93,6 @@ public class AuthService {
         this.userContactRepository = userContactRepository;
         this.userBlockRepository = userBlockRepository;
         this.userSessionRepository = userSessionRepository;
-        this.userEncryptionAccountKeyRepository = userEncryptionAccountKeyRepository;
-        this.userEncryptionRecoverySnapshotRepository = userEncryptionRecoverySnapshotRepository;
         this.chatRoomRepository = chatRoomRepository;
         this.passwordEncoder = passwordEncoder;
         this.passwordPolicyService = passwordPolicyService;
@@ -241,32 +228,9 @@ public class AuthService {
 
         passwordPolicyService.validatePassword(currentUser.getUsername(), currentUser.getDisplayName(), request.newPassword());
 
-        String recoverySnapshotPayloadJson = normalizeOptionalRecoverySnapshotField(
-                request.recoverySnapshotPayloadJson(),
-                "recoverySnapshotPayloadJson"
-        );
-        String recoveryWrappedIdentityRecordJson = normalizeOptionalRecoverySnapshotField(
-                request.recoveryWrappedIdentityRecordJson(),
-                "recoveryWrappedIdentityRecordJson"
-        );
-        if ((recoverySnapshotPayloadJson == null) != (recoveryWrappedIdentityRecordJson == null)) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Encrypted chat recovery re-wrap is incomplete"
-            );
-        }
-
         currentUser.updatePasswordHash(passwordEncoder.encode(request.newPassword()));
-        long nextPasswordVersion = currentUser.advancePasswordVersion();
+        currentUser.advancePasswordVersion();
         userAccountRepository.save(currentUser);
-        if (recoverySnapshotPayloadJson != null && recoveryWrappedIdentityRecordJson != null) {
-            upsertRecoverySnapshotForPasswordVersion(
-                    currentUser.getId(),
-                    recoverySnapshotPayloadJson,
-                    recoveryWrappedIdentityRecordJson,
-                    nextPasswordVersion
-            );
-        }
 
         Instant now = Instant.now();
         userSessionRepository.findAllByUserIdAndRevokedAtIsNullOrderByLastUsedAtDesc(currentUser.getId())
@@ -605,34 +569,6 @@ public class AuthService {
         }
     }
 
-    public void assertUsersHavePublishedAccountKeys(Collection<UserAccount> users) {
-        if (users == null || users.isEmpty()) {
-            return;
-        }
-
-        LinkedHashMap<UUID, UserAccount> usersById = users.stream()
-                .filter(Objects::nonNull)
-                .collect(Collectors.toMap(
-                        UserAccount::getId,
-                        Function.identity(),
-                        (left, ignored) -> left,
-                        LinkedHashMap::new
-                ));
-        if (usersById.isEmpty()) {
-            return;
-        }
-
-        Set<UUID> userIdsWithPublishedAccountKeys = userEncryptionAccountKeyRepository
-                .findAllByUserIdIn(List.copyOf(usersById.keySet())).stream()
-                .map(UserEncryptionAccountKey::getUserId)
-                .collect(Collectors.toSet());
-        if (userIdsWithPublishedAccountKeys.containsAll(usersById.keySet())) {
-            return;
-        }
-
-        throw new ResponseStatusException(HttpStatus.CONFLICT, MISSING_ACCOUNT_ENCRYPTION_MESSAGE);
-    }
-
     public Map<UUID, Boolean> resolveOnlineByUserIds(Collection<UUID> userIds) {
         if (userIds.isEmpty()) {
             return Map.of();
@@ -686,51 +622,6 @@ public class AuthService {
                 false,
                 user.getPasswordVersion()
         );
-    }
-
-    private void upsertRecoverySnapshotForPasswordVersion(
-            UUID userId,
-            String snapshotPayloadJson,
-            String wrappedIdentityRecordJson,
-            long wrappedPasswordVersion
-    ) {
-        Instant now = Instant.now();
-        UserEncryptionRecoverySnapshot snapshot = userEncryptionRecoverySnapshotRepository
-                .findByUserId(userId)
-                .map(existing -> {
-                    existing.update(
-                            snapshotPayloadJson,
-                            wrappedIdentityRecordJson,
-                            wrappedPasswordVersion,
-                            now
-                    );
-                    return existing;
-                })
-                .orElseGet(() -> new UserEncryptionRecoverySnapshot(
-                        UUID.randomUUID(),
-                        userId,
-                        snapshotPayloadJson,
-                        wrappedIdentityRecordJson,
-                        wrappedPasswordVersion,
-                        now,
-                        now
-                ));
-        userEncryptionRecoverySnapshotRepository.save(snapshot);
-    }
-
-    private String normalizeOptionalRecoverySnapshotField(String value, String fieldName) {
-        if (value == null) {
-            return null;
-        }
-
-        String normalized = value.trim();
-        if (normalized.isEmpty()) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    fieldName + " must not be blank"
-            );
-        }
-        return normalized;
     }
 
     private UserSessionResponse toSessionResponse(UserSession session) {

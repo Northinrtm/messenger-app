@@ -5,6 +5,7 @@
 .project
 .env
 .env.local
+.env.deploy-button
 .env.prod
 .env.production
 backend/target/
@@ -18,3 +19,4 @@ web/dist/
 *.log
 *.iml
 AGENTS.md
+docs/ai/

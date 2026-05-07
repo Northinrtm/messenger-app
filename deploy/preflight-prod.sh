@@ -85,6 +85,9 @@ require_value APP_JWT_SECRET
 require_value APP_REALTIME_REDIS_MAC_SECRET
 require_positive_integer BACKEND_REPLICAS
 require_positive_integer WEB_REPLICAS
+require_value MINIO_ROOT_USER
+require_value MINIO_ROOT_PASSWORD
+require_value APP_MESSAGES_CONTENT_ENCRYPTION_PROVIDER
 require_value JITSI_PUBLIC_URL
 require_value JITSI_ADVERTISE_IPS
 require_value JITSI_JICOFO_COMPONENT_SECRET
@@ -93,19 +96,24 @@ require_value JITSI_JVB_AUTH_PASSWORD
 require_value JITSI_JIBRI_RECORDER_PASSWORD
 require_value JITSI_JIBRI_XMPP_PASSWORD
 
-ESCROW_PROVIDER="$(env_file_value APP_E2EE_ESCROW_PROVIDER local)"
-case "$ESCROW_PROVIDER" in
-  local)
-    require_value APP_E2EE_ESCROW_SECRET
+require_value APP_MEDIA_MESSAGE_ATTACHMENTS_MINIO_ENDPOINT
+require_url APP_MEDIA_MESSAGE_ATTACHMENTS_MINIO_PUBLIC_ENDPOINT
+require_value APP_MEDIA_MESSAGE_ATTACHMENTS_MINIO_ACCESS_KEY
+require_value APP_MEDIA_MESSAGE_ATTACHMENTS_MINIO_SECRET_KEY
+require_value APP_MEDIA_MESSAGE_ATTACHMENTS_MINIO_BUCKET
+
+APP_MESSAGES_CONTENT_ENCRYPTION_PROVIDER="$(env_file_value APP_MESSAGES_CONTENT_ENCRYPTION_PROVIDER local)"
+case "${APP_MESSAGES_CONTENT_ENCRYPTION_PROVIDER,,}" in
+  aws-kms)
+    require_value APP_MESSAGES_CONTENT_ENCRYPTION_AWS_KMS_KEY_ID
+    require_value APP_MESSAGES_CONTENT_ENCRYPTION_AWS_REGION
     ;;
-  vault-transit)
-    require_url APP_E2EE_ESCROW_VAULT_ADDRESS
-    require_value APP_E2EE_ESCROW_VAULT_TOKEN
-    require_value APP_E2EE_ESCROW_VAULT_MOUNT_PATH
-    require_value APP_E2EE_ESCROW_VAULT_KEY_NAME
+  local)
+    echo "APP_MESSAGES_CONTENT_ENCRYPTION_PROVIDER=local is not allowed for production preflight" >&2
+    exit 1
     ;;
   *)
-    echo "APP_E2EE_ESCROW_PROVIDER must be 'local' or 'vault-transit', got '$ESCROW_PROVIDER'" >&2
+    echo "APP_MESSAGES_CONTENT_ENCRYPTION_PROVIDER must be either 'aws-kms' or 'local'" >&2
     exit 1
     ;;
 esac

@@ -1,9 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { useEffectEvent } from "react";
-import {
-  isEncryptedMessagePreviewPlaceholder,
-  isUnreadableEncryptedMessagePreview,
-} from "../../../lib/e2eeShared";
 import type { ChatMessage, ChatSummary, MessageSnippet } from "../../../lib/types";
 import {
   applyChatMessageActivity,
@@ -25,11 +21,7 @@ export function useChatPreviews({
   const applyChatPreviewMessage = useEffectEvent(
     (message: Pick<ChatMessage, "chatId" | "content" | "createdAt" | "replyTo">) => {
       const previewText = formatPreviewText(message);
-      if (
-        !previewText.trim() ||
-        isUnreadableEncryptedMessagePreview(message.content) ||
-        isEncryptedMessagePreviewPlaceholder(previewText)
-      ) {
+      if (!previewText.trim()) {
         return;
       }
 
@@ -59,11 +51,7 @@ export function useChatPreviews({
   const applyServerChatPreviewMessage = useEffectEvent(
     (message: ChatMessage, unreadMode: ChatMessageActivityMode = "keep") => {
       const previewText = formatPreviewText(message);
-      if (
-        !previewText.trim() ||
-        isUnreadableEncryptedMessagePreview(message.content) ||
-        isEncryptedMessagePreviewPlaceholder(previewText)
-      ) {
+      if (!previewText.trim()) {
         return;
       }
 

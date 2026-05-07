@@ -1,11 +1,9 @@
 import { ApiError } from "./api";
-import { ENCRYPTION_INITIALIZING_MESSAGE } from "./e2eeShared";
 import type { SendDiagnosticRecord, SendDiagnosticStep } from "./sendDiagnostics";
 
 export type NormalizedSendFailureCategory =
   | "transport"
   | "timeout"
-  | "encryption"
   | "auth"
   | "request"
   | "server"
@@ -17,8 +15,6 @@ export type NormalizedSendFailureCode =
   | "realtime_connection_interrupted"
   | "realtime_ack_timeout"
   | "message_preparation_timeout"
-  | "encryption_initializing"
-  | "encryption_error"
   | "auth_session_ended"
   | "duplicate_pending"
   | "request_conflict"
@@ -28,8 +24,6 @@ export type NormalizedSendFailureCode =
 
 export type NormalizedSendFailureTransport =
   | "ws"
-  | "http"
-  | "ws+http-fallback"
   | "unknown";
 
 export type NormalizedSendFailure = {
@@ -118,9 +112,7 @@ export function getSendFailureDisplayLabel(
     case "realtime_ack_timeout":
       return "Confirmation timed out";
     case "message_preparation_timeout":
-      return "Encryption timed out";
-    case "encryption_initializing":
-      return "Encryption is not ready";
+      return "Preparation timed out";
     case "auth_session_ended":
       return "Session ended";
     case "duplicate_pending":
@@ -131,8 +123,6 @@ export function getSendFailureDisplayLabel(
       return "Request rejected";
     case "server_error":
       return "Server error";
-    case "encryption_error":
-      return "Encryption failed";
     default:
       return fallbackSendFailureDisplayLabel(failure);
   }
@@ -147,15 +137,11 @@ export function getSendFailureDisplayTitle(
 function inferSendFailureTransport(
   steps: SendDiagnosticStep[]
 ): NormalizedSendFailureTransport {
-  if (steps.some((step) => step.name.startsWith("transport:httpFallback"))) {
-    return "ws+http-fallback";
-  }
-
   for (let index = steps.length - 1; index >= 0; index -= 1) {
     const step = steps[index];
     if (step?.name === "transport:selected") {
       const transport = step.detail?.transport;
-      if (transport === "ws" || transport === "http") {
+      if (transport === "ws") {
         return transport;
       }
     }
@@ -168,9 +154,6 @@ function inferSendFailureTransport(
   if (stage.startsWith("realtime:")) {
     return "ws";
   }
-  if (stage.startsWith("http:")) {
-    return "http";
-  }
   return "unknown";
 }
 
@@ -180,12 +163,7 @@ function inferSendFailureStage(steps: SendDiagnosticStep[]) {
     if (!stepName || stepName === "onError") {
       continue;
     }
-    if (
-      stepName.endsWith(":error") ||
-      stepName.endsWith("ackTimeout") ||
-      stepName === "e2ee:recoverableRetry" ||
-      stepName === "e2ee:recoverableRetryRecovered"
-    ) {
+    if (stepName.endsWith(":error") || stepName.endsWith("ackTimeout")) {
       return stepName;
     }
   }
@@ -197,13 +175,6 @@ function classifySendFailure(status: number | null, message: string): Pick<
   NormalizedSendFailure,
   "category" | "code"
 > {
-  if (message === ENCRYPTION_INITIALIZING_MESSAGE) {
-    return {
-      category: "encryption",
-      code: "encryption_initializing",
-    };
-  }
-
   if (status === 409 && message === "Message send is already pending") {
     return {
       category: "request",
@@ -257,14 +228,6 @@ function classifySendFailure(status: number | null, message: string): Pick<
     };
   }
 
-  const normalizedMessage = message.toLowerCase();
-  if (normalizedMessage.includes("encrypted") || normalizedMessage.includes("encryption")) {
-    return {
-      category: "encryption",
-      code: "encryption_error",
-    };
-  }
-
   if (status !== null && status >= 500) {
     return {
       category: "server",
@@ -300,8 +263,6 @@ function fallbackSendFailureDisplayLabel(
       return "Connection problem";
     case "timeout":
       return "Timed out";
-    case "encryption":
-      return "Encryption failed";
     case "auth":
       return "Session ended";
     case "request":

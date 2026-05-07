@@ -48,15 +48,6 @@ export type MessageSnippet = {
   preview: string;
 };
 
-export type ChatHistoryBackfillStatus = {
-  state: "PENDING" | "PARTIAL" | "COMPLETE";
-  requiredHistoryKeyCount: number;
-  grantedHistoryKeyCount: number;
-  primaryGrantorUserId: string | null;
-  joinedAt: string;
-  completedAt: string | null;
-};
-
 export type ChatPrejoinHistoryPolicy = "JOIN_ONLY" | "FULL_HISTORY";
 
 export type ChatCapabilities = {
@@ -75,14 +66,10 @@ export type ChatMessageAttachment = {
   fileName: string;
   mimeType: string;
   sizeBytes: number;
-  ciphertextSizeBytes: number;
-  key: string;
-  iv: string;
 };
 
-export type EncryptedMessagePayload = {
-  scheme: string;
-  sharedEnvelope?: string | null;
+export type PlainMessagePayload = {
+  content: string;
 };
 
 export type ChatSummary = {
@@ -101,9 +88,7 @@ export type ChatSummary = {
   updatedAt: string;
   unreadCount: number;
   membershipVersion?: number;
-  activeHistoryKeyId?: string | null;
   pinnedMessage: MessageSnippet | null;
-  historyAccessStatus?: ChatHistoryBackfillStatus | null;
   prejoinHistoryPolicy?: ChatPrejoinHistoryPolicy | null;
 };
 
@@ -151,7 +136,6 @@ export type ChatOpen = {
   initialMessages: ApiChatMessage[];
   initialMessagesNextCursor: string | null;
   confirmedPendingOutgoingClientMessageIds: string[];
-  activeHistoryKeyAccess: GroupHistoryKeyAccess | null;
 };
 
 export type MessagePage = {
@@ -198,7 +182,8 @@ export type ApiChatMessage = {
   clientMessageId?: string | null;
   replyTo: MessageSnippet | null;
   reactions: MessageReaction[];
-  encryptedPayload: EncryptedMessagePayload | null;
+  plainPayload?: PlainMessagePayload | null;
+  attachments?: ChatMessageAttachment[];
 };
 
 export type ChatMessage = {
@@ -286,36 +271,4 @@ export type ApiErrorResponse = {
   error: string;
   path: string;
   details: string[];
-};
-
-export type UserEncryptionRecoverySnapshot = {
-  snapshotPayloadJson: string;
-  wrappedIdentityRecordJson: string;
-  wrappedPasswordVersion?: number;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type GroupHistoryKeyAccess = {
-  historyKeyId: string;
-  wrappedKeyPayloadJson: string;
-  serverGrantPayloadJson?: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type ActiveGroupHistoryKeyEvent = GroupHistoryKeyAccess & {
-  chatId: string;
-};
-
-export type UserEncryptionAccountKey = {
-  userId: string;
-  publicKey: string;
-  accountKeyVersion: number;
-  identityGeneration: number;
-  identitySigningPublicKey: string;
-  identityKeyAlgorithm: string;
-  accountKeyAlgorithm: string;
-  signedAt: string;
-  signature: string;
 };

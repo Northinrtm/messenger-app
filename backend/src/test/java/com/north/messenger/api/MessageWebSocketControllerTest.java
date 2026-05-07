@@ -1,9 +1,10 @@
 package com.north.messenger.api;
 
 import com.north.messenger.api.dto.CreateMessageRequest;
-import com.north.messenger.api.dto.EncryptedMessagePayloadRequest;
 import com.north.messenger.api.dto.MessageResponse;
 import com.north.messenger.api.dto.ParticipantResponse;
+import com.north.messenger.api.dto.PlainMessagePayloadRequest;
+import com.north.messenger.api.dto.PlainMessagePayloadResponse;
 import com.north.messenger.application.message.MessageService;
 import com.north.messenger.application.message.RealtimeMessagingGateway;
 import jakarta.validation.Validation;
@@ -45,10 +46,7 @@ class MessageWebSocketControllerTest {
         CreateMessageRequest request = new CreateMessageRequest(
                 "client-message-id",
                 null,
-                new EncryptedMessagePayloadRequest(
-                        "CHAT-EPOCH-KEY-AES-GCM",
-                        "{\"aadVersion\":1,\"chatId\":\"chat-id\",\"senderUserId\":\"user-id\",\"historyKeyId\":\"history-key-id\",\"ciphertext\":\"payload\",\"iv\":\"012345678901\"}"
-                )
+                new PlainMessagePayloadRequest("hello")
         );
         MessageResponse response = new MessageResponse(
                 UUID.randomUUID(),
@@ -61,7 +59,8 @@ class MessageWebSocketControllerTest {
                 request.clientMessageId(),
                 null,
                 List.of(),
-                null
+                new PlainMessagePayloadResponse("hello"),
+                List.of()
         );
         Principal principal = () -> "north";
 
@@ -79,10 +78,7 @@ class MessageWebSocketControllerTest {
         CreateMessageRequest request = new CreateMessageRequest(
                 " ",
                 null,
-                new EncryptedMessagePayloadRequest(
-                        "CHAT-EPOCH-KEY-AES-GCM",
-                        "{\"aadVersion\":1,\"chatId\":\"chat-id\",\"senderUserId\":\"user-id\",\"historyKeyId\":\"history-key-id\",\"ciphertext\":\"payload\",\"iv\":\"012345678901\"}"
-                )
+                new PlainMessagePayloadRequest("hello")
         );
         Principal principal = () -> "north";
 
@@ -113,15 +109,12 @@ class MessageWebSocketControllerTest {
         CreateMessageRequest request = new CreateMessageRequest(
                 "client-message-id",
                 null,
-                new EncryptedMessagePayloadRequest(
-                        "CHAT-EPOCH-KEY-AES-GCM",
-                        "{\"aadVersion\":1,\"chatId\":\"chat-id\",\"senderUserId\":\"user-id\",\"historyKeyId\":\"history-key-id\",\"ciphertext\":\"payload\",\"iv\":\"012345678901\"}"
-                )
+                new PlainMessagePayloadRequest("hello")
         );
         Principal principal = () -> "north";
 
         when(messageService.sendMessage(chatId, "north", request))
-                .thenThrow(new ResponseStatusException(HttpStatus.CONFLICT, "Encrypted chat is still initializing. Try again."));
+                .thenThrow(new ResponseStatusException(HttpStatus.CONFLICT, "Message payload is invalid."));
 
         controller.sendMessage(principal, chatId, request);
 

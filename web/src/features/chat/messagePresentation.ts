@@ -100,22 +100,36 @@ export function buildAttachmentOnlyMessageText(attachments: ChatMessageAttachmen
   return `\u0424\u0430\u0439\u043B\u044B: ${attachments.length}`;
 }
 
-export function buildChatListPreviewText(message: Pick<ChatMessage, "content" | "replyTo">) {
+export function buildMessageContentPreview(
+  message: Pick<ChatMessage, "content" | "attachments">,
+  maxLength = 88,
+) {
+  const collapsedText = message.content.trim().replace(/\s+/g, " ");
+  if (collapsedText) {
+    return buildMessagePreview(collapsedText, maxLength);
+  }
+
+  return buildMessagePreview(buildAttachmentOnlyMessageText(message.attachments ?? []), maxLength);
+}
+
+export function buildChatListPreviewText(
+  message: Pick<ChatMessage, "content" | "replyTo" | "attachments">,
+) {
   if (message.replyTo) {
     return `\u21AA ${message.replyTo.sender.displayName}: ${buildMessagePreview(message.replyTo.preview, 56)}`;
   }
 
-  return buildMessagePreview(message.content, 88);
+  return buildMessageContentPreview(message, 88);
 }
 
 export function toMessageSnippet(
-  message: Pick<ChatMessage, "id" | "sender" | "createdAt" | "content">,
+  message: Pick<ChatMessage, "id" | "sender" | "createdAt" | "content" | "attachments">,
 ): MessageSnippet {
   return {
     id: message.id,
     sender: message.sender,
     createdAt: message.createdAt,
-    preview: buildMessagePreview(message.content, 88),
+    preview: buildMessageContentPreview(message, 88),
   };
 }
 
@@ -146,8 +160,9 @@ export function getMessageStatusGlyph(status: MessageStatus | null) {
     case "SENDING":
       return "\u2026";
     case "READ":
-    case "DELIVERED":
       return "\u2713\u2713";
+    case "DELIVERED":
+      return "\u2713";
     case "SENT":
     default:
       return "\u2713";
@@ -161,9 +176,9 @@ export function getMessageStatusLabel(status: MessageStatus | null) {
     case "SENDING":
       return "\u041E\u0442\u043F\u0440\u0430\u0432\u043B\u044F\u0435\u0442\u0441\u044F";
     case "READ":
-      return "\u041F\u0440\u043E\u0447\u0438\u0442\u0430\u043D\u043E";
+      return `\u041F\u0440\u043E\u0447\u0438\u0442\u0430\u043D\u043E (${status.readCount}/${status.recipientCount})`;
     case "DELIVERED":
-      return "\u0414\u043E\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u043E";
+      return `\u0414\u043E\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u043E (${status.deliveredCount}/${status.recipientCount})`;
     case "SENT":
     default:
       return "\u041E\u0442\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u043E";

@@ -1,6 +1,5 @@
 package com.north.messenger.application.chat;
 
-import com.north.messenger.api.dto.ChatHistoryBackfillStatusResponse;
 import com.north.messenger.api.dto.ChatCapabilitiesResponse;
 import com.north.messenger.api.dto.ChatSummaryResponse;
 import com.north.messenger.api.dto.ChatRemovalEventResponse;
@@ -11,10 +10,7 @@ import com.north.messenger.api.dto.AddGroupParticipantsRequest;
 import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.api.dto.UpdateGroupChatRequest;
 import com.north.messenger.application.auth.AuthService;
-import com.north.messenger.application.e2ee.ChatHistoryBackfillStatusService;
-import com.north.messenger.application.e2ee.GroupHistoryAccessBackfillRequestedEvent;
-import com.north.messenger.application.e2ee.GroupHistoryKeyRotationRequestedEvent;
-import com.north.messenger.application.message.EncryptedMessagePreviewService;
+import com.north.messenger.application.message.MessagePreviewService;
 import com.north.messenger.application.message.RealtimeMessagingGateway;
 import com.north.messenger.observability.MessengerTelemetry;
 import com.north.messenger.domain.model.ChatMessage;
@@ -78,8 +74,7 @@ public class ChatService {
     private final MessengerTelemetry telemetry;
     private final DirectChatCreationLockService directChatCreationLockService;
     private final ApplicationEventPublisher eventPublisher;
-    private final ChatHistoryBackfillStatusService chatHistoryBackfillStatusService;
-    private final EncryptedMessagePreviewService encryptedMessagePreviewService;
+    private final MessagePreviewService messagePreviewService;
 
     public ChatService(
             AuthService authService,
@@ -97,8 +92,7 @@ public class ChatService {
             MessengerTelemetry telemetry,
             DirectChatCreationLockService directChatCreationLockService,
             ApplicationEventPublisher eventPublisher,
-            ChatHistoryBackfillStatusService chatHistoryBackfillStatusService,
-            EncryptedMessagePreviewService encryptedMessagePreviewService
+            MessagePreviewService messagePreviewService
     ) {
         this.authService = authService;
         this.chatRoomRepository = chatRoomRepository;
@@ -115,8 +109,7 @@ public class ChatService {
         this.telemetry = telemetry;
         this.directChatCreationLockService = directChatCreationLockService;
         this.eventPublisher = eventPublisher;
-        this.chatHistoryBackfillStatusService = chatHistoryBackfillStatusService;
-        this.encryptedMessagePreviewService = encryptedMessagePreviewService;
+        this.messagePreviewService = messagePreviewService;
     }
 
     public List<ChatSummaryResponse> listChats(String username) {
@@ -142,8 +135,6 @@ public class ChatService {
         Map<UUID, ChatRoom> roomsById = chatRoomRepository.findAllById(visibleChatIds).stream()
                 .collect(Collectors.toMap(ChatRoom::getId, Function.identity()));
         Map<UUID, Integer> unreadCountsByChatId = loadUnreadCounts(visibleChatIds, currentUser.getId());
-        Map<UUID, ChatHistoryBackfillStatusResponse> historyAccessStatusesByChatId =
-                chatHistoryBackfillStatusService.getStatusesByChatIdsForUser(visibleChatIds, currentUser.getId());
 
         List<ChatSummaryResponse> chats = new ArrayList<>();
         for (UUID chatId : visibleChatIds) {
@@ -152,8 +143,7 @@ public class ChatService {
                 chats.add(toSummary(
                         room,
                         currentUser.getId(),
-                        unreadCountsByChatId.getOrDefault(chatId, 0),
-                        historyAccessStatusesByChatId.get(chatId)
+                        unreadCountsByChatId.getOrDefault(chatId, 0)
                 ));
             }
         }
@@ -213,7 +203,6 @@ public class ChatService {
         }
 
         authService.assertUsersCanCommunicate(currentUser, participant);
-        authService.assertUsersHavePublishedAccountKeys(List.of(currentUser, participant));
 
         DirectChatPair directChatPair = DirectChatPair.of(currentUser.getId(), participant.getId());
         directChatCreationLockService.lockForPair(directChatPair.lowUserId(), directChatPair.highUserId());
@@ -239,7 +228,6 @@ public class ChatService {
         List<UserAccount> participants = normalizedUsernames.stream()
                 .map(authService::requireExistingUser)
                 .toList();
-        authService.assertUsersHavePublishedAccountKeys(buildDistinctUserAudience(currentUser, participants));
 
         ChatRoom room = new ChatRoom(
                 UUID.randomUUID(),
@@ -251,7 +239,6 @@ public class ChatService {
         chatRoomRepository.save(room);
         addParticipants(room, currentUser, participants);
         persistMembershipVersionIncrement(room);
-        publishGroupHistoryRotationRequest(room.getId(), currentUser.getId());
         scheduleChatUpdated(room.getId());
         return getChatSummaryForUser(room.getId(), currentUser);
     }
@@ -290,24 +277,14 @@ public class ChatService {
                 .map(authService::requireExistingUser)
                 .toList();
         participants.forEach(participant -> requireGroupNotBanned(chatId, participant));
-        authService.assertUsersHavePublishedAccountKeys(
-                buildDistinctUserAudience(findParticipants(chatId), participants)
-        );
 
         Instant joinedAt = Instant.now();
         participants.forEach(participant -> {
             ChatParticipant membership = new ChatParticipant(UUID.randomUUID(), chatId, participant.getId(), joinedAt);
             grantPrejoinHistoryAccessIfEnabled(room, membership, joinedAt);
             chatParticipantRepository.save(membership);
-            syncParticipantHistoryAccessStatus(room, membership, currentUser.getId());
         });
         persistMembershipVersionIncrement(room);
-        publishGroupHistoryBackfillRequest(
-                chatId,
-                participants.stream().map(UserAccount::getId).collect(Collectors.toSet()),
-                currentUser.getId()
-        );
-        publishGroupHistoryRotationRequest(chatId, currentUser.getId());
         scheduleChatUpdated(chatId);
         return getChatSummaryForUser(chatId, currentUser);
     }
@@ -340,14 +317,7 @@ public class ChatService {
                 if (membership.getPrejoinHistoryAccessGrantedAt() == null) {
                     membership.grantPrejoinHistoryAccess(grantedAt);
                 }
-                syncParticipantHistoryAccessStatus(room, membership, currentUser.getId());
             });
-            publishGroupHistoryBackfillRequest(
-                    chatId,
-                    memberships.stream().map(ChatParticipant::getUserId).collect(Collectors.toSet()),
-                    currentUser.getId()
-            );
-            chatHistoryBackfillStatusService.refreshCoverage(chatId);
         }
         scheduleChatUpdated(chatId);
         return getChatSummaryForUser(chatId, currentUser);
@@ -371,7 +341,6 @@ public class ChatService {
         }
 
         chatParticipantRepository.deleteByChatIdAndUserId(chatId, currentUser.getId());
-        chatHistoryBackfillStatusService.clearParticipantBackfill(chatId, currentUser.getId());
         chatRoomModeratorRepository.deleteByChatIdAndUserId(chatId, currentUser.getId());
         userArchivedChatRepository.deleteByUserIdAndChatId(currentUser.getId(), chatId);
         userDeletedChatRepository.deleteByUserIdAndChatId(currentUser.getId(), chatId);
@@ -391,7 +360,6 @@ public class ChatService {
         persistMembershipVersionIncrement(room);
 
         scheduleChatRemoval(chatId, List.of(currentUser.getUsername()));
-        publishGroupHistoryRotationRequest(chatId, currentUser.getId());
         scheduleChatUpdated(chatId);
     }
 
@@ -429,13 +397,11 @@ public class ChatService {
         boolean wasMember = chatParticipantRepository.existsByChatIdAndUserId(chatId, bannedUser.getId());
         if (wasMember) {
             chatParticipantRepository.deleteByChatIdAndUserId(chatId, bannedUser.getId());
-            chatHistoryBackfillStatusService.clearParticipantBackfill(chatId, bannedUser.getId());
             chatRoomModeratorRepository.deleteByChatIdAndUserId(chatId, bannedUser.getId());
             userArchivedChatRepository.deleteByUserIdAndChatId(bannedUser.getId(), chatId);
             userDeletedChatRepository.deleteByUserIdAndChatId(bannedUser.getId(), chatId);
             persistMembershipVersionIncrement(room);
             scheduleChatRemoval(chatId, List.of(bannedUser.getUsername()));
-            publishGroupHistoryRotationRequest(chatId, currentUser.getId());
             scheduleChatUpdated(chatId);
         }
     }
@@ -501,13 +467,11 @@ public class ChatService {
         assertCanModerateTarget(room, currentUser, currentRole, participant, "remove");
 
         chatParticipantRepository.deleteByChatIdAndUserId(chatId, participant.getId());
-        chatHistoryBackfillStatusService.clearParticipantBackfill(chatId, participant.getId());
         chatRoomModeratorRepository.deleteByChatIdAndUserId(chatId, participant.getId());
         userArchivedChatRepository.deleteByUserIdAndChatId(participant.getId(), chatId);
         userDeletedChatRepository.deleteByUserIdAndChatId(participant.getId(), chatId);
         persistMembershipVersionIncrement(room);
         scheduleChatRemoval(chatId, List.of(participant.getUsername()));
-        publishGroupHistoryRotationRequest(chatId, currentUser.getId());
         scheduleChatUpdated(chatId);
     }
 
@@ -523,20 +487,11 @@ public class ChatService {
 
         boolean alreadyMember = chatParticipantRepository.existsByChatIdAndUserId(chatId, currentUser.getId());
         if (!alreadyMember) {
-            authService.assertUsersHavePublishedAccountKeys(
-                    buildDistinctUserAudience(findParticipants(chatId), List.of(currentUser))
-            );
             Instant joinedAt = Instant.now();
             ChatParticipant membership = new ChatParticipant(UUID.randomUUID(), chatId, currentUser.getId(), joinedAt);
             grantPrejoinHistoryAccessIfEnabled(room, membership, joinedAt);
             chatParticipantRepository.save(membership);
-            syncParticipantHistoryAccessStatus(room, membership, room.getOwnerUserId());
             persistMembershipVersionIncrement(room);
-            publishGroupHistoryBackfillRequest(chatId, Set.of(currentUser.getId()), room.getOwnerUserId());
-            publishGroupHistoryRotationRequest(
-                    chatId,
-                    room.getOwnerUserId() != null ? room.getOwnerUserId() : currentUser.getId()
-            );
         }
 
         restoreDeletedChatStateForUsers(chatId, List.of(currentUser.getId()));
@@ -618,8 +573,6 @@ public class ChatService {
         List<ParticipantResponse> members = buildParticipantResponses(memberships, usersById, onlineByUserId);
         List<UUID> moderatorUserIds = resolveModeratorUserIds(chatId);
         Map<UUID, Integer> unreadCountsByUserId = loadUnreadCountsForUsers(chatId);
-        Map<UUID, ChatHistoryBackfillStatusResponse> historyAccessStatusesByUserId =
-                chatHistoryBackfillStatusService.getStatusesByUserIdsForChat(chatId, participantUserIds);
         List<UserDeletedChat> deletedChatEntries = userDeletedChatRepository.findAllByChatId(chatId);
         Set<UUID> deletedUserIds = (deletedChatEntries == null ? List.<UserDeletedChat>of() : deletedChatEntries).stream()
                 .map(UserDeletedChat::getUserId)
@@ -648,8 +601,7 @@ public class ChatService {
                                     memberships,
                                     moderatorUserIds,
                                     members,
-                                    lastMessagesByUserId.get(user.getId()),
-                                    historyAccessStatusesByUserId.get(user.getId())
+                                    lastMessagesByUserId.get(user.getId())
                             )
                     ));
             telemetry.recordChatSummaryBroadcast(telemetrySample, room, audience.size(), "sent", chatId);
@@ -721,7 +673,6 @@ public class ChatService {
         chatRoomRepository.save(room);
         addParticipants(room, currentUser, List.of(participant));
         persistMembershipVersionIncrement(room);
-        publishGroupHistoryRotationRequest(room.getId(), currentUser.getId());
         scheduleChatUpdated(room.getId());
         return getChatSummaryForUser(room.getId(), currentUser);
     }
@@ -739,12 +690,7 @@ public class ChatService {
     }
 
     private ChatSummaryResponse toSummary(ChatRoom room, UUID currentUserId) {
-        return toSummary(
-                room,
-                currentUserId,
-                loadUnreadCount(room.getId(), currentUserId),
-                room.isDirect() ? null : chatHistoryBackfillStatusService.getStatus(room.getId(), currentUserId)
-        );
+        return toSummary(room, currentUserId, loadUnreadCount(room.getId(), currentUserId));
     }
 
     @Transactional
@@ -759,8 +705,7 @@ public class ChatService {
     private ChatSummaryResponse toSummary(
             ChatRoom room,
             UUID currentUserId,
-            int unreadCount,
-            ChatHistoryBackfillStatusResponse historyAccessStatus
+            int unreadCount
     ) {
         List<ChatParticipant> memberships = chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(room.getId());
         List<UUID> participantUserIds = memberships.stream()
@@ -777,8 +722,7 @@ public class ChatService {
                 unreadCount,
                 memberships,
                 resolveModeratorUserIds(room.getId()),
-                buildParticipantResponses(memberships, usersById, onlineByUserId),
-                historyAccessStatus
+                buildParticipantResponses(memberships, usersById, onlineByUserId)
         );
     }
 
@@ -789,8 +733,7 @@ public class ChatService {
             int unreadCount,
             List<ChatParticipant> memberships,
             List<UUID> moderatorUserIds,
-            List<ParticipantResponse> members,
-            ChatHistoryBackfillStatusResponse historyAccessStatus
+            List<ParticipantResponse> members
     ) {
         ChatParticipant currentMembership = memberships.stream()
                 .filter(membership -> membership.getUserId().equals(currentUserId))
@@ -804,8 +747,7 @@ public class ChatService {
                 memberships,
                 moderatorUserIds,
                 members,
-                findLatestVisibleMessage(room, currentMembership, currentUserId),
-                historyAccessStatus
+                findLatestVisibleMessage(room, currentMembership, currentUserId)
         );
     }
 
@@ -817,8 +759,7 @@ public class ChatService {
             List<ChatParticipant> memberships,
             List<UUID> moderatorUserIds,
             List<ParticipantResponse> members,
-            ChatMessage lastMessage,
-            ChatHistoryBackfillStatusResponse historyAccessStatus
+            ChatMessage lastMessage
     ) {
         UUID ownerUserId = resolveGroupOwnerUserId(room, memberships);
         ChatParticipant currentMembership = memberships.stream()
@@ -852,8 +793,7 @@ public class ChatService {
                         lastMessage,
                         updatedAt,
                         unreadCount,
-                        pinnedMessage,
-                        historyAccessStatus
+                        pinnedMessage
                 ),
                 buildChatCapabilities(room, currentUserId, ownerUserId, moderatorUserIds),
                 room.isDirect() ? null : ownerUserId,
@@ -865,9 +805,7 @@ public class ChatService {
                 updatedAt,
                 unreadCount,
                 room.getMembershipVersion(),
-                room.getActiveHistoryKeyId(),
                 pinnedMessage,
-                room.isDirect() ? null : historyAccessStatus,
                 room.isDirect() ? null : room.getPrejoinHistoryPolicy().name()
         );
     }
@@ -880,24 +818,12 @@ public class ChatService {
             ChatMessage lastMessage,
             Instant updatedAt,
             int unreadCount,
-            MessageSnippetResponse pinnedMessage,
-            ChatHistoryBackfillStatusResponse historyAccessStatus
+            MessageSnippetResponse pinnedMessage
     ) {
         String moderatorsVersion = moderatorUserIds.stream()
                 .map(UUID::toString)
                 .sorted()
                 .collect(Collectors.joining(","));
-        String historyStatusVersion = historyAccessStatus == null
-                ? "-"
-                : String.join(
-                        "|",
-                        historyAccessStatus.state(),
-                        Integer.toString(historyAccessStatus.requiredHistoryKeyCount()),
-                        Integer.toString(historyAccessStatus.grantedHistoryKeyCount()),
-                        String.valueOf(historyAccessStatus.primaryGrantorUserId()),
-                        String.valueOf(historyAccessStatus.joinedAt()),
-                        String.valueOf(historyAccessStatus.completedAt())
-                );
         return String.join(
                 "|",
                 room.getId().toString(),
@@ -907,7 +833,6 @@ public class ChatService {
                 String.valueOf(updatedAt),
                 Long.toString(lastMessage != null && lastMessage.getServerOrder() != null ? lastMessage.getServerOrder() : Long.MIN_VALUE),
                 Long.toString(room.getMembershipVersion()),
-                String.valueOf(room.getActiveHistoryKeyId()),
                 String.valueOf(room.getPinnedMessageId()),
                 String.valueOf(room.getPinnedAt()),
                 String.valueOf(ownerUserId),
@@ -921,8 +846,7 @@ public class ChatService {
                                 pinnedMessage.id().toString(),
                                 pinnedMessage.createdAt().toString(),
                                 pinnedMessage.preview()
-                        ),
-                historyStatusVersion
+                        )
         );
     }
 
@@ -1000,8 +924,8 @@ public class ChatService {
                 .orElse(null);
     }
 
-    private ChatMessage findLatestEncryptedMessage(UUID chatId) {
-        return chatMessageRepository.findLatestEncryptedByChatId(
+    private ChatMessage findLatestMessage(UUID chatId) {
+        return chatMessageRepository.findLatestByChatId(
                         chatId,
                         PageRequest.of(0, 1)
                 ).stream()
@@ -1021,7 +945,7 @@ public class ChatService {
 
         Map<UUID, ChatParticipant> membershipsByUserId = memberships.stream()
                 .collect(Collectors.toMap(ChatParticipant::getUserId, Function.identity()));
-        ChatMessage sharedLatestMessage = findLatestEncryptedMessage(room.getId());
+        ChatMessage sharedLatestMessage = findLatestMessage(room.getId());
         Set<UUID> fallbackUserIds = new LinkedHashSet<>();
         List<UUID> audienceUserIds = audience.stream()
                 .map(UserAccount::getId)
@@ -1097,7 +1021,7 @@ public class ChatService {
     }
 
     private String summarizeLastMessage(ChatMessage lastMessage) {
-        return encryptedMessagePreviewService.summarizeMessagePreview(lastMessage);
+        return messagePreviewService.summarizeMessagePreview(lastMessage);
     }
 
     private Map<UUID, Integer> loadUnreadCounts(Collection<UUID> chatIds, UUID userId) {
@@ -1132,9 +1056,6 @@ public class ChatService {
             grantPrejoinHistoryAccessIfEnabled(room, ownerMembership, joinedAt);
         }
         chatParticipantRepository.save(ownerMembership);
-        if (!room.isDirect()) {
-            syncParticipantHistoryAccessStatus(room, ownerMembership, currentUser.getId());
-        }
 
         for (UserAccount participant : participants) {
             ChatParticipant membership = new ChatParticipant(
@@ -1147,9 +1068,6 @@ public class ChatService {
                 grantPrejoinHistoryAccessIfEnabled(room, membership, joinedAt);
             }
             chatParticipantRepository.save(membership);
-            if (!room.isDirect()) {
-                syncParticipantHistoryAccessStatus(room, membership, currentUser.getId());
-            }
         }
     }
 
@@ -1164,30 +1082,6 @@ public class ChatService {
 
         room.incrementMembershipVersion();
         chatRoomRepository.save(room);
-    }
-
-    private void publishGroupHistoryBackfillRequest(
-            UUID chatId,
-            Set<UUID> recipientUserIds,
-            UUID primaryGrantorUserId
-    ) {
-        if (chatId == null || recipientUserIds == null || recipientUserIds.isEmpty()) {
-            return;
-        }
-
-        eventPublisher.publishEvent(new GroupHistoryAccessBackfillRequestedEvent(
-                chatId,
-                recipientUserIds,
-                primaryGrantorUserId
-        ));
-    }
-
-    private void publishGroupHistoryRotationRequest(UUID chatId, UUID primaryGrantorUserId) {
-        if (chatId == null) {
-            return;
-        }
-
-        eventPublisher.publishEvent(new GroupHistoryKeyRotationRequestedEvent(chatId, primaryGrantorUserId));
     }
 
     private void scheduleChatRemoval(UUID chatId, Collection<String> usernames) {
@@ -1338,37 +1232,6 @@ public class ChatService {
                 .collect(Collectors.toMap(UserAccount::getId, Function.identity()));
     }
 
-    private List<UserAccount> buildDistinctUserAudience(UserAccount currentUser, List<UserAccount> participants) {
-        LinkedHashMap<UUID, UserAccount> usersById = new LinkedHashMap<>();
-        if (currentUser != null) {
-            usersById.put(currentUser.getId(), currentUser);
-        }
-        if (participants != null) {
-            participants.stream()
-                    .filter(Objects::nonNull)
-                    .forEach(user -> usersById.putIfAbsent(user.getId(), user));
-        }
-        return List.copyOf(usersById.values());
-    }
-
-    private List<UserAccount> buildDistinctUserAudience(
-            List<UserAccount> existingParticipants,
-            List<UserAccount> additionalParticipants
-    ) {
-        LinkedHashMap<UUID, UserAccount> usersById = new LinkedHashMap<>();
-        if (existingParticipants != null) {
-            existingParticipants.stream()
-                    .filter(Objects::nonNull)
-                    .forEach(user -> usersById.putIfAbsent(user.getId(), user));
-        }
-        if (additionalParticipants != null) {
-            additionalParticipants.stream()
-                    .filter(Objects::nonNull)
-                    .forEach(user -> usersById.putIfAbsent(user.getId(), user));
-        }
-        return List.copyOf(usersById.values());
-    }
-
     private String normalizeUsername(String username) {
         return username.trim().toLowerCase(Locale.ROOT);
     }
@@ -1400,25 +1263,6 @@ public class ChatService {
         if (room.getPrejoinHistoryPolicy() == ChatPrejoinHistoryPolicy.FULL_HISTORY) {
             membership.grantPrejoinHistoryAccess(grantedAt);
         }
-    }
-
-    private void syncParticipantHistoryAccessStatus(
-            ChatRoom room,
-            ChatParticipant membership,
-            UUID primaryGrantorUserId
-    ) {
-        if (room.getPrejoinHistoryPolicy() != ChatPrejoinHistoryPolicy.FULL_HISTORY
-                && membership.getPrejoinHistoryAccessGrantedAt() == null) {
-            chatHistoryBackfillStatusService.clearParticipantBackfill(room.getId(), membership.getUserId());
-            return;
-        }
-
-        chatHistoryBackfillStatusService.trackParticipantBackfill(
-                room.getId(),
-                membership.getUserId(),
-                primaryGrantorUserId,
-                membership.getJoinedAt()
-        );
     }
 
     private Instant resolveVisibleHistoryStart(ChatRoom room, ChatParticipant membership) {

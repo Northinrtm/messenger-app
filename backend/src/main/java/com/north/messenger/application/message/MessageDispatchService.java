@@ -1,6 +1,5 @@
 package com.north.messenger.application.message;
 
-import com.north.messenger.api.dto.EncryptedMessagePayloadResponse;
 import com.north.messenger.api.dto.MessageReactionSummaryResponse;
 import com.north.messenger.api.dto.MessageResponse;
 import com.north.messenger.api.dto.MessageSnippetResponse;
@@ -149,7 +148,9 @@ class MessageDispatchService {
                             List.of(message.getId())
                     ).stream()
                     .collect(Collectors.groupingBy(MessageReaction::getReactionKey));
-            EncryptedMessagePayloadResponse encryptedPayload = messageSupport.toEncryptedPayload(message);
+            var plainPayload = messageSupport.toPlainPayload(message);
+            var attachments = messageSupport.loadAttachmentResponses(List.of(message.getId()))
+                    .getOrDefault(message.getId(), List.of());
             MessageSnippetResponse senderReplyTo = messageSupport.loadReplySnippetsByMessageId(
                     List.of(message),
                     participantsById,
@@ -165,7 +166,8 @@ class MessageDispatchService {
                     messageSupport.summarizeReactions(reactionsByKey, sender.getId()),
                     senderClientMessageId,
                     senderReplyTo,
-                    encryptedPayload
+                    plainPayload,
+                    attachments
             );
             realtimeMessagingGateway.sendToUser(sender.getUsername(), MESSAGE_ACK_DESTINATION, senderAck);
 
@@ -181,8 +183,8 @@ class MessageDispatchService {
                         participant.getId()
                 ).get(message.getId());
                 MessageResponse response = participant.getId().equals(sender.getId())
-                        ? messageSupport.toResponse(message, senderParticipant, participant.getId(), summary, reactions, senderClientMessageId, replyTo, encryptedPayload)
-                        : messageSupport.toResponse(message, senderParticipant, participant.getId(), summary, reactions, null, replyTo, encryptedPayload);
+                        ? messageSupport.toResponse(message, senderParticipant, participant.getId(), summary, reactions, senderClientMessageId, replyTo, plainPayload, attachments)
+                        : messageSupport.toResponse(message, senderParticipant, participant.getId(), summary, reactions, null, replyTo, plainPayload, attachments);
                 realtimeMessagingGateway.sendToUser(participant.getUsername(), MESSAGE_DELIVERY_DESTINATION, response);
             });
             telemetry.recordMessageDispatch(telemetrySample, room, participantCount, source, "sent", message.getChatId(), message.getId());
@@ -251,6 +253,8 @@ class MessageDispatchService {
                             List.of(message.getId())
                     ).stream()
                     .collect(Collectors.groupingBy(MessageReaction::getReactionKey));
+            var attachments = messageSupport.loadAttachmentResponses(List.of(message.getId()))
+                    .getOrDefault(message.getId(), List.of());
             MessageResponse response = messageSupport.toResponse(
                     message,
                     authService.toParticipant(sender),
@@ -264,7 +268,8 @@ class MessageDispatchService {
                             room,
                             sender.getId()
                     ).get(message.getId()),
-                    messageSupport.toEncryptedPayload(message)
+                    messageSupport.toPlainPayload(message),
+                    attachments
             );
             realtimeMessagingGateway.sendToUser(sender.getUsername(), MESSAGE_ACK_DESTINATION, response);
             telemetry.recordMessageDispatch(telemetrySample, room, participantCount, source, "acked", message.getChatId(), message.getId());

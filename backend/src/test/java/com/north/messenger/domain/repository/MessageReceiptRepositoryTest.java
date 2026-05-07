@@ -32,8 +32,8 @@ class MessageReceiptRepositoryTest {
         UUID chatId = UUID.randomUUID();
         UUID senderId = UUID.randomUUID();
         UUID recipientId = UUID.randomUUID();
-        ChatMessage visibleMessage = persistEncryptedMessage(chatId, senderId, Instant.parse("2026-04-18T10:00:00Z"));
-        ChatMessage deletedMessage = persistEncryptedMessage(chatId, senderId, Instant.parse("2026-04-18T10:01:00Z"));
+        ChatMessage visibleMessage = persistMessage(chatId, senderId, Instant.parse("2026-04-18T10:00:00Z"));
+        ChatMessage deletedMessage = persistMessage(chatId, senderId, Instant.parse("2026-04-18T10:01:00Z"));
         persistReceipt(visibleMessage.getId(), recipientId);
         persistReceipt(deletedMessage.getId(), recipientId);
         persistDeletedMessage(recipientId, deletedMessage.getId());
@@ -52,8 +52,8 @@ class MessageReceiptRepositoryTest {
         UUID senderId = UUID.randomUUID();
         UUID aliceId = UUID.randomUUID();
         UUID bobId = UUID.randomUUID();
-        ChatMessage messageOne = persistEncryptedMessage(chatId, senderId, Instant.parse("2026-04-18T10:00:00Z"));
-        ChatMessage messageTwo = persistEncryptedMessage(chatId, senderId, Instant.parse("2026-04-18T10:01:00Z"));
+        ChatMessage messageOne = persistMessage(chatId, senderId, Instant.parse("2026-04-18T10:00:00Z"));
+        ChatMessage messageTwo = persistMessage(chatId, senderId, Instant.parse("2026-04-18T10:01:00Z"));
         persistReceipt(messageOne.getId(), aliceId);
         persistReceipt(messageTwo.getId(), aliceId);
         persistReceipt(messageOne.getId(), bobId);
@@ -72,7 +72,7 @@ class MessageReceiptRepositoryTest {
                 .containsExactlyInAnyOrder(1L, 1L);
     }
 
-    private ChatMessage persistEncryptedMessage(UUID chatId, UUID senderId, Instant createdAt) {
+    private ChatMessage persistMessage(UUID chatId, UUID senderId, Instant createdAt) {
         UUID messageId = UUID.randomUUID();
         long serverOrder = nextServerOrder++;
         entityManager.getEntityManager()
@@ -81,23 +81,25 @@ class MessageReceiptRepositoryTest {
                             id,
                             chat_id,
                             sender_id,
-                            content,
-                            encryption_scheme,
-                            encryption_iv,
+                            content_ciphertext,
+                            content_iv,
+                            content_key_version,
+                            content_algorithm,
                             client_message_id,
                             server_order,
                             created_at
-                        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """)
                 .setParameter(1, messageId)
                 .setParameter(2, chatId)
                 .setParameter(3, senderId)
-                .setParameter(4, "ciphertext")
-                .setParameter(5, "CHAT-EPOCH-KEY-AES-GCM")
-                .setParameter(6, "iv")
-                .setParameter(7, "client-" + messageId)
-                .setParameter(8, serverOrder)
-                .setParameter(9, createdAt)
+                .setParameter(4, "cipher".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                .setParameter(5, new byte[]{1, 2, 3})
+                .setParameter(6, 1)
+                .setParameter(7, "AES_256_GCM")
+                .setParameter(8, "client-" + messageId)
+                .setParameter(9, serverOrder)
+                .setParameter(10, createdAt)
                 .executeUpdate();
         return entityManager.find(ChatMessage.class, messageId);
     }

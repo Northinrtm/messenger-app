@@ -5,7 +5,6 @@ import com.north.messenger.application.chat.ChatService;
 import com.north.messenger.application.support.ClusterJobLockService;
 import com.north.messenger.domain.model.ChatAttachment;
 import com.north.messenger.domain.repository.ChatAttachmentRepository;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -30,7 +29,9 @@ class ChatAttachmentServiceTest {
                 UUID.randomUUID(),
                 UUID.randomUUID(),
                 "expired.bin",
-                128,
+                "expired.bin",
+                "application/octet-stream",
+                128L,
                 now.minus(Duration.ofHours(2))
         );
         when(chatAttachmentRepository.findAllByMessageIdIsNullAndCreatedAtBefore(now.minus(Duration.ofHours(1))))
@@ -76,10 +77,10 @@ class ChatAttachmentServiceTest {
                 chatAttachmentRepository,
                 chatAttachmentStorage,
                 new ChatAttachmentStorageProperties(
-                        Path.of("storage/message-attachments"),
                         25L * 1024L * 1024L,
                         orphanTtl,
-                        900_000L
+                        900_000L,
+                        null
                 ),
                 mock(ClusterJobLockService.class)
         );

@@ -6,7 +6,6 @@ import {
   getLatestUnreadChatActivityAt,
   hasConferenceActivitySinceSeen,
   hasUnreadChatActivitySince,
-  shouldPrimeEncryptionRecipientsOnChatOpen,
 } from "./chatWorkspaceUtils";
 
 function participant(id: string): Participant {
@@ -67,16 +66,6 @@ function conference(overrides: Partial<VideoConference>): VideoConference {
     participants: overrides.participants ?? [participant("organizer"), participant("guest")],
   };
 }
-
-describe("shouldPrimeEncryptionRecipientsOnChatOpen", () => {
-  it("starts recipient priming immediately when the chat opens", () => {
-    expect(shouldPrimeEncryptionRecipientsOnChatOpen(true)).toBe(true);
-  });
-
-  it("keeps recipient priming enabled after the first visible message page is ready", () => {
-    expect(shouldPrimeEncryptionRecipientsOnChatOpen(false)).toBe(true);
-  });
-});
 
 describe("chat tab indicators", () => {
   it("tracks the latest unread activity across direct and group chats", () => {

@@ -8,7 +8,7 @@
   Participant,
   UserProfile,
 } from "../../../lib/types";
-import type { AttachmentUploadProgress } from "../../../lib/e2ee";
+import type { AttachmentUploadProgress, SubmitDraftOptions } from "../hooks/useMessageActions";
 import { readSendDiagnosticRecord } from "../../../lib/sendDiagnostics";
 import {
   getSendFailureDisplayLabel,
@@ -26,7 +26,6 @@ import {
   type RefObject,
 } from "react";
 import type { TimelineItem } from "../chatWorkspaceUtils";
-import type { SubmitDraftOptions } from "../hooks/useMessageActions";
 
 import { AvatarCircle } from "./AvatarCircle";
 
@@ -34,14 +33,6 @@ type ReactionOption = {
   key: MessageReaction["key"];
   emoji: string;
   label: string;
-};
-
-type EncryptionIdentityWarning = {
-  title: string;
-  description: string;
-  errorText: string | null;
-  actionLabel: string;
-  isPending: boolean;
 };
 
 type HistoryAccessNotice = {
@@ -125,7 +116,6 @@ type Props = {
   isChatMenuOpen: boolean;
   isDirectChatBlocked: boolean;
   historyAccessNotice: HistoryAccessNotice | null;
-  encryptionIdentityWarning: EncryptionIdentityWarning | null;
   chatMenuButtonRef: RefObject<HTMLButtonElement | null>;
   messageStreamRef: RefObject<HTMLDivElement | null>;
   composerTextareaRef: RefObject<HTMLTextAreaElement | null>;
@@ -156,7 +146,6 @@ type Props = {
   onCloseDeleteSelectedMessagesDialog: () => void;
   onDeleteSelectedMessagesForSelf: () => void;
   onDeleteSelectedMessagesForEveryone: () => void;
-  onRecoverEncryptionIdentity: () => void;
   onRetryMessage: (message: ChatMessage) => void;
   onDownloadAttachment: (chatId: string, attachment: ChatMessageAttachment) => void;
   onLoadAttachmentPreview: (chatId: string, attachment: ChatMessageAttachment) => Promise<Blob>;
@@ -194,7 +183,6 @@ export function ActiveChatConversation({
   isChatMenuOpen,
   isDirectChatBlocked,
   historyAccessNotice,
-  encryptionIdentityWarning,
   chatMenuButtonRef,
   messageStreamRef,
   composerTextareaRef,
@@ -217,7 +205,6 @@ export function ActiveChatConversation({
   onCloseDeleteSelectedMessagesDialog,
   onDeleteSelectedMessagesForSelf,
   onDeleteSelectedMessagesForEveryone,
-  onRecoverEncryptionIdentity,
   onRetryMessage,
   onDownloadAttachment,
   onLoadAttachmentPreview,
@@ -463,7 +450,6 @@ export function ActiveChatConversation({
         replyingToMessage={replyingToMessage}
         editingMessage={editingMessage}
         isDirectChatBlocked={isDirectChatBlocked}
-        encryptionIdentityWarning={encryptionIdentityWarning}
         composerTextareaRef={composerTextareaRef}
         onComposerChange={onComposerChange}
         onCommitDraft={onCommitDraft}
@@ -471,7 +457,6 @@ export function ActiveChatConversation({
         onJumpToMessage={onJumpToMessage}
         onClearReply={onClearReply}
         onClearEdit={onClearEdit}
-        onRecoverEncryptionIdentity={onRecoverEncryptionIdentity}
         buildMessagePreview={buildMessagePreview}
       />
       {isDeleteSelectedMessagesDialogOpen ? (
@@ -539,7 +524,6 @@ type ConversationComposerProps = {
   replyingToMessage: ChatMessage | null;
   editingMessage: ChatMessage | null;
   isDirectChatBlocked: boolean;
-  encryptionIdentityWarning: EncryptionIdentityWarning | null;
   composerTextareaRef: RefObject<HTMLTextAreaElement | null>;
   onComposerChange: (value: string) => void;
   onCommitDraft: (chatId: string, value: string) => void;
@@ -547,7 +531,6 @@ type ConversationComposerProps = {
   onJumpToMessage: (chatId: string, messageId: string) => void;
   onClearReply: () => void;
   onClearEdit: () => void;
-  onRecoverEncryptionIdentity: () => void;
   buildMessagePreview: (content: string, maxLength?: number) => string;
 };
 
@@ -557,7 +540,6 @@ const ConversationComposer = memo(function ConversationComposer({
   replyingToMessage,
   editingMessage,
   isDirectChatBlocked,
-  encryptionIdentityWarning,
   composerTextareaRef,
   onComposerChange,
   onCommitDraft,
@@ -565,7 +547,6 @@ const ConversationComposer = memo(function ConversationComposer({
   onJumpToMessage,
   onClearReply,
   onClearEdit,
-  onRecoverEncryptionIdentity,
   buildMessagePreview,
 }: ConversationComposerProps) {
   const [hasComposerText, setHasComposerText] = useState(activeDraft.trim().length > 0);
@@ -579,7 +560,7 @@ const ConversationComposer = memo(function ConversationComposer({
   const latestComposerValueRef = useRef(activeDraft);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const uploadAbortControllerRef = useRef<AbortController | null>(null);
-  const composerUnavailable = isDirectChatBlocked || Boolean(encryptionIdentityWarning);
+  const composerUnavailable = isDirectChatBlocked;
   const attachmentsDisabled =
     composerUnavailable || Boolean(editingMessage) || isSubmittingComposer;
   const selectedFileCount = editingMessage ? 0 : selectedFiles.length;
@@ -589,9 +570,7 @@ const ConversationComposer = memo(function ConversationComposer({
     (hasComposerText || selectedFileCount > 0);
   const composerPlaceholder = isDirectChatBlocked
     ? COMPOSER_COPY.blockedPlaceholder
-    : encryptionIdentityWarning
-      ? COMPOSER_COPY.refreshPlaceholder
-      : editingMessage
+    : editingMessage
         ? COMPOSER_COPY.editPlaceholder
         : replyingToMessage
           ? COMPOSER_COPY.replyPlaceholder
@@ -782,29 +761,6 @@ const ConversationComposer = memo(function ConversationComposer({
             aria-label={COMPOSER_COPY.cancelEditAria}
           >
             {COMPOSER_COPY.closeGlyph}
-          </button>
-        </div>
-      ) : null}
-      {encryptionIdentityWarning ? (
-        <div className="composer-encryption-warning" role="alert" aria-live="polite">
-          <div className="composer-encryption-warning-copy">
-            <strong>{encryptionIdentityWarning.title}</strong>
-            <span>{encryptionIdentityWarning.description}</span>
-            {encryptionIdentityWarning.errorText ? (
-              <span className="composer-encryption-warning-error">
-                {encryptionIdentityWarning.errorText}
-              </span>
-            ) : null}
-          </div>
-          <button
-            type="button"
-            className="ghost-button compact composer-encryption-warning-action"
-            onClick={onRecoverEncryptionIdentity}
-            disabled={encryptionIdentityWarning.isPending}
-          >
-            {encryptionIdentityWarning.isPending
-              ? COMPOSER_COPY.refreshing
-              : encryptionIdentityWarning.actionLabel}
           </button>
         </div>
       ) : null}
@@ -1269,8 +1225,6 @@ const MessageAttachmentView = memo(function MessageAttachmentView({
   const previewIdentity = [
     chatId,
     attachment.id,
-    attachment.key,
-    attachment.iv,
     attachment.mimeType,
     attachment.sizeBytes,
   ].join(":");
@@ -1556,14 +1510,14 @@ function buildInitialAttachmentUploadProgress(files: File[]): AttachmentUploadPr
     fileCount: files.length,
     fileName: files[0]?.name ?? "attachment",
     loadedBytes: 0,
-    phase: "encrypting",
+    phase: "uploading",
     ratio: 0,
     totalBytes,
   };
 }
 
 function formatAttachmentUploadProgress(progress: AttachmentUploadProgress) {
-  const phase = progress.phase === "encrypting" ? "Шифруем" : "Загружаем";
+  const phase = "Загружаем";
   const percent = Math.round(progress.ratio * 100);
   const filePosition =
     progress.fileCount > 1 ? ` ${progress.fileIndex + 1}/${progress.fileCount}` : "";

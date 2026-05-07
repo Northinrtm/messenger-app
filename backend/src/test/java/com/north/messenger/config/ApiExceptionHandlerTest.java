@@ -62,7 +62,7 @@ class ApiExceptionHandlerTest {
     @Test
     void handleAsyncRequestNotUsableShouldReturnNoContentAndLogDebug() {
         ApiExceptionHandler handler = new ApiExceptionHandler();
-        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/e2ee/account-keys/resolve");
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/chats/test/messages");
 
         ResponseEntity<Void> response = handler.handleAsyncRequestNotUsable(
                 new AsyncRequestNotUsableException("Broken pipe"),
@@ -73,7 +73,7 @@ class ApiExceptionHandlerTest {
         assertThat(appender.list).anySatisfy(event -> {
             assertThat(event.getLevel()).isEqualTo(Level.DEBUG);
             assertThat(event.getFormattedMessage())
-                    .contains("Client disconnected while processing POST /api/e2ee/account-keys/resolve");
+                    .contains("Client disconnected while processing POST /api/chats/test/messages");
             assertThat(event.getThrowableProxy()).isNotNull();
             assertThat(event.getThrowableProxy().getClassName())
                     .isEqualTo(AsyncRequestNotUsableException.class.getName());

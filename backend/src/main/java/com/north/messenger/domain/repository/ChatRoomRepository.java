@@ -1,7 +1,6 @@
 package com.north.messenger.domain.repository;
 
 import com.north.messenger.domain.model.ChatRoom;
-import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -37,22 +36,6 @@ public interface ChatRoomRepository extends JpaRepository<ChatRoom, UUID> {
 
     @Query("select room.membershipVersion from ChatRoom room where room.id = :chatId")
     Optional<Long> findMembershipVersionByChatId(@Param("chatId") UUID chatId);
-
-    @Query(
-            value = """
-                    select room.*
-                    from chat_rooms room
-                    join chat_history_keys history_key on history_key.id = room.active_history_key_id
-                    where history_key.created_at <= :cutoff
-                    order by history_key.created_at asc
-                    limit :limit
-                    """,
-            nativeQuery = true
-    )
-    List<ChatRoom> findRoomsWithActiveHistoryKeyCreatedBefore(
-            @Param("cutoff") Instant cutoff,
-            @Param("limit") int limit
-    );
 
     @Modifying
     @Query(

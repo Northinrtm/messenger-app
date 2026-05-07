@@ -84,8 +84,6 @@ class WorkspaceSearchServiceTest {
                         0,
                         1L,
                         null,
-                        null,
-                        null,
                         "FULL_HISTORY"
                 ),
                 new ChatSummaryResponse(
@@ -104,8 +102,6 @@ class WorkspaceSearchServiceTest {
                         Instant.parse("2026-05-03T00:00:00Z"),
                         0,
                         1L,
-                        null,
-                        null,
                         null,
                         "FULL_HISTORY"
                 )

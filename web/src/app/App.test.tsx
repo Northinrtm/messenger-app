@@ -6,12 +6,6 @@ vi.mock("../lib/api", () => ({
   refreshSession: vi.fn(),
 }));
 
-vi.mock("../lib/e2ee", () => ({
-  ensureEncryptionReadyForActiveSession: vi.fn(() => Promise.resolve()),
-  lockUnlockedEncryptionState: vi.fn(),
-  syncEncryptionState: vi.fn(() => Promise.resolve()),
-}));
-
 vi.mock("../lib/session", () => ({
   getSessionRefreshDelay: vi.fn(() => 60_000),
   isRefreshCompatible: vi.fn((_current, next) => Boolean(next)),

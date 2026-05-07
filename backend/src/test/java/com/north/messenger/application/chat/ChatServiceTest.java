@@ -2,13 +2,10 @@ package com.north.messenger.application.chat;
 
 import com.north.messenger.api.dto.CreateGroupChatRequest;
 import com.north.messenger.api.dto.ChatSummaryResponse;
-import com.north.messenger.api.dto.ChatHistoryBackfillStatusResponse;
 import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.api.dto.UpdateGroupChatRequest;
 import com.north.messenger.application.auth.AuthService;
-import com.north.messenger.application.e2ee.ChatHistoryBackfillStatusService;
-import com.north.messenger.application.e2ee.GroupHistoryKeyRotationRequestedEvent;
-import com.north.messenger.application.message.EncryptedMessagePreviewService;
+import com.north.messenger.application.message.MessagePreviewService;
 import com.north.messenger.application.message.RealtimeMessagingGateway;
 import com.north.messenger.observability.MessengerTelemetry;
 import com.north.messenger.domain.model.ChatMessage;
@@ -45,7 +42,6 @@ import static com.north.messenger.support.TestUserAccounts.testUserAccount;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -70,8 +66,7 @@ class ChatServiceTest {
     private MessengerTelemetry telemetry;
     private DirectChatCreationLockService directChatCreationLockService;
     private ApplicationEventPublisher eventPublisher;
-    private ChatHistoryBackfillStatusService chatHistoryBackfillStatusService;
-    private EncryptedMessagePreviewService encryptedMessagePreviewService;
+    private MessagePreviewService messagePreviewService;
     private ChatService chatService;
 
     @BeforeEach
@@ -91,8 +86,7 @@ class ChatServiceTest {
         telemetry = mock(MessengerTelemetry.class);
         directChatCreationLockService = mock(DirectChatCreationLockService.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
-        chatHistoryBackfillStatusService = mock(ChatHistoryBackfillStatusService.class);
-        encryptedMessagePreviewService = mock(EncryptedMessagePreviewService.class);
+        messagePreviewService = mock(MessagePreviewService.class);
         chatService = new ChatService(
                 authService,
                 chatRoomRepository,
@@ -109,18 +103,13 @@ class ChatServiceTest {
                 telemetry,
                 directChatCreationLockService,
                 eventPublisher,
-                chatHistoryBackfillStatusService,
-                encryptedMessagePreviewService
+                messagePreviewService
         );
-        when(encryptedMessagePreviewService.summarizeMessagePreview(any(ChatMessage.class)))
-                .thenReturn("Encrypted message");
+        when(messagePreviewService.summarizeMessagePreview(any(ChatMessage.class)))
+                .thenReturn("Latest message");
         when(userArchivedChatRepository.save(any(UserArchivedChat.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(userDeletedChatRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(chatRoomModeratorRepository.findAllByChatId(any(UUID.class))).thenReturn(List.of());
-        when(chatHistoryBackfillStatusService.getStatusesByChatIdsForUser(anyCollection(), any(UUID.class)))
-                .thenReturn(java.util.Map.of());
-        when(chatHistoryBackfillStatusService.getStatusesByUserIdsForChat(any(UUID.class), anyCollection()))
-                .thenReturn(java.util.Map.of());
         when(chatMessageRepository.findLatestVisibleByChatIdAndUserIdCreatedAfter(
                 any(UUID.class),
                 any(UUID.class),
@@ -196,7 +185,7 @@ class ChatServiceTest {
     }
 
     @Test
-    void listChatsShouldMaskEncryptedLastMessagePreview() {
+    void listChatsShouldExposePlainLastMessagePreview() {
         UserAccount user = testUserAccount(
                 UUID.randomUUID(),
                 "north",
@@ -215,13 +204,11 @@ class ChatServiceTest {
         ChatRoom room = new ChatRoom(chatId, null, true, Instant.parse("2026-03-21T12:00:00Z"));
         ChatParticipant ownMembership = new ChatParticipant(UUID.randomUUID(), chatId, user.getId(), Instant.parse("2026-03-21T12:00:00Z"));
         ChatParticipant peerMembership = new ChatParticipant(UUID.randomUUID(), chatId, peer.getId(), Instant.parse("2026-03-21T12:00:00Z"));
-        ChatMessage encryptedMessage = new ChatMessage(
+        ChatMessage latestMessage = new ChatMessage(
                 UUID.randomUUID(),
                 chatId,
                 peer.getId(),
-                "ciphertext-value",
-                "CHAT-EPOCH-KEY-AES-GCM",
-                "iv-value",
+                "latest message",
                 Instant.parse("2026-03-22T12:00:00Z")
         );
 
@@ -236,7 +223,7 @@ class ChatServiceTest {
         when(authService.resolveOnlineByUserIds(List.of(user.getId(), peer.getId())))
                 .thenReturn(java.util.Map.of(user.getId(), true, peer.getId(), true));
         when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(eq(chatId), eq(user.getId()), any(Pageable.class)))
-                .thenReturn(List.of(encryptedMessage));
+                .thenReturn(List.of(latestMessage));
         when(authService.toParticipant(user, true)).thenReturn(new com.north.messenger.api.dto.ParticipantResponse(
                 user.getId(), user.getUsername(), user.getDisplayName(), user.getAvatarUrl(), true
         ));
@@ -247,79 +234,7 @@ class ChatServiceTest {
         var chats = chatService.listChats("north");
 
         assertThat(chats).hasSize(1);
-        assertThat(chats.get(0).lastMessage()).isEqualTo("Encrypted message");
-    }
-
-    @Test
-    void listChatsShouldIncludeBackfillStatusForNewlyJoinedGroupMembers() {
-        UserAccount user = testUserAccount(
-                UUID.randomUUID(),
-                "north",
-                "North",
-                "password-hash",
-                Instant.parse("2026-03-20T12:00:00Z")
-        );
-        UserAccount peer = testUserAccount(
-                UUID.randomUUID(),
-                "alice",
-                "Alice",
-                "password-hash",
-                Instant.parse("2026-03-20T12:00:00Z")
-        );
-        UUID chatId = UUID.randomUUID();
-        ChatRoom room = new ChatRoom(chatId, "Group", false, Instant.parse("2026-03-21T12:00:00Z"));
-        room.updateOwnerUserId(peer.getId());
-        ChatParticipant ownMembership = new ChatParticipant(
-                UUID.randomUUID(),
-                chatId,
-                user.getId(),
-                Instant.parse("2026-03-22T12:00:00Z")
-        );
-        ChatParticipant peerMembership = new ChatParticipant(
-                UUID.randomUUID(),
-                chatId,
-                peer.getId(),
-                Instant.parse("2026-03-21T12:00:00Z")
-        );
-
-        when(authService.requireAuthenticatedUser("north")).thenReturn(user);
-        when(chatParticipantRepository.findAllByUserIdOrderByJoinedAtAsc(user.getId())).thenReturn(List.of(ownMembership));
-        when(userDeletedChatRepository.findAllByUserIdOrderByDeletedAtDesc(user.getId())).thenReturn(List.of());
-        when(chatRoomRepository.findAllById(List.of(chatId))).thenReturn(List.of(room));
-        when(messageReceiptRepository.countUnreadByUserIdAndChatIdIn(user.getId(), List.of(chatId)))
-                .thenReturn(List.of());
-        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId))
-                .thenReturn(List.of(peerMembership, ownMembership));
-        when(userAccountRepository.findAllByIdIn(List.of(peer.getId(), user.getId()))).thenReturn(List.of(user, peer));
-        when(authService.resolveOnlineByUserIds(List.of(peer.getId(), user.getId())))
-                .thenReturn(java.util.Map.of(peer.getId(), true, user.getId(), true));
-        when(authService.toParticipant(peer, true)).thenReturn(new ParticipantResponse(
-                peer.getId(), peer.getUsername(), peer.getDisplayName(), peer.getAvatarUrl(), true
-        ));
-        when(authService.toParticipant(user, true)).thenReturn(new ParticipantResponse(
-                user.getId(), user.getUsername(), user.getDisplayName(), user.getAvatarUrl(), true
-        ));
-        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(eq(chatId), eq(user.getId()), any(Pageable.class)))
-                .thenReturn(List.of());
-        when(chatHistoryBackfillStatusService.getStatusesByChatIdsForUser(List.of(chatId), user.getId()))
-                .thenReturn(java.util.Map.of(
-                        chatId,
-                        new ChatHistoryBackfillStatusResponse(
-                                "PARTIAL",
-                                4,
-                                2,
-                                peer.getId(),
-                                Instant.parse("2026-03-22T12:00:00Z"),
-                                null
-                        )
-                ));
-
-        List<ChatSummaryResponse> chats = chatService.listChats("north");
-
-        assertThat(chats).hasSize(1);
-        assertThat(chats.get(0).historyAccessStatus()).isNotNull();
-        assertThat(chats.get(0).historyAccessStatus().state()).isEqualTo("PARTIAL");
-        assertThat(chats.get(0).historyAccessStatus().grantedHistoryKeyCount()).isEqualTo(2);
+        assertThat(chats.get(0).lastMessage()).isEqualTo("Latest message");
     }
 
     @Test
@@ -411,9 +326,7 @@ class ChatServiceTest {
                 UUID.randomUUID(),
                 chatId,
                 peer.getId(),
-                "ciphertext-latest",
-                "CHAT-EPOCH-KEY-AES-GCM",
-                "iv-latest",
+                "latest message",
                 Instant.parse("2026-03-22T12:00:00Z")
         ), 42L);
 
@@ -424,7 +337,7 @@ class ChatServiceTest {
         when(authService.resolveOnlineByUserIds(List.of(user.getId(), peer.getId())))
                 .thenReturn(java.util.Map.of(user.getId(), true, peer.getId(), true));
         when(messageReceiptRepository.countUnreadByChatId(chatId)).thenReturn(List.of());
-        when(chatMessageRepository.findLatestEncryptedByChatId(eq(chatId), any(Pageable.class)))
+        when(chatMessageRepository.findLatestByChatId(eq(chatId), any(Pageable.class)))
                 .thenReturn(List.of(latestMessage));
         when(userDeletedMessageRepository.findAllByMessageIdAndUserIdIn(
                 eq(latestMessage.getId()),
@@ -471,18 +384,14 @@ class ChatServiceTest {
                 UUID.randomUUID(),
                 chatId,
                 user.getId(),
-                "ciphertext-latest",
-                "CHAT-EPOCH-KEY-AES-GCM",
-                "iv-latest",
+                "latest message",
                 Instant.parse("2026-03-22T12:01:00Z")
         ), 42L);
         ChatMessage previousMessage = withServerOrder(new ChatMessage(
                 UUID.randomUUID(),
                 chatId,
                 user.getId(),
-                "ciphertext-previous",
-                "CHAT-EPOCH-KEY-AES-GCM",
-                "iv-previous",
+                "previous message",
                 Instant.parse("2026-03-22T12:00:00Z")
         ), 41L);
 
@@ -493,7 +402,7 @@ class ChatServiceTest {
         when(authService.resolveOnlineByUserIds(List.of(user.getId(), peer.getId())))
                 .thenReturn(java.util.Map.of(user.getId(), true, peer.getId(), true));
         when(messageReceiptRepository.countUnreadByChatId(chatId)).thenReturn(List.of());
-        when(chatMessageRepository.findLatestEncryptedByChatId(eq(chatId), any(Pageable.class)))
+        when(chatMessageRepository.findLatestByChatId(eq(chatId), any(Pageable.class)))
                 .thenReturn(List.of(latestMessage));
         when(userDeletedMessageRepository.findAllByMessageIdAndUserIdIn(
                 eq(latestMessage.getId()),
@@ -682,12 +591,11 @@ class ChatServiceTest {
         verify(chatRoomRepository).findByDirectIsTrueAndDirectUserLowIdAndDirectUserHighId(lowUserId, highUserId);
         verify(chatRoomRepository, never()).findDirectChatByParticipantIds(currentUser.getId(), peer.getId());
         verify(chatRoomRepository, never()).save(any(ChatRoom.class));
-        verify(authService).assertUsersHavePublishedAccountKeys(List.of(currentUser, peer));
         verify(eventPublisher).publishEvent(new ChatUpdatedDeferredEvent(chatId));
     }
 
     @Test
-    void createDirectChatShouldBootstrapManagedHistoryKeyWhenCreatingNewRoom() {
+    void createDirectChatShouldCreateRoomWithoutLegacyKeyBootstrap() {
         UserAccount currentUser = testUserAccount(
                 UUID.randomUUID(),
                 "north",
@@ -760,11 +668,6 @@ class ChatServiceTest {
         assertThat(response.direct()).isTrue();
         assertThat(savedRoom.get()).isNotNull();
         assertThat(savedRoom.get().getMembershipVersion()).isEqualTo(1L);
-        verify(authService).assertUsersHavePublishedAccountKeys(List.of(currentUser, peer));
-        verify(eventPublisher).publishEvent(new GroupHistoryKeyRotationRequestedEvent(
-                savedRoom.get().getId(),
-                currentUser.getId()
-        ));
         verify(eventPublisher).publishEvent(new ChatUpdatedDeferredEvent(savedRoom.get().getId()));
     }
 

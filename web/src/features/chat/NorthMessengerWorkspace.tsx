@@ -23,6 +23,7 @@ import {
   createConferenceInviteLink as createConferenceInviteLinkRequest,
   createGroupInviteLink as createGroupInviteLinkRequest,
   createVideoConference as createVideoConferenceRequest,
+  downloadChatAttachment,
   getWorkspaceBootstrap,
   deleteOwnAccount as deleteOwnAccountRequest,
   deleteChat as deleteChatRequest,
@@ -49,9 +50,6 @@ import {
   type PushNotificationClientState,
 } from "../../lib/pushNotifications";
 import { rememberCurrentBuildRevision } from "../../lib/messageHydrationDiagnostics";
-import {
-  isUnavailableEncryptedMessage,
-} from "../../lib/e2eeShared";
 import type {
   AuthResponse,
   ChatMessage,
@@ -181,25 +179,6 @@ const CONFERENCE_ACTIVATION_LEAD_MS = 5 * 60 * 1000;
 const BUILD_META_POLL_MS = 60_000;
 const BUILD_UPDATE_AUTO_RELOAD_DELAY_MS = 1_500;
 const WORKSPACE_BOOTSTRAP_STALE_TIME_MS = 15_000;
-const GROUP_HISTORY_ACCESS_NOTICE_COPY = {
-  pendingTitle:
-    "\u0418\u0441\u0442\u043e\u0440\u0438\u044f encrypted-\u0447\u0430\u0442\u0430 \u043f\u043e\u0434\u0433\u043e\u0442\u0430\u0432\u043b\u0438\u0432\u0430\u0435\u0442\u0441\u044f",
-  pendingDescription:
-    "\u0421\u0435\u0440\u0432\u0435\u0440 \u043f\u043e\u0434\u0433\u043e\u0442\u0430\u0432\u043b\u0438\u0432\u0430\u0435\u0442 \u0434\u043e\u0441\u0442\u0443\u043f \u043a \u0441\u0442\u0430\u0440\u043e\u0439 \u0438\u0441\u0442\u043e\u0440\u0438\u0438. \u0421\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u044f \u043f\u043e\u044f\u0432\u044f\u0442\u0441\u044f \u043f\u043e\u0441\u043b\u0435 \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f \u0447\u0430\u0442\u0430.",
-  partialTitle:
-    "\u0414\u043e\u0441\u0442\u0443\u043f\u043d\u0430 \u0447\u0430\u0441\u0442\u044c \u0441\u0442\u0430\u0440\u043e\u0439 \u0438\u0441\u0442\u043e\u0440\u0438\u0438",
-  partialDescription:
-    "\u0421\u0435\u0440\u0432\u0435\u0440 \u0443\u0436\u0435 \u043e\u0442\u043a\u0440\u044b\u043b \u0447\u0430\u0441\u0442\u044c \u0441\u0442\u0430\u0440\u043e\u0439 \u0438\u0441\u0442\u043e\u0440\u0438\u0438. \u041e\u0441\u0442\u0430\u043b\u044c\u043d\u044b\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u044f \u043f\u043e\u044f\u0432\u044f\u0442\u0441\u044f \u043f\u043e\u0441\u043b\u0435 \u0434\u043e\u0433\u0440\u0443\u0437\u043a\u0438 \u043a\u043b\u044e\u0447\u0435\u0439.",
-  completeTitle:
-    "\u0418\u0441\u0442\u043e\u0440\u0438\u044f encrypted-\u0447\u0430\u0442\u0430 \u0433\u043e\u0442\u043e\u0432\u0430",
-  completeDescription:
-    "\u0421\u0435\u0440\u0432\u0435\u0440 \u0443\u0436\u0435 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u043b \u0434\u043e\u0441\u0442\u0443\u043f \u043a \u0441\u0442\u0430\u0440\u043e\u0439 \u0438\u0441\u0442\u043e\u0440\u0438\u0438. \u0421\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u044f \u043f\u043e\u044f\u0432\u044f\u0442\u0441\u044f \u0430\u0432\u0442\u043e\u043c\u0430\u0442\u0438\u0447\u0435\u0441\u043a\u0438 \u043f\u043e\u0441\u043b\u0435 \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f \u0447\u0430\u0442\u0430.",
-  idleTitle:
-    "\u0427\u0430\u0441\u0442\u044c \u0441\u0442\u0430\u0440\u043e\u0439 \u0438\u0441\u0442\u043e\u0440\u0438\u0438 \u043f\u043e\u043a\u0430 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u0430",
-  idleDescription:
-    "\u0421\u0435\u0440\u0432\u0435\u0440 \u0435\u0449\u0451 \u043d\u0435 \u0434\u043e\u0433\u0440\u0443\u0437\u0438\u043b \u043d\u0443\u0436\u043d\u044b\u0435 \u043a\u043b\u044e\u0447\u0438 \u0438\u0441\u0442\u043e\u0440\u0438\u0438. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u043e\u0442\u043a\u0440\u044b\u0442\u044c \u0447\u0430\u0442 \u0447\u0443\u0442\u044c \u043f\u043e\u0437\u0436\u0435.",
-} as const;
-
 const initialPushNotificationState = (): PushNotificationClientState => ({
   supported: isPushNotificationSupported(),
   serverEnabled: false,
@@ -792,7 +771,6 @@ export function NorthMessengerWorkspace({
   const activeChatCanManageRoles = Boolean(activeChatCapabilities?.canManageRoles);
   const activeChatCanModerateMembers = Boolean(activeChatCapabilities?.canModerateMembers);
   const activeChatCanLeaveGroup = Boolean(activeChatCapabilities?.canLeaveGroup);
-  const activeChatEncryptionWarning = null;
   const refreshPushNotifications = useEffectEvent(async () => {
     const nextState = await getPushNotificationState(session.token);
     setPushNotificationState(nextState);
@@ -913,37 +891,7 @@ export function NorthMessengerWorkspace({
     : "";
   const showTypingIndicator = activeTypingParticipants.length > 0;
   const timelineItems = useMemo(() => buildTimeline(messages), [messages]);
-  const activeChatBackfillStatus = activeChat?.historyAccessStatus ?? null;
-  const activeChatHistoryAccessNotice =
-    activeChat &&
-    !activeChat.direct &&
-    activeChatBackfillStatus &&
-    (activeChatBackfillStatus.state === "PENDING" || activeChatBackfillStatus.state === "PARTIAL")
-      ? {
-          title: (() => {
-            if (messagesQuery.isFetching || messagesQuery.isRefetching) {
-              return GROUP_HISTORY_ACCESS_NOTICE_COPY.pendingTitle;
-            }
-            if (activeChatBackfillStatus?.state === "PARTIAL") {
-              return GROUP_HISTORY_ACCESS_NOTICE_COPY.partialTitle;
-            }
-            return GROUP_HISTORY_ACCESS_NOTICE_COPY.idleTitle;
-          })(),
-          description: (() => {
-            if (messagesQuery.isFetching || messagesQuery.isRefetching) {
-              return GROUP_HISTORY_ACCESS_NOTICE_COPY.pendingDescription;
-            }
-            if (activeChatBackfillStatus?.state === "PARTIAL") {
-              return GROUP_HISTORY_ACCESS_NOTICE_COPY.partialDescription;
-            }
-            return GROUP_HISTORY_ACCESS_NOTICE_COPY.idleDescription;
-          })(),
-          isPending:
-            messagesQuery.isFetching ||
-            messagesQuery.isRefetching ||
-            activeChatBackfillStatus?.state === "PENDING",
-        }
-      : null;
+  const activeChatHistoryAccessNotice = null;
   const readableIncomingMessageIdsKey = useMemo(
     () => buildReadableIncomingMessageIdsKey(messages, session.user.id),
     [messages, session.user.id]
@@ -982,9 +930,7 @@ export function NorthMessengerWorkspace({
       ? messages.filter((message) => selectedMessageIdSet.has(message.id))
       : [];
   const isSelectingMessages = selectedMessages.length > 0;
-  const canForwardSelectedMessages =
-    selectedMessages.length > 0 &&
-    selectedMessages.every((message) => !isUnavailableEncryptedMessage(message.content));
+  const canForwardSelectedMessages = selectedMessages.length > 0;
   const canDeleteSelectedMessagesForEveryone = Boolean(
     selectedMessages.length > 0 &&
       selectedMessages.every(
@@ -1055,9 +1001,7 @@ export function NorthMessengerWorkspace({
       isOwnMessage(contextMenuMessage, session.user) &&
       contextMenuMessage.id !== contextMenuMessage.clientMessageId
   );
-  const canForwardContextMenuMessage = Boolean(
-    contextMenuMessage && !isUnavailableEncryptedMessage(contextMenuMessage.content)
-  );
+  const canForwardContextMenuMessage = Boolean(contextMenuMessage);
   const canPinContextMenuMessage = Boolean(
     contextMenuMessage &&
       activeChat &&
@@ -1420,13 +1364,10 @@ export function NorthMessengerWorkspace({
     clearMessageSelection();
   });
 
-  const handleRecoverEncryptionIdentity = useEffectEvent(() => undefined);
-
   const handleDownloadAttachment = useEffectEvent(
     async (chatId: string, attachment: ChatMessageAttachment) => {
       try {
-        const { downloadDecryptedMessageAttachment } = await import("../../lib/e2ee");
-        const download = await downloadDecryptedMessageAttachment(session.token, chatId, attachment);
+        const download = await downloadChatAttachment(session.token, chatId, attachment.id);
         const url = window.URL.createObjectURL(download.blob);
         const anchor = document.createElement("a");
         anchor.href = url;
@@ -1443,8 +1384,7 @@ export function NorthMessengerWorkspace({
 
   const handleLoadAttachmentPreview = useEffectEvent(
     async (chatId: string, attachment: ChatMessageAttachment) => {
-      const { downloadDecryptedMessageAttachment } = await import("../../lib/e2ee");
-      const download = await downloadDecryptedMessageAttachment(session.token, chatId, attachment);
+      const download = await downloadChatAttachment(session.token, chatId, attachment.id);
       return download.blob;
     }
   );
@@ -2361,7 +2301,6 @@ export function NorthMessengerWorkspace({
           isChatMenuOpen,
           isDirectChatBlocked: activeDirectBlockedByMe,
           historyAccessNotice: activeChatHistoryAccessNotice,
-          encryptionIdentityWarning: activeChatEncryptionWarning,
           chatMenuButtonRef,
           messageStreamRef,
           composerTextareaRef,
@@ -2398,7 +2337,6 @@ export function NorthMessengerWorkspace({
           onCloseDeleteSelectedMessagesDialog: () => setIsDeleteSelectedMessagesDialogOpen(false),
           onDeleteSelectedMessagesForSelf: confirmDeleteSelectedMessagesForSelf,
           onDeleteSelectedMessagesForEveryone: confirmDeleteSelectedMessagesForEveryone,
-          onRecoverEncryptionIdentity: handleRecoverEncryptionIdentity,
           onRetryMessage: retryFailedMessage,
           onDownloadAttachment: handleDownloadAttachment,
           onLoadAttachmentPreview: handleLoadAttachmentPreview,

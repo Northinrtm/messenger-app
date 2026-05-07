@@ -10,7 +10,6 @@ import {
   requestPasswordReset,
   resendEmailVerification,
 } from "../../lib/api";
-import { isResettableEncryptionRecoveryError } from "../../lib/e2eeShared";
 import type { AuthResponse } from "../../lib/types";
 
 type Props = {
@@ -66,22 +65,11 @@ export function AuthCard({
   const authMutation = useMutation<AuthResponse>({
     mutationFn: async () => {
       setInfoMessage(null);
-      const { ensureEncryptionReady } = await import("../../lib/e2ee");
       if (mode === "register") {
-        const response = await register({ username, email, displayName, password });
-        await ensureEncryptionReady(response, password);
-        return response;
+        return register({ username, email, displayName, password });
       }
 
-      const response = await login({ username, password });
-      try {
-        await ensureEncryptionReady(response, password);
-      } catch (error) {
-        if (!isResettableEncryptionRecoveryError(error)) {
-          throw error;
-        }
-      }
-      return response;
+      return login({ username, password });
     },
     onSuccess: (response) => {
       setPassword("");

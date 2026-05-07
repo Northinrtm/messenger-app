@@ -34,10 +34,6 @@ vi.mock("../../lib/api", () => ({
   confirmEmailVerification: vi.fn(),
 }));
 
-vi.mock("../../lib/e2ee", () => ({
-  ensureEncryptionReady: vi.fn(),
-}));
-
 import {
   ApiError,
   confirmEmailVerification,
@@ -45,7 +41,6 @@ import {
   register,
   resendEmailVerification,
 } from "../../lib/api";
-import { ensureEncryptionReady } from "../../lib/e2ee";
 import { AuthCard } from "./AuthCard";
 
 type ReactActEnvironment = typeof globalThis & {
@@ -124,7 +119,6 @@ describe("AuthCard auth flow", () => {
     const response = sessionResponse();
     const authenticatedSpy = vi.fn();
     vi.mocked(register).mockResolvedValueOnce(response);
-    vi.mocked(ensureEncryptionReady).mockResolvedValueOnce(undefined);
 
     await act(async () => {
       renderAuthCard(root!, <AuthCard onAuthenticated={authenticatedSpy} />);
@@ -156,7 +150,6 @@ describe("AuthCard auth flow", () => {
       displayName: "North",
       password: "riverlantern",
     });
-    expect(ensureEncryptionReady).toHaveBeenCalledWith(response, "riverlantern");
     expect(authenticatedSpy).toHaveBeenCalledWith(response);
     expect(container.textContent).not.toContain("Account created. Sign in to continue.");
     expect(container.textContent).not.toContain("must not be empty");
@@ -241,7 +234,6 @@ describe("AuthCard auth flow", () => {
     const response = sessionResponse();
     const authenticatedSpy = vi.fn();
     vi.mocked(login).mockResolvedValueOnce(response);
-    vi.mocked(ensureEncryptionReady).mockResolvedValueOnce(undefined);
 
     await act(async () => {
       renderAuthCard(root!, <AuthCard onAuthenticated={authenticatedSpy} />);
@@ -274,54 +266,7 @@ describe("AuthCard auth flow", () => {
     });
 
     expect(login).toHaveBeenCalledWith({ username: "north", password: "riverlantern" });
-    expect(ensureEncryptionReady).toHaveBeenCalledWith(response, "riverlantern");
     expect(authenticatedSpy).toHaveBeenCalledWith(response);
-  });
-
-  it("continues sign in when encrypted chat recovery needs a separate unlock", async () => {
-    const response = sessionResponse();
-    const authenticatedSpy = vi.fn();
-    vi.mocked(login).mockResolvedValueOnce(response);
-    vi.mocked(ensureEncryptionReady).mockRejectedValueOnce(
-      new ApiError("Current password could not restore encrypted chats in this browser session", 409)
-    );
-
-    await act(async () => {
-      renderAuthCard(root!, <AuthCard onAuthenticated={authenticatedSpy} />);
-      await flushMicrotasks();
-    });
-
-    const signInButton = Array.from(container.querySelectorAll("button")).find((button) =>
-      button.textContent?.includes("Sign in")
-    );
-    if (!signInButton) {
-      throw new Error("Sign in mode button is missing");
-    }
-
-    await act(async () => {
-      signInButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await flushMicrotasks();
-    });
-
-    const inputs = container.querySelectorAll("input");
-    const usernameInput = inputs[0] as HTMLInputElement;
-    const passwordInput = inputs[1] as HTMLInputElement;
-
-    await act(async () => {
-      setInputValue(usernameInput, "north");
-      setInputValue(passwordInput, "newriverlantern");
-      (container.querySelector("form") as HTMLFormElement).dispatchEvent(
-        new Event("submit", { bubbles: true, cancelable: true })
-      );
-      await flushMicrotasks();
-    });
-
-    expect(login).toHaveBeenCalledWith({ username: "north", password: "newriverlantern" });
-    expect(ensureEncryptionReady).toHaveBeenCalledWith(response, "newriverlantern");
-    expect(authenticatedSpy).toHaveBeenCalledWith(response);
-    expect(container.textContent).not.toContain(
-      "Current password could not restore encrypted chats in this browser session"
-    );
   });
 
   it("returns to sign in immediately after opening a valid verification link", async () => {

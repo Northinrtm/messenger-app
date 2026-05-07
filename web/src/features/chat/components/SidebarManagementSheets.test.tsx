@@ -244,7 +244,6 @@ describe("SidebarManagementSheets group info sheet", () => {
               updatedAt: "2026-04-29T10:00:00Z",
               unreadCount: 0,
               pinnedMessage: null,
-              historyAccessStatus: null,
               prejoinHistoryPolicy: "JOIN_ONLY",
             },
             onGroupDetailsPrejoinHistoryPolicyChange,

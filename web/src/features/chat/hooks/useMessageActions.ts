@@ -15,7 +15,9 @@ import {
   deletePendingOutgoingMessage,
   describeError,
   isAbortError,
+  type UploadProgress as ApiUploadProgress,
   toggleMessageReaction as toggleMessageReactionRequest,
+  uploadChatAttachment,
   upsertPendingOutgoingMessage,
   updatePinnedMessage as updatePinnedMessageRequest,
 } from "../../../lib/api";
@@ -26,7 +28,6 @@ import {
   startSendDiagnostic,
 } from "../../../lib/sendDiagnostics";
 import { buildNormalizedSendFailure } from "../../../lib/sendFailureDiagnostics";
-import type { AttachmentUploadProgress } from "../../../lib/e2ee";
 import type {
   AuthResponse,
   ChatMessage,
@@ -51,16 +52,21 @@ import {
 import type { ContextMenuState, ConversationListTab } from "../chatUi";
 import {
   createOptimisticOutgoingMessage,
-  buildAttachmentOnlyMessageText,
   ensureOwnMessageStatus,
   isOwnMessage,
   toMessageSnippet,
 } from "../messagePresentation";
-import { isRetryableEncryptedSendError } from "../../../lib/e2eeShared";
 
 const MAX_ATTACHMENT_SIZE_BYTES = 25 * 1024 * 1024;
 const TRANSIENT_SEND_FAILURE_STATUSES = new Set([0, 502, 503, 504]);
 const RETRYABLE_SEND_FAILURE_MESSAGES = new Set(["Message send is already pending"]);
+
+export type AttachmentUploadProgress = ApiUploadProgress & {
+  fileIndex: number;
+  fileCount: number;
+  fileName: string;
+  phase: "uploading";
+};
 
 export type SubmitDraftOptions = {
   signal?: AbortSignal;
@@ -169,7 +175,7 @@ export function useMessageActions({
   >({
     mutationFn: async (input: SendMessageInput) => {
       recordSendDiagnosticStep(input.clientMessageId, "mutationFn:start");
-      const { sendEncryptedMessage } = await import("../../../lib/e2ee");
+      const { sendPlainMessage } = await import("../../../lib/plainMessages");
       const targetChat = chats.find((chat) => chat.id === input.chatId) ?? activeChat;
       void upsertPendingOutgoingMessage(sessionToken, input.clientMessageId, {
         chatId: input.chatId,
@@ -184,20 +190,18 @@ export function useMessageActions({
       if (input.clearDraftOnMutate) {
         void deleteChatDraft(sessionToken, input.chatId).catch(() => undefined);
       }
-      return withSendAttemptTimeout(sendEncryptedMessage(
+      void targetChat;
+      void session;
+      return withSendAttemptTimeout(sendPlainMessage(
         sessionToken,
+        currentUser.id,
         input.chatId,
         input.content,
         input.participants,
         input.clientMessageId,
         input.replyTo?.id ?? null,
         {
-          currentUserId: currentUser.id,
-          isDirectChat: targetChat?.direct,
-          session,
           attachments: input.attachments ?? [],
-          membershipVersion: targetChat?.membershipVersion,
-          prejoinHistoryPolicy: targetChat?.prejoinHistoryPolicy ?? null,
         },
       ), SEND_ATTEMPT_TIMEOUT_MS);
     },
@@ -551,30 +555,22 @@ export function useMessageActions({
       chatId,
       messageId,
       content,
-      participants,
       attachments,
     }: {
       chatId: string;
       messageId: string;
       content: string;
-      participants: Participant[];
       attachments?: ChatMessageAttachment[];
     }) => {
-      const { updateEncryptedMessage } = await import("../../../lib/e2ee");
-      return updateEncryptedMessage(
+      const { updatePlainMessage } = await import("../../../lib/plainMessages");
+      return updatePlainMessage(
         sessionToken,
         currentUser.id,
         chatId,
         messageId,
         content,
-        participants,
         {
-          currentUserId: currentUser.id,
-          isDirectChat: activeChat?.direct,
-          session,
           attachments: attachments ?? [],
-          membershipVersion: activeChat?.membershipVersion,
-          prejoinHistoryPolicy: activeChat?.prejoinHistoryPolicy ?? null,
         }
       );
     },
@@ -616,7 +612,7 @@ export function useMessageActions({
       targetChatId?: string;
       targetUsername?: string;
     }) => {
-      const { sendEncryptedMessage } = await import("../../../lib/e2ee");
+      const { sendPlainMessage } = await import("../../../lib/plainMessages");
       let targetChat = targetChatId ? chats.find((chat) => chat.id === targetChatId) ?? null : null;
       if (!targetChat) {
         if (!targetUsername) {
@@ -627,20 +623,14 @@ export function useMessageActions({
 
       const sentMessages: ChatMessage[] = [];
       for (const message of messages) {
-        const sentMessage = await sendEncryptedMessage(
+        const sentMessage = await sendPlainMessage(
           sessionToken,
+          currentUser.id,
           targetChat.id,
           message.content,
           targetChat.members,
           crypto.randomUUID(),
-          null,
-          {
-            currentUserId: currentUser.id,
-            isDirectChat: targetChat.direct,
-            session,
-            membershipVersion: targetChat.membershipVersion,
-            prejoinHistoryPolicy: targetChat.prejoinHistoryPolicy ?? null,
-          },
+          null
         );
         sentMessages.push(sentMessage);
       }
@@ -969,7 +959,6 @@ export function useMessageActions({
         chatId: activeChat.id,
         messageId: editingMessage.id,
         content: trimmed,
-        participants: activeChat.members,
         attachments: editingMessage.attachments ?? [],
       });
       return true;
@@ -986,11 +975,33 @@ export function useMessageActions({
       }
 
       try {
-        const { prepareEncryptedMessageAttachments } = await import("../../../lib/e2ee");
-        attachments = await prepareEncryptedMessageAttachments(sessionToken, activeChat.id, files, {
-          signal: options.signal,
-          onProgress: options.onAttachmentProgress,
-        });
+        attachments = await Promise.all(
+          files.map(async (file, fileIndex) => {
+            const upload = await uploadChatAttachment(
+              sessionToken,
+              activeChat.id,
+              file,
+              file.name,
+              {
+                signal: options.signal,
+                onProgress: (progress) =>
+                  options.onAttachmentProgress?.({
+                    ...progress,
+                    fileIndex,
+                    fileCount: files.length,
+                    fileName: file.name,
+                    phase: "uploading",
+                  }),
+              }
+            );
+            return {
+              id: upload.id,
+              fileName: upload.fileName,
+              mimeType: upload.mimeType,
+              sizeBytes: upload.sizeBytes,
+            } satisfies ChatMessageAttachment;
+          })
+        );
       } catch (error) {
         if (isAbortError(error)) {
           return false;
@@ -1002,7 +1013,7 @@ export function useMessageActions({
         return false;
       }
     }
-    const content = trimmed || buildAttachmentOnlyMessageText(attachments);
+    const content = trimmed;
 
     return sendOutgoingMessage({
       chatId: activeChat.id,
@@ -1114,7 +1125,6 @@ function isTransientSendFailure(error: unknown) {
   return (
     (error instanceof ApiError &&
       TRANSIENT_SEND_FAILURE_STATUSES.has(error.status)) ||
-    isRetryableEncryptedSendError(error) ||
     (error instanceof ApiError &&
       error.status === 409 &&
       RETRYABLE_SEND_FAILURE_MESSAGES.has(error.message))

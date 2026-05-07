@@ -20,9 +20,7 @@ public record ChatSummaryResponse(
         Instant updatedAt,
         int unreadCount,
         long membershipVersion,
-        UUID activeHistoryKeyId,
         MessageSnippetResponse pinnedMessage,
-        ChatHistoryBackfillStatusResponse historyAccessStatus,
         String prejoinHistoryPolicy
 ) {
 }

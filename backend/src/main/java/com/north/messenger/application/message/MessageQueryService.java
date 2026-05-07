@@ -1,10 +1,10 @@
 package com.north.messenger.application.message;
 
-import com.north.messenger.api.dto.MessageReactionSummaryResponse;
+import com.north.messenger.api.dto.ChatAttachmentResponse;
 import com.north.messenger.api.dto.MessagePageResponse;
+import com.north.messenger.api.dto.MessageReactionSummaryResponse;
 import com.north.messenger.api.dto.MessageResponse;
 import com.north.messenger.api.dto.MessageSnippetResponse;
-import com.north.messenger.api.dto.EncryptedMessagePayloadResponse;
 import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.chat.ChatService;
@@ -44,6 +44,7 @@ class MessageQueryService {
     private final UserAccountRepository userAccountRepository;
     private final MessageReceiptService messageReceiptService;
     private final MessageSupport messageSupport;
+    private final MessageContentCryptoService messageContentCryptoService;
 
     MessageQueryService(
             AuthService authService,
@@ -52,7 +53,8 @@ class MessageQueryService {
             ChatParticipantRepository chatParticipantRepository,
             UserAccountRepository userAccountRepository,
             MessageReceiptService messageReceiptService,
-            MessageSupport messageSupport
+            MessageSupport messageSupport,
+            MessageContentCryptoService messageContentCryptoService
     ) {
         this.authService = authService;
         this.chatService = chatService;
@@ -61,6 +63,7 @@ class MessageQueryService {
         this.userAccountRepository = userAccountRepository;
         this.messageReceiptService = messageReceiptService;
         this.messageSupport = messageSupport;
+        this.messageContentCryptoService = messageContentCryptoService;
     }
 
     @Transactional
@@ -111,19 +114,19 @@ class MessageQueryService {
         PageRequest pageRequest = PageRequest.of(0, safeLimit);
         List<ChatMessage> recentMessages = new ArrayList<>(
                 beforeServerOrder == null
-                        ? chatMessageRepository.findVisibleEncryptedByChatIdOrderByServerOrderDesc(
+                        ? chatMessageRepository.findVisibleByChatIdOrderByServerOrderDesc(
                                 chatId,
                                 currentUser.getId(),
                                 pageRequest
                         )
                         : visibleFrom == null
-                                ? chatMessageRepository.findVisibleEncryptedByChatIdAndServerOrderBeforeOrderByServerOrderDesc(
+                                ? chatMessageRepository.findVisibleByChatIdAndServerOrderBeforeOrderByServerOrderDesc(
                                         chatId,
                                         beforeServerOrder,
                                         currentUser.getId(),
                                         pageRequest
                                 )
-                                : chatMessageRepository.findVisibleEncryptedByChatIdAndServerOrderBeforeAndCreatedAtAfterOrderByServerOrderDesc(
+                                : chatMessageRepository.findVisibleByChatIdAndServerOrderBeforeAndCreatedAtAfterOrderByServerOrderDesc(
                                         chatId,
                                         beforeServerOrder,
                                         currentUser.getId(),
@@ -133,7 +136,7 @@ class MessageQueryService {
         );
         if (visibleFrom != null && beforeServerOrder == null) {
             recentMessages = new ArrayList<>(
-                    chatMessageRepository.findVisibleEncryptedByChatIdAndCreatedAtAfterOrderByServerOrderDesc(
+                    chatMessageRepository.findVisibleByChatIdAndCreatedAtAfterOrderByServerOrderDesc(
                             chatId,
                             currentUser.getId(),
                             visibleFrom,
@@ -141,6 +144,7 @@ class MessageQueryService {
                     )
             );
         }
+        messageContentCryptoService.hydrateContents(recentMessages);
         recentMessages.sort(MessageQueryService::compareMessageOrder);
 
         Map<UUID, UserAccount> usersById = userAccountRepository.findAllByIdIn(
@@ -148,6 +152,9 @@ class MessageQueryService {
                 ).stream()
                 .collect(Collectors.toMap(UserAccount::getId, Function.identity()));
         Map<UUID, MessageSupport.MessageReceiptSummary> summariesByMessageId = messageSupport.loadReceiptSummaries(
+                recentMessages.stream().map(ChatMessage::getId).toList()
+        );
+        Map<UUID, List<ChatAttachmentResponse>> attachmentsByMessageId = messageSupport.loadAttachmentResponses(
                 recentMessages.stream().map(ChatMessage::getId).toList()
         );
         Map<UUID, List<MessageReactionSummaryResponse>> reactionsByMessageId = messageSupport.loadReactionSummaries(
@@ -165,11 +172,12 @@ class MessageQueryService {
                 .map(message -> tryRenderMessage(
                         chatId,
                         currentUser,
-                    message,
-                    usersById,
-                    summariesByMessageId,
-                    reactionsByMessageId,
-                    repliesByMessageId
+                        message,
+                        usersById,
+                        summariesByMessageId,
+                        attachmentsByMessageId,
+                        reactionsByMessageId,
+                        repliesByMessageId
                 ))
                 .flatMap(Optional::stream)
                 .toList();
@@ -237,6 +245,7 @@ class MessageQueryService {
             ChatMessage message,
             Map<UUID, UserAccount> usersById,
             Map<UUID, MessageSupport.MessageReceiptSummary> summariesByMessageId,
+            Map<UUID, List<ChatAttachmentResponse>> attachmentsByMessageId,
             Map<UUID, List<MessageReactionSummaryResponse>> reactionsByMessageId,
             Map<UUID, MessageSnippetResponse> repliesByMessageId
     ) {
@@ -253,7 +262,6 @@ class MessageQueryService {
         }
 
         ParticipantResponse senderParticipant = authService.toParticipant(sender);
-        EncryptedMessagePayloadResponse encryptedPayload = messageSupport.toEncryptedPayload(message);
 
         return Optional.of(new RenderedMessage(
                 message,
@@ -265,7 +273,8 @@ class MessageQueryService {
                         reactionsByMessageId.getOrDefault(message.getId(), List.of()),
                         message.getSenderId().equals(currentUser.getId()) ? message.getClientMessageId() : null,
                         repliesByMessageId.get(message.getId()),
-                        encryptedPayload
+                        messageSupport.toPlainPayload(message),
+                        attachmentsByMessageId.getOrDefault(message.getId(), List.of())
                 )
         ));
     }

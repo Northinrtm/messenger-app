@@ -61,7 +61,6 @@ export function App() {
   const [restoringSession, setRestoringSession] = useState(true);
   const [showRestoringSessionCard, setShowRestoringSessionCard] = useState(false);
   const [refreshingExpiredSession, setRefreshingExpiredSession] = useState(false);
-  const [preparingSessionEncryption, setPreparingSessionEncryption] = useState(false);
   const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(() =>
     typeof window === "undefined" ? null : extractInviteCodeFromPath(window.location.pathname)
   );
@@ -72,7 +71,6 @@ export function App() {
     typeof window === "undefined" ? null : extractEmailVerificationTokenFromSearch(window.location.search)
   );
   const refreshInFlightRef = useRef(false);
-  const previousUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     document.documentElement.lang = "ru";
@@ -146,51 +144,6 @@ export function App() {
   }, [restoringSession]);
 
   useEffect(() => {
-    const previousUserId = previousUserIdRef.current;
-    const nextUserId = session?.user.id ?? null;
-
-    if (previousUserId && previousUserId !== nextUserId) {
-      void import("../lib/e2ee").then(({ lockUnlockedEncryptionState }) => {
-        lockUnlockedEncryptionState(previousUserId);
-      });
-    }
-
-    if (!nextUserId && previousUserId) {
-      void import("../lib/e2ee").then(({ lockUnlockedEncryptionState }) => {
-        lockUnlockedEncryptionState(previousUserId);
-      });
-    }
-
-    previousUserIdRef.current = nextUserId;
-  }, [session?.user.id]);
-
-  useEffect(() => {
-    if (passwordResetToken || emailVerificationToken || restoringSession || !session) {
-      setPreparingSessionEncryption(false);
-      return;
-    }
-
-    let cancelled = false;
-    setPreparingSessionEncryption(true);
-    void import("../lib/e2ee")
-      .then(async ({ ensureEncryptionReadyForActiveSession }) => {
-        await ensureEncryptionReadyForActiveSession(session);
-        if (!cancelled) {
-          setPreparingSessionEncryption(false);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setPreparingSessionEncryption(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [emailVerificationToken, passwordResetToken, restoringSession, session]);
-
-  useEffect(() => {
     if (passwordResetToken || emailVerificationToken) {
       return;
     }
@@ -224,20 +177,6 @@ export function App() {
       return;
     }
 
-    void import("../lib/e2ee").then(({ syncEncryptionState }) => {
-      void syncEncryptionState(session);
-    });
-  }, [emailVerificationToken, passwordResetToken, restoringSession, session]);
-
-  useEffect(() => {
-    if (passwordResetToken || emailVerificationToken) {
-      return;
-    }
-
-    if (restoringSession || !session) {
-      return;
-    }
-
     const refreshOnReturn = () => {
       if (document.visibilityState === "hidden") {
         return;
@@ -251,10 +190,6 @@ export function App() {
       if (shouldRefreshSessionSoon(session)) {
         void requestSessionRefresh(false);
       }
-
-      void import("../lib/e2ee").then(({ syncEncryptionState }) => {
-        void syncEncryptionState(session);
-      });
     };
 
     window.addEventListener("focus", refreshOnReturn);
@@ -274,11 +209,9 @@ export function App() {
 
   const showBlockingRestore =
     restoringSession ||
-    preparingSessionEncryption ||
     Boolean(session && refreshingExpiredSession && isAccessTokenExpired(session));
   const showSessionRestoreCard =
     (restoringSession && showRestoringSessionCard) ||
-    preparingSessionEncryption ||
     Boolean(session && refreshingExpiredSession && isAccessTokenExpired(session));
 
   return (

@@ -1,4 +1,3 @@
-import { isUnavailableEncryptedMessage } from "../../../lib/e2eeShared";
 import type { ChatMessage } from "../../../lib/types";
 
 type OpenChatReadOptions = {
@@ -28,11 +27,7 @@ export function buildReadableIncomingMessageIdsKey(
   currentUserId: string
 ) {
   return messages
-    .filter(
-      (message) =>
-        message.sender.id !== currentUserId &&
-        !isUnavailableEncryptedMessage(message.content)
-    )
+    .filter((message) => message.sender.id !== currentUserId)
     .map((message) => message.id)
     .join(",");
 }

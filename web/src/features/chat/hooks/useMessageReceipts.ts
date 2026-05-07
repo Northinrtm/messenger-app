@@ -4,7 +4,6 @@ import {
   acknowledgeDelivered as acknowledgeDeliveredRequest,
   acknowledgeRead as acknowledgeReadRequest,
 } from "../../../lib/api";
-import { isUnavailableEncryptedMessage } from "../../../lib/e2eeShared";
 import type { ChatMessage, UserProfile } from "../../../lib/types";
 import { canAcknowledgeVisibleMessagesAsRead } from "./messageReadVisibility";
 
@@ -65,10 +64,10 @@ export function useMessageReceipts({
       return;
     }
 
-    clearChatUnreadIndicator(chatId);
     pendingIds.forEach((messageId) => readMessageIdsInFlightRef.current.add(messageId));
     try {
       await acknowledgeReadRequest(token, chatId, pendingIds);
+      clearChatUnreadIndicator(chatId);
       pendingIds.forEach((messageId) => {
         readMessageIdsRef.current.add(messageId);
         deliveredMessageIdsRef.current.add(messageId);
@@ -94,9 +93,7 @@ export function useMessageReceipts({
 
     const incomingMessageIds = messages
       .filter(
-        (message) =>
-          message.sender.id !== currentUser.id &&
-          !isUnavailableEncryptedMessage(message.content)
+        (message) => message.sender.id !== currentUser.id
       )
       .map((message) => message.id);
     if (!incomingMessageIds.length) {

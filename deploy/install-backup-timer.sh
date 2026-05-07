@@ -31,7 +31,7 @@ if [[ ! -f "$BACKUP_ENV_FILE" ]]; then
 APP_DIR=$APP_DIR
 BACKUP_ROOT=$BACKUP_ROOT
 BACKUP_RETENTION_DAYS=14
-BACKUP_VOLUME_SUFFIXES="caddy_data conference_recordings_archive conference_recordings_raw message_attachments vault_data"
+BACKUP_VOLUME_SUFFIXES="caddy_data conference_recordings_archive conference_recordings_raw minio_data"
 BACKUP_ARCHIVER_IMAGE=caddy:2.9-alpine
 EOF
   chmod 600 "$BACKUP_ENV_FILE"

@@ -1,9 +1,5 @@
 import { type InfiniteData, type QueryClient } from "@tanstack/react-query";
 import { useEffect, useEffectEvent, useRef } from "react";
-import { invalidateActiveGroupHistoryKeyCache } from "../../../lib/e2ee";
-import {
-  isUnavailableEncryptedMessage,
-} from "../../../lib/e2eeShared";
 import { replaceSubscribedChatIds, subscribeToChats } from "../../../lib/realtime";
 import type {
   ChatMessage,
@@ -92,35 +88,13 @@ export function shouldRefreshChatListOnRealtimeConnect(
 }
 
 export function shouldRefreshActiveChatOnRealtimeChatUpdate(
-  chat: Pick<ChatSummary, "id" | "direct">,
-  options: {
+  _chat: Pick<ChatSummary, "id" | "direct">,
+  _options: {
     activeChatId: string | null;
     cachedMessages: InfiniteData<Pick<ChatMessage, "content">[]> | undefined;
   }
 ) {
-  if (chat.direct || !options.activeChatId || chat.id !== options.activeChatId) {
-    return false;
-  }
-
-  return (options.cachedMessages?.pages ?? []).some((page) =>
-    page.some((message) => isUnavailableEncryptedMessage(message.content))
-  );
-}
-
-export function shouldInvalidateActiveHistoryKeyCacheOnRealtimeChatUpdate(
-  previousChat:
-    | Pick<ChatSummary, "activeHistoryKeyId">
-    | null
-    | undefined,
-  nextChat: Pick<ChatSummary, "activeHistoryKeyId">
-) {
-  if (!previousChat) {
-    return false;
-  }
-
-  return (
-    (previousChat.activeHistoryKeyId ?? null) !== (nextChat.activeHistoryKeyId ?? null)
-  );
+  return false;
 }
 
 export function useRealtimeChatSubscription({
@@ -210,7 +184,7 @@ export function useRealtimeChatSubscription({
     );
 
     if (!ownMessage) {
-      if (isVisibleActiveChat && !isUnavailableEncryptedMessage(nextMessage.content)) {
+      if (isVisibleActiveChat) {
         clearChatUnreadIndicator(nextMessage.chatId);
         void acknowledgeRead(nextMessage.chatId, [nextMessage.id]);
       } else {
@@ -239,12 +213,6 @@ export function useRealtimeChatSubscription({
       ["chats", sessionToken],
       (current) => upsertChat(current, chat)
     );
-
-    if (
-      shouldInvalidateActiveHistoryKeyCacheOnRealtimeChatUpdate(existingChat, chat)
-    ) {
-      void invalidateActiveGroupHistoryKeyCache(currentUser.id, chat.id);
-    }
 
     if (isNewChat) {
       void queryClient.invalidateQueries({ queryKey: ["chats", sessionToken] });

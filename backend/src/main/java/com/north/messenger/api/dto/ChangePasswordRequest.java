@@ -8,8 +8,6 @@ public record ChangePasswordRequest(
         String currentPassword,
         @NotBlank
         @Size(min = 8, max = 120, message = "Password must be at least 8 characters long")
-        String newPassword,
-        String recoverySnapshotPayloadJson,
-        String recoveryWrappedIdentityRecordJson
+        String newPassword
 ) {
 }

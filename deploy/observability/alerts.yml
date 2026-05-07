@@ -84,23 +84,3 @@ groups:
         annotations:
           summary: Message dispatch outbox lag is high
           description: The oldest due message dispatch outbox entry has been waiting for more than 30 seconds for at least 10 minutes.
-
-      - alert: MessengerE2eeMaintenanceOutboxBacklogHigh
-        expr: max(messenger_outbox_due{queue="e2ee_maintenance"}) > 250
-        for: 15m
-        labels:
-          severity: warning
-          service: messenger-backend
-        annotations:
-          summary: E2EE maintenance outbox backlog is high
-          description: More than 250 E2EE maintenance outbox entries have been due for processing for at least 15 minutes.
-
-      - alert: MessengerE2eeMaintenanceOutboxLagHigh
-        expr: max(messenger_outbox_oldest_due_lag_seconds{queue="e2ee_maintenance"}) > 120
-        for: 15m
-        labels:
-          severity: warning
-          service: messenger-backend
-        annotations:
-          summary: E2EE maintenance outbox lag is high
-          description: The oldest due E2EE maintenance outbox entry has been waiting for more than 2 minutes for at least 15 minutes.

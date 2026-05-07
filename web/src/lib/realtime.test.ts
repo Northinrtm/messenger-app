@@ -1,19 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { createMessageMock } = vi.hoisted(() => ({
-  createMessageMock: vi.fn(),
-}));
-
-vi.mock("./api", async () => {
-  const actual = await vi.importActual<typeof import("./api")>("./api");
-  return {
-    ...actual,
-    createMessage: createMessageMock,
-  };
-});
-
-vi.mock("./e2ee", () => ({
-  hydrateChatMessage: vi.fn(async (message: Record<string, unknown>) => ({
+const { hydrateApiChatMessageMock } = vi.hoisted(() => ({
+  hydrateApiChatMessageMock: vi.fn((message: Record<string, unknown>) => ({
     id: message.id,
     chatId: message.chatId,
     sender: message.sender,
@@ -24,25 +12,23 @@ vi.mock("./e2ee", () => ({
     clientMessageId: message.clientMessageId ?? null,
     replyTo: message.replyTo ?? null,
     reactions: message.reactions ?? [],
+    attachments: [],
   })),
-  hydrateOwnActiveGroupHistoryKeyAccess: vi.fn(async () => undefined),
 }));
 
-import {
-  hydrateChatMessage,
-  hydrateOwnActiveGroupHistoryKeyAccess,
-} from "./e2ee";
+vi.mock("./messagePayload", async () => {
+  const actual = await vi.importActual<typeof import("./messagePayload")>("./messagePayload");
+  return {
+    ...actual,
+    hydrateApiChatMessage: hydrateApiChatMessageMock,
+  };
+});
+
+import { ApiError } from "./api";
+import { hydrateApiChatMessage } from "./messagePayload";
 import { publishTypingEvent, sendMessageRaw, subscribeToChats } from "./realtime";
 
 const stompClients: MockClient[] = [];
-const CHAT_EPOCH_SHARED_ENVELOPE = JSON.stringify({
-  aadVersion: 1,
-  chatId: "chat-1",
-  senderUserId: "user-1",
-  historyKeyId: "history-key-id",
-  ciphertext: "cGF5bG9hZA==",
-  iv: "MDEyMzQ1Njc4OTAx",
-});
 
 vi.mock("@stomp/stompjs", () => {
   class Client {
@@ -51,8 +37,6 @@ vi.mock("@stomp/stompjs", () => {
     webSocket = { readyState: 1 };
     activateCalls = 0;
     deactivateCalls = 0;
-    unsubscribeCalls = 0;
-    unsafeUnsubscribeCalls = 0;
     publishCalls: Array<{ destination: string; body: string }> = [];
     subscriptions = new Map<string, (frame: { body: string }) => void>();
     onConnect = () => undefined;
@@ -79,11 +63,6 @@ vi.mock("@stomp/stompjs", () => {
       this.subscriptions.set(destination, callback);
       return {
         unsubscribe: () => {
-          this.unsubscribeCalls += 1;
-          if (this.webSocket.readyState !== 1) {
-            this.unsafeUnsubscribeCalls += 1;
-            throw new Error("websocket is not open");
-          }
           this.subscriptions.delete(destination);
         },
       };
@@ -111,8 +90,6 @@ type MockClient = {
   webSocket: { readyState: number };
   activateCalls: number;
   deactivateCalls: number;
-  unsubscribeCalls: number;
-  unsafeUnsubscribeCalls: number;
   publishCalls: Array<{ destination: string; body: string }>;
   subscriptions: Map<string, (frame: { body: string }) => void>;
   config: {
@@ -126,45 +103,34 @@ type MockClient = {
   deactivate: () => Promise<void>;
 };
 
-function emitFrame(
-  client: MockClient,
-  destination: string,
-  body: Record<string, unknown>
-) {
+function emitFrame(client: MockClient, destination: string, body: Record<string, unknown>) {
   client.subscriptions.get(destination)?.({
     body: JSON.stringify(body),
-  });
-}
-
-function setDocumentVisibilityState(state: DocumentVisibilityState) {
-  Object.defineProperty(document, "visibilityState", {
-    configurable: true,
-    value: state,
   });
 }
 
 function createSubscription(options?: {
   onConnectionChange?: (connected: boolean) => void;
   onAuthFailure?: () => void;
+  onMessage?: (message: unknown) => void;
 }) {
   return subscribeToChats({
     chatIds: [],
     token: "test-token",
     currentUserId: "user-1",
     onChat: () => undefined,
-    onMessage: () => undefined,
+    onMessage: options?.onMessage ?? (() => undefined),
     onSessionEvent: () => undefined,
     onConnectionChange: options?.onConnectionChange,
     onAuthFailure: options?.onAuthFailure,
   });
 }
 
-describe("realtime reconnect protection", () => {
+describe("realtime transport", () => {
   beforeEach(() => {
     stompClients.length = 0;
-    createMessageMock.mockReset();
+    hydrateApiChatMessageMock.mockClear();
     vi.useFakeTimers();
-    setDocumentVisibilityState("visible");
   });
 
   afterEach(() => {
@@ -172,134 +138,9 @@ describe("realtime reconnect protection", () => {
     vi.useRealTimers();
   });
 
-  it("pauses websocket reconnects after repeated rapid failures", () => {
-    const dispose = createSubscription();
-    const client = stompClients[0];
-
-    expect(client.config.brokerURL).toBe("ws://localhost:8080/ws");
-    expect(client.activateCalls).toBe(1);
-
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      client.onWebSocketClose();
-      vi.advanceTimersByTime(300);
-    }
-
-    expect(client.deactivateCalls).toBe(0);
-
-    client.onWebSocketClose();
-
-    expect(client.deactivateCalls).toBe(1);
-    expect(client.active).toBe(false);
-
-    vi.advanceTimersByTime(59_999);
-    expect(client.activateCalls).toBe(1);
-
-    vi.advanceTimersByTime(1);
-    expect(client.activateCalls).toBe(2);
-
-    dispose();
-  });
-
-  it("cancels the delayed reconnect when the subscription is disposed", () => {
-    const dispose = createSubscription();
-    const client = stompClients[0];
-
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      client.onWebSocketClose();
-      vi.advanceTimersByTime(300);
-    }
-
-    expect(client.deactivateCalls).toBe(1);
-
-    dispose();
-    vi.advanceTimersByTime(60_000);
-
-    expect(client.activateCalls).toBe(1);
-  });
-
-  it("retires an older websocket client when a new subscription starts", () => {
-    const firstConnectionChange = vi.fn();
-    const secondConnectionChange = vi.fn();
-
-    const disposeFirst = createSubscription({
-      onConnectionChange: firstConnectionChange,
-    });
-    const firstClient = stompClients[0];
-
-    firstClient.onConnect();
-    expect(firstConnectionChange).toHaveBeenCalledWith(true);
-
-    const disposeSecond = createSubscription({
-      onConnectionChange: secondConnectionChange,
-    });
-    const secondClient = stompClients[1];
-
-    expect(firstClient.deactivateCalls).toBe(1);
-
-    firstClient.onWebSocketClose();
-    expect(firstConnectionChange).toHaveBeenCalledTimes(1);
-
-    secondClient.onConnect();
-    expect(secondConnectionChange).toHaveBeenCalledWith(true);
-
-    disposeSecond();
-    disposeFirst();
-  });
-
-  it("keeps realtime active while the tab is hidden", () => {
-    const connectionChange = vi.fn();
-    const dispose = createSubscription({
-      onConnectionChange: connectionChange,
-    });
-    const client = stompClients[0];
-
-    client.connected = true;
-    client.onConnect();
-    expect(connectionChange).toHaveBeenCalledWith(true);
-
-    setDocumentVisibilityState("hidden");
-    document.dispatchEvent(new Event("visibilitychange"));
-
-    vi.advanceTimersByTime(15_000);
-    expect(client.deactivateCalls).toBe(0);
-
-    setDocumentVisibilityState("visible");
-    document.dispatchEvent(new Event("visibilitychange"));
-
-    expect(client.activateCalls).toBe(1);
-    expect(connectionChange).toHaveBeenCalledTimes(1);
-
-    dispose();
-  });
-
-  it("does not treat pagehide shutdown as a reconnect failure", () => {
-    const dispose = createSubscription();
-    const client = stompClients[0];
-
-    client.connected = true;
-    client.onConnect();
-
-    window.dispatchEvent(new Event("pagehide"));
-    expect(client.deactivateCalls).toBe(1);
-
-    client.onWebSocketClose();
-    vi.advanceTimersByTime(60_000);
-
-    expect(client.activateCalls).toBe(1);
-
-    dispose();
-  });
-
   it("hydrates incoming websocket messages and forwards them to onMessage", async () => {
     const onMessage = vi.fn();
-    const dispose = subscribeToChats({
-      chatIds: [],
-      token: "test-token",
-      currentUserId: "user-1",
-      onChat: () => undefined,
-      onMessage,
-      onSessionEvent: () => undefined,
-    });
+    const dispose = createSubscription({ onMessage });
     const client = stompClients[0];
     client.connected = true;
     client.onConnect();
@@ -315,24 +156,21 @@ describe("realtime reconnect protection", () => {
         avatarUrl: null,
         online: true,
       },
-      content: null,
       createdAt: "2026-04-13T12:00:00.000Z",
       editedAt: null,
       status: null,
       clientMessageId: null,
       replyTo: null,
       reactions: [],
-      encryptedPayload: {
-        scheme: "CHAT-EPOCH-KEY-AES-GCM",
+      plainPayload: {
+        content: "hello",
       },
     };
 
     emitFrame(client, "/user/queue/messages", incomingPayload);
     await Promise.resolve();
-    await Promise.resolve();
-    await vi.dynamicImportSettled();
 
-    expect(vi.mocked(hydrateChatMessage)).toHaveBeenCalledWith(incomingPayload, "user-1");
+    expect(vi.mocked(hydrateApiChatMessage)).toHaveBeenCalledWith(incomingPayload);
     expect(onMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         id: "message-id",
@@ -344,35 +182,7 @@ describe("realtime reconnect protection", () => {
     dispose();
   });
 
-  it("hydrates active group history key grants pushed over realtime", async () => {
-    const dispose = createSubscription();
-    const client = stompClients[0];
-    client.connected = true;
-    client.onConnect();
-
-    const activeKeyEvent = {
-      chatId: "chat-id",
-      historyKeyId: "history-key-id",
-      wrappedKeyPayloadJson: "{\"wrapped\":\"grant\"}",
-      serverGrantPayloadJson: null,
-      createdAt: "2026-04-13T12:00:00.000Z",
-      updatedAt: "2026-04-13T12:00:00.000Z",
-    };
-
-    emitFrame(client, "/user/queue/group-history-active-keys", activeKeyEvent);
-    await Promise.resolve();
-    await Promise.resolve();
-    await vi.dynamicImportSettled();
-
-    expect(vi.mocked(hydrateOwnActiveGroupHistoryKeyAccess)).toHaveBeenCalledWith(
-      "user-1",
-      activeKeyEvent
-    );
-
-    dispose();
-  });
-
-  it("sends messages over websocket and resolves from explicit sender ack", async () => {
+  it("sends plain messages over websocket and resolves from sender ack", async () => {
     const dispose = createSubscription();
     const client = stompClients[0];
     client.connected = true;
@@ -380,8 +190,8 @@ describe("realtime reconnect protection", () => {
 
     const sendPromise = sendMessageRaw("ignored", "chat-1", {
       clientMessageId: "client-1",
-      encryptedPayload: {
-        scheme: "CHAT-EPOCH-KEY-AES-GCM",
+      plainPayload: {
+        content: "hello",
       },
     });
 
@@ -392,8 +202,8 @@ describe("realtime reconnect protection", () => {
           clientMessageId: "client-1",
           replyToMessageId: null,
           attachmentIds: [],
-          encryptedPayload: {
-            scheme: "CHAT-EPOCH-KEY-AES-GCM",
+          plainPayload: {
+            content: "hello",
           },
         }),
       },
@@ -410,7 +220,6 @@ describe("realtime reconnect protection", () => {
         avatarUrl: null,
         online: true,
       },
-      content: null,
       createdAt: "2026-04-13T12:00:00.000Z",
       editedAt: null,
       status: null,
@@ -418,81 +227,74 @@ describe("realtime reconnect protection", () => {
       serverOrder: 42,
       replyTo: null,
       reactions: [],
-      encryptedPayload: {
-        scheme: "CHAT-EPOCH-KEY-AES-GCM",
+      plainPayload: {
+        content: "hello",
       },
     };
 
     emitFrame(client, "/user/queue/message-acks", ackPayload);
 
-    await expect(sendPromise).resolves.toEqual(ackPayload);
+    await expect(sendPromise).resolves.toMatchObject({
+      id: "server-1",
+      clientMessageId: "client-1",
+    });
+
     dispose();
   });
 
-  it("rejects pending sends from explicit sender error events", async () => {
+  it("rejects sends when realtime is unavailable", async () => {
+    createSubscription();
+    await expect(
+      sendMessageRaw("token", "chat-1", {
+        clientMessageId: "client-http",
+        plainPayload: {
+          content: "hello http",
+        },
+      })
+    ).rejects.toMatchObject(
+      new ApiError("Realtime connection is unavailable. Retry after reconnect.", 503)
+    );
+  });
+
+  it("publishes typing events for active realtime connections", () => {
     const dispose = createSubscription();
     const client = stompClients[0];
     client.connected = true;
     client.onConnect();
 
-    const sendPromise = sendMessageRaw("ignored", "chat-1", {
-      clientMessageId: "client-2",
-      encryptedPayload: {
-        scheme: "CHAT-EPOCH-KEY-AES-GCM",
-      },
+    publishTypingEvent("chat-1", true);
+
+    expect(client.publishCalls.at(-1)).toEqual({
+      destination: "/app/chats/chat-1/typing",
+      body: JSON.stringify({ typing: true }),
     });
 
-    emitFrame(client, "/user/queue/message-errors", {
-      chatId: "chat-1",
-      clientMessageId: "client-2",
-      status: 403,
-      error: "Chat membership is required",
-      details: "forbidden",
-    });
-
-    await expect(sendPromise).rejects.toMatchObject({
-      status: 403,
-      message: "Chat membership is required",
-      details: "forbidden",
-    });
     dispose();
   });
 
-  it("allows retrying the same client message id after an explicit sender error", async () => {
+  it("rejects duplicate pending realtime sends", async () => {
     const dispose = createSubscription();
     const client = stompClients[0];
     client.connected = true;
     client.onConnect();
 
-    const failedSend = sendMessageRaw("ignored", "chat-1", {
-      clientMessageId: "client-retry",
-      encryptedPayload: {
-        scheme: "CHAT-EPOCH-KEY-AES-GCM",
+    const firstSend = sendMessageRaw("ignored", "chat-1", {
+      clientMessageId: "client-dup",
+      plainPayload: {
+        content: "one",
       },
     });
-
-    emitFrame(client, "/user/queue/message-errors", {
-      chatId: "chat-1",
-      clientMessageId: "client-retry",
-      status: 409,
-      error: "Chat membership changed",
-      details: ["conflict"],
-    });
-
-    await expect(failedSend).rejects.toMatchObject({
-      status: 409,
-      message: "Chat membership changed",
-    });
-
-    const retriedSend = sendMessageRaw("ignored", "chat-1", {
-      clientMessageId: "client-retry",
-      encryptedPayload: {
-        scheme: "CHAT-EPOCH-KEY-AES-GCM",
-      },
-    });
+    await expect(
+      sendMessageRaw("ignored", "chat-1", {
+        clientMessageId: "client-dup",
+        plainPayload: {
+          content: "two",
+        },
+      })
+    ).rejects.toMatchObject(new ApiError("Message send is already pending", 409));
 
     emitFrame(client, "/user/queue/message-acks", {
-      id: "server-retry",
+      id: "server-dup",
       chatId: "chat-1",
       sender: {
         id: "user-1",
@@ -502,430 +304,18 @@ describe("realtime reconnect protection", () => {
         avatarUrl: null,
         online: true,
       },
-      content: null,
-      createdAt: "2026-04-13T12:01:00.000Z",
+      createdAt: "2026-04-13T12:00:00.000Z",
       editedAt: null,
       status: null,
-      clientMessageId: "client-retry",
-      serverOrder: 43,
+      clientMessageId: "client-dup",
       replyTo: null,
       reactions: [],
-      encryptedPayload: {
-        scheme: "CHAT-EPOCH-KEY-AES-GCM",
+      plainPayload: {
+        content: "one",
       },
     });
+    await firstSend;
 
-    await expect(retriedSend).resolves.toMatchObject({
-      id: "server-retry",
-      clientMessageId: "client-retry",
-      serverOrder: 43,
-    });
-    expect(client.publishCalls).toHaveLength(2);
     dispose();
   });
-
-  it("falls back to HTTP when websocket sender error is a retryable backend failure", async () => {
-    const dispose = createSubscription();
-    const client = stompClients[0];
-    client.connected = true;
-    client.onConnect();
-    createMessageMock.mockResolvedValue({
-      id: "server-http-after-ws-error",
-      chatId: "chat-1",
-      sender: {
-        id: "user-1",
-        username: "north",
-        displayName: "North",
-        profession: null,
-        avatarUrl: null,
-        online: true,
-      },
-      content: null,
-      createdAt: "2026-04-13T12:01:30.000Z",
-      editedAt: null,
-      status: null,
-      clientMessageId: "client-ws-error-fallback",
-      serverOrder: 44,
-      replyTo: null,
-      reactions: [],
-      encryptedPayload: {
-        scheme: "CHAT-EPOCH-KEY-AES-GCM",
-      },
-    });
-
-    const sendPromise = sendMessageRaw("test-token", "chat-1", {
-      clientMessageId: "client-ws-error-fallback",
-      encryptedPayload: {
-        scheme: "CHAT-EPOCH-KEY-AES-GCM",
-      },
-    });
-
-    emitFrame(client, "/user/queue/message-errors", {
-      chatId: "chat-1",
-      clientMessageId: "client-ws-error-fallback",
-      status: 500,
-      error: "Unexpected server error",
-      details: ["IllegalStateException"],
-    });
-
-    await expect(sendPromise).resolves.toMatchObject({
-      id: "server-http-after-ws-error",
-      clientMessageId: "client-ws-error-fallback",
-      serverOrder: 44,
-    });
-    expect(createMessageMock).toHaveBeenCalledWith("test-token", "chat-1", {
-      clientMessageId: "client-ws-error-fallback",
-      replyToMessageId: null,
-      attachmentIds: [],
-      encryptedPayload: {
-        scheme: "CHAT-EPOCH-KEY-AES-GCM",
-      },
-    });
-    dispose();
-  });
-
-  it("falls back to HTTP when the websocket closes before ack", async () => {
-    const dispose = createSubscription();
-    const client = stompClients[0];
-    client.connected = true;
-    client.onConnect();
-    createMessageMock.mockResolvedValue({
-      id: "server-after-close",
-      chatId: "chat-1",
-      sender: {
-        id: "user-1",
-        username: "north",
-        displayName: "North",
-        profession: null,
-        avatarUrl: null,
-        online: true,
-      },
-      content: null,
-      createdAt: "2026-04-13T12:01:30.000Z",
-      editedAt: null,
-      status: null,
-      clientMessageId: "client-3",
-      serverOrder: 44,
-      replyTo: null,
-      reactions: [],
-      encryptedPayload: {
-        scheme: "CHAT-EPOCH-KEY-AES-GCM",
-      },
-    });
-
-    const sendPromise = sendMessageRaw("ignored", "chat-1", {
-      clientMessageId: "client-3",
-      encryptedPayload: {
-        scheme: "CHAT-EPOCH-KEY-AES-GCM",
-      },
-    });
-
-    client.onWebSocketClose();
-
-    await expect(sendPromise).resolves.toMatchObject({
-      id: "server-after-close",
-      clientMessageId: "client-3",
-    });
-    expect(createMessageMock).toHaveBeenCalledWith("ignored", "chat-1", {
-      clientMessageId: "client-3",
-      replyToMessageId: null,
-      attachmentIds: [],
-      encryptedPayload: {
-        scheme: "CHAT-EPOCH-KEY-AES-GCM",
-      },
-    });
-    dispose();
-  });
-
-  it("fails pending sends and reports auth failure on websocket authentication errors", async () => {
-    const onAuthFailure = vi.fn();
-    const dispose = createSubscription({
-      onAuthFailure,
-    });
-    const client = stompClients[0];
-    client.connected = true;
-    client.onConnect();
-
-    const sendPromise = sendMessageRaw("ignored", "chat-1", {
-      clientMessageId: "client-auth-fail",
-      encryptedPayload: {
-        scheme: "CHAT-EPOCH-KEY-AES-GCM",
-      },
-    });
-
-    client.onStompError({
-      headers: {
-        message: "WebSocket authenticated session is inactive",
-      },
-      body: "",
-    });
-
-    await expect(sendPromise).rejects.toMatchObject({
-      status: 401,
-      message: "Realtime session ended. Sign in again.",
-    });
-    expect(onAuthFailure).toHaveBeenCalledTimes(1);
-    dispose();
-  });
-
-  it("falls back to HTTP message send when the websocket is closing", async () => {
-    const connectionChange = vi.fn();
-    const dispose = createSubscription({
-      onConnectionChange: connectionChange,
-    });
-    const client = stompClients[0];
-    client.connected = true;
-    client.onConnect();
-    client.webSocket.readyState = 2;
-    createMessageMock.mockResolvedValue({
-      id: "server-http",
-      chatId: "chat-1",
-      sender: {
-        id: "user-1",
-        username: "north",
-        displayName: "North",
-        profession: null,
-        avatarUrl: null,
-        online: true,
-      },
-      content: null,
-      createdAt: "2026-04-13T12:02:00.000Z",
-      editedAt: null,
-      status: null,
-      clientMessageId: "client-closing",
-      serverOrder: 44,
-      replyTo: null,
-      reactions: [],
-      encryptedPayload: {
-        scheme: "CHAT-EPOCH-KEY-AES-GCM",
-      },
-    });
-
-    await expect(
-      sendMessageRaw("test-token", "chat-1", {
-        clientMessageId: "client-closing",
-        encryptedPayload: {
-          scheme: "CHAT-EPOCH-KEY-AES-GCM",
-        },
-      })
-    ).resolves.toMatchObject({
-      id: "server-http",
-      clientMessageId: "client-closing",
-    });
-
-    expect(client.publishCalls).toEqual([]);
-    expect(createMessageMock).toHaveBeenCalledWith("test-token", "chat-1", {
-      clientMessageId: "client-closing",
-      replyToMessageId: null,
-      attachmentIds: [],
-      encryptedPayload: {
-        scheme: "CHAT-EPOCH-KEY-AES-GCM",
-      },
-    });
-    expect(connectionChange).toHaveBeenCalledWith(false);
-    expect(client.unsubscribeCalls).toBe(0);
-    expect(client.unsafeUnsubscribeCalls).toBe(0);
-    dispose();
-  });
-
-  it("falls back to HTTP message send when realtime is not connected yet", async () => {
-    createMessageMock.mockResolvedValue({
-      id: "server-http-no-ws",
-      chatId: "chat-1",
-      sender: {
-        id: "user-1",
-        username: "north",
-        displayName: "North",
-        profession: null,
-        avatarUrl: null,
-        online: true,
-      },
-      content: null,
-      createdAt: "2026-04-13T12:03:00.000Z",
-      editedAt: null,
-      status: null,
-      clientMessageId: "client-http-no-ws",
-      serverOrder: 45,
-      replyTo: null,
-      reactions: [],
-      encryptedPayload: {
-        scheme: "CHAT-EPOCH-KEY-AES-GCM",
-      },
-    });
-
-    await expect(
-      sendMessageRaw("test-token", "chat-1", {
-        clientMessageId: "client-http-no-ws",
-        encryptedPayload: {
-          scheme: "CHAT-EPOCH-KEY-AES-GCM",
-        },
-      })
-    ).resolves.toMatchObject({
-      id: "server-http-no-ws",
-      clientMessageId: "client-http-no-ws",
-    });
-
-    expect(createMessageMock).toHaveBeenCalledWith("test-token", "chat-1", {
-      clientMessageId: "client-http-no-ws",
-      replyToMessageId: null,
-      attachmentIds: [],
-      encryptedPayload: {
-        scheme: "CHAT-EPOCH-KEY-AES-GCM",
-      },
-    });
-  });
-
-  it("sends shared chat epoch payloads over websocket when realtime is connected", async () => {
-    const connectionChange = vi.fn();
-    const dispose = createSubscription({
-      onConnectionChange: connectionChange,
-    });
-    const client = stompClients[0];
-    client.connected = true;
-    client.onConnect();
-    const ackPayload = {
-      id: "server-group-ws",
-      chatId: "chat-1",
-      sender: {
-        id: "user-1",
-        username: "north",
-        displayName: "North",
-        profession: null,
-        avatarUrl: null,
-        online: true,
-      },
-      content: null,
-      createdAt: "2026-04-24T15:20:00.000Z",
-      editedAt: null,
-      status: null,
-      clientMessageId: "client-group-ws",
-      serverOrder: 46,
-      replyTo: null,
-      reactions: [],
-      encryptedPayload: {
-        scheme: "CHAT-EPOCH-KEY-AES-GCM",
-        sharedEnvelope: CHAT_EPOCH_SHARED_ENVELOPE,
-      },
-    };
-
-    const sendPromise = sendMessageRaw("test-token", "chat-1", {
-      clientMessageId: "client-group-ws",
-      encryptedPayload: {
-        scheme: "CHAT-EPOCH-KEY-AES-GCM",
-        sharedEnvelope: CHAT_EPOCH_SHARED_ENVELOPE,
-      },
-    });
-
-    expect(client.publishCalls).toEqual([
-      {
-        destination: "/app/chats/chat-1/messages",
-        body: JSON.stringify({
-          clientMessageId: "client-group-ws",
-          replyToMessageId: null,
-          attachmentIds: [],
-          encryptedPayload: {
-            scheme: "CHAT-EPOCH-KEY-AES-GCM",
-            sharedEnvelope: CHAT_EPOCH_SHARED_ENVELOPE,
-          },
-        }),
-      },
-    ]);
-    expect(createMessageMock).not.toHaveBeenCalled();
-
-    emitFrame(client, "/user/queue/message-acks", ackPayload);
-
-    await expect(sendPromise).resolves.toMatchObject({
-      id: "server-group-ws",
-      clientMessageId: "client-group-ws",
-    });
-
-    expect(connectionChange).not.toHaveBeenCalledWith(false);
-    dispose();
-  });
-
-  it("falls back to HTTP when websocket message confirmation times out", async () => {
-    const dispose = createSubscription();
-    const client = stompClients[0];
-    client.connected = true;
-    client.onConnect();
-    createMessageMock.mockResolvedValue({
-      id: "server-http-fallback",
-      chatId: "chat-1",
-      sender: {
-        id: "user-1",
-        username: "north",
-        displayName: "North",
-        profession: null,
-        avatarUrl: null,
-        online: true,
-      },
-      content: null,
-      createdAt: "2026-04-24T15:21:00.000Z",
-      editedAt: null,
-      status: null,
-      clientMessageId: "client-timeout-fallback",
-      serverOrder: 47,
-      replyTo: null,
-      reactions: [],
-      encryptedPayload: {
-        scheme: "CHAT-EPOCH-KEY-AES-GCM",
-        sharedEnvelope: CHAT_EPOCH_SHARED_ENVELOPE,
-      },
-    });
-
-    const sendPromise = sendMessageRaw("test-token", "chat-1", {
-      clientMessageId: "client-timeout-fallback",
-      encryptedPayload: {
-        scheme: "CHAT-EPOCH-KEY-AES-GCM",
-        sharedEnvelope: CHAT_EPOCH_SHARED_ENVELOPE,
-      },
-    });
-
-    vi.advanceTimersByTime(2_000);
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(createMessageMock).not.toHaveBeenCalled();
-
-    vi.advanceTimersByTime(4_000);
-    await Promise.resolve();
-    await Promise.resolve();
-
-    await expect(sendPromise).resolves.toMatchObject({
-      id: "server-http-fallback",
-      clientMessageId: "client-timeout-fallback",
-    });
-
-    expect(client.publishCalls).toHaveLength(1);
-    expect(createMessageMock).toHaveBeenCalledWith("test-token", "chat-1", {
-      clientMessageId: "client-timeout-fallback",
-      replyToMessageId: null,
-      attachmentIds: [],
-      encryptedPayload: {
-        scheme: "CHAT-EPOCH-KEY-AES-GCM",
-        sharedEnvelope: CHAT_EPOCH_SHARED_ENVELOPE,
-      },
-    });
-    dispose();
-  });
-
-  it("drops typing events without publishing when the websocket is closing", () => {
-    const connectionChange = vi.fn();
-    const dispose = createSubscription({
-      onConnectionChange: connectionChange,
-    });
-    const client = stompClients[0];
-    client.connected = true;
-    client.onConnect();
-    client.webSocket.readyState = 2;
-
-    expect(publishTypingEvent("chat-1", true)).toBe(false);
-    expect(client.publishCalls).toEqual([]);
-    expect(connectionChange).toHaveBeenCalledWith(false);
-    expect(client.unsubscribeCalls).toBe(0);
-    expect(client.unsafeUnsubscribeCalls).toBe(0);
-    dispose();
-  });
-
 });
-

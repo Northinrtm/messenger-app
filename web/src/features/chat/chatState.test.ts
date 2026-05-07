@@ -62,7 +62,7 @@ describe("chatState", () => {
     expect(flattenMessagePages(pages).map((item: ChatMessage) => item.id)).toEqual(["1", "2", "3"]);
   });
 
-  it("hydrates reply previews from decrypted messages instead of the server placeholder", () => {
+  it("hydrates reply previews from loaded messages instead of the server placeholder", () => {
     const repliedMessage = {
       ...message("1", "2026-03-22T10:00:00.000Z"),
       sender: {
@@ -88,7 +88,7 @@ describe("chatState", () => {
           online: false,
         },
         createdAt: repliedMessage.createdAt,
-        preview: "Encrypted message",
+        preview: "Message unavailable",
       },
     };
 
@@ -331,41 +331,6 @@ describe("chatState", () => {
     ]);
   });
 
-  it("keeps already decrypted content when the same realtime message arrives as unavailable", () => {
-    const current = {
-      pages: [[message("1", "2026-03-22T10:00:00.000Z")]],
-      pageParams: [null],
-    };
-    const unavailable = {
-      ...message("1", "2026-03-22T10:00:00.000Z"),
-      content: "[Encrypted message unavailable]",
-    };
-
-    const merged = mergeMessagePages(current, unavailable);
-
-    expect(merged.pages[0][0]?.content).toBe("message-1");
-  });
-
-  it("preserves decrypted history when a refetch returns the same message as unavailable", () => {
-    const current = {
-      pages: [[message("1", "2026-03-22T10:00:00.000Z")]],
-      pageParams: [null],
-    };
-    const incoming = {
-      pages: [[
-        {
-          ...message("1", "2026-03-22T10:00:00.000Z"),
-          content: "[Encrypted message unavailable]",
-        },
-      ]],
-      pageParams: [null],
-    };
-
-    const reconciled = reconcileMessageInfiniteData(current, incoming);
-
-    expect(reconciled?.pages[0][0]?.content).toBe("message-1");
-  });
-
   it("removes an optimistic message by client message id", () => {
     const current = {
       pages: [[{ ...message("local-1", "2026-03-22T10:00:00.000Z"), clientMessageId: "client-1" }]],
@@ -455,7 +420,7 @@ describe("chatState", () => {
     expect(next?.pages[0][0].reactions).toEqual(event.reactions);
   });
 
-  it("applies a decrypted preview over the server placeholder for the same message timestamp", () => {
+  it("applies a fresher local preview over the server placeholder for the same message timestamp", () => {
     const chats: ChatSummary[] = [
       {
         id: "chat-1",
@@ -476,7 +441,7 @@ describe("chatState", () => {
         ownerUserId: null,
         moderatorUserIds: [],
         members: [],
-        lastMessage: "Encrypted message",
+        lastMessage: "Message unavailable",
         lastMessageAt: "2026-03-22T10:00:00.000Z",
         updatedAt: "2026-03-22T10:00:00.000Z",
         unreadCount: 0,
@@ -515,7 +480,7 @@ describe("chatState", () => {
         ownerUserId: null,
         moderatorUserIds: [],
         members: [],
-        lastMessage: "Encrypted message",
+        lastMessage: "Message unavailable",
         lastMessageAt: "2026-03-22T10:01:00.000Z",
         updatedAt: "2026-03-22T10:01:00.000Z",
         unreadCount: 0,
@@ -530,7 +495,7 @@ describe("chatState", () => {
       },
     });
 
-    expect(next[0]?.lastMessage).toBe("Encrypted message");
+    expect(next[0]?.lastMessage).toBe("Message unavailable");
   });
 
   it("updates the preview override only when the incoming message is newer", () => {

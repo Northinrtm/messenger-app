@@ -1,11 +1,6 @@
 package com.north.messenger.application.message;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.north.messenger.api.dto.EncryptedMessagePayloadRequest;
-import com.north.messenger.api.dto.EncryptedMessagePayloadResponse;
+import com.north.messenger.api.dto.ChatAttachmentResponse;
 import com.north.messenger.api.dto.MessageDeliveryState;
 import com.north.messenger.api.dto.MessageReactionEventResponse;
 import com.north.messenger.api.dto.MessageReactionSummaryResponse;
@@ -13,32 +8,32 @@ import com.north.messenger.api.dto.MessageResponse;
 import com.north.messenger.api.dto.MessageSnippetResponse;
 import com.north.messenger.api.dto.MessageStatusResponse;
 import com.north.messenger.api.dto.ParticipantResponse;
+import com.north.messenger.api.dto.PlainMessagePayloadRequest;
+import com.north.messenger.api.dto.PlainMessagePayloadResponse;
 import com.north.messenger.application.auth.AuthService;
+import com.north.messenger.domain.model.ChatAttachment;
 import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.model.ChatParticipant;
 import com.north.messenger.domain.model.ChatPrejoinHistoryPolicy;
+import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.MessageReceipt;
 import com.north.messenger.domain.model.MessageReaction;
-import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.UserAccount;
+import com.north.messenger.domain.repository.ChatAttachmentRepository;
 import com.north.messenger.domain.repository.ChatMessageRepository;
 import com.north.messenger.domain.repository.ChatParticipantRepository;
 import com.north.messenger.domain.repository.MessageReceiptRepository;
 import com.north.messenger.domain.repository.MessageReactionRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import com.north.messenger.domain.repository.UserDeletedMessageRepository;
-import com.north.messenger.observability.MessengerTelemetry;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
-import java.time.Instant;
-import java.util.Base64;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
@@ -49,43 +44,40 @@ import org.springframework.web.server.ResponseStatusException;
 class MessageSupport {
 
     private static final List<String> REACTION_KEYS = List.of("LIKE", "DISLIKE", "EYES", "OK");
-    private static final String CHAT_EPOCH_SCHEME = "CHAT-EPOCH-KEY-AES-GCM";
-    private static final int CHAT_EPOCH_ENVELOPE_AAD_VERSION = 1;
-    private static final String CHAT_EPOCH_ENVELOPE_CONTEXT = "north.chat-message.v1";
 
     private final AuthService authService;
+    private final ChatAttachmentRepository chatAttachmentRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final ChatParticipantRepository chatParticipantRepository;
     private final MessageReceiptRepository messageReceiptRepository;
     private final MessageReactionRepository messageReactionRepository;
     private final UserAccountRepository userAccountRepository;
     private final UserDeletedMessageRepository userDeletedMessageRepository;
-    private final MessengerTelemetry telemetry;
-    private final ObjectMapper objectMapper;
-    private final EncryptedMessagePreviewService encryptedMessagePreviewService;
+    private final MessagePreviewService messagePreviewService;
+    private final MessageContentCryptoService messageContentCryptoService;
 
     MessageSupport(
             AuthService authService,
+            ChatAttachmentRepository chatAttachmentRepository,
             ChatMessageRepository chatMessageRepository,
             ChatParticipantRepository chatParticipantRepository,
             MessageReceiptRepository messageReceiptRepository,
             MessageReactionRepository messageReactionRepository,
             UserAccountRepository userAccountRepository,
             UserDeletedMessageRepository userDeletedMessageRepository,
-            MessengerTelemetry telemetry,
-            ObjectMapper objectMapper,
-            EncryptedMessagePreviewService encryptedMessagePreviewService
+            MessagePreviewService messagePreviewService,
+            MessageContentCryptoService messageContentCryptoService
     ) {
         this.authService = authService;
+        this.chatAttachmentRepository = chatAttachmentRepository;
         this.chatMessageRepository = chatMessageRepository;
         this.chatParticipantRepository = chatParticipantRepository;
         this.messageReceiptRepository = messageReceiptRepository;
         this.messageReactionRepository = messageReactionRepository;
         this.userAccountRepository = userAccountRepository;
         this.userDeletedMessageRepository = userDeletedMessageRepository;
-        this.telemetry = telemetry;
-        this.objectMapper = objectMapper;
-        this.encryptedMessagePreviewService = encryptedMessagePreviewService;
+        this.messagePreviewService = messagePreviewService;
+        this.messageContentCryptoService = messageContentCryptoService;
     }
 
     Map<UUID, MessageSnippetResponse> loadReplySnippetsByMessageId(
@@ -118,6 +110,12 @@ class MessageSupport {
         if (referencedMessagesById.isEmpty()) {
             return Map.of();
         }
+        messageContentCryptoService.hydrateContents(referencedMessagesById.values());
+        Map<UUID, List<ChatAttachment>> attachmentsByMessageId = chatAttachmentRepository
+                .findAllByMessageIdInOrderByCreatedAtAsc(referencedMessagesById.keySet())
+                .stream()
+                .filter(attachment -> attachment.getMessageId() != null)
+                .collect(Collectors.groupingBy(ChatAttachment::getMessageId));
 
         Set<UUID> missingSenderIds = referencedMessagesById.values().stream()
                 .map(ChatMessage::getSenderId)
@@ -151,7 +149,10 @@ class MessageSupport {
                                     referencedMessage.getId(),
                                     authService.toParticipant(sender),
                                     referencedMessage.getCreatedAt(),
-                                    summarizeMessagePreview(referencedMessage)
+                                    messagePreviewService.summarizeMessagePreview(
+                                            referencedMessage,
+                                            attachmentsByMessageId.getOrDefault(referencedMessage.getId(), List.of())
+                                    )
                             )
                     );
                 })
@@ -177,6 +178,8 @@ class MessageSupport {
                 List.of(existingMessage.getId()),
                 currentUser.getId()
         ).getOrDefault(existingMessage.getId(), List.of());
+        List<ChatAttachmentResponse> attachments = loadAttachmentResponses(List.of(existingMessage.getId()))
+                .getOrDefault(existingMessage.getId(), List.of());
         return toResponse(
                 existingMessage,
                 currentUser,
@@ -190,7 +193,8 @@ class MessageSupport {
                         room,
                         currentUser.getId()
                 )
-                        .get(existingMessage.getId())
+                        .get(existingMessage.getId()),
+                attachments
         );
     }
 
@@ -211,7 +215,8 @@ class MessageSupport {
                 reactions,
                 clientMessageId,
                 replyTo,
-                toEncryptedPayload(message)
+                toPlainPayload(message),
+                loadAttachmentResponses(List.of(message.getId())).getOrDefault(message.getId(), List.of())
         );
     }
 
@@ -223,7 +228,7 @@ class MessageSupport {
             List<MessageReactionSummaryResponse> reactions,
             String clientMessageId,
             MessageSnippetResponse replyTo,
-            EncryptedMessagePayloadResponse encryptedPayload
+            List<ChatAttachmentResponse> attachments
     ) {
         return toResponse(
                 message,
@@ -233,7 +238,55 @@ class MessageSupport {
                 reactions,
                 clientMessageId,
                 replyTo,
-                encryptedPayload
+                toPlainPayload(message),
+                attachments
+        );
+    }
+
+    MessageResponse toResponse(
+            ChatMessage message,
+            UserAccount sender,
+            UUID currentUserId,
+            MessageReceiptSummary summary,
+            List<MessageReactionSummaryResponse> reactions,
+            String clientMessageId,
+            MessageSnippetResponse replyTo,
+            PlainMessagePayloadResponse plainPayload
+    ) {
+        return toResponse(
+                message,
+                authService.toParticipant(sender),
+                currentUserId,
+                summary,
+                reactions,
+                clientMessageId,
+                replyTo,
+                plainPayload,
+                loadAttachmentResponses(List.of(message.getId())).getOrDefault(message.getId(), List.of())
+        );
+    }
+
+    MessageResponse toResponse(
+            ChatMessage message,
+            UserAccount sender,
+            UUID currentUserId,
+            MessageReceiptSummary summary,
+            List<MessageReactionSummaryResponse> reactions,
+            String clientMessageId,
+            MessageSnippetResponse replyTo,
+            PlainMessagePayloadResponse plainPayload,
+            List<ChatAttachmentResponse> attachments
+    ) {
+        return toResponse(
+                message,
+                authService.toParticipant(sender),
+                currentUserId,
+                summary,
+                reactions,
+                clientMessageId,
+                replyTo,
+                plainPayload,
+                attachments
         );
     }
 
@@ -245,7 +298,8 @@ class MessageSupport {
             List<MessageReactionSummaryResponse> reactions,
             String clientMessageId,
             MessageSnippetResponse replyTo,
-            EncryptedMessagePayloadResponse encryptedPayload
+            PlainMessagePayloadResponse plainPayload,
+            List<ChatAttachmentResponse> attachments
     ) {
         MessageStatusResponse status = message.getSenderId().equals(currentUserId)
                 ? summary.toResponse()
@@ -262,8 +316,20 @@ class MessageSupport {
                 clientMessageId,
                 replyTo,
                 reactions,
-                encryptedPayload
+                plainPayload,
+                attachments
         );
+    }
+
+    String validatePlainPayload(PlainMessagePayloadRequest payload, boolean attachmentsPresent) {
+        if (payload == null || payload.content() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Message payload is incomplete");
+        }
+        String normalized = payload.content().trim();
+        if (normalized.isEmpty() && !attachmentsPresent) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Message payload is incomplete");
+        }
+        return normalized;
     }
 
     Map<UUID, List<MessageReactionSummaryResponse>> loadReactionSummaries(
@@ -349,6 +415,27 @@ class MessageSupport {
                 .collect(Collectors.toMap(Map.Entry::getKey, entry -> summarizeReceipts(entry.getValue())));
     }
 
+    Map<UUID, List<ChatAttachmentResponse>> loadAttachmentResponses(Collection<UUID> messageIds) {
+        List<UUID> ids = sanitizeMessageIds(messageIds);
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<UUID, List<ChatAttachmentResponse>> attachmentsByMessageId = chatAttachmentRepository
+                .findAllByMessageIdInOrderByCreatedAtAsc(ids)
+                .stream()
+                .filter(attachment -> attachment.getMessageId() != null)
+                .collect(Collectors.groupingBy(
+                        ChatAttachment::getMessageId,
+                        Collectors.mapping(this::toAttachmentResponse, Collectors.toList())
+                ));
+
+        return ids.stream().collect(Collectors.toMap(
+                Function.identity(),
+                messageId -> attachmentsByMessageId.getOrDefault(messageId, List.of())
+        ));
+    }
+
     List<UUID> sanitizeMessageIds(Collection<UUID> rawMessageIds) {
         if (rawMessageIds == null || rawMessageIds.isEmpty()) {
             return List.of();
@@ -428,150 +515,6 @@ class MessageSupport {
         }
     }
 
-    ValidatedEncryptedPayload validateEncryptedPayload(
-            EncryptedMessagePayloadRequest payload,
-            ChatRoom room,
-            UserAccount currentUser,
-            String expectedMessageReference
-    ) {
-        if (payload == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Encrypted payload is incomplete");
-        }
-        if (payload.scheme().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Encrypted payload is incomplete");
-        }
-        if (!CHAT_EPOCH_SCHEME.equals(payload.scheme())) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Only chat epoch encrypted payloads are supported"
-            );
-        }
-
-        ChatEpochEnvelope chatEpochEnvelope = parseChatEpochEnvelope(
-                payload.sharedEnvelope(),
-                room.getId(),
-                expectedMessageReference
-        );
-        if (!chatEpochEnvelope.senderUserId().equals(currentUser.getId())) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Encrypted chat epoch envelope sender must match current user"
-            );
-        }
-
-        return new ValidatedEncryptedPayload(
-                payload.sharedEnvelope(),
-                chatEpochEnvelope.iv(),
-                chatEpochEnvelope.historyKeyId()
-        );
-    }
-
-    private ChatEpochEnvelope parseChatEpochEnvelope(
-            String serializedEnvelope,
-            UUID expectedChatId,
-            String expectedMessageReference
-    ) {
-        if (serializedEnvelope == null || serializedEnvelope.isBlank()) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Encrypted chat epoch envelope is incomplete"
-                );
-        }
-
-        try {
-            JsonNode envelope = objectMapper.readTree(serializedEnvelope);
-            if (envelope.path("aadVersion").asInt(-1) != CHAT_EPOCH_ENVELOPE_AAD_VERSION) {
-                throw new ResponseStatusException(
-                        HttpStatus.BAD_REQUEST,
-                        "Encrypted chat epoch envelope must use current authenticated format"
-                );
-            }
-
-            String context = envelope.path("context").asText();
-            String chatId = envelope.path("chatId").asText();
-            String senderUserId = envelope.path("senderUserId").asText();
-            String historyKeyId = envelope.path("historyKeyId").asText();
-            long membershipVersion = envelope.path("membershipVersion").asLong(-1L);
-            String messageRefId = envelope.path("messageRefId").asText();
-            String createdAt = envelope.path("createdAt").asText();
-            String contentType = envelope.path("contentType").asText();
-            String ciphertext = envelope.path("ciphertext").asText();
-            String iv = envelope.path("iv").asText();
-            if (!CHAT_EPOCH_ENVELOPE_CONTEXT.equals(context)
-                    || chatId == null || chatId.isBlank()
-                    || senderUserId == null || senderUserId.isBlank()
-                    || historyKeyId == null || historyKeyId.isBlank()
-                    || membershipVersion < 0
-                    || messageRefId == null || messageRefId.isBlank()
-                    || createdAt == null || createdAt.isBlank()
-                    || contentType == null || contentType.isBlank()
-                    || ciphertext == null || ciphertext.isBlank()
-                    || iv == null || iv.isBlank()) {
-                throw new ResponseStatusException(
-                        HttpStatus.BAD_REQUEST,
-                        "Encrypted chat epoch envelope is incomplete"
-                );
-            }
-
-            UUID parsedChatId = parseUuid(chatId, "Encrypted chat epoch envelope is malformed");
-            if (expectedChatId != null && !expectedChatId.equals(parsedChatId)) {
-                throw new ResponseStatusException(
-                        HttpStatus.BAD_REQUEST,
-                        "Encrypted chat epoch envelope chat is invalid"
-                );
-            }
-
-            validateBase64(iv, "Encrypted chat epoch envelope is malformed");
-            validateBase64(ciphertext, "Encrypted chat epoch envelope is malformed");
-            if (Base64.getDecoder().decode(iv).length != 12) {
-                throw new ResponseStatusException(
-                        HttpStatus.BAD_REQUEST,
-                        "Encrypted chat epoch envelope is malformed"
-                );
-            }
-            if (expectedMessageReference != null && !expectedMessageReference.equals(messageRefId)) {
-                throw new ResponseStatusException(
-                        HttpStatus.BAD_REQUEST,
-                        "Encrypted chat epoch envelope message reference is invalid"
-                );
-            }
-            Instant.parse(createdAt);
-
-            return new ChatEpochEnvelope(
-                    parsedChatId,
-                    parseUuid(senderUserId, "Encrypted chat epoch envelope is malformed"),
-                    parseUuid(historyKeyId, "Encrypted chat epoch envelope is malformed"),
-                    membershipVersion,
-                    messageRefId,
-                    createdAt,
-                    contentType,
-                    ciphertext,
-                    iv
-            );
-        } catch (JsonProcessingException | java.time.format.DateTimeParseException exception) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Encrypted chat epoch envelope is malformed"
-            );
-        }
-    }
-
-    private void validateBase64(String value, String message) {
-        try {
-            Base64.getDecoder().decode(value);
-        } catch (IllegalArgumentException exception) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
-        }
-    }
-
-    private UUID parseUuid(String value, String message) {
-        try {
-            return UUID.fromString(value);
-        } catch (IllegalArgumentException exception) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
-        }
-    }
-
     private boolean canViewMessageForReplySnippet(ChatMessage message, UUID viewerUserId, Instant visibleFrom) {
         if (userDeletedMessageRepository.existsByUserIdAndMessageId(viewerUserId, message.getId())) {
             return false;
@@ -588,28 +531,24 @@ class MessageSupport {
         return membership.getJoinedAt();
     }
 
-    EncryptedMessagePayloadResponse toEncryptedPayload(ChatMessage message) {
-        if (!message.isEncrypted()) {
-            throw new IllegalStateException("Plaintext messages are not supported by the encrypted message API");
+    PlainMessagePayloadResponse toPlainPayload(ChatMessage message) {
+        if (message == null) {
+            return null;
         }
-
-        if (CHAT_EPOCH_SCHEME.equals(message.getEncryptionScheme())) {
-            if (message.getContent() == null || message.getContent().isBlank()) {
-                throw new IllegalStateException("Encrypted chat epoch envelope is missing");
-            }
-            return new EncryptedMessagePayloadResponse(
-                    message.getEncryptionScheme(),
-                    message.getContent()
-            );
-        }
-
-        throw new IllegalStateException(
-                "Unsupported encrypted message scheme " + message.getEncryptionScheme()
-        );
+        return new PlainMessagePayloadResponse(messageContentCryptoService.requirePlainContent(message));
     }
 
     String summarizeMessagePreview(ChatMessage message) {
-        return encryptedMessagePreviewService.summarizeMessagePreview(message);
+        return messagePreviewService.summarizeMessagePreview(message);
+    }
+
+    private ChatAttachmentResponse toAttachmentResponse(ChatAttachment attachment) {
+        return new ChatAttachmentResponse(
+                attachment.getId(),
+                attachment.getFileName(),
+                attachment.getMimeType(),
+                attachment.getSizeBytes()
+        );
     }
 
     enum ReceiptUpdateMode {
@@ -620,26 +559,6 @@ class MessageSupport {
     enum DeleteScope {
         SELF,
         EVERYONE
-    }
-
-    record ValidatedEncryptedPayload(
-            String sharedEnvelope,
-            String iv,
-            UUID historyKeyId
-    ) {
-    }
-
-    private record ChatEpochEnvelope(
-            UUID chatId,
-            UUID senderUserId,
-            UUID historyKeyId,
-            long membershipVersion,
-            String messageRefId,
-            String createdAt,
-            String contentType,
-            String ciphertext,
-            String iv
-    ) {
     }
 
     record MessageReceiptSummary(

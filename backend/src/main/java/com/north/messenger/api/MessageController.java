@@ -6,11 +6,8 @@ import com.north.messenger.api.dto.MessagePageResponse;
 import com.north.messenger.api.dto.MessageResponse;
 import com.north.messenger.api.dto.ToggleMessageReactionRequest;
 import com.north.messenger.api.dto.UpdateMessageRequest;
-import com.north.messenger.api.dto.CreateMessageRequest;
 import com.north.messenger.api.dto.DeleteMessagesRequest;
 import com.north.messenger.application.auth.AuthService;
-import com.north.messenger.application.auth.PasswordPolicyViolationException;
-import com.north.messenger.application.message.MessageSendDiagnostics;
 import com.north.messenger.application.message.MessageService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -29,7 +26,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/chats/{chatId}/messages")
@@ -75,83 +71,6 @@ public class MessageController {
                 limit,
                 acknowledgeDelivered
         );
-    }
-
-    @PostMapping
-    public MessageResponse createMessage(
-            Authentication authentication,
-            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization,
-            @PathVariable UUID chatId,
-            @Valid @RequestBody CreateMessageRequest request
-    ) {
-        String username = authentication.getName();
-        String clientMessageId = request != null ? request.clientMessageId() : null;
-        MessageSendDiagnostics.logIngress("http", chatId, username, clientMessageId);
-        try {
-            authService.requireAuthenticatedSession(
-                    username,
-                    extractBearerToken(authorization)
-            );
-            return messageService.sendMessage(chatId, username, request);
-        } catch (ResponseStatusException exception) {
-            MessageSendDiagnostics.logFailure(
-                    "http",
-                    "controller.rejected",
-                    chatId,
-                    null,
-                    username,
-                    clientMessageId,
-                    exception.getStatusCode().value(),
-                    exception.getReason() != null
-                            ? exception.getReason()
-                            : HttpStatus.valueOf(exception.getStatusCode().value()).getReasonPhrase(),
-                    MessageSendDiagnostics.withServerStage("controller.rejected", List.of()),
-                    exception
-            );
-            throw exception;
-        } catch (PasswordPolicyViolationException exception) {
-            MessageSendDiagnostics.logFailure(
-                    "http",
-                    "controller.password_policy",
-                    chatId,
-                    null,
-                    username,
-                    clientMessageId,
-                    HttpStatus.BAD_REQUEST.value(),
-                    exception.getMessage(),
-                    MessageSendDiagnostics.withServerStage("controller.password_policy", exception.getDetails()),
-                    exception
-            );
-            throw exception;
-        } catch (IllegalArgumentException exception) {
-            MessageSendDiagnostics.logFailure(
-                    "http",
-                    "controller.bad_request",
-                    chatId,
-                    null,
-                    username,
-                    clientMessageId,
-                    HttpStatus.BAD_REQUEST.value(),
-                    exception.getMessage(),
-                    MessageSendDiagnostics.withServerStage("controller.bad_request", List.of()),
-                    exception
-            );
-            throw exception;
-        } catch (RuntimeException exception) {
-            MessageSendDiagnostics.logFailure(
-                    "http",
-                    "controller.unhandled",
-                    chatId,
-                    null,
-                    username,
-                    clientMessageId,
-                    HttpStatus.INTERNAL_SERVER_ERROR.value(),
-                    "Unexpected server error",
-                    MessageSendDiagnostics.withServerStage("controller.unhandled", List.of(exception.getClass().getSimpleName())),
-                    exception
-            );
-            throw exception;
-        }
     }
 
     @PostMapping("/delivered")
