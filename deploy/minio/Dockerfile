@@ -4,9 +4,10 @@ ARG MINIO_RELEASE=RELEASE.2025-02-03T21-03-04Z
 
 RUN apk add --no-cache ca-certificates curl \
     && curl -fsSLo /usr/local/bin/minio \
+      -4 \
       --retry 5 \
       --retry-all-errors \
-      --connect-timeout 20 \
+      --connect-timeout 60 \
       --max-time 900 \
       "https://github.com/minio/minio/releases/download/${MINIO_RELEASE}/minio.linux-amd64.${MINIO_RELEASE}" \
     && chmod +x /usr/local/bin/minio
