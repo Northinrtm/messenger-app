@@ -112,6 +112,25 @@ class AuthServiceTest {
     }
 
     @Test
+    void loginShouldAcceptEmailAsIdentifier() {
+        UserAccount user = unverifiedUserAccount("north");
+        when(userAccountRepository.findByEmailIgnoreCase("north@example.com")).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("password", user.getPasswordHash())).thenReturn(true);
+        when(jwtService.issueAccessToken(eq(user), any(UUID.class), any(Instant.class))).thenAnswer(invocation -> {
+            Instant issuedAt = invocation.getArgument(2);
+            return new JwtService.IssuedAccessToken("email-access-token", issuedAt.plus(Duration.ofHours(12)));
+        });
+
+        AuthService.IssuedAuthSession issuedAuthSession = authService.login(
+                new LoginRequest("North@Example.com", "password"),
+                null
+        );
+
+        assertThat(issuedAuthSession.response().token()).isEqualTo("email-access-token");
+        assertThat(issuedAuthSession.response().user().email()).isEqualTo("north@example.com");
+    }
+
+    @Test
     void registerShouldNormalizePersistEmailLeaveUserUnverifiedAndCreateSession() {
         when(userAccountRepository.existsByUsernameIgnoreCase("north")).thenReturn(false);
         when(userAccountRepository.existsByEmailIgnoreCase("north@example.com")).thenReturn(false);
@@ -256,6 +275,19 @@ class AuthServiceTest {
         when(userAccountRepository.findByUsernameIgnoreCase("north")).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> authService.login(new LoginRequest("North", "password"), null))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(exception -> {
+                    ResponseStatusException responseStatusException = (ResponseStatusException) exception;
+                    assertThat(responseStatusException.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+                    assertThat(responseStatusException.getReason()).isEqualTo("Invalid credentials");
+                });
+    }
+
+    @Test
+    void loginShouldRejectUnknownEmailAsInvalidCredentials() {
+        when(userAccountRepository.findByEmailIgnoreCase("north@example.com")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> authService.login(new LoginRequest("North@Example.com", "password"), null))
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(exception -> {
                     ResponseStatusException responseStatusException = (ResponseStatusException) exception;

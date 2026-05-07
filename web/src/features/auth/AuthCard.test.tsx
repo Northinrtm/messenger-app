@@ -230,7 +230,7 @@ describe("AuthCard auth flow", () => {
     expect(container.textContent).toContain("Passwords do not match.");
   });
 
-  it("sign in still works normally", async () => {
+  it("sign in works with email as the login identifier", async () => {
     const response = sessionResponse();
     const authenticatedSpy = vi.fn();
     vi.mocked(login).mockResolvedValueOnce(response);
@@ -257,7 +257,7 @@ describe("AuthCard auth flow", () => {
     const passwordInput = inputs[1] as HTMLInputElement;
 
     await act(async () => {
-      setInputValue(usernameInput, "north");
+      setInputValue(usernameInput, "north@example.com");
       setInputValue(passwordInput, "riverlantern");
       (container.querySelector("form") as HTMLFormElement).dispatchEvent(
         new Event("submit", { bubbles: true, cancelable: true })
@@ -265,7 +265,7 @@ describe("AuthCard auth flow", () => {
       await flushMicrotasks();
     });
 
-    expect(login).toHaveBeenCalledWith({ username: "north", password: "riverlantern" });
+    expect(login).toHaveBeenCalledWith({ username: "north@example.com", password: "riverlantern" });
     expect(authenticatedSpy).toHaveBeenCalledWith(response);
   });
 
@@ -288,7 +288,7 @@ describe("AuthCard auth flow", () => {
     expect(confirmEmailVerification).toHaveBeenCalledWith({ token: "verify-token" });
     expect(handledSpy).toHaveBeenCalledTimes(1);
     expect(container.textContent).toContain("Email verified. Sign in to continue.");
-    expect(container.textContent).toContain("Username");
+    expect(container.textContent).toContain("Username or email");
     expect(container.textContent).toContain("Password");
     expect(container.textContent).not.toContain("Continue to sign in");
   });
@@ -314,7 +314,7 @@ describe("AuthCard auth flow", () => {
     expect(confirmEmailVerification).toHaveBeenCalledWith({ token: "verify-token" });
     expect(handledSpy).toHaveBeenCalledTimes(1);
     expect(container.textContent).toContain("This email is already verified. You can sign in now.");
-    expect(container.textContent).toContain("Username");
+    expect(container.textContent).toContain("Username or email");
     expect(container.textContent).toContain("Password");
   });
 

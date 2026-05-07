@@ -295,7 +295,7 @@ export function AuthCard({
           mode === "resendVerification" ||
           mode === "verifyEmail" ? null : (
             <label className="field">
-              <span>Username</span>
+              <span>Username or email</span>
               <input
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}

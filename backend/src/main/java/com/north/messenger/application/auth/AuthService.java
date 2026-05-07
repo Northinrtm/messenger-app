@@ -145,7 +145,7 @@ public class AuthService {
 
     @Transactional
     public IssuedAuthSession login(LoginRequest request, String userAgent) {
-        UserAccount user = findUserByUsername(request.username())
+        UserAccount user = findUserByLoginIdentifier(request.username())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
@@ -787,6 +787,14 @@ public class AuthService {
 
     private Optional<UserAccount> findUserByUsername(String username) {
         return userAccountRepository.findByUsernameIgnoreCase(normalizeUsername(username));
+    }
+
+    private Optional<UserAccount> findUserByLoginIdentifier(String identifier) {
+        String normalizedIdentifier = identifier.trim();
+        if (normalizedIdentifier.contains("@")) {
+            return userAccountRepository.findByEmailIgnoreCase(normalizeEmail(normalizedIdentifier));
+        }
+        return userAccountRepository.findByUsernameIgnoreCase(normalizeUsername(normalizedIdentifier));
     }
 
     private IssuedAuthSession createSessionResponse(UserAccount user, String userAgent) {
