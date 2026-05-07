@@ -1,4 +1,4 @@
-FROM maven:3.9.11-eclipse-temurin-17 AS build
+FROM public.ecr.aws/docker/library/maven:3.9.11-eclipse-temurin-17 AS build
 WORKDIR /workspace
 
 COPY pom.xml .
@@ -17,7 +17,7 @@ RUN mvn -B \
       -Dmaven.wagon.http.retryHandler.requestSentEnabled=true \
       package
 
-FROM eclipse-temurin:17-jre
+FROM public.ecr.aws/docker/library/eclipse-temurin:17-jre
 WORKDIR /app
 
 RUN apt-get update \

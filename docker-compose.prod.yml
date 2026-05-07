@@ -6,7 +6,7 @@ x-default-logging: &default-logging
 
 services:
   postgres:
-    image: postgres:17
+    image: public.ecr.aws/docker/library/postgres:17
     container_name: messenger-postgres
     restart: unless-stopped
     logging: *default-logging
@@ -62,7 +62,9 @@ services:
       retries: 10
 
   minio:
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    build:
+      context: .
+      dockerfile: deploy/minio/Dockerfile
     container_name: messenger-minio
     restart: unless-stopped
     logging: *default-logging
@@ -520,7 +522,7 @@ services:
       start_period: 10s
 
   edge:
-    image: caddy:2.9-alpine
+    image: public.ecr.aws/docker/library/caddy:2.9-alpine
     container_name: messenger-edge
     restart: unless-stopped
     logging: *default-logging
