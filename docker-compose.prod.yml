@@ -8,10 +8,14 @@ services:
   postgres:
     image: public.ecr.aws/docker/library/postgres:17
     container_name: messenger-postgres
+    init: true
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.5
     mem_limit: 192m
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
     command:
       - postgres
       - -c
@@ -37,10 +41,14 @@ services:
   redis:
     image: public.ecr.aws/docker/library/redis:7.2.11-alpine
     container_name: messenger-redis
+    init: true
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.25
     mem_limit: 64m
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
     command:
       - redis-server
       - --save
@@ -64,10 +72,14 @@ services:
   minio:
     image: minio/minio:RELEASE.2025-09-07T16-13-09Z
     container_name: messenger-minio
+    init: true
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.25
     mem_limit: 256m
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER must be set}
@@ -78,10 +90,14 @@ services:
   jitsi-prosody:
     image: jitsi/prosody:stable
     container_name: messenger-jitsi-prosody
+    init: true
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.25
     mem_limit: 64m
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
     hostname: xmpp.meet.jitsi
     environment:
       ENABLE_AUTH: "0"
@@ -116,10 +132,14 @@ services:
   jitsi-jicofo:
     image: jitsi/jicofo:stable
     container_name: messenger-jitsi-jicofo
+    init: true
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.25
     mem_limit: 96m
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       - jitsi-prosody
     environment:
@@ -148,10 +168,14 @@ services:
   jitsi-jvb:
     image: jitsi/jvb:stable
     container_name: messenger-jitsi-jvb
+    init: true
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.5
     mem_limit: 192m
+    pids_limit: 384
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       - jitsi-prosody
     environment:
@@ -178,10 +202,14 @@ services:
   jitsi-web:
     image: jitsi/web:stable
     container_name: messenger-jitsi-web
+    init: true
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.25
     mem_limit: 64m
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       - jitsi-prosody
       - jitsi-jicofo
@@ -213,10 +241,12 @@ services:
     profiles:
       - autonomous-recording
     container_name: messenger-jitsi-jibri
+    init: true
     restart: unless-stopped
     logging: *default-logging
     cpus: 2.0
     mem_limit: 2048m
+    pids_limit: 1024
     depends_on:
       - jitsi-prosody
       - jitsi-jicofo
@@ -250,10 +280,14 @@ services:
   backend:
     build:
       context: ./backend
+    init: true
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.75
     mem_limit: 640m
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
     environment:
       SPRING_PROFILES_ACTIVE: prod,json-logs
       JAVA_TOOL_OPTIONS: "${JAVA_TOOL_OPTIONS:--XX:InitialRAMPercentage=15 -XX:MaxRAMPercentage=52 -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=32m -XX:+UseSerialGC -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/messenger-backend-oom.hprof -Xlog:gc*:file=/tmp/messenger-backend-gc.log:time,level,tags:filecount=5,filesize=10M -XX:+ExitOnOutOfMemoryError}"
@@ -339,10 +373,14 @@ services:
     profiles:
       - observability
     container_name: messenger-postgres-exporter
+    init: true
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.25
     mem_limit: 64m
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       postgres:
         condition: service_healthy
@@ -356,10 +394,14 @@ services:
     profiles:
       - observability
     container_name: messenger-tempo
+    init: true
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.25
     mem_limit: 192m
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
     command:
       - "-config.file=/etc/tempo/tempo.yml"
     volumes:
@@ -371,10 +413,14 @@ services:
     profiles:
       - observability
     container_name: messenger-otel-collector
+    init: true
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.25
     mem_limit: 128m
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
     command:
       - "--config=/etc/otelcol-contrib/config.yaml"
     depends_on:
@@ -388,10 +434,14 @@ services:
     profiles:
       - observability
     container_name: messenger-prometheus
+    init: true
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.25
     mem_limit: 192m
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
     environment:
       APP_ACTUATOR_SCRAPE_USERNAME: ${APP_ACTUATOR_SCRAPE_USERNAME:-}
       APP_ACTUATOR_SCRAPE_PASSWORD: ${APP_ACTUATOR_SCRAPE_PASSWORD:-}
@@ -416,10 +466,14 @@ services:
     profiles:
       - observability
     container_name: messenger-alertmanager
+    init: true
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.25
     mem_limit: 64m
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
     environment:
       ALERTMANAGER_WEBHOOK_URL: ${ALERTMANAGER_WEBHOOK_URL:-}
     entrypoint:
@@ -436,10 +490,14 @@ services:
     profiles:
       - observability
     container_name: messenger-loki
+    init: true
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.25
     mem_limit: 192m
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
     command:
       - "-config.file=/etc/loki/config.yml"
     volumes:
@@ -451,10 +509,14 @@ services:
     profiles:
       - observability
     container_name: messenger-promtail
+    init: true
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.25
     mem_limit: 64m
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
     command:
       - "-config.file=/etc/promtail/config.yml"
     depends_on:
@@ -470,10 +532,14 @@ services:
     profiles:
       - observability
     container_name: messenger-grafana
+    init: true
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.25
     mem_limit: 128m
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       prometheus:
         condition: service_started
@@ -503,10 +569,14 @@ services:
         VITE_APP_REVISION: ${WEB_APP_REVISION:-dev}
         VITE_WS_URL: ""
         VITE_JITSI_BASE_URL: ${JITSI_PUBLIC_URL:?JITSI_PUBLIC_URL must be set}
+    init: true
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.25
     mem_limit: 96m
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       backend:
         condition: service_healthy
@@ -522,10 +592,14 @@ services:
   edge:
     image: public.ecr.aws/docker/library/caddy:2.9-alpine
     container_name: messenger-edge
+    init: true
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.25
     mem_limit: 64m
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       web:
         condition: service_healthy
