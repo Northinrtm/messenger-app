@@ -198,6 +198,7 @@ export WEB_APP_REVISION
 
 bash "$APP_DIR/deploy/bootstrap-prod-env.sh" "$ENV_FILE"
 bash "$APP_DIR/deploy/preflight-prod.sh" "$ENV_FILE"
+bash "$APP_DIR/deploy/fetch-minio-binary.sh"
 
 BACKEND_REPLICAS="${BACKEND_REPLICAS:-$(env_file_value BACKEND_REPLICAS 1)}"
 WEB_REPLICAS="${WEB_REPLICAS:-$(env_file_value WEB_REPLICAS 1)}"
