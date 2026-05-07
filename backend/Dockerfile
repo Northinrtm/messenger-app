@@ -1,11 +1,9 @@
-# syntax=docker/dockerfile:1.7
 FROM maven:3.9.11-eclipse-temurin-17 AS build
 WORKDIR /workspace
 
 COPY pom.xml .
 
-RUN --mount=type=cache,target=/root/.m2 \
-    mvn -B \
+RUN mvn -B \
       -DskipTests \
       -Dmaven.wagon.http.retryHandler.count=5 \
       -Dmaven.wagon.http.retryHandler.requestSentEnabled=true \
@@ -13,8 +11,7 @@ RUN --mount=type=cache,target=/root/.m2 \
 
 COPY src src
 
-RUN --mount=type=cache,target=/root/.m2 \
-    mvn -B \
+RUN mvn -B \
       -DskipTests \
       -Dmaven.wagon.http.retryHandler.count=5 \
       -Dmaven.wagon.http.retryHandler.requestSentEnabled=true \
