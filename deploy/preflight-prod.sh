@@ -109,8 +109,7 @@ case "${APP_MESSAGES_CONTENT_ENCRYPTION_PROVIDER,,}" in
     require_value APP_MESSAGES_CONTENT_ENCRYPTION_AWS_REGION
     ;;
   local)
-    echo "APP_MESSAGES_CONTENT_ENCRYPTION_PROVIDER=local is not allowed for production preflight" >&2
-    exit 1
+    require_value APP_MESSAGES_CONTENT_ENCRYPTION_LOCAL_MASTER_KEY_BASE64
     ;;
   *)
     echo "APP_MESSAGES_CONTENT_ENCRYPTION_PROVIDER must be either 'aws-kms' or 'local'" >&2

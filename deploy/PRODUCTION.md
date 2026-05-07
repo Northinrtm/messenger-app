@@ -153,3 +153,12 @@ Keep it off by default on small hosts unless diagnostics are needed.
 Production documentation and user-facing descriptions must use `server-trusted` or plain client-server messaging language.
 
 Do not describe the product as E2EE.
+
+## Message encryption provider
+
+Production can run with either:
+
+- `APP_MESSAGES_CONTENT_ENCRYPTION_PROVIDER=aws-kms` plus a real KMS key id and credentials
+- `APP_MESSAGES_CONTENT_ENCRYPTION_PROVIDER=local` plus a stable `APP_MESSAGES_CONTENT_ENCRYPTION_LOCAL_MASTER_KEY_BASE64`
+
+For a self-hosted single VPS without KMS, `local` is acceptable only when the master key is explicitly set and backed up outside the database host.
