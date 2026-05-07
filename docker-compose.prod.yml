@@ -290,7 +290,7 @@ services:
       - no-new-privileges:true
     environment:
       SPRING_PROFILES_ACTIVE: prod,json-logs
-      JAVA_TOOL_OPTIONS: "${JAVA_TOOL_OPTIONS:--XX:InitialRAMPercentage=15 -XX:MaxRAMPercentage=52 -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=32m -XX:+UseSerialGC -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/messenger-backend-oom.hprof -Xlog:gc*:file=/tmp/messenger-backend-gc.log:time,level,tags:filecount=5,filesize=10M -XX:+ExitOnOutOfMemoryError}"
+      JAVA_TOOL_OPTIONS: "${JAVA_TOOL_OPTIONS:--XX:InitialRAMPercentage=10 -XX:MaxRAMPercentage=42 -XX:MaxMetaspaceSize=192m -XX:ReservedCodeCacheSize=32m -XX:+UseSerialGC -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/messenger-backend-oom.hprof -Xlog:gc*:file=/tmp/messenger-backend-gc.log:time,level,tags:filecount=5,filesize=10M -XX:+ExitOnOutOfMemoryError}"
       SERVER_PORT: 8080
       DB_URL: ${DB_URL:-jdbc:postgresql://postgres:5432/messenger}
       DB_USERNAME: ${DB_USERNAME:-messenger}
