@@ -8,7 +8,7 @@ BUILD_SERVICES="${BUILD_SERVICES:-web backend edge}"
 SUPPORT_SERVICES="${SUPPORT_SERVICES:-postgres redis minio jitsi-prosody jitsi-jicofo jitsi-jvb jitsi-web}"
 RUNTIME_SERVICES="${RUNTIME_SERVICES:-web backend edge}"
 OBSERVABILITY_SERVICES="${OBSERVABILITY_SERVICES:-postgres-exporter tempo otel-collector alertmanager loki promtail prometheus grafana}"
-DEPLOY_LOCK_FILE="${DEPLOY_LOCK_FILE:-/tmp/messenger-remote-update.lock}"
+DEPLOY_LOCK_FILE="${DEPLOY_LOCK_FILE:-$APP_DIR/.deploy/remote-update.lock}"
 DEPLOY_LOCK_WAIT_SECONDS="${DEPLOY_LOCK_WAIT_SECONDS:-1800}"
 STATUS_FILE="${DEPLOY_STATUS_FILE:-}"
 FULL_RESET="${FULL_RESET:-false}"
@@ -152,6 +152,10 @@ acquire_deploy_lock() {
     echo "Warning: 'flock' is unavailable; continuing without a host-level deploy lock." >&2
     return
   fi
+
+  local lock_dir
+  lock_dir="$(dirname "$DEPLOY_LOCK_FILE")"
+  mkdir -p "$lock_dir"
 
   exec 9>"$DEPLOY_LOCK_FILE"
   echo "Waiting for deploy lock: $DEPLOY_LOCK_FILE"
