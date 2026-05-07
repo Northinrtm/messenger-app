@@ -20,4 +20,3 @@ web/dist/
 *.iml
 AGENTS.md
 docs/ai/
-deploy/minio/bin/

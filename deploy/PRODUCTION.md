@@ -87,18 +87,13 @@ Core production stack:
 - `postgres`
 - `redis`
 - `minio`
-- `backend`
-- `web`
-- `edge`
-
-Optional self-hosted conference stack:
-
 - `jitsi-prosody`
 - `jitsi-jicofo`
 - `jitsi-jvb`
 - `jitsi-web`
-
-If you want the self-hosted Jitsi containers, override `SUPPORT_SERVICES` when running `remote-update.sh`.
+- `backend`
+- `web`
+- `edge`
 
 ## Scaling
 

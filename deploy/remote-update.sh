@@ -4,8 +4,8 @@ set -euo pipefail
 APP_DIR="${1:-/opt/messenger-app}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 ENV_FILE="${ENV_FILE:-.env.prod}"
-BUILD_SERVICES="${BUILD_SERVICES:-minio web backend edge}"
-SUPPORT_SERVICES="${SUPPORT_SERVICES:-postgres redis minio}"
+BUILD_SERVICES="${BUILD_SERVICES:-web backend edge}"
+SUPPORT_SERVICES="${SUPPORT_SERVICES:-postgres redis minio jitsi-prosody jitsi-jicofo jitsi-jvb jitsi-web}"
 RUNTIME_SERVICES="${RUNTIME_SERVICES:-web backend edge}"
 OBSERVABILITY_SERVICES="${OBSERVABILITY_SERVICES:-postgres-exporter tempo otel-collector alertmanager loki promtail prometheus grafana}"
 DEPLOY_LOCK_FILE="${DEPLOY_LOCK_FILE:-/tmp/messenger-remote-update.lock}"
@@ -198,7 +198,6 @@ export WEB_APP_REVISION
 
 bash "$APP_DIR/deploy/bootstrap-prod-env.sh" "$ENV_FILE"
 bash "$APP_DIR/deploy/preflight-prod.sh" "$ENV_FILE"
-bash "$APP_DIR/deploy/fetch-minio-binary.sh"
 
 BACKEND_REPLICAS="${BACKEND_REPLICAS:-$(env_file_value BACKEND_REPLICAS 1)}"
 WEB_REPLICAS="${WEB_REPLICAS:-$(env_file_value WEB_REPLICAS 1)}"
