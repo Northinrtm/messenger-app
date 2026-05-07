@@ -13,6 +13,16 @@ Keep deploys short, repeatable, and non-interactive.
 5. Install Docker and Docker Compose.
 6. Enable firewall and SSH hardening.
 
+Current production access model:
+
+- server user: `deploy`
+- checkout owner: `deploy:deploy` on `/opt/messenger-app`
+- container control: `deploy` is in the `docker` group
+- SSH private key: keep it only on the operator workstation in `~/.ssh/messenger_prod_deploy_ed25519`
+- SSH public key: keep it on the server in `/home/deploy/.ssh/authorized_keys`
+- SSH hardening drop-in: `/etc/ssh/sshd_config.d/99-messenger-hardening.conf`
+- password auth and root SSH login should stay disabled once key login is verified
+
 ## Main scripts
 
 - `deploy/deploy-prod-button.cmd`
