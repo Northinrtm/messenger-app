@@ -1,10 +1,10 @@
 import type { MouseEvent as ReactMouseEvent } from "react";
 import type {
-  ChatAttachmentBrowserItem,
   ChatMessage,
   ChatMessageAttachment,
   ChatSummary,
   Participant,
+  SourceMessageJumpTarget,
   UserProfile,
 } from "../../../lib/types";
 import { AvatarCircle } from "./AvatarCircle";
@@ -51,7 +51,7 @@ type Props = {
   onForwardToContact: (username: string) => void;
   onDownloadAttachment: (chatId: string, attachment: ChatMessageAttachment) => void;
   onLoadAttachmentPreview: (chatId: string, attachment: ChatMessageAttachment) => Promise<Blob>;
-  onJumpToAttachmentSourceMessage: (chatId: string, item: ChatAttachmentBrowserItem) => void;
+  onJumpToAttachmentSourceMessage: (chatId: string, item: SourceMessageJumpTarget) => void;
   createMinimumConferenceDateTime: () => string;
   buildMessagePreview: (content: string, maxLength?: number) => string;
   describeChat: (chat: ChatSummary, currentUser: UserProfile) => string;

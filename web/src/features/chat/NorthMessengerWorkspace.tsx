@@ -52,13 +52,13 @@ import {
 import { rememberCurrentBuildRevision } from "../../lib/messageHydrationDiagnostics";
 import type {
   AuthResponse,
-  ChatAttachmentBrowserItem,
   ChatMessage,
   ChatMessageAttachment,
   ChatPrejoinHistoryPolicy,
   MessageReaction,
   ChatSummary,
   Participant,
+  SourceMessageJumpTarget,
   UserProfile,
   UserSessionInfo,
   VideoConference,
@@ -1304,7 +1304,7 @@ export function NorthMessengerWorkspace({
     });
 
   const jumpToAttachmentSourceMessage = useEffectEvent(
-    (chatId: string, item: ChatAttachmentBrowserItem) => {
+    (chatId: string, item: SourceMessageJumpTarget) => {
       const targetMessageLoaded =
         activeChatId === chatId && messages.some((message) => message.id === item.messageId);
 

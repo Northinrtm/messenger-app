@@ -13,6 +13,7 @@ import com.north.messenger.domain.model.PendingOutgoingMessageStatus;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.UserDeletedChat;
 import com.north.messenger.domain.model.UserPendingOutgoingMessage;
+import com.north.messenger.domain.repository.UserAccountRepository;
 import com.north.messenger.domain.repository.UserDeletedChatRepository;
 import com.north.messenger.domain.repository.UserPendingOutgoingMessageRepository;
 import java.time.Instant;
@@ -32,6 +33,7 @@ public class PendingOutgoingMessageService {
 
     private final AuthService authService;
     private final ChatService chatService;
+    private final UserAccountRepository userAccountRepository;
     private final UserDeletedChatRepository userDeletedChatRepository;
     private final UserPendingOutgoingMessageRepository userPendingOutgoingMessageRepository;
     private final ObjectMapper objectMapper;
@@ -39,12 +41,14 @@ public class PendingOutgoingMessageService {
     public PendingOutgoingMessageService(
             AuthService authService,
             ChatService chatService,
+            UserAccountRepository userAccountRepository,
             UserDeletedChatRepository userDeletedChatRepository,
             UserPendingOutgoingMessageRepository userPendingOutgoingMessageRepository,
             ObjectMapper objectMapper
     ) {
         this.authService = authService;
         this.chatService = chatService;
+        this.userAccountRepository = userAccountRepository;
         this.userDeletedChatRepository = userDeletedChatRepository;
         this.userPendingOutgoingMessageRepository = userPendingOutgoingMessageRepository;
         this.objectMapper = objectMapper;
@@ -64,7 +68,9 @@ public class PendingOutgoingMessageService {
             String rawClientMessageId,
             UpsertPendingOutgoingMessageRequest request
     ) {
-        UserAccount currentUser = authService.requireAuthenticatedUser(username);
+        UserAccount authenticatedUser = authService.requireAuthenticatedUser(username);
+        UserAccount currentUser = userAccountRepository.findByIdForUpdate(authenticatedUser.getId())
+                .orElseThrow(() -> new IllegalStateException("Authenticated user disappeared during pending message upsert"));
         String clientMessageId = normalizeClientMessageId(rawClientMessageId);
         requireVisibleChatMembership(request.chatId(), currentUser);
         PendingOutgoingMessageStatus status = parseStatus(request.status());

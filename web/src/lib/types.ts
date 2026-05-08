@@ -70,10 +70,13 @@ export type ChatMessageAttachment = {
 
 export type ChatAttachmentBrowserKind = "ALL" | "PHOTOS" | "DOCUMENTS";
 
-export type ChatAttachmentBrowserItem = {
-  id: string;
+export type SourceMessageJumpTarget = {
   messageId: string;
-  messageServerOrder: number;
+  messageServerOrder: number | null;
+};
+
+export type ChatAttachmentBrowserItem = SourceMessageJumpTarget & {
+  id: string;
   createdAt: string;
   sender: Participant;
   fileName: string;
@@ -83,6 +86,19 @@ export type ChatAttachmentBrowserItem = {
 
 export type ChatAttachmentBrowserPage = {
   items: ChatAttachmentBrowserItem[];
+  nextCursor: string | null;
+};
+
+export type ChatLinkBrowserItem = SourceMessageJumpTarget & {
+  id: string;
+  createdAt: string;
+  sender: Participant;
+  url: string;
+  host: string | null;
+};
+
+export type ChatLinkBrowserPage = {
+  items: ChatLinkBrowserItem[];
   nextCursor: string | null;
 };
 

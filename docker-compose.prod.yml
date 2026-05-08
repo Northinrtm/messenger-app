@@ -171,7 +171,7 @@ services:
     init: true
     restart: unless-stopped
     logging: *default-logging
-    cpus: 0.5
+    cpus: 1.0
     mem_limit: 192m
     pids_limit: 384
     security_opt:
@@ -193,6 +193,8 @@ services:
       JVB_TCP_HARVESTER_DISABLED: "false"
       JVB_TCP_HARVESTER_PORT: 4443
       JVB_ADVERTISE_IPS: ${JITSI_ADVERTISE_IPS:?JITSI_ADVERTISE_IPS must be set}
+      JVB_WS_DOMAIN: ${APP_DOMAIN:?APP_DOMAIN must be set}:443
+      JVB_WS_SERVER_ID: default-id
     ports:
       - "10000:10000/udp"
       - "4443:4443"

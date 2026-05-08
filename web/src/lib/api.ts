@@ -6,6 +6,7 @@ import type {
   AuthResponse,
   ChatAttachmentBrowserKind,
   ChatAttachmentBrowserPage,
+  ChatLinkBrowserPage,
   ChatOpen,
   MessagePage,
   ChatSummary,
@@ -776,6 +777,23 @@ export function getChatAttachmentBrowserPage(
     token,
     query: {
       kind: options.kind,
+      cursor: options.cursor,
+      limit: options.limit,
+    },
+  });
+}
+
+export function getChatLinkBrowserPage(
+  token: string,
+  chatId: string,
+  options: {
+    cursor?: string | null;
+    limit?: number;
+  } = {}
+) {
+  return request<ChatLinkBrowserPage>(`/api/chats/${chatId}/links/browser`, {
+    token,
+    query: {
       cursor: options.cursor,
       limit: options.limit,
     },

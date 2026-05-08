@@ -50,6 +50,7 @@ class MessageCommandService {
     private final MessageSupport messageSupport;
     private final MessageDispatchOutboxService messageDispatchOutboxService;
     private final ChatAttachmentService chatAttachmentService;
+    private final ChatMessageLinkService chatMessageLinkService;
     private final PendingOutgoingMessageService pendingOutgoingMessageService;
     private final EntityManager entityManager;
     private final MessageContentCryptoService messageContentCryptoService;
@@ -66,6 +67,7 @@ class MessageCommandService {
             MessageSupport messageSupport,
             MessageDispatchOutboxService messageDispatchOutboxService,
             ChatAttachmentService chatAttachmentService,
+            ChatMessageLinkService chatMessageLinkService,
             PendingOutgoingMessageService pendingOutgoingMessageService,
             EntityManager entityManager,
             MessageContentCryptoService messageContentCryptoService
@@ -81,6 +83,7 @@ class MessageCommandService {
         this.messageSupport = messageSupport;
         this.messageDispatchOutboxService = messageDispatchOutboxService;
         this.chatAttachmentService = chatAttachmentService;
+        this.chatMessageLinkService = chatMessageLinkService;
         this.pendingOutgoingMessageService = pendingOutgoingMessageService;
         this.entityManager = entityManager;
         this.messageContentCryptoService = messageContentCryptoService;
@@ -162,6 +165,7 @@ class MessageCommandService {
                     persistedMessage.getId(),
                     request.attachmentIds()
             );
+            chatMessageLinkService.syncLinks(persistedMessage, plainContent);
 
             List<MessageReceipt> receipts = participants.stream()
                     .filter(participant -> !participant.getId().equals(currentUser.getId()))
@@ -452,6 +456,7 @@ class MessageCommandService {
                 Instant.now()
         );
         chatMessageRepository.saveAndFlush(message);
+        chatMessageLinkService.syncLinks(message, plainContent);
         messageDispatchOutboxService.enqueue(new MessageDispatchEvent(
                 chatId,
                 message.getId(),

@@ -56,6 +56,11 @@
         respond "Not found" 404
     }
 
+    @blocked_probe path_regexp blocked_probe (?i)^/(?:\.env(?:$|[./~_:-].*)|\.git(?:$|/.*)|(?:www/|old/)?phpinfo\.php(?:\.old)?)$
+    handle @blocked_probe {
+        respond "Not found" 404
+    }
+
     @backend_websocket {
         path /ws /ws/*
     }

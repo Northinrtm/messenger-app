@@ -83,6 +83,7 @@ class MessageServiceTest {
         MessengerTelemetry telemetry = mock(MessengerTelemetry.class);
         EntityManager entityManager = mock(EntityManager.class);
         ChatAttachmentService chatAttachmentService = mock(ChatAttachmentService.class);
+        ChatMessageLinkService chatMessageLinkService = mock(ChatMessageLinkService.class);
         pendingOutgoingMessageService = mock(PendingOutgoingMessageService.class);
         messageContentCryptoService = mock(MessageContentCryptoService.class);
 
@@ -150,6 +151,7 @@ class MessageServiceTest {
                 messageSupport,
                 messageDispatchOutboxService,
                 chatAttachmentService,
+                chatMessageLinkService,
                 pendingOutgoingMessageService,
                 entityManager,
                 messageContentCryptoService

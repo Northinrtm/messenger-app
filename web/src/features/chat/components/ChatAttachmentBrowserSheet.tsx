@@ -1,19 +1,27 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
-import { getChatAttachmentBrowserPage } from "../../../lib/api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { getChatAttachmentBrowserPage, getChatLinkBrowserPage } from "../../../lib/api";
 import type {
   ChatAttachmentBrowserItem,
   ChatAttachmentBrowserKind,
+  ChatLinkBrowserItem,
   ChatMessageAttachment,
   ChatSummary,
+  SourceMessageJumpTarget,
 } from "../../../lib/types";
 
 const PAGE_SIZE = 60;
+const PHOTO_VIEWER_MIN_ZOOM = 1;
+const PHOTO_VIEWER_MAX_ZOOM = 4;
+const PHOTO_VIEWER_ZOOM_STEP = 0.25;
 
-const FILTERS: Array<{ kind: ChatAttachmentBrowserKind; label: string }> = [
+type ChatBrowserTab = ChatAttachmentBrowserKind | "LINKS";
+
+const FILTERS: Array<{ kind: ChatBrowserTab; label: string }> = [
   { kind: "ALL", label: "Все" },
   { kind: "PHOTOS", label: "Фото" },
   { kind: "DOCUMENTS", label: "Документы" },
+  { kind: "LINKS", label: "Ссылки" },
 ];
 
 type Props = {
@@ -22,8 +30,60 @@ type Props = {
   onClose: () => void;
   onDownloadAttachment: (chatId: string, attachment: ChatMessageAttachment) => void;
   onLoadAttachmentPreview: (chatId: string, attachment: ChatMessageAttachment) => Promise<Blob>;
-  onJumpToSourceMessage: (chatId: string, item: ChatAttachmentBrowserItem) => void;
+  onJumpToSourceMessage: (chatId: string, item: SourceMessageJumpTarget) => void;
 };
+
+type BrowserItemProps = {
+  item: ChatAttachmentBrowserItem;
+  chatId: string;
+  onDownloadAttachment: (chatId: string, attachment: ChatMessageAttachment) => void;
+  onLoadAttachmentPreview: (chatId: string, attachment: ChatMessageAttachment) => Promise<Blob>;
+  onJumpToSourceMessage: (chatId: string, item: SourceMessageJumpTarget) => void;
+  onOpenPhotoViewer: (itemId: string) => void;
+};
+
+type LinkRowProps = {
+  item: ChatLinkBrowserItem;
+  chatId: string;
+  onJumpToSourceMessage: (chatId: string, item: SourceMessageJumpTarget) => void;
+};
+
+type PhotoViewerProps = {
+  activeChatTitle: string;
+  chatId: string;
+  items: ChatAttachmentBrowserItem[];
+  currentItemId: string;
+  onClose: () => void;
+  onDownloadAttachment: (chatId: string, attachment: ChatMessageAttachment) => void;
+  onLoadAttachmentPreview: (chatId: string, attachment: ChatMessageAttachment) => Promise<Blob>;
+  onJumpToSourceMessage: (chatId: string, item: SourceMessageJumpTarget) => void;
+  onOpenPhotoViewerItem: (itemId: string) => void;
+};
+
+export function buildAttachmentMessageJumpCursor(messageServerOrder: number | null) {
+  return messageServerOrder == null ? null : String(messageServerOrder + 1);
+}
+
+export function clampPhotoViewerZoom(zoom: number) {
+  return Math.min(PHOTO_VIEWER_MAX_ZOOM, Math.max(PHOTO_VIEWER_MIN_ZOOM, Number(zoom.toFixed(2))));
+}
+
+export function resolveAdjacentPhotoViewerIndex(
+  currentIndex: number,
+  offset: number,
+  total: number
+) {
+  if (total <= 0) {
+    return null;
+  }
+
+  const nextIndex = currentIndex + offset;
+  if (nextIndex < 0 || nextIndex >= total) {
+    return null;
+  }
+
+  return nextIndex;
+}
 
 export function ChatAttachmentBrowserSheet({
   activeChat,
@@ -33,32 +93,62 @@ export function ChatAttachmentBrowserSheet({
   onLoadAttachmentPreview,
   onJumpToSourceMessage,
 }: Props) {
-  const [kind, setKind] = useState<ChatAttachmentBrowserKind>("ALL");
+  const [kind, setKind] = useState<ChatBrowserTab>("ALL");
+  const [photoViewerItemId, setPhotoViewerItemId] = useState<string | null>(null);
 
   useEffect(() => {
     setKind("ALL");
+    setPhotoViewerItemId(null);
   }, [activeChat?.id]);
 
   const attachmentQuery = useInfiniteQuery({
     queryKey: ["chat-attachment-browser", sessionToken, activeChat?.id, kind],
     queryFn: ({ pageParam }) =>
       getChatAttachmentBrowserPage(sessionToken, activeChat!.id, {
-        kind,
+        kind: kind === "LINKS" ? "ALL" : kind,
         cursor: pageParam ?? null,
         limit: PAGE_SIZE,
       }),
-    enabled: Boolean(activeChat?.id),
+    enabled: Boolean(activeChat?.id) && kind !== "LINKS",
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     staleTime: 30_000,
   });
 
-  const items = useMemo(
+  const linkQuery = useInfiniteQuery({
+    queryKey: ["chat-link-browser", sessionToken, activeChat?.id],
+    queryFn: ({ pageParam }) =>
+      getChatLinkBrowserPage(sessionToken, activeChat!.id, {
+        cursor: pageParam ?? null,
+        limit: PAGE_SIZE,
+      }),
+    enabled: Boolean(activeChat?.id) && kind === "LINKS",
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    staleTime: 30_000,
+  });
+
+  const attachmentItems = useMemo(
     () => attachmentQuery.data?.pages.flatMap((page) => page.items) ?? [],
     [attachmentQuery.data]
   );
-
+  const linkItems = useMemo(
+    () => linkQuery.data?.pages.flatMap((page) => page.items) ?? [],
+    [linkQuery.data]
+  );
+  const photoItems = useMemo(() => attachmentItems.filter(isImageAttachment), [attachmentItems]);
   const isPhotosMode = kind === "PHOTOS";
+  const isLinksMode = kind === "LINKS";
+  const activeQuery = isLinksMode ? linkQuery : attachmentQuery;
+
+  useEffect(() => {
+    if (
+      photoViewerItemId &&
+      !photoItems.some((item) => item.id === photoViewerItemId)
+    ) {
+      setPhotoViewerItemId(null);
+    }
+  }, [photoItems, photoViewerItemId]);
 
   return (
     <div className="sheet-card chat-attachment-browser-sheet">
@@ -78,7 +168,7 @@ export function ChatAttachmentBrowserSheet({
 
       {activeChat ? (
         <>
-          <div className="chat-attachment-browser-filters" role="tablist" aria-label="Фильтр вложений">
+          <div className="chat-attachment-browser-filters" role="tablist" aria-label="Фильтр медиа и файлов">
             {FILTERS.map((filter) => (
               <button
                 type="button"
@@ -97,15 +187,32 @@ export function ChatAttachmentBrowserSheet({
             ))}
           </div>
 
-          {attachmentQuery.isLoading ? (
-            <div className="empty-list">Загружаем вложения...</div>
-          ) : attachmentQuery.isError ? (
-            <div className="empty-list">Не удалось загрузить вложения. Попробуйте еще раз.</div>
-          ) : items.length === 0 ? (
+          {activeQuery.isLoading ? (
+            <div className="empty-list">{isLinksMode ? "Загружаем ссылки..." : "Загружаем вложения..."}</div>
+          ) : activeQuery.isError ? (
+            <div className="empty-list">
+              {isLinksMode
+                ? "Не удалось загрузить ссылки. Попробуйте еще раз."
+                : "Не удалось загрузить вложения. Попробуйте еще раз."}
+            </div>
+          ) : isLinksMode && linkItems.length === 0 ? (
             <div className="empty-list">{buildEmptyStateLabel(kind)}</div>
+          ) : !isLinksMode && attachmentItems.length === 0 ? (
+            <div className="empty-list">{buildEmptyStateLabel(kind)}</div>
+          ) : isLinksMode ? (
+            <div className="sheet-list chat-attachment-browser-list">
+              {linkItems.map((item) => (
+                <LinkBrowserRow
+                  key={item.id}
+                  item={item}
+                  chatId={activeChat.id}
+                  onJumpToSourceMessage={onJumpToSourceMessage}
+                />
+              ))}
+            </div>
           ) : isPhotosMode ? (
             <div className="chat-attachment-browser-photo-grid">
-              {items.map((item) => (
+              {photoItems.map((item) => (
                 <PhotoBrowserCard
                   key={item.id}
                   item={item}
@@ -113,12 +220,13 @@ export function ChatAttachmentBrowserSheet({
                   onDownloadAttachment={onDownloadAttachment}
                   onLoadAttachmentPreview={onLoadAttachmentPreview}
                   onJumpToSourceMessage={onJumpToSourceMessage}
+                  onOpenPhotoViewer={setPhotoViewerItemId}
                 />
               ))}
             </div>
           ) : (
             <div className="sheet-list chat-attachment-browser-list">
-              {items.map((item) =>
+              {attachmentItems.map((item) =>
                 isImageAttachment(item) ? (
                   <MixedImageBrowserRow
                     key={item.id}
@@ -127,6 +235,7 @@ export function ChatAttachmentBrowserSheet({
                     onDownloadAttachment={onDownloadAttachment}
                     onLoadAttachmentPreview={onLoadAttachmentPreview}
                     onJumpToSourceMessage={onJumpToSourceMessage}
+                    onOpenPhotoViewer={setPhotoViewerItemId}
                   />
                 ) : (
                   <DocumentBrowserRow
@@ -135,21 +244,37 @@ export function ChatAttachmentBrowserSheet({
                     chatId={activeChat.id}
                     onDownloadAttachment={onDownloadAttachment}
                     onJumpToSourceMessage={onJumpToSourceMessage}
+                    onOpenPhotoViewer={setPhotoViewerItemId}
+                    onLoadAttachmentPreview={onLoadAttachmentPreview}
                   />
                 )
               )}
             </div>
           )}
 
-          {attachmentQuery.hasNextPage ? (
+          {activeQuery.hasNextPage ? (
             <button
               type="button"
               className="ghost-button history-button"
-              onClick={() => void attachmentQuery.fetchNextPage()}
-              disabled={attachmentQuery.isFetchingNextPage}
+              onClick={() => void activeQuery.fetchNextPage()}
+              disabled={activeQuery.isFetchingNextPage}
             >
-              {attachmentQuery.isFetchingNextPage ? "Загружаем..." : "Показать еще"}
+              {activeQuery.isFetchingNextPage ? "Загружаем..." : "Показать еще"}
             </button>
+          ) : null}
+
+          {photoViewerItemId ? (
+            <PhotoViewerOverlay
+              activeChatTitle={activeChat.title}
+              chatId={activeChat.id}
+              items={photoItems}
+              currentItemId={photoViewerItemId}
+              onClose={() => setPhotoViewerItemId(null)}
+              onDownloadAttachment={onDownloadAttachment}
+              onLoadAttachmentPreview={onLoadAttachmentPreview}
+              onJumpToSourceMessage={onJumpToSourceMessage}
+              onOpenPhotoViewerItem={setPhotoViewerItemId}
+            />
           ) : null}
         </>
       ) : (
@@ -159,152 +284,21 @@ export function ChatAttachmentBrowserSheet({
   );
 }
 
-type BrowserItemProps = {
-  item: ChatAttachmentBrowserItem;
-  chatId: string;
-  onDownloadAttachment: (chatId: string, attachment: ChatMessageAttachment) => void;
-  onLoadAttachmentPreview: (chatId: string, attachment: ChatMessageAttachment) => Promise<Blob>;
-  onJumpToSourceMessage: (chatId: string, item: ChatAttachmentBrowserItem) => void;
-};
-
-export function buildAttachmentMessageJumpCursor(messageServerOrder: number | null) {
-  return messageServerOrder == null ? null : String(messageServerOrder + 1);
-}
-
 function PhotoBrowserCard({
   item,
   chatId,
   onDownloadAttachment,
   onLoadAttachmentPreview,
   onJumpToSourceMessage,
+  onOpenPhotoViewer,
 }: BrowserItemProps) {
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [previewError, setPreviewError] = useState(false);
+  const { previewUrl, previewError } = useAttachmentPreviewUrl(
+    chatId,
+    item,
+    onLoadAttachmentPreview
+  );
   const [previewLoaded, setPreviewLoaded] = useState(false);
-  const [isOpeningPreview, setIsOpeningPreview] = useState(false);
-  const previewObjectUrlRef = useRef<string | null>(null);
-  const inFlightPreviewRef = useRef<Promise<Blob> | null>(null);
-
   const attachment = toAttachment(item);
-  const previewIdentity = `${chatId}:${item.id}:${item.mimeType}:${item.sizeBytes}`;
-
-  const loadPreviewBlob = () => {
-    if (inFlightPreviewRef.current) {
-      return inFlightPreviewRef.current;
-    }
-
-    const request = onLoadAttachmentPreview(chatId, attachment).finally(() => {
-      if (inFlightPreviewRef.current === request) {
-        inFlightPreviewRef.current = null;
-      }
-    });
-    inFlightPreviewRef.current = request;
-    return request;
-  };
-
-  useEffect(() => {
-    let cancelled = false;
-    const timeoutId = window.setTimeout(() => {
-      if (!cancelled) {
-        setPreviewError(true);
-      }
-    }, 15_000);
-
-    inFlightPreviewRef.current = null;
-    if (previewObjectUrlRef.current) {
-      window.URL.revokeObjectURL(previewObjectUrlRef.current);
-      previewObjectUrlRef.current = null;
-    }
-    setPreviewUrl(null);
-    setPreviewError(false);
-    setPreviewLoaded(false);
-
-    loadPreviewBlob()
-      .then((blob) => {
-        window.clearTimeout(timeoutId);
-        if (cancelled) {
-          return;
-        }
-
-        const objectUrl = window.URL.createObjectURL(blob);
-        previewObjectUrlRef.current = objectUrl;
-        setPreviewUrl(objectUrl);
-      })
-      .catch(() => {
-        window.clearTimeout(timeoutId);
-        if (!cancelled) {
-          setPreviewError(true);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeoutId);
-    };
-  }, [chatId, item.id, item.mimeType, item.sizeBytes, onLoadAttachmentPreview, previewIdentity]);
-
-  useEffect(() => {
-    return () => {
-      if (previewObjectUrlRef.current) {
-        window.URL.revokeObjectURL(previewObjectUrlRef.current);
-        previewObjectUrlRef.current = null;
-      }
-    };
-  }, []);
-
-  const openPreview = (event: ReactMouseEvent<HTMLButtonElement>) => {
-    event.stopPropagation();
-
-    if (previewUrl && !previewError) {
-      const openedWindow = window.open(previewUrl, "_blank");
-      if (!openedWindow) {
-        onDownloadAttachment(chatId, attachment);
-      } else {
-        openedWindow.opener = null;
-      }
-      return;
-    }
-
-    const previewWindow = window.open("", "_blank");
-    if (previewWindow) {
-      previewWindow.opener = null;
-      previewWindow.document.title = item.fileName;
-      previewWindow.document.body.style.margin = "0";
-      previewWindow.document.body.style.background = "#050d16";
-      previewWindow.document.body.style.color = "#d8eafa";
-      previewWindow.document.body.style.display = "grid";
-      previewWindow.document.body.style.placeItems = "center";
-      previewWindow.document.body.style.minHeight = "100vh";
-      previewWindow.document.body.textContent = "Загружаем изображение...";
-    }
-
-    setIsOpeningPreview(true);
-    loadPreviewBlob()
-      .then((blob) => {
-        const objectUrl = window.URL.createObjectURL(blob);
-        if (previewWindow) {
-          previewWindow.location.href = objectUrl;
-        } else {
-          const openedWindow = window.open(objectUrl, "_blank");
-          if (!openedWindow) {
-            onDownloadAttachment(chatId, attachment);
-          } else {
-            openedWindow.opener = null;
-          }
-        }
-        window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 5 * 60 * 1000);
-      })
-      .catch(() => {
-        previewWindow?.close();
-        setPreviewError(true);
-      })
-      .finally(() => setIsOpeningPreview(false));
-  };
-
-  const downloadAttachment = (event: ReactMouseEvent<HTMLButtonElement>) => {
-    event.stopPropagation();
-    onDownloadAttachment(chatId, attachment);
-  };
 
   return (
     <div className="chat-attachment-browser-photo-card">
@@ -324,7 +318,7 @@ function PhotoBrowserCard({
             src={previewUrl}
             alt={item.fileName}
             onLoad={() => setPreviewLoaded(true)}
-            onError={() => setPreviewError(true)}
+            onError={() => setPreviewLoaded(false)}
           />
         ) : (
           <span className="chat-attachment-browser-photo-placeholder">
@@ -334,16 +328,30 @@ function PhotoBrowserCard({
         <span className="chat-attachment-browser-photo-meta">
           <strong>{item.fileName}</strong>
           <span>
-            {item.sender.displayName} - {formatFileSize(item.sizeBytes)} -{" "}
+            {item.sender.displayName} · {formatFileSize(item.sizeBytes)} ·{" "}
             {formatAttachmentMoment(item.createdAt)}
           </span>
         </span>
       </button>
       <div className="chat-attachment-browser-photo-actions">
-        <button type="button" className="ghost-button compact" onClick={openPreview}>
-          {isOpeningPreview ? "Открываем..." : "Открыть"}
+        <button
+          type="button"
+          className="ghost-button compact"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpenPhotoViewer(item.id);
+          }}
+        >
+          Открыть
         </button>
-        <button type="button" className="ghost-button compact" onClick={downloadAttachment}>
+        <button
+          type="button"
+          className="ghost-button compact"
+          onClick={(event) => {
+            event.stopPropagation();
+            onDownloadAttachment(chatId, attachment);
+          }}
+        >
           Скачать
         </button>
       </div>
@@ -357,59 +365,14 @@ function MixedImageBrowserRow({
   onDownloadAttachment,
   onLoadAttachmentPreview,
   onJumpToSourceMessage,
+  onOpenPhotoViewer,
 }: BrowserItemProps) {
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [previewError, setPreviewError] = useState(false);
-  const previewObjectUrlRef = useRef<string | null>(null);
+  const { previewUrl, previewError } = useAttachmentPreviewUrl(
+    chatId,
+    item,
+    onLoadAttachmentPreview
+  );
   const attachment = toAttachment(item);
-  const previewIdentity = `${chatId}:${item.id}:${item.mimeType}:${item.sizeBytes}`;
-
-  useEffect(() => {
-    let cancelled = false;
-    if (previewObjectUrlRef.current) {
-      window.URL.revokeObjectURL(previewObjectUrlRef.current);
-      previewObjectUrlRef.current = null;
-    }
-    setPreviewUrl(null);
-    setPreviewError(false);
-
-    onLoadAttachmentPreview(chatId, attachment)
-      .then((blob) => {
-        if (cancelled) {
-          return;
-        }
-        const objectUrl = window.URL.createObjectURL(blob);
-        previewObjectUrlRef.current = objectUrl;
-        setPreviewUrl(objectUrl);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setPreviewError(true);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-      if (previewObjectUrlRef.current) {
-        window.URL.revokeObjectURL(previewObjectUrlRef.current);
-        previewObjectUrlRef.current = null;
-      }
-    };
-  }, [chatId, item.id, item.mimeType, item.sizeBytes, onLoadAttachmentPreview, previewIdentity]);
-
-  const openPreview = (event: ReactMouseEvent<HTMLButtonElement>) => {
-    event.stopPropagation();
-    if (previewUrl && !previewError) {
-      const openedWindow = window.open(previewUrl, "_blank");
-      if (!openedWindow) {
-        onDownloadAttachment(chatId, attachment);
-      } else {
-        openedWindow.opener = null;
-      }
-      return;
-    }
-    onDownloadAttachment(chatId, attachment);
-  };
 
   return (
     <div className="sheet-row chat-attachment-browser-row">
@@ -434,15 +397,32 @@ function MixedImageBrowserRow({
           <div className="sheet-row-copy">
             <strong>{item.fileName}</strong>
             <span>
-              {item.sender.displayName} - {formatAttachmentMoment(item.createdAt)}
+              {item.sender.displayName} · {formatAttachmentMoment(item.createdAt)}
             </span>
           </div>
         </div>
       </button>
       <div className="sheet-row-actions">
         <span className="message-attachment-action">{formatFileSize(item.sizeBytes)}</span>
-        <button type="button" className="ghost-button compact" onClick={openPreview}>
+        <button
+          type="button"
+          className="ghost-button compact"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpenPhotoViewer(item.id);
+          }}
+        >
           Открыть
+        </button>
+        <button
+          type="button"
+          className="ghost-button compact"
+          onClick={(event) => {
+            event.stopPropagation();
+            onDownloadAttachment(chatId, attachment);
+          }}
+        >
+          Скачать
         </button>
       </div>
     </div>
@@ -454,7 +434,7 @@ function DocumentBrowserRow({
   chatId,
   onDownloadAttachment,
   onJumpToSourceMessage,
-}: Omit<BrowserItemProps, "onLoadAttachmentPreview">) {
+}: BrowserItemProps) {
   const attachment = toAttachment(item);
 
   return (
@@ -487,7 +467,7 @@ function DocumentBrowserRow({
           <div className="sheet-row-copy">
             <strong>{item.fileName}</strong>
             <span>
-              {item.sender.displayName} - {formatAttachmentMoment(item.createdAt)}
+              {item.sender.displayName} · {formatAttachmentMoment(item.createdAt)}
             </span>
           </div>
         </div>
@@ -497,7 +477,10 @@ function DocumentBrowserRow({
         <button
           type="button"
           className="ghost-button compact"
-          onClick={() => onDownloadAttachment(chatId, attachment)}
+          onClick={(event) => {
+            event.stopPropagation();
+            onDownloadAttachment(chatId, attachment);
+          }}
         >
           Скачать
         </button>
@@ -506,12 +489,331 @@ function DocumentBrowserRow({
   );
 }
 
-function buildEmptyStateLabel(kind: ChatAttachmentBrowserKind) {
+function LinkBrowserRow({ item, chatId, onJumpToSourceMessage }: LinkRowProps) {
+  return (
+    <div className="sheet-row chat-attachment-browser-row">
+      <button
+        type="button"
+        className="chat-attachment-browser-row-main"
+        onClick={() => onJumpToSourceMessage(chatId, item)}
+        title={`Перейти к сообщению со ссылкой ${item.url}`}
+      >
+        <div className="chat-attachment-browser-row-identity">
+          <span className="message-attachment-icon chat-attachment-browser-doc-icon" aria-hidden="true">
+            🔗
+          </span>
+          <div className="sheet-row-copy">
+            <strong>{item.host ?? item.url}</strong>
+            <span>
+              {item.sender.displayName} · {formatAttachmentMoment(item.createdAt)}
+            </span>
+            <span className="chat-attachment-browser-link-url">{item.url}</span>
+          </div>
+        </div>
+      </button>
+      <div className="sheet-row-actions">
+        <button
+          type="button"
+          className="ghost-button compact"
+          onClick={(event) => {
+            event.stopPropagation();
+            openExternalLink(item.url);
+          }}
+        >
+          Открыть
+        </button>
+        <button
+          type="button"
+          className="ghost-button compact"
+          onClick={(event) => {
+            event.stopPropagation();
+            void navigator.clipboard.writeText(item.url);
+          }}
+        >
+          Копировать
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PhotoViewerOverlay({
+  activeChatTitle,
+  chatId,
+  items,
+  currentItemId,
+  onClose,
+  onDownloadAttachment,
+  onLoadAttachmentPreview,
+  onJumpToSourceMessage,
+  onOpenPhotoViewerItem,
+}: PhotoViewerProps) {
+  const currentIndex = items.findIndex((item) => item.id === currentItemId);
+  const currentItem = currentIndex >= 0 ? items[currentIndex] ?? null : null;
+  const { previewUrl, previewError, previewPending } = useAttachmentPreviewUrl(
+    chatId,
+    currentItem,
+    onLoadAttachmentPreview,
+    { enabled: Boolean(currentItem) }
+  );
+  const [zoom, setZoom] = useState(PHOTO_VIEWER_MIN_ZOOM);
+
+  useEffect(() => {
+    setZoom(PHOTO_VIEWER_MIN_ZOOM);
+  }, [currentItemId]);
+
+  useEffect(() => {
+    if (!currentItem) {
+      onClose();
+    }
+  }, [currentItem, onClose]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!currentItem) {
+        return;
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+
+      if (event.key === "ArrowLeft") {
+        const nextIndex = resolveAdjacentPhotoViewerIndex(currentIndex, -1, items.length);
+        if (nextIndex !== null) {
+          event.preventDefault();
+          onOpenPhotoViewerItem(items[nextIndex]!.id);
+        }
+        return;
+      }
+
+      if (event.key === "ArrowRight") {
+        const nextIndex = resolveAdjacentPhotoViewerIndex(currentIndex, 1, items.length);
+        if (nextIndex !== null) {
+          event.preventDefault();
+          onOpenPhotoViewerItem(items[nextIndex]!.id);
+        }
+        return;
+      }
+
+      if (event.key === "+" || event.key === "=") {
+        event.preventDefault();
+        setZoom((value) => clampPhotoViewerZoom(value + PHOTO_VIEWER_ZOOM_STEP));
+        return;
+      }
+
+      if (event.key === "-" || event.key === "_") {
+        event.preventDefault();
+        setZoom((value) => clampPhotoViewerZoom(value - PHOTO_VIEWER_ZOOM_STEP));
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [currentIndex, currentItem, items, onClose, onOpenPhotoViewerItem]);
+
+  if (!currentItem) {
+    return null;
+  }
+
+  const previousIndex = resolveAdjacentPhotoViewerIndex(currentIndex, -1, items.length);
+  const nextIndex = resolveAdjacentPhotoViewerIndex(currentIndex, 1, items.length);
+  const attachment = toAttachment(currentItem);
+
+  return (
+    <div
+      className="chat-attachment-browser-photo-viewer-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Просмотр изображения ${currentItem.fileName}`}
+      onClick={onClose}
+    >
+      <div
+        className="chat-attachment-browser-photo-viewer"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="chat-attachment-browser-photo-viewer-toolbar">
+          <div className="chat-attachment-browser-photo-viewer-copy">
+            <strong>{currentItem.fileName}</strong>
+            <span>
+              {activeChatTitle} · {currentItem.sender.displayName} ·{" "}
+              {formatAttachmentMoment(currentItem.createdAt)}
+            </span>
+          </div>
+          <div className="chat-attachment-browser-photo-viewer-actions">
+            <button
+              type="button"
+              className="ghost-button compact"
+              onClick={() => setZoom((value) => clampPhotoViewerZoom(value - PHOTO_VIEWER_ZOOM_STEP))}
+              disabled={zoom <= PHOTO_VIEWER_MIN_ZOOM}
+            >
+              -
+            </button>
+            <span className="chat-attachment-browser-photo-viewer-zoom">
+              {Math.round(zoom * 100)}%
+            </span>
+            <button
+              type="button"
+              className="ghost-button compact"
+              onClick={() => setZoom((value) => clampPhotoViewerZoom(value + PHOTO_VIEWER_ZOOM_STEP))}
+              disabled={zoom >= PHOTO_VIEWER_MAX_ZOOM}
+            >
+              +
+            </button>
+            <button
+              type="button"
+              className="ghost-button compact"
+              onClick={() => {
+                onClose();
+                onJumpToSourceMessage(chatId, currentItem);
+              }}
+            >
+              К сообщению
+            </button>
+            <button
+              type="button"
+              className="ghost-button compact"
+              onClick={() => onDownloadAttachment(chatId, attachment)}
+            >
+              Скачать
+            </button>
+            <button type="button" className="ghost-button compact" onClick={onClose}>
+              Закрыть
+            </button>
+          </div>
+        </div>
+
+        <div className="chat-attachment-browser-photo-viewer-stage">
+          <button
+            type="button"
+            className="chat-attachment-browser-photo-viewer-nav"
+            onClick={() => previousIndex !== null && onOpenPhotoViewerItem(items[previousIndex]!.id)}
+            disabled={previousIndex === null}
+            aria-label="Предыдущее фото"
+          >
+            ‹
+          </button>
+
+          <div className="chat-attachment-browser-photo-viewer-image-shell">
+            {previewUrl && !previewError ? (
+              <img
+                className="chat-attachment-browser-photo-viewer-image"
+                src={previewUrl}
+                alt={currentItem.fileName}
+                style={{ transform: `scale(${zoom})` }}
+              />
+            ) : (
+              <div className="chat-attachment-browser-photo-viewer-empty">
+                {previewPending
+                  ? "Загружаем изображение..."
+                  : "Не удалось загрузить изображение. Можно скачать файл или перейти к сообщению."}
+              </div>
+            )}
+          </div>
+
+          <button
+            type="button"
+            className="chat-attachment-browser-photo-viewer-nav"
+            onClick={() => nextIndex !== null && onOpenPhotoViewerItem(items[nextIndex]!.id)}
+            disabled={nextIndex === null}
+            aria-label="Следующее фото"
+          >
+            ›
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function useAttachmentPreviewUrl(
+  chatId: string,
+  item: ChatAttachmentBrowserItem | null,
+  onLoadAttachmentPreview: (chatId: string, attachment: ChatMessageAttachment) => Promise<Blob>,
+  options: { enabled?: boolean } = {}
+) {
+  const previewObjectUrlRef = useRef<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState(false);
+  const [previewPending, setPreviewPending] = useState(false);
+  const enabled = options.enabled ?? true;
+
+  useEffect(() => {
+    let cancelled = false;
+    if (previewObjectUrlRef.current) {
+      window.URL.revokeObjectURL(previewObjectUrlRef.current);
+      previewObjectUrlRef.current = null;
+    }
+    setPreviewUrl(null);
+    setPreviewError(false);
+    setPreviewPending(false);
+
+    if (!enabled || !item) {
+      return;
+    }
+
+    setPreviewPending(true);
+    const timeoutId = window.setTimeout(() => {
+      if (!cancelled) {
+        setPreviewError(true);
+        setPreviewPending(false);
+      }
+    }, 15_000);
+
+    onLoadAttachmentPreview(chatId, toAttachment(item))
+      .then((blob) => {
+        window.clearTimeout(timeoutId);
+        if (cancelled) {
+          return;
+        }
+
+        const objectUrl = window.URL.createObjectURL(blob);
+        previewObjectUrlRef.current = objectUrl;
+        setPreviewError(false);
+        setPreviewUrl(objectUrl);
+        setPreviewPending(false);
+      })
+      .catch(() => {
+        window.clearTimeout(timeoutId);
+        if (!cancelled) {
+          setPreviewError(true);
+          setPreviewPending(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [chatId, enabled, item, onLoadAttachmentPreview]);
+
+  useEffect(() => {
+    return () => {
+      if (previewObjectUrlRef.current) {
+        window.URL.revokeObjectURL(previewObjectUrlRef.current);
+      }
+    };
+  }, []);
+
+  return {
+    previewUrl,
+    previewError,
+    previewPending,
+  };
+}
+
+function buildEmptyStateLabel(kind: ChatBrowserTab) {
   switch (kind) {
     case "PHOTOS":
       return "В этом чате пока нет фотографий.";
     case "DOCUMENTS":
       return "В этом чате пока нет документов.";
+    case "LINKS":
+      return "В этом чате пока нет ссылок.";
     default:
       return "В этом чате пока нет вложений.";
   }
@@ -553,4 +855,11 @@ function formatFileSize(sizeBytes: number) {
     unitIndex += 1;
   }
   return `${size.toFixed(size >= 10 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
+function openExternalLink(url: string) {
+  const openedWindow = window.open(url, "_blank", "noopener,noreferrer");
+  if (openedWindow) {
+    openedWindow.opener = null;
+  }
 }
