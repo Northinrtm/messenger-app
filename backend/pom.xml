@@ -21,6 +21,7 @@
         <java.version>17</java.version>
         <aws.sdk.version>2.27.21</aws.sdk.version>
         <jjwt.version>0.12.6</jjwt.version>
+        <springdoc.version>2.8.17</springdoc.version>
     </properties>
 
     <dependencyManagement>
@@ -67,6 +68,11 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>${springdoc.version}</version>
         </dependency>
         <dependency>
             <groupId>io.micrometer</groupId>

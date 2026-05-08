@@ -78,6 +78,18 @@ class SecurityConfigTest {
     }
 
     @Test
+    void shouldAllowAnonymousOpenApiJson() throws Exception {
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void shouldAllowAnonymousSwaggerUiHtml() throws Exception {
+        mockMvc.perform(get("/swagger-ui.html"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void shouldAllowAnonymousLogin() throws Exception {
         when(authService.login(any(LoginRequest.class), any())).thenReturn(new AuthService.IssuedAuthSession(
                 new AuthResponse(

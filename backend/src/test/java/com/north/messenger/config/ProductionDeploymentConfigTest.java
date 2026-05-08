@@ -47,6 +47,8 @@ class ProductionDeploymentConfigTest {
                 .contains("path /ws /ws/*")
                 .contains("log_name ws_access")
                 .contains("@backend_api path /api/*")
+                .contains("@backend_docs")
+                .contains("path /v3/api-docs /v3/api-docs/* /v3/api-docs.yaml /swagger-ui /swagger-ui/* /swagger-ui.html")
                 .contains("reverse_proxy backend:8080")
                 .contains("reverse_proxy web:80");
     }
@@ -75,6 +77,8 @@ class ProductionDeploymentConfigTest {
                 .contains("server-trusted")
                 .contains("PlainMessagePayload")
                 .contains("This project must not be described as E2EE.")
+                .contains("Swagger UI: `/swagger-ui.html`")
+                .contains("OpenAPI JSON: `/v3/api-docs`")
                 .doesNotContain("APP_E2EE_")
                 .doesNotContain("Vault Transit")
                 .doesNotContain("prometheus/prometheus");

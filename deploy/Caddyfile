@@ -77,6 +77,17 @@
         }
     }
 
+    @backend_docs {
+        path /v3/api-docs /v3/api-docs/* /v3/api-docs.yaml /swagger-ui /swagger-ui/* /swagger-ui.html
+    }
+    handle @backend_docs {
+        reverse_proxy backend:8080 {
+            transport http {
+                dial_timeout 5s
+            }
+        }
+    }
+
     handle_path /storage/* {
         reverse_proxy minio:9000 {
             transport http {

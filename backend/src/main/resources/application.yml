@@ -63,6 +63,16 @@ spring:
           starttls:
             enable: ${SPRING_MAIL_SMTP_STARTTLS_ENABLE:true}
 
+springdoc:
+  api-docs:
+    enabled: ${APP_OPENAPI_ENABLED:true}
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: ${APP_OPENAPI_ENABLED:true}
+    path: /swagger-ui.html
+  paths-to-match: /api/**
+  show-actuator: false
+
 management:
   endpoints:
     web:

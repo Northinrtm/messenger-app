@@ -126,6 +126,7 @@ Important variables:
 - `DB_USERNAME`
 - `DB_PASSWORD`
 - `APP_CORS_ALLOWED_ORIGINS`
+- `APP_OPENAPI_ENABLED`
 - `APP_JWT_SECRET`
 - `APP_REALTIME_REDIS_ENABLED`
 - `APP_AUTH_RATE_LIMIT_REDIS_ENABLED`
@@ -178,6 +179,13 @@ Server-side deploy script:
 cd /opt/messenger-app
 ./deploy/remote-update.sh
 ```
+
+HTTP API documentation:
+
+- Swagger UI: `/swagger-ui.html`
+- OpenAPI JSON: `/v3/api-docs`
+- OpenAPI YAML: `/v3/api-docs.yaml`
+- Disable in any environment with `APP_OPENAPI_ENABLED=false`
 
 ## Horizontal scaling
 
