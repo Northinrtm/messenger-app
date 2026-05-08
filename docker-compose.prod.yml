@@ -76,7 +76,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.25
-    mem_limit: 192m
+    mem_limit: 160m
     pids_limit: 256
     security_opt:
       - no-new-privileges:true
@@ -136,7 +136,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.25
-    mem_limit: 96m
+    mem_limit: 128m
     pids_limit: 256
     security_opt:
       - no-new-privileges:true
@@ -573,7 +573,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     cpus: 0.25
-    mem_limit: 64m
+    mem_limit: 48m
     pids_limit: 128
     security_opt:
       - no-new-privileges:true
