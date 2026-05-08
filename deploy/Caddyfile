@@ -56,8 +56,18 @@
         respond "Not found" 404
     }
 
-    @blocked_probe path_regexp blocked_probe (?i)^/(?:\.env(?:$|[./~_:-].*)|\.git(?:$|/.*)|(?:www/|old/)?phpinfo\.php(?:\.old)?)$
-    handle @blocked_probe {
+    @blocked_dotenv path_regexp blocked_dotenv (?i)^/(?:.*?/)?\.env(?:$|[./~_:-].*)
+    handle @blocked_dotenv {
+        respond "Not found" 404
+    }
+
+    @blocked_git path_regexp blocked_git (?i)^/(?:.*?/)?\.git(?:$|/.*)
+    handle @blocked_git {
+        respond "Not found" 404
+    }
+
+    @blocked_phpinfo path_regexp blocked_phpinfo (?i)^/(?:.*?/)?phpinfo(?:\.php(?:\.old)?(?:$|/.*)?|/.*)
+    handle @blocked_phpinfo {
         respond "Not found" 404
     }
 
