@@ -7,12 +7,15 @@ import com.north.messenger.api.dto.UpdateVideoConferenceRequest;
 import com.north.messenger.api.dto.VideoConferenceResponse;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.support.ClusterJobLockService;
+import com.north.messenger.domain.model.ChatParticipant;
+import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.ConferenceRecording;
 import com.north.messenger.domain.model.VideoConferenceAttendance;
 import com.north.messenger.domain.repository.ConferenceRecordingRepository;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.VideoConference;
 import com.north.messenger.domain.model.VideoConferenceParticipant;
+import com.north.messenger.domain.repository.ChatParticipantRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import com.north.messenger.domain.repository.VideoConferenceAttendanceRepository;
 import com.north.messenger.domain.repository.VideoConferenceParticipantRepository;
@@ -28,6 +31,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -40,6 +44,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -49,6 +54,8 @@ class VideoConferenceServiceTest {
     private static final String TEST_JWT_SECRET = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=";
 
     private AuthService authService;
+    private ChatService chatService;
+    private ChatParticipantRepository chatParticipantRepository;
     private UserAccountRepository userAccountRepository;
     private VideoConferenceRepository videoConferenceRepository;
     private VideoConferenceParticipantRepository videoConferenceParticipantRepository;
@@ -62,6 +69,8 @@ class VideoConferenceServiceTest {
     @BeforeEach
     void setUp() {
         authService = mock(AuthService.class);
+        chatService = mock(ChatService.class);
+        chatParticipantRepository = mock(ChatParticipantRepository.class);
         userAccountRepository = mock(UserAccountRepository.class);
         videoConferenceRepository = mock(VideoConferenceRepository.class);
         videoConferenceParticipantRepository = mock(VideoConferenceParticipantRepository.class);
@@ -72,6 +81,8 @@ class VideoConferenceServiceTest {
         clusterJobLockService = mock(ClusterJobLockService.class);
         videoConferenceService = new VideoConferenceService(
                 authService,
+                chatService,
+                chatParticipantRepository,
                 userAccountRepository,
                 videoConferenceRepository,
                 videoConferenceParticipantRepository,
@@ -96,9 +107,14 @@ class VideoConferenceServiceTest {
                 .thenAnswer(invocation -> invocation.getArgument(0));
         when(videoConferenceAttendanceRepository.save(any(VideoConferenceAttendance.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
+        when(videoConferenceAttendanceRepository.findActiveUserIds(any(UUID.class), any(Instant.class))).thenReturn(List.of());
         when(conferenceRecordingRepository.findByConferenceId(any(UUID.class))).thenReturn(Optional.empty());
         when(conferenceRecordingRepository.findAllByConferenceIdIn(anyCollection())).thenReturn(List.of());
         when(conferenceRecordingImportService.discoverAvailableRecordings()).thenReturn(List.of());
+        when(chatParticipantRepository.findAllByUserIdOrderByJoinedAtAsc(any(UUID.class))).thenReturn(List.of());
+        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(any(UUID.class))).thenReturn(List.of());
+        when(chatParticipantRepository.findAllByChatIdInOrderByJoinedAtAsc(anyCollection())).thenReturn(List.of());
+        when(chatParticipantRepository.existsByChatIdAndUserId(any(UUID.class), any(UUID.class))).thenReturn(false);
         when(clusterJobLockService.runIfLockAcquired(anyLong(), any(Runnable.class))).thenAnswer(invocation -> {
             Runnable task = invocation.getArgument(1);
             task.run();
@@ -125,6 +141,7 @@ class VideoConferenceServiceTest {
         List<VideoConferenceParticipant> savedMemberships = new ArrayList<>();
 
         when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
+        when(userAccountRepository.findAllByIdIn(anyCollection())).thenReturn(List.of(currentUser));
         when(authService.resolveOnlineByUserIds(anyCollection())).thenReturn(Map.of(currentUser.getId(), true));
         when(authService.toParticipant(currentUser, true)).thenReturn(currentUserResponse);
         when(videoConferenceParticipantRepository.save(any(VideoConferenceParticipant.class))).thenAnswer(invocation -> {
@@ -155,6 +172,66 @@ class VideoConferenceServiceTest {
         assertThat(response.participants()).containsExactly(currentUserResponse);
         verify(videoConferenceRepository).save(any(VideoConference.class));
         verify(videoConferenceParticipantRepository).save(any(VideoConferenceParticipant.class));
+    }
+
+    @Test
+    void startGroupConferenceCallShouldCreateChatBoundConferenceForCurrentMembers() {
+        UserAccount organizer = testUserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UserAccount teammate = testUserAccount(
+                UUID.randomUUID(),
+                "south",
+                "South",
+                "password-hash",
+                Instant.parse("2026-03-20T12:10:00Z")
+        );
+        UUID chatId = UUID.randomUUID();
+        ChatRoom room = new ChatRoom(chatId, "Study Group", false, Instant.parse("2026-03-25T11:30:00Z"));
+        List<ChatParticipant> chatMemberships = List.of(
+                new ChatParticipant(UUID.randomUUID(), chatId, organizer.getId(), Instant.parse("2026-03-25T11:30:00Z")),
+                new ChatParticipant(UUID.randomUUID(), chatId, teammate.getId(), Instant.parse("2026-03-25T11:31:00Z"))
+        );
+        List<VideoConferenceParticipant> savedMemberships = new ArrayList<>();
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(organizer);
+        when(chatService.requireChatMembership(chatId, organizer)).thenReturn(room);
+        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId)).thenReturn(chatMemberships);
+        when(videoConferenceRepository.findAllByChatIdAndEndedAtIsNullOrderByScheduledAtAscCreatedAtAsc(chatId))
+                .thenReturn(List.of());
+        when(videoConferenceParticipantRepository.save(any(VideoConferenceParticipant.class))).thenAnswer(invocation -> {
+            VideoConferenceParticipant membership = invocation.getArgument(0);
+            savedMemberships.add(membership);
+            return membership;
+        });
+        when(videoConferenceParticipantRepository.findAllByConferenceIdOrderByInvitedAtAsc(any(UUID.class)))
+                .thenAnswer(invocation -> List.copyOf(savedMemberships));
+        when(userAccountRepository.findAllByIdIn(anyCollection())).thenReturn(List.of(organizer, teammate));
+        when(authService.resolveOnlineByUserIds(anyCollection())).thenReturn(Map.of(
+                organizer.getId(), true,
+                teammate.getId(), true
+        ));
+        when(authService.toParticipant(organizer, true)).thenReturn(new ParticipantResponse(
+                organizer.getId(), organizer.getUsername(), organizer.getDisplayName(), organizer.getAvatarUrl(), true
+        ));
+        when(authService.toParticipant(teammate, true)).thenReturn(new ParticipantResponse(
+                teammate.getId(), teammate.getUsername(), teammate.getDisplayName(), teammate.getAvatarUrl(), true
+        ));
+
+        VideoConferenceResponse response = videoConferenceService.startGroupConferenceCall("north", chatId);
+
+        ArgumentCaptor<VideoConference> savedConference = ArgumentCaptor.forClass(VideoConference.class);
+        verify(videoConferenceRepository).save(savedConference.capture());
+        assertThat(savedConference.getValue().getChatId()).isEqualTo(chatId);
+        assertThat(response.chatId()).isEqualTo(chatId);
+        assertThat(response.participants())
+                .extracting(ParticipantResponse::username)
+                .containsExactly("north", "south");
+        verify(videoConferenceParticipantRepository, times(2)).save(any(VideoConferenceParticipant.class));
     }
 
     @Test
@@ -595,6 +672,7 @@ class VideoConferenceServiceTest {
         List<VideoConferenceParticipant> savedMemberships = new ArrayList<>();
 
         when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
+        when(userAccountRepository.findAllByIdIn(anyCollection())).thenReturn(List.of(currentUser));
         when(authService.resolveOnlineByUserIds(anyCollection())).thenReturn(Map.of(currentUser.getId(), true));
         when(authService.toParticipant(currentUser, true)).thenReturn(currentUserResponse);
         when(videoConferenceParticipantRepository.save(any(VideoConferenceParticipant.class))).thenAnswer(invocation -> {
@@ -952,6 +1030,64 @@ class VideoConferenceServiceTest {
 
         assertThat(response.participants()).extracting(ParticipantResponse::username)
                 .containsExactly("north", "guest");
+    }
+
+    @Test
+    void joinConferenceViaInviteShouldResolveParticipantsFromGroupMembershipForChatBoundConference() {
+        UserAccount organizer = testUserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UserAccount member = testUserAccount(
+                UUID.randomUUID(),
+                "guest",
+                "Guest",
+                "password-hash",
+                Instant.parse("2026-03-20T12:15:00Z")
+        );
+        UUID chatId = UUID.randomUUID();
+        ChatRoom room = new ChatRoom(chatId, "Study Group", false, Instant.parse("2026-03-25T11:30:00Z"));
+        VideoConference conference = new VideoConference(
+                UUID.randomUUID(),
+                "Group call",
+                "vc-group",
+                organizer.getId(),
+                Instant.parse("2026-03-25T12:00:00Z"),
+                Instant.parse("2026-03-25T11:55:00Z"),
+                Instant.parse("2026-03-25T11:55:00Z"),
+                Instant.parse("2026-03-25T11:56:00Z"),
+                chatId
+        );
+        List<ChatParticipant> chatMemberships = List.of(
+                new ChatParticipant(UUID.randomUUID(), chatId, organizer.getId(), Instant.parse("2026-03-25T11:30:00Z")),
+                new ChatParticipant(UUID.randomUUID(), chatId, member.getId(), Instant.parse("2026-03-25T11:31:00Z"))
+        );
+
+        when(authService.requireAuthenticatedUser("guest")).thenReturn(member);
+        when(videoConferenceRepository.findById(conference.getId())).thenReturn(Optional.of(conference));
+        when(chatService.requireChatMembership(chatId, member)).thenReturn(room);
+        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId)).thenReturn(chatMemberships);
+        when(userAccountRepository.findAllByIdIn(anyCollection())).thenReturn(List.of(organizer, member));
+        when(authService.resolveOnlineByUserIds(anyCollection())).thenReturn(Map.of(
+                organizer.getId(), true,
+                member.getId(), true
+        ));
+        when(authService.toParticipant(organizer, true)).thenReturn(new ParticipantResponse(
+                organizer.getId(), organizer.getUsername(), organizer.getDisplayName(), organizer.getAvatarUrl(), true
+        ));
+        when(authService.toParticipant(member, true)).thenReturn(new ParticipantResponse(
+                member.getId(), member.getUsername(), member.getDisplayName(), member.getAvatarUrl(), true
+        ));
+
+        VideoConferenceResponse response = videoConferenceService.joinConferenceViaInvite("guest", conference.getId());
+
+        assertThat(response.chatId()).isEqualTo(chatId);
+        assertThat(response.participants()).extracting(ParticipantResponse::username)
+                .containsExactly("north", "guest");
+        verify(videoConferenceParticipantRepository, never()).save(any(VideoConferenceParticipant.class));
     }
 
     @Test

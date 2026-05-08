@@ -238,6 +238,7 @@ export function NorthMessengerWorkspace({
   );
   const [conferenceComposerMode, setConferenceComposerMode] = useState<"instant" | "scheduled" | null>(null);
   const [conferenceEditingId, setConferenceEditingId] = useState<string | null>(null);
+  const [conferenceChatId, setConferenceChatId] = useState<string | null>(null);
   const [conferenceParticipantUsernames, setConferenceParticipantUsernames] = useState<string[]>([]);
   const [conferenceInviteUsernames, setConferenceInviteUsernames] = useState<string[]>([]);
   const [profileDisplayName, setProfileDisplayName] = useState(session.user.displayName);
@@ -310,6 +311,7 @@ export function NorthMessengerWorkspace({
     setIsConferenceInfoOpen(false);
     setConferenceComposerMode(null);
     setConferenceEditingId(null);
+    setConferenceChatId(null);
     setSearch("");
   }, [session.user.id]);
   useEffect(() => {
@@ -662,6 +664,27 @@ export function NorthMessengerWorkspace({
       ),
     [conferences, session.user.id]
   );
+  const liveGroupConferencesByChatId = useMemo(() => {
+    const next = new Map<string, VideoConference>();
+    listedConferences.forEach((conference) => {
+      if (!conference.chatId || !conference.startedAt || conference.endedAt) {
+        return;
+      }
+
+      const current = next.get(conference.chatId);
+      if (!current) {
+        next.set(conference.chatId, conference);
+        return;
+      }
+
+      const currentSortKey = current.startedAt ?? current.createdAt;
+      const nextSortKey = conference.startedAt ?? conference.createdAt;
+      if (nextSortKey.localeCompare(currentSortKey) > 0) {
+        next.set(conference.chatId, conference);
+      }
+    });
+    return next;
+  }, [listedConferences]);
   const chatIds = useMemo(() => chats.map((chat) => chat.id).sort(), [chats]);
   const chatIdsKey = useMemo(() => chatIds.join(","), [chatIds]);
   const listedChats = useMemo(
@@ -728,9 +751,15 @@ export function NorthMessengerWorkspace({
     () => chats.find((chat) => chat.id === activeChatId) ?? null,
     [activeChatId, chats]
   );
+  const activeChatLiveGroupConference =
+    activeChat && !activeChat.direct ? liveGroupConferencesByChatId.get(activeChat.id) ?? null : null;
   const activeConference = useMemo(
     () => allConferences.find((conference) => conference.id === activeConferenceId) ?? null,
     [activeConferenceId, allConferences]
+  );
+  const activeChatLiveParticipantIdSet = useMemo(
+    () => new Set(activeChatLiveGroupConference?.activeParticipantUserIds ?? []),
+    [activeChatLiveGroupConference]
   );
   const activeGroupInviteUrl =
     activeChat && !activeChat.direct && groupInviteCodesByChatId[activeChat.id]
@@ -816,6 +845,7 @@ export function NorthMessengerWorkspace({
       activeConference.activatedAt &&
       !activeConference.endedAt
   );
+  const activeConferenceIsChatBound = Boolean(activeConference?.chatId);
   const activeConferenceIsOwnedByCurrentUser = activeConference
     ? activeConference.createdBy.id === profile.id
     : false;
@@ -824,7 +854,10 @@ export function NorthMessengerWorkspace({
       ? buildInviteUrl(conferenceInviteCodesById[activeConference.id]!)
       : null;
   const activeConferenceCanManageParticipants = Boolean(
-    activeConference && activeConferenceIsOwnedByCurrentUser && !activeConferenceIsArchived
+    activeConference &&
+      !activeConferenceIsChatBound &&
+      activeConferenceIsOwnedByCurrentUser &&
+      !activeConferenceIsArchived
   );
   const activeConferenceCanEnd = Boolean(
     activeConference &&
@@ -840,7 +873,10 @@ export function NorthMessengerWorkspace({
   );
   const activeConferenceCanCancelSchedule = activeConferenceCanEditSchedule;
   const activeConferenceCanShareInviteLink = Boolean(
-    activeConference && activeConferenceIsOwnedByCurrentUser && !activeConferenceIsArchived
+    activeConference &&
+      !activeConferenceIsChatBound &&
+      activeConferenceIsOwnedByCurrentUser &&
+      !activeConferenceIsArchived
   );
   const activeConferenceRoleLabel = activeConference
     ? describeConferenceRole(activeConferenceIsOwnedByCurrentUser)
@@ -1204,6 +1240,7 @@ export function NorthMessengerWorkspace({
     setActiveConferenceId,
     setActiveListTab,
     setConferenceComposerMode,
+    setConferenceChatId,
     setConferenceEditingId,
     setConferenceParticipantUsernames,
     setConferenceScheduledAt,
@@ -1414,6 +1451,7 @@ export function NorthMessengerWorkspace({
     revokeSessionMutation,
     resendOwnEmailVerificationMutation,
     signOutMutation,
+    startGroupConferenceCallMutation,
     submitAddConferenceParticipants,
     submitAddGroupParticipants,
     submitCreateConference,
@@ -1436,6 +1474,7 @@ export function NorthMessengerWorkspace({
     activeConference,
     activeConferenceId,
     activeConferenceIsArchived,
+    conferenceChatId,
     conferenceEditingId,
     conferenceInviteUsernames,
     conferenceParticipantUsernames,
@@ -1729,6 +1768,19 @@ export function NorthMessengerWorkspace({
     });
   });
 
+  const handleStartOrJoinGroupConference = useEffectEvent(() => {
+    if (!activeChat || activeChat.direct) {
+      return;
+    }
+
+    if (activeChatLiveGroupConference) {
+      openConference(activeChatLiveGroupConference.id);
+      return;
+    }
+
+    startGroupConferenceCallMutation.mutate(activeChat.id);
+  });
+
   useEffect(() => {
     if (!isChatMenuOpen || !activeChat || activeChat.direct || !activeChatCanManageInviteLink) {
       return;
@@ -1992,6 +2044,7 @@ export function NorthMessengerWorkspace({
         tabChats={tabChats}
         tabChatsEmptyText={tabChatsEmptyText}
         activeChatId={activeChat?.id ?? null}
+        liveGroupConferencesByChatId={liveGroupConferencesByChatId}
         typingByChatId={typingByChatId}
         draftsByChatId={draftsByChatId}
         openConference={openConference}
@@ -2016,6 +2069,7 @@ export function NorthMessengerWorkspace({
       conferenceBrowserMode,
       conferencesLoading,
       draftsByChatId,
+      liveGroupConferencesByChatId,
       normalizedSearch,
       openChat,
       openChatContextMenu,
@@ -2079,6 +2133,7 @@ export function NorthMessengerWorkspace({
         : null,
     sessionUser: session.user,
     conferenceComposerMode,
+    conferenceChatId,
     conferenceEditingId,
     conferenceTitle,
     conferenceScheduledAt,
@@ -2281,6 +2336,7 @@ export function NorthMessengerWorkspace({
       ? {
           activeChat,
           activeDirectParticipant,
+          activeGroupConference: activeChatLiveGroupConference,
           sessionUser: session.user,
           conversationSubtitle,
           showTypingIndicator,
@@ -2313,6 +2369,7 @@ export function NorthMessengerWorkspace({
             setIsChatMenuOpen(false);
             setIsChatMembersOpen(true);
           },
+          onStartOrJoinGroupConference: handleStartOrJoinGroupConference,
           onCloseChat: closeActiveChat,
           onJumpToPinned: () => {
             if (activePinnedMessage) {
@@ -2358,6 +2415,7 @@ export function NorthMessengerWorkspace({
           activeDirectParticipant,
           activeDirectInContacts,
           isDirectBlocked: activeDirectBlockedByMe,
+          activeGroupConference: activeChatLiveGroupConference,
           groupDetailsTitle,
           groupDetailsAvatarUrl,
           groupDetailsPrejoinHistoryPolicy,
@@ -2396,6 +2454,7 @@ export function NorthMessengerWorkspace({
           onToggleGroupInviteParticipant: toggleGroupInviteParticipant,
           onSubmitAddGroupParticipants: submitAddGroupParticipants,
           onOpenGroupConferenceComposer: openGroupConferenceComposer,
+          onStartOrJoinGroupConference: handleStartOrJoinGroupConference,
           onCreateChat: (username) => createChatMutation.mutate(username),
           onLeaveGroup: handleLeaveGroup,
           onDeleteGroup: handleDeleteGroup,
@@ -2412,6 +2471,7 @@ export function NorthMessengerWorkspace({
     (!activeConference || isConferenceMinimized) && activeChat && isChatMembersOpen
       ? {
           activeChat,
+          activeConferenceParticipantUserIds: [...activeChatLiveParticipantIdSet],
           sessionUserId: session.user.id,
           createChatPending: createChatMutation.isPending,
           addGroupParticipantsPending: addGroupParticipantsMutation.isPending,

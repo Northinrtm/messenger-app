@@ -3,6 +3,7 @@ type AvatarCircleProps = {
   name: string;
   avatarUrl?: string | null;
   badge?: string;
+  activityBadge?: "headphones";
   online?: boolean;
 };
 
@@ -11,6 +12,7 @@ export function AvatarCircle({
   name,
   avatarUrl = null,
   badge,
+  activityBadge,
   online = false,
 }: AvatarCircleProps) {
   return (
@@ -23,6 +25,11 @@ export function AvatarCircle({
         initials(name)
       )}
       {badge ? <span className="avatar-badge">{badge}</span> : null}
+      {activityBadge === "headphones" ? (
+        <span className="avatar-activity-badge" aria-hidden="true">
+          {"\uD83C\uDFA7"}
+        </span>
+      ) : null}
       {online ? <span className="avatar-presence" /> : null}
     </div>
   );

@@ -11,6 +11,10 @@ public interface VideoConferenceRepository extends JpaRepository<VideoConference
 
     List<VideoConference> findAllByIdIn(Collection<UUID> ids);
 
+    List<VideoConference> findAllByChatIdIn(Collection<UUID> chatIds);
+
+    List<VideoConference> findAllByChatIdAndEndedAtIsNullOrderByScheduledAtAscCreatedAtAsc(UUID chatId);
+
     List<VideoConference> findAllByEndedAtIsNotNullAndRoomNameIn(Collection<String> roomNames);
 
     List<VideoConference> findAllByEndedAtIsNullAndRoomNameIsNullAndScheduledAtLessThanEqual(Instant scheduledAt);

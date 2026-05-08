@@ -22,6 +22,7 @@ type UseWorkspaceNavigationParams = {
   setActiveListTab: Dispatch<SetStateAction<ConversationListTab>>;
   setConferenceComposerMode: Dispatch<SetStateAction<"instant" | "scheduled" | null>>;
   setConferenceEditingId: Dispatch<SetStateAction<string | null>>;
+  setConferenceChatId: Dispatch<SetStateAction<string | null>>;
   setConferenceParticipantUsernames: Dispatch<SetStateAction<string[]>>;
   setConferenceScheduledAt: Dispatch<SetStateAction<string>>;
   setConferenceTitle: Dispatch<SetStateAction<string>>;
@@ -66,6 +67,7 @@ export function useWorkspaceNavigation({
   setActiveListTab,
   setConferenceComposerMode,
   setConferenceEditingId,
+  setConferenceChatId,
   setConferenceParticipantUsernames,
   setConferenceScheduledAt,
   setConferenceTitle,
@@ -90,6 +92,7 @@ export function useWorkspaceNavigation({
     setConferenceTitle("");
     setConferenceScheduledAt(createInitialConferenceDateTime());
     setConferenceParticipantUsernames([]);
+    setConferenceChatId(null);
     setConferenceComposerMode(null);
     setConferenceEditingId(null);
   });
@@ -105,6 +108,7 @@ export function useWorkspaceNavigation({
 
   const openConferenceComposer = useEffectEvent((mode: "instant" | "scheduled") => {
     openConferenceSheet();
+    setConferenceChatId(null);
     setConferenceEditingId(null);
     setConferenceComposerMode(mode);
     if (mode === "scheduled") {
@@ -115,6 +119,7 @@ export function useWorkspaceNavigation({
   const openConferenceEditor = useEffectEvent((conference: VideoConference) => {
     openConferenceSheet();
     setConferenceEditingId(conference.id);
+    setConferenceChatId(conference.chatId ?? null);
     setConferenceComposerMode("scheduled");
     setConferenceTitle(conference.title);
     setConferenceScheduledAt(formatDateTimeInputValue(new Date(conference.scheduledAt)));
@@ -127,6 +132,7 @@ export function useWorkspaceNavigation({
     }
 
     openConferenceSheet();
+    setConferenceChatId(activeChat.id);
     setConferenceEditingId(null);
     setConferenceComposerMode(mode);
     setConferenceTitle(`Встреча ${activeChat.title}`);

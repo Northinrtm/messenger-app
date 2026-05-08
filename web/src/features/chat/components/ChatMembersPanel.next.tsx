@@ -3,6 +3,7 @@ import { AvatarCircle } from "./AvatarCircle";
 
 type Props = {
   activeChat: ChatSummary;
+  activeConferenceParticipantUserIds: string[];
   sessionUserId: string;
   createChatPending: boolean;
   addGroupParticipantsPending: boolean;
@@ -40,6 +41,7 @@ function renderMemberCount(count: number) {
 
 export function ChatMembersPanel({
   activeChat,
+  activeConferenceParticipantUserIds,
   sessionUserId,
   createChatPending,
   addGroupParticipantsPending,
@@ -66,6 +68,7 @@ export function ChatMembersPanel({
 }: Props) {
   const ownerUserId = activeChat.ownerUserId;
   const moderatorUserIdSet = new Set(activeChat.moderatorUserIds);
+  const activeConferenceParticipantIdSet = new Set(activeConferenceParticipantUserIds);
 
   return (
     <div className="chat-menu-panel chat-members-panel">
@@ -185,6 +188,7 @@ export function ChatMembersPanel({
                 className="menu-row-avatar sheet-contact-avatar"
                 name={member.displayName}
                 avatarUrl={member.avatarUrl}
+                activityBadge={activeConferenceParticipantIdSet.has(member.id) ? "headphones" : undefined}
                 online={member.online}
               />
               <div className="sheet-row-copy">

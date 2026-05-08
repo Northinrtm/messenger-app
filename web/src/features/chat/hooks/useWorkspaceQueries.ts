@@ -181,7 +181,7 @@ export function useWorkspaceQueries({
   const nextMessageCursorByRequestKeyRef = useRef(new Map<string, string | null>());
   const shouldFetchSessions = sidebarSheet === "sessions";
   const shouldAggressivelyRefreshConferences =
-    activeListTab === "conferences" || Boolean(activeConferenceId);
+    activeListTab === "conferences" || Boolean(activeConferenceId) || Boolean(activeChatId);
   const shouldFetchArchivedConferences = sidebarSheet === "archive" || Boolean(activeConferenceId);
   const normalizedSearchText = searchText.trim();
   const normalizedContactSearchText = contactSearchText.trim();

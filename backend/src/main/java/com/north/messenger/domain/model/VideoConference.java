@@ -20,6 +20,9 @@ public class VideoConference {
     @Column(name = "room_name", unique = true, length = 180)
     private String roomName;
 
+    @Column(name = "chat_id")
+    private UUID chatId;
+
     @Column(name = "created_by_user_id", nullable = false, updatable = false)
     private UUID createdByUserId;
 
@@ -49,16 +52,31 @@ public class VideoConference {
             Instant scheduledAt,
             Instant createdAt,
             Instant activatedAt,
-            Instant startedAt
+            Instant startedAt,
+            UUID chatId
     ) {
         this.id = id;
         this.title = title;
         this.roomName = roomName;
+        this.chatId = chatId;
         this.createdByUserId = createdByUserId;
         this.scheduledAt = scheduledAt;
         this.createdAt = createdAt;
         this.activatedAt = activatedAt;
         this.startedAt = startedAt;
+    }
+
+    public VideoConference(
+            UUID id,
+            String title,
+            String roomName,
+            UUID createdByUserId,
+            Instant scheduledAt,
+            Instant createdAt,
+            Instant activatedAt,
+            Instant startedAt
+    ) {
+        this(id, title, roomName, createdByUserId, scheduledAt, createdAt, activatedAt, startedAt, null);
     }
 
     public UUID getId() {
@@ -75,6 +93,10 @@ public class VideoConference {
 
     public UUID getCreatedByUserId() {
         return createdByUserId;
+    }
+
+    public UUID getChatId() {
+        return chatId;
     }
 
     public Instant getScheduledAt() {

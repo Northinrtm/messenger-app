@@ -19,6 +19,7 @@ type Props = {
   tabChats: ChatSummary[];
   tabChatsEmptyText: string;
   activeChatId: string | null;
+  liveGroupConferencesByChatId: Map<string, VideoConference>;
   typingByChatId: Record<string, Participant[]>;
   draftsByChatId: Record<string, string>;
   openConference: (conferenceId: string) => void;
@@ -49,6 +50,7 @@ export const ChatListPanel = memo(function ChatListPanel({
   tabChats,
   tabChatsEmptyText,
   activeChatId,
+  liveGroupConferencesByChatId,
   typingByChatId,
   draftsByChatId,
   openConference,
@@ -76,7 +78,7 @@ export const ChatListPanel = memo(function ChatListPanel({
           }
           onClick={onToggleConferenceViewMode}
         >
-          {conferenceViewMode === "calendar" ? "Список" : "Календарь"}
+          {conferenceViewMode === "calendar" ? "Р В Р’В Р В Р вЂ№Р В Р’В Р РЋРІР‚вЂќР В Р’В Р РЋРІР‚ВР В Р Р‹Р В РЎвЂњР В Р’В Р РЋРІР‚СћР В Р’В Р РЋРІР‚Сњ" : "Р В Р’В Р РЋРІвЂћСћР В Р’В Р вЂ™Р’В°Р В Р’В Р вЂ™Р’В»Р В Р’В Р вЂ™Р’ВµР В Р’В Р В РІР‚В¦Р В Р’В Р СћРІР‚ВР В Р’В Р вЂ™Р’В°Р В Р Р‹Р В РІР‚С™Р В Р Р‹Р В Р вЂ°"}
         </button>
       </div>
     );
@@ -85,7 +87,7 @@ export const ChatListPanel = memo(function ChatListPanel({
       return (
         <>
           {conferenceBrowserToggle}
-          <div className="empty-list">Загружаем видеоконференции...</div>
+          <div className="empty-list">Р В Р’В Р Р†Р вЂљРІР‚СњР В Р’В Р вЂ™Р’В°Р В Р’В Р РЋРІР‚вЂњР В Р Р‹Р В РІР‚С™Р В Р Р‹Р РЋРІР‚СљР В Р’В Р вЂ™Р’В¶Р В Р’В Р вЂ™Р’В°Р В Р’В Р вЂ™Р’ВµР В Р’В Р РЋР’В Р В Р’В Р В РІР‚В Р В Р’В Р РЋРІР‚ВР В Р’В Р СћРІР‚ВР В Р’В Р вЂ™Р’ВµР В Р’В Р РЋРІР‚СћР В Р’В Р РЋРІР‚СњР В Р’В Р РЋРІР‚СћР В Р’В Р В РІР‚В¦Р В Р Р‹Р Р†Р вЂљРЎвЂєР В Р’В Р вЂ™Р’ВµР В Р Р‹Р В РІР‚С™Р В Р’В Р вЂ™Р’ВµР В Р’В Р В РІР‚В¦Р В Р Р‹Р Р†Р вЂљР’В Р В Р’В Р РЋРІР‚ВР В Р’В Р РЋРІР‚В...</div>
         </>
       );
     }
@@ -114,7 +116,7 @@ export const ChatListPanel = memo(function ChatListPanel({
         <>
           {conferenceBrowserToggle}
           <div className="empty-list">
-            {normalizedSearch ? "Ничего не найдено." : "Пока нет запланированных видеоконференций."}
+            {normalizedSearch ? "Р В Р’В Р РЋРЎС™Р В Р’В Р РЋРІР‚ВР В Р Р‹Р Р†Р вЂљР Р‹Р В Р’В Р вЂ™Р’ВµР В Р’В Р РЋРІР‚вЂњР В Р’В Р РЋРІР‚Сћ Р В Р’В Р В РІР‚В¦Р В Р’В Р вЂ™Р’Вµ Р В Р’В Р В РІР‚В¦Р В Р’В Р вЂ™Р’В°Р В Р’В Р Р†РІР‚С›РІР‚вЂњР В Р’В Р СћРІР‚ВР В Р’В Р вЂ™Р’ВµР В Р’В Р В РІР‚В¦Р В Р’В Р РЋРІР‚Сћ." : "Р В Р’В Р РЋРЎСџР В Р’В Р РЋРІР‚СћР В Р’В Р РЋРІР‚СњР В Р’В Р вЂ™Р’В° Р В Р’В Р В РІР‚В¦Р В Р’В Р вЂ™Р’ВµР В Р Р‹Р Р†Р вЂљРЎв„ў Р В Р’В Р вЂ™Р’В·Р В Р’В Р вЂ™Р’В°Р В Р’В Р РЋРІР‚вЂќР В Р’В Р вЂ™Р’В»Р В Р’В Р вЂ™Р’В°Р В Р’В Р В РІР‚В¦Р В Р’В Р РЋРІР‚ВР В Р Р‹Р В РІР‚С™Р В Р’В Р РЋРІР‚СћР В Р’В Р В РІР‚В Р В Р’В Р вЂ™Р’В°Р В Р’В Р В РІР‚В¦Р В Р’В Р В РІР‚В¦Р В Р Р‹Р Р†Р вЂљРІвЂћвЂ“Р В Р Р‹Р Р†Р вЂљР’В¦ Р В Р’В Р В РІР‚В Р В Р’В Р РЋРІР‚ВР В Р’В Р СћРІР‚ВР В Р’В Р вЂ™Р’ВµР В Р’В Р РЋРІР‚СћР В Р’В Р РЋРІР‚СњР В Р’В Р РЋРІР‚СћР В Р’В Р В РІР‚В¦Р В Р Р‹Р Р†Р вЂљРЎвЂєР В Р’В Р вЂ™Р’ВµР В Р Р‹Р В РІР‚С™Р В Р’В Р вЂ™Р’ВµР В Р’В Р В РІР‚В¦Р В Р Р‹Р Р†Р вЂљР’В Р В Р’В Р РЋРІР‚ВР В Р’В Р Р†РІР‚С›РІР‚вЂњ."}
           </div>
         </>
       );
@@ -156,7 +158,7 @@ export const ChatListPanel = memo(function ChatListPanel({
                 <div className="chat-preview-line">
                   <p className="chat-preview-copy">
                     {trimPreview(
-                      participantPreview || "Участники будут видны после приглашения.",
+                      participantPreview || "Р В Р’В Р В РІвЂљВ¬Р В Р Р‹Р Р†Р вЂљР Р‹Р В Р’В Р вЂ™Р’В°Р В Р Р‹Р В РЎвЂњР В Р Р‹Р Р†Р вЂљРЎв„ўР В Р’В Р В РІР‚В¦Р В Р’В Р РЋРІР‚ВР В Р’В Р РЋРІР‚СњР В Р’В Р РЋРІР‚В Р В Р’В Р вЂ™Р’В±Р В Р Р‹Р РЋРІР‚СљР В Р’В Р СћРІР‚ВР В Р Р‹Р РЋРІР‚СљР В Р Р‹Р Р†Р вЂљРЎв„ў Р В Р’В Р В РІР‚В Р В Р’В Р РЋРІР‚ВР В Р’В Р СћРІР‚ВР В Р’В Р В РІР‚В¦Р В Р Р‹Р Р†Р вЂљРІвЂћвЂ“ Р В Р’В Р РЋРІР‚вЂќР В Р’В Р РЋРІР‚СћР В Р Р‹Р В РЎвЂњР В Р’В Р вЂ™Р’В»Р В Р’В Р вЂ™Р’Вµ Р В Р’В Р РЋРІР‚вЂќР В Р Р‹Р В РІР‚С™Р В Р’В Р РЋРІР‚ВР В Р’В Р РЋРІР‚вЂњР В Р’В Р вЂ™Р’В»Р В Р’В Р вЂ™Р’В°Р В Р Р‹Р Р†РІР‚С™Р’В¬Р В Р’В Р вЂ™Р’ВµР В Р’В Р В РІР‚В¦Р В Р’В Р РЋРІР‚ВР В Р Р‹Р В Р РЏ.",
                       88,
                     )}
                   </p>
@@ -186,12 +188,19 @@ export const ChatListPanel = memo(function ChatListPanel({
       {tabChats.map((chat) => {
         const directParticipant = getDirectParticipant(chat, sessionUser);
         const unread = chat.unreadCount;
+        const liveGroupConference = chat.direct
+          ? null
+          : liveGroupConferencesByChatId.get(chat.id) ?? null;
         const chatTypingParticipants = typingByChatId[chat.id] ?? [];
         const isChatTyping = chatTypingParticipants.length > 0;
-        const draftPreview = draftsByChatId[chat.id]?.trim() ?? "";
+        const rawDraftPreview = draftsByChatId[chat.id]?.trim() ?? "";
+        const draftPreview = liveGroupConference ? "" : rawDraftPreview;
         const preview = isChatTyping
           ? formatTypingParticipants(chatTypingParticipants)
-          : draftPreview || chat.lastMessage || "Нет сообщений";
+          : draftPreview || chat.lastMessage || "\u041d\u0435\u0442 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0439";
+        const finalPreview = liveGroupConference
+          ? `\u0418\u0434\u0435\u0442 \u0441\u043e\u0437\u0432\u043e\u043d \u2022 ${liveGroupConference.activeParticipantCount} \u0432 \u044d\u0444\u0438\u0440\u0435`
+          : preview;
         const previewTimestamp = chat.lastMessageAt ?? chat.updatedAt;
 
         return (
@@ -229,12 +238,13 @@ export const ChatListPanel = memo(function ChatListPanel({
                 <span>{describeChat(chat, sessionUser)}</span>
                 {!chat.direct ? <span className="chat-detail-dot">|</span> : null}
                 {!chat.direct ? <span>{formatMemberCount(chat.members.length)}</span> : null}
+                {liveGroupConference ? <span className="chat-live-indicator">{"\u0421\u043e\u0437\u0432\u043e\u043d"}</span> : null}
               </div>
 
               <div className={isChatTyping ? "chat-preview-line is-typing" : "chat-preview-line"}>
                 <p className={isChatTyping ? "chat-preview-copy is-typing" : "chat-preview-copy"}>
-                  {draftPreview && !isChatTyping ? <span className="chat-draft">Черновик: </span> : null}
-                  {trimPreview(preview, 88)}
+                  {draftPreview && !isChatTyping ? <span className="chat-draft">{"\u0427\u0435\u0440\u043d\u043e\u0432\u0438\u043a: "}</span> : null}
+                  {trimPreview(finalPreview, 88)}
                 </p>
                 {unread > 0 ? <span className="chat-badge">{unread}</span> : null}
               </div>

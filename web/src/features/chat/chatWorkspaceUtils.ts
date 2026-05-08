@@ -87,6 +87,9 @@ export function buildConferenceActivitySnapshot(conferences: VideoConference[]) 
         conference.startedAt ?? "",
         conference.endedAt ?? "",
         conference.recordingCreatedAt ?? "",
+        conference.chatId ?? "",
+        String(conference.activeParticipantCount),
+        conference.activeParticipantUserIds.slice().sort().join(","),
         conference.createdBy.id,
         conference.participants
           .map((participant) => participant.id)

@@ -189,7 +189,9 @@ export function formatConferenceStatusLabel(conference: VideoConference) {
   }
 
   if (conference.startedAt) {
-    return "\u0412\u0441\u0442\u0440\u0435\u0447\u0430 \u0438\u0434\u0435\u0442";
+    return conference.activeParticipantCount > 0
+      ? `Встреча идет • ${conference.activeParticipantCount} в эфире`
+      : "\u0412\u0441\u0442\u0440\u0435\u0447\u0430 \u0438\u0434\u0435\u0442";
   }
 
   if (conference.roomName || conference.activatedAt) {
@@ -230,6 +232,10 @@ export function formatConferenceListPreview(
     .filter((participant) => participant.username !== currentUsername)
     .map((participant) => participant.displayName)
     .join(", ");
+
+  if (conference.activeParticipantCount > 0) {
+    return `Встреча уже идет, в эфире ${conference.activeParticipantCount}.`;
+  }
 
   return participantPreview || "\u0412\u0441\u0442\u0440\u0435\u0447\u0430 \u0443\u0436\u0435 \u0438\u0434\u0435\u0442.";
 }

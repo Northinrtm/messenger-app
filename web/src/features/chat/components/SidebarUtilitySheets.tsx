@@ -8,6 +8,7 @@ type Props = {
   sheet: UtilitySheet;
   sessionUser: UserProfile;
   conferenceComposerMode: "instant" | "scheduled" | null;
+  conferenceChatId: string | null;
   conferenceEditingId: string | null;
   conferenceTitle: string;
   conferenceScheduledAt: string;
@@ -49,6 +50,7 @@ export function SidebarUtilitySheets({
   sheet,
   sessionUser,
   conferenceComposerMode,
+  conferenceChatId,
   conferenceEditingId,
   conferenceTitle,
   conferenceScheduledAt,
@@ -87,6 +89,7 @@ export function SidebarUtilitySheets({
 }: Props) {
   if (sheet === "conference") {
     const isEditingConference = Boolean(conferenceEditingId);
+    const isGroupConferenceComposer = Boolean(conferenceChatId);
     const conferenceSubmitPending = createConferencePending || updateConferencePending;
 
     return (
@@ -170,7 +173,7 @@ export function SidebarUtilitySheets({
               />
             ) : null}
 
-            {!isEditingConference ? (
+            {!isEditingConference && !isGroupConferenceComposer ? (
               <div className="group-picker-list conference-picker-list">
                 {contactsLoading && conferenceCandidates.length === 0 ? (
                   <div className="empty-list">Загружаем контакты...</div>
@@ -207,6 +210,12 @@ export function SidebarUtilitySheets({
                     );
                   })
                 )}
+              </div>
+            ) : null}
+
+            {!isEditingConference && isGroupConferenceComposer ? (
+              <div className="empty-list">
+                Участники этой встречи берутся из текущего состава группы.
               </div>
             ) : null}
 

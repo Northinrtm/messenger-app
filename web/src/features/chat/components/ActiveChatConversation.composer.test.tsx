@@ -97,6 +97,7 @@ function conversationProps(
   return {
     activeChat: chatSummary(),
     activeDirectParticipant: participant({ id: "user-2", username: "anna", displayName: "Anna" }),
+    activeGroupConference: null,
     sessionUser: userProfile(),
     conversationSubtitle: "subtitle",
     showTypingIndicator: false,
@@ -123,6 +124,7 @@ function conversationProps(
     onBack: () => {},
     onToggleChatMenu: () => {},
     onOpenMembers: () => {},
+    onStartOrJoinGroupConference: () => {},
     onCloseChat: () => {},
     onJumpToPinned: () => {},
     onUnpin: () => {},

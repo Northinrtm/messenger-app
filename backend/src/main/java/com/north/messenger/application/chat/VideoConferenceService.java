@@ -7,11 +7,14 @@ import com.north.messenger.api.dto.UpdateVideoConferenceRequest;
 import com.north.messenger.api.dto.VideoConferenceResponse;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.support.ClusterJobLockService;
+import com.north.messenger.domain.model.ChatParticipant;
+import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.ConferenceRecording;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.VideoConference;
 import com.north.messenger.domain.model.VideoConferenceAttendance;
 import com.north.messenger.domain.model.VideoConferenceParticipant;
+import com.north.messenger.domain.repository.ChatParticipantRepository;
 import com.north.messenger.domain.repository.ConferenceRecordingRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import com.north.messenger.domain.repository.VideoConferenceAttendanceRepository;
@@ -58,6 +61,8 @@ public class VideoConferenceService {
     private static final long CONFERENCE_RECORDING_IMPORT_LOCK_ID = 7_102_002L;
 
     private final AuthService authService;
+    private final ChatService chatService;
+    private final ChatParticipantRepository chatParticipantRepository;
     private final UserAccountRepository userAccountRepository;
     private final VideoConferenceRepository videoConferenceRepository;
     private final VideoConferenceParticipantRepository videoConferenceParticipantRepository;
@@ -70,6 +75,8 @@ public class VideoConferenceService {
 
     public VideoConferenceService(
             AuthService authService,
+            ChatService chatService,
+            ChatParticipantRepository chatParticipantRepository,
             UserAccountRepository userAccountRepository,
             VideoConferenceRepository videoConferenceRepository,
             VideoConferenceParticipantRepository videoConferenceParticipantRepository,
@@ -81,6 +88,8 @@ public class VideoConferenceService {
             JwtProperties jwtProperties
     ) {
         this.authService = authService;
+        this.chatService = chatService;
+        this.chatParticipantRepository = chatParticipantRepository;
         this.userAccountRepository = userAccountRepository;
         this.videoConferenceRepository = videoConferenceRepository;
         this.videoConferenceParticipantRepository = videoConferenceParticipantRepository;
@@ -102,41 +111,68 @@ public class VideoConferenceService {
 
     private List<VideoConferenceResponse> listConferences(String username, boolean archived) {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
-        List<VideoConferenceParticipant> memberships =
+        List<VideoConferenceParticipant> explicitMemberships =
                 videoConferenceParticipantRepository.findAllByUserIdOrderByInvitedAtDesc(currentUser.getId());
-        if (memberships.isEmpty()) {
+        List<ChatParticipant> chatMemberships =
+                chatParticipantRepository.findAllByUserIdOrderByJoinedAtAsc(currentUser.getId());
+        LinkedHashSet<UUID> directConferenceIds = explicitMemberships.stream()
+                .map(VideoConferenceParticipant::getConferenceId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        LinkedHashSet<UUID> visibleChatIds = chatMemberships.stream()
+                .map(ChatParticipant::getChatId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        List<VideoConference> chatBoundConferences = visibleChatIds.isEmpty()
+                ? List.of()
+                : videoConferenceRepository.findAllByChatIdIn(visibleChatIds);
+        if (directConferenceIds.isEmpty() && chatBoundConferences.isEmpty()) {
             return List.of();
         }
 
-        List<UUID> conferenceIds = memberships.stream()
-                .map(VideoConferenceParticipant::getConferenceId)
-                .distinct()
-                .toList();
-        Map<UUID, VideoConference> conferencesById = videoConferenceRepository.findAllByIdIn(conferenceIds).stream()
-                .collect(Collectors.toMap(VideoConference::getId, Function.identity()));
+        Map<UUID, VideoConference> conferencesById = new LinkedHashMap<>();
+        if (!directConferenceIds.isEmpty()) {
+            videoConferenceRepository.findAllByIdIn(directConferenceIds)
+                    .forEach(conference -> conferencesById.put(conference.getId(), conference));
+        }
+        chatBoundConferences.forEach(conference -> conferencesById.put(conference.getId(), conference));
+        if (conferencesById.isEmpty()) {
+            return List.of();
+        }
+
+        List<UUID> conferenceIds = List.copyOf(conferencesById.keySet());
         Map<UUID, List<VideoConferenceParticipant>> participantsByConferenceId =
                 videoConferenceParticipantRepository.findAllByConferenceIdInOrderByInvitedAtAsc(conferenceIds).stream()
                         .collect(Collectors.groupingBy(
                                 VideoConferenceParticipant::getConferenceId,
+                                LinkedHashMap::new,
+                                Collectors.toList()
+                        ));
+        LinkedHashSet<UUID> conferenceChatIds = conferencesById.values().stream()
+                .map(VideoConference::getChatId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<UUID, List<ChatParticipant>> participantsByChatId = conferenceChatIds.isEmpty()
+                ? Map.of()
+                : chatParticipantRepository.findAllByChatIdInOrderByJoinedAtAsc(conferenceChatIds).stream()
+                        .collect(Collectors.groupingBy(
+                                ChatParticipant::getChatId,
+                                LinkedHashMap::new,
                                 Collectors.toList()
                         ));
         Map<UUID, UserAccount> usersById = findUsersById(
-                participantsByConferenceId.values().stream()
-                        .flatMap(List::stream)
-                        .map(VideoConferenceParticipant::getUserId)
-                        .collect(Collectors.toSet())
+                collectVisibleUserIds(conferencesById.values(), participantsByConferenceId, participantsByChatId)
         );
         Map<UUID, ConferenceRecording> recordingsByConferenceId =
                 conferenceRecordingRepository.findAllByConferenceIdIn(conferenceIds).stream()
                         .collect(Collectors.toMap(ConferenceRecording::getConferenceId, Function.identity()));
 
-        return conferenceIds.stream()
-                .map(conferencesById::get)
-                .filter(Objects::nonNull)
+        return conferencesById.values().stream()
                 .filter(conference -> archived ? conference.isEnded() : !conference.isEnded())
                 .map(conference -> toResponse(
                         conference,
                         participantsByConferenceId.getOrDefault(conference.getId(), List.of()),
+                        conference.getChatId() == null
+                                ? List.of()
+                                : participantsByChatId.getOrDefault(conference.getChatId(), List.of()),
                         usersById,
                         currentUser.getId(),
                         recordingsByConferenceId.get(conference.getId())
@@ -153,13 +189,24 @@ public class VideoConferenceService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Conference must be scheduled in the present or future");
         }
 
-        LinkedHashSet<String> normalizedUsernames = normalizeParticipantUsernames(
-                request.participantUsernames(),
-                currentUser.getUsername()
-        );
-        List<UserAccount> invitedUsers = normalizedUsernames.stream()
-                .map(authService::requireExistingUser)
-                .toList();
+        UUID targetChatId = request.chatId();
+        List<UserAccount> conferenceParticipants;
+        if (targetChatId != null) {
+            ChatRoom room = chatService.requireChatMembership(targetChatId, currentUser);
+            if (room.isDirect()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Direct chats cannot host group conference calls");
+            }
+            conferenceParticipants = resolveGroupConferenceParticipants(targetChatId);
+        } else {
+            LinkedHashSet<String> normalizedUsernames = normalizeParticipantUsernames(
+                    request.participantUsernames(),
+                    currentUser.getUsername()
+            );
+            List<UserAccount> invitedUsers = normalizedUsernames.stream()
+                    .map(authService::requireExistingUser)
+                    .toList();
+            conferenceParticipants = buildConferenceParticipants(currentUser, invitedUsers);
+        }
 
         UUID conferenceId = UUID.randomUUID();
         boolean activateImmediately = shouldActivateConference(request.scheduledAt(), now);
@@ -172,24 +219,42 @@ public class VideoConferenceService {
                 request.scheduledAt(),
                 now,
                 activateImmediately ? now : null,
-                activateImmediately && startImmediately ? now : null
+                activateImmediately && startImmediately ? now : null,
+                targetChatId
         );
         videoConferenceRepository.save(conference);
-        persistParticipants(conferenceId, currentUser, invitedUsers, now);
+        persistParticipants(conferenceId, conferenceParticipants, now);
+        return buildConferenceResponse(conference, currentUser.getId());
+    }
 
-        Map<UUID, UserAccount> usersById = new LinkedHashMap<>(findUsersById(
-                invitedUsers.stream()
-                        .map(UserAccount::getId)
-                        .collect(Collectors.toCollection(LinkedHashSet::new))
-        ));
-        usersById.put(currentUser.getId(), currentUser);
+    @Transactional
+    public VideoConferenceResponse startGroupConferenceCall(String username, UUID chatId) {
+        UserAccount currentUser = authService.requireAuthenticatedUser(username);
+        ChatRoom room = chatService.requireChatMembership(chatId, currentUser);
+        if (room.isDirect()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Direct chats cannot host group conference calls");
+        }
 
-        return toResponse(
-                conference,
-                videoConferenceParticipantRepository.findAllByConferenceIdOrderByInvitedAtAsc(conferenceId),
-                usersById,
-                currentUser.getId(),
-                null
+        Instant now = Instant.now();
+        VideoConference reusableConference = selectReusableGroupConference(chatId, now);
+        if (reusableConference != null) {
+            if (!reusableConference.isStarted()) {
+                if (reusableConference.getRoomName() == null) {
+                    reusableConference.activate(createRoomName(reusableConference.getId()), now);
+                }
+                reusableConference.start(now);
+            }
+            return buildConferenceResponse(reusableConference, currentUser.getId());
+        }
+
+        return createConference(
+                username,
+                new CreateVideoConferenceRequest(
+                        "\u0421\u043e\u0437\u0432\u043e\u043d " + room.getTitle(),
+                        now,
+                        List.of(),
+                        chatId
+                )
         );
     }
 
@@ -224,15 +289,7 @@ public class VideoConferenceService {
             conference.clearActivation();
         }
 
-        List<VideoConferenceParticipant> memberships =
-                videoConferenceParticipantRepository.findAllByConferenceIdOrderByInvitedAtAsc(conferenceId);
-        Map<UUID, UserAccount> usersById = findUsersById(
-                memberships.stream()
-                        .map(VideoConferenceParticipant::getUserId)
-                        .collect(Collectors.toCollection(LinkedHashSet::new))
-        );
-        usersById.putIfAbsent(currentUser.getId(), currentUser);
-        return toResponse(conference, memberships, usersById, currentUser.getId(), findRecording(conferenceId));
+        return buildConferenceResponse(conference, currentUser.getId());
     }
 
     @Transactional
@@ -260,15 +317,7 @@ public class VideoConferenceService {
         }
         conference.start(now);
 
-        List<VideoConferenceParticipant> memberships =
-                videoConferenceParticipantRepository.findAllByConferenceIdOrderByInvitedAtAsc(conferenceId);
-        Map<UUID, UserAccount> usersById = findUsersById(
-                memberships.stream()
-                        .map(VideoConferenceParticipant::getUserId)
-                        .collect(Collectors.toCollection(LinkedHashSet::new))
-        );
-        usersById.putIfAbsent(currentUser.getId(), currentUser);
-        return toResponse(conference, memberships, usersById, currentUser.getId(), findRecording(conferenceId));
+        return buildConferenceResponse(conference, currentUser.getId());
     }
 
     @Transactional
@@ -282,6 +331,12 @@ public class VideoConferenceService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Conference not found"));
         if (!conference.getCreatedByUserId().equals(currentUser.getId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the organizer can invite participants");
+        }
+        if (conference.getChatId() != null) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Group conference participants are managed by current chat membership"
+            );
         }
         if (conference.isEnded()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Cannot add participants to an ended conference");
@@ -308,7 +363,7 @@ public class VideoConferenceService {
             List<UserAccount> invitedUsers = normalizedUsernames.stream()
                     .map(authService::requireExistingUser)
                     .toList();
-            persistParticipants(conferenceId, null, invitedUsers, Instant.now());
+            persistParticipants(conferenceId, invitedUsers, Instant.now());
             memberships = videoConferenceParticipantRepository.findAllByConferenceIdOrderByInvitedAtAsc(conferenceId);
             existingUsersById = findUsersById(
                     memberships.stream()
@@ -318,7 +373,7 @@ public class VideoConferenceService {
         }
 
         existingUsersById.putIfAbsent(currentUser.getId(), currentUser);
-        return toResponse(conference, memberships, existingUsersById, currentUser.getId(), findRecording(conferenceId));
+        return buildConferenceResponse(conference, currentUser.getId());
     }
 
     @Transactional
@@ -330,21 +385,18 @@ public class VideoConferenceService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Conference has already ended");
         }
 
+        if (conference.getChatId() != null) {
+            chatService.requireChatMembership(conference.getChatId(), currentUser);
+            return buildConferenceResponse(conference, currentUser.getId());
+        }
+
         if (!videoConferenceParticipantRepository.existsByConferenceIdAndUserId(conferenceId, currentUser.getId())) {
             videoConferenceParticipantRepository.save(
                     new VideoConferenceParticipant(UUID.randomUUID(), conferenceId, currentUser.getId(), Instant.now())
             );
         }
 
-        List<VideoConferenceParticipant> memberships =
-                videoConferenceParticipantRepository.findAllByConferenceIdOrderByInvitedAtAsc(conferenceId);
-        Map<UUID, UserAccount> usersById = findUsersById(
-                memberships.stream()
-                        .map(VideoConferenceParticipant::getUserId)
-                        .collect(Collectors.toCollection(LinkedHashSet::new))
-        );
-        usersById.putIfAbsent(currentUser.getId(), currentUser);
-        return toResponse(conference, memberships, usersById, currentUser.getId(), findRecording(conferenceId));
+        return buildConferenceResponse(conference, currentUser.getId());
     }
 
     @Transactional
@@ -358,7 +410,7 @@ public class VideoConferenceService {
         if (!conference.isJoinAvailable()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Conference room is not available yet");
         }
-        if (!videoConferenceParticipantRepository.existsByConferenceIdAndUserId(conferenceId, currentUser.getId())) {
+        if (!hasConferenceAccess(conference, currentUser)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Conference is not available");
         }
 
@@ -400,21 +452,19 @@ public class VideoConferenceService {
         }
 
         conference.end(Instant.now());
-        List<VideoConferenceParticipant> memberships =
-                videoConferenceParticipantRepository.findAllByConferenceIdOrderByInvitedAtAsc(conferenceId);
-        Map<UUID, UserAccount> usersById = findUsersById(
-                memberships.stream()
-                        .map(VideoConferenceParticipant::getUserId)
-                        .collect(Collectors.toCollection(LinkedHashSet::new))
-        );
-        usersById.putIfAbsent(currentUser.getId(), currentUser);
-        return toResponse(conference, memberships, usersById, currentUser.getId(), findRecording(conferenceId));
+        return buildConferenceResponse(conference, currentUser.getId());
     }
 
     public VideoConference requireConferenceInviteLinkAccess(String username, UUID conferenceId) {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
         VideoConference conference = videoConferenceRepository.findById(conferenceId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Conference not found"));
+        if (conference.getChatId() != null) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Group conference invite links are not available"
+            );
+        }
         if (!conference.getCreatedByUserId().equals(currentUser.getId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the organizer can create invite links");
         }
@@ -489,22 +539,14 @@ public class VideoConferenceService {
                 }
         );
 
-        List<VideoConferenceParticipant> memberships =
-                videoConferenceParticipantRepository.findAllByConferenceIdOrderByInvitedAtAsc(conferenceId);
-        Map<UUID, UserAccount> usersById = findUsersById(
-                memberships.stream()
-                        .map(VideoConferenceParticipant::getUserId)
-                        .collect(Collectors.toCollection(LinkedHashSet::new))
-        );
-        usersById.putIfAbsent(currentUser.getId(), currentUser);
-        return toResponse(conference, memberships, usersById, currentUser.getId(), recording);
+        return buildConferenceResponse(conference, currentUser.getId());
     }
 
     public ConferenceRecordingDownload downloadRecording(String username, UUID conferenceId) {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
         VideoConference conference = videoConferenceRepository.findById(conferenceId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Conference not found"));
-        if (!videoConferenceParticipantRepository.existsByConferenceIdAndUserId(conferenceId, currentUser.getId())) {
+        if (!hasConferenceAccess(conference, currentUser)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Conference recording is not available");
         }
 
@@ -542,16 +584,18 @@ public class VideoConferenceService {
     private VideoConferenceResponse toResponse(
             VideoConference conference,
             List<VideoConferenceParticipant> memberships,
+            List<ChatParticipant> chatMemberships,
             Map<UUID, UserAccount> usersById,
             UUID currentUserId,
             ConferenceRecording recording
     ) {
         Map<UUID, Boolean> onlineByUserId = authService.resolveOnlineByUserIds(usersById.keySet());
-        List<ParticipantResponse> participants = memberships.stream()
-                .map(membership -> usersById.get(membership.getUserId()))
+        List<ParticipantResponse> participants = resolveVisibleConferenceUserIds(conference, memberships, chatMemberships).stream()
+                .map(usersById::get)
                 .filter(Objects::nonNull)
                 .map(user -> authService.toParticipant(user, onlineByUserId.getOrDefault(user.getId(), false)))
                 .toList();
+        List<UUID> activeParticipantUserIds = findActiveParticipantUserIds(conference.getId());
 
         UserAccount creator = usersById.get(conference.getCreatedByUserId());
         if (creator == null) {
@@ -572,7 +616,10 @@ public class VideoConferenceService {
                 recording != null ? recording.getSizeBytes() : null,
                 recording != null ? recording.getMimeType() : null,
                 authService.toParticipant(creator, onlineByUserId.getOrDefault(creator.getId(), false)),
-                participants
+                participants,
+                conference.getChatId(),
+                activeParticipantUserIds.size(),
+                activeParticipantUserIds
         );
     }
 
@@ -592,20 +639,14 @@ public class VideoConferenceService {
                 .thenComparing(VideoConferenceResponse::createdAt, Comparator.reverseOrder());
     }
 
-    private void persistParticipants(
-            UUID conferenceId,
-            UserAccount currentUser,
-            List<UserAccount> invitedUsers,
-            Instant invitedAt
-    ) {
-        if (currentUser != null) {
-            videoConferenceParticipantRepository.save(
-                    new VideoConferenceParticipant(UUID.randomUUID(), conferenceId, currentUser.getId(), invitedAt)
-            );
-        }
-        invitedUsers.forEach(invitedUser -> videoConferenceParticipantRepository.save(
-                new VideoConferenceParticipant(UUID.randomUUID(), conferenceId, invitedUser.getId(), invitedAt)
-        ));
+    private void persistParticipants(UUID conferenceId, List<UserAccount> participants, Instant invitedAt) {
+        LinkedHashSet<UUID> seenUserIds = new LinkedHashSet<>();
+        participants.stream()
+                .map(UserAccount::getId)
+                .filter(seenUserIds::add)
+                .forEach(userId -> videoConferenceParticipantRepository.save(
+                        new VideoConferenceParticipant(UUID.randomUUID(), conferenceId, userId, invitedAt)
+                ));
     }
 
     private LinkedHashSet<String> normalizeParticipantUsernames(
@@ -637,6 +678,105 @@ public class VideoConferenceService {
 
         return userAccountRepository.findAllByIdIn(ids).stream()
                 .collect(Collectors.toMap(UserAccount::getId, Function.identity()));
+    }
+
+    private VideoConferenceResponse buildConferenceResponse(VideoConference conference, UUID currentUserId) {
+        List<VideoConferenceParticipant> memberships =
+                videoConferenceParticipantRepository.findAllByConferenceIdOrderByInvitedAtAsc(conference.getId());
+        List<ChatParticipant> chatMemberships = conference.getChatId() == null
+                ? List.of()
+                : chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(conference.getChatId());
+        Map<UUID, List<ChatParticipant>> membershipsByChatId = conference.getChatId() == null
+                ? Map.of()
+                : Map.of(conference.getChatId(), chatMemberships);
+        Map<UUID, UserAccount> usersById = findUsersById(
+                collectVisibleUserIds(List.of(conference), Map.of(conference.getId(), memberships), membershipsByChatId)
+        );
+        return toResponse(conference, memberships, chatMemberships, usersById, currentUserId, findRecording(conference.getId()));
+    }
+
+    private List<UserAccount> resolveGroupConferenceParticipants(UUID chatId) {
+        List<ChatParticipant> chatMemberships = chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId);
+        Map<UUID, UserAccount> usersById = findUsersById(
+                chatMemberships.stream()
+                        .map(ChatParticipant::getUserId)
+                        .collect(Collectors.toCollection(LinkedHashSet::new))
+        );
+        return chatMemberships.stream()
+                .map(ChatParticipant::getUserId)
+                .map(usersById::get)
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    private List<UserAccount> buildConferenceParticipants(UserAccount currentUser, List<UserAccount> invitedUsers) {
+        LinkedHashMap<UUID, UserAccount> participantsById = new LinkedHashMap<>();
+        participantsById.put(currentUser.getId(), currentUser);
+        invitedUsers.forEach(user -> participantsById.putIfAbsent(user.getId(), user));
+        return List.copyOf(participantsById.values());
+    }
+
+    private LinkedHashSet<UUID> collectVisibleUserIds(
+            Collection<VideoConference> conferences,
+            Map<UUID, List<VideoConferenceParticipant>> membershipsByConferenceId,
+            Map<UUID, List<ChatParticipant>> membershipsByChatId
+    ) {
+        LinkedHashSet<UUID> userIds = new LinkedHashSet<>();
+        conferences.forEach(conference -> {
+            userIds.add(conference.getCreatedByUserId());
+            resolveVisibleConferenceUserIds(
+                    conference,
+                    membershipsByConferenceId.getOrDefault(conference.getId(), List.of()),
+                    conference.getChatId() == null
+                            ? List.of()
+                            : membershipsByChatId.getOrDefault(conference.getChatId(), List.of())
+            ).forEach(userIds::add);
+        });
+        return userIds;
+    }
+
+    private List<UUID> resolveVisibleConferenceUserIds(
+            VideoConference conference,
+            List<VideoConferenceParticipant> memberships,
+            List<ChatParticipant> chatMemberships
+    ) {
+        if (conference.getChatId() == null) {
+            return memberships.stream()
+                    .map(VideoConferenceParticipant::getUserId)
+                    .distinct()
+                    .toList();
+        }
+
+        return chatMemberships.stream()
+                .map(ChatParticipant::getUserId)
+                .distinct()
+                .toList();
+    }
+
+    private List<UUID> findActiveParticipantUserIds(UUID conferenceId) {
+        Instant activeAfter = Instant.now().minus(CONFERENCE_PRESENCE_STALE_MINUTES, ChronoUnit.MINUTES);
+        return videoConferenceAttendanceRepository.findActiveUserIds(conferenceId, activeAfter);
+    }
+
+    private boolean hasConferenceAccess(VideoConference conference, UserAccount currentUser) {
+        if (conference.getChatId() != null) {
+            return chatParticipantRepository.existsByChatIdAndUserId(conference.getChatId(), currentUser.getId());
+        }
+
+        return videoConferenceParticipantRepository.existsByConferenceIdAndUserId(conference.getId(), currentUser.getId());
+    }
+
+    private VideoConference selectReusableGroupConference(UUID chatId, Instant now) {
+        List<VideoConference> groupConferences =
+                videoConferenceRepository.findAllByChatIdAndEndedAtIsNullOrderByScheduledAtAscCreatedAtAsc(chatId);
+
+        return groupConferences.stream()
+                .filter(VideoConference::isStarted)
+                .findFirst()
+                .orElseGet(() -> groupConferences.stream()
+                        .filter(conference -> conference.isJoinAvailable() || shouldActivateConference(conference.getScheduledAt(), now))
+                        .findFirst()
+                        .orElse(null));
     }
 
     private String normalizeUsername(String username) {

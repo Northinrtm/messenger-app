@@ -21,6 +21,7 @@ import {
   revokeGroupModerator as revokeGroupModeratorRequest,
   revokeSession,
   resendOwnEmailVerification,
+  startGroupConferenceCall as startGroupConferenceCallRequest,
   unblockUser as unblockUserRequest,
   updateArchivedChat,
   updateGroupChat as updateGroupChatRequest,
@@ -47,6 +48,7 @@ type UseWorkspaceMutationsOptions = {
   activeConference: VideoConference | null;
   activeConferenceId: string | null;
   activeConferenceIsArchived: boolean;
+  conferenceChatId: string | null;
   conferenceEditingId: string | null;
   conferenceInviteUsernames: string[];
   conferenceParticipantUsernames: string[];
@@ -93,6 +95,7 @@ export function useWorkspaceMutations({
   activeConference,
   activeConferenceId,
   activeConferenceIsArchived,
+  conferenceChatId,
   conferenceEditingId,
   conferenceInviteUsernames,
   conferenceParticipantUsernames,
@@ -172,12 +175,24 @@ export function useWorkspaceMutations({
       title: string;
       scheduledAt: string;
       participantUsernames: string[];
+      chatId?: string | null;
     }) => createVideoConferenceRequest(token, input),
     onSuccess: (conference) => {
       queryClient.setQueryData<VideoConference[]>(["video-conferences", token], (current) =>
         upsertVideoConferences(current, conference),
       );
       resetConferenceComposer();
+      setActiveListTab("conferences");
+      openConference(conference.id);
+    },
+  });
+
+  const startGroupConferenceCallMutation = useMutation({
+    mutationFn: (chatId: string) => startGroupConferenceCallRequest(token, chatId),
+    onSuccess: (conference) => {
+      queryClient.setQueryData<VideoConference[]>(["video-conferences", token], (current) =>
+        upsertVideoConferences(current, conference),
+      );
       setActiveListTab("conferences");
       openConference(conference.id);
     },
@@ -617,6 +632,7 @@ export function useWorkspaceMutations({
       title,
       scheduledAt: scheduledAt.toISOString(),
       participantUsernames: conferenceParticipantUsernames,
+      chatId: conferenceChatId,
     });
   };
 
@@ -627,6 +643,7 @@ export function useWorkspaceMutations({
       title,
       scheduledAt: now.toISOString(),
       participantUsernames: conferenceParticipantUsernames,
+      chatId: conferenceChatId,
     });
   };
 
@@ -671,6 +688,7 @@ export function useWorkspaceMutations({
     revokeSessionMutation,
     resendOwnEmailVerificationMutation,
     signOutMutation,
+    startGroupConferenceCallMutation,
     submitAddConferenceParticipants,
     submitAddGroupParticipants,
     submitCreateConference,

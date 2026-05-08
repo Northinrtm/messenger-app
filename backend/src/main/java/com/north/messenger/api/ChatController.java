@@ -11,9 +11,12 @@ import com.north.messenger.api.dto.UpsertChatDraftRequest;
 import com.north.messenger.api.dto.UpdateGroupChatRequest;
 import com.north.messenger.api.dto.UpdateArchivedChatRequest;
 import com.north.messenger.api.dto.UpdatePinnedMessageRequest;
+import com.north.messenger.api.dto.VideoConferenceResponse;
 import com.north.messenger.application.chat.ChatOpenService;
 import com.north.messenger.application.chat.ChatDraftService;
 import com.north.messenger.application.chat.ChatService;
+import com.north.messenger.application.chat.VideoConferenceService;
+import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.UUID;
@@ -37,15 +40,18 @@ public class ChatController {
     private final ChatService chatService;
     private final ChatDraftService chatDraftService;
     private final ChatOpenService chatOpenService;
+    private final VideoConferenceService videoConferenceService;
 
     public ChatController(
             ChatService chatService,
             ChatDraftService chatDraftService,
-            ChatOpenService chatOpenService
+            ChatOpenService chatOpenService,
+            VideoConferenceService videoConferenceService
     ) {
         this.chatService = chatService;
         this.chatDraftService = chatDraftService;
         this.chatOpenService = chatOpenService;
+        this.videoConferenceService = videoConferenceService;
     }
 
     @GetMapping
@@ -87,6 +93,15 @@ public class ChatController {
             @Valid @RequestBody CreateGroupChatRequest request
     ) {
         return chatService.createGroupChat(authentication.getName(), request);
+    }
+
+    @PostMapping("/{chatId}/conference-call")
+    @Operation(summary = "Start or join the active conference call for a group chat")
+    public VideoConferenceResponse startGroupConferenceCall(
+            Authentication authentication,
+            @PathVariable UUID chatId
+    ) {
+        return videoConferenceService.startGroupConferenceCall(authentication.getName(), chatId);
     }
 
     @PostMapping("/{chatId}/participants")

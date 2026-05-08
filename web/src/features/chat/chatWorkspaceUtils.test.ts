@@ -64,6 +64,9 @@ function conference(overrides: Partial<VideoConference>): VideoConference {
     recordingMimeType: overrides.recordingMimeType ?? null,
     createdBy: overrides.createdBy ?? participant("organizer"),
     participants: overrides.participants ?? [participant("organizer"), participant("guest")],
+    chatId: overrides.chatId ?? null,
+    activeParticipantCount: overrides.activeParticipantCount ?? 0,
+    activeParticipantUserIds: overrides.activeParticipantUserIds ?? [],
   };
 }
 
@@ -123,6 +126,27 @@ describe("conference tab indicators", () => {
     ]);
     const current = buildConferenceActivitySnapshot([
       conference({ id: "conference-1", startedAt: "2026-04-18T12:01:00.000Z" }),
+    ]);
+
+    expect(hasConferenceActivitySinceSeen(current, seen)).toBe(true);
+  });
+
+  it("raises the indicator when live conference presence changes", () => {
+    const seen = buildConferenceActivitySnapshot([
+      conference({
+        id: "conference-1",
+        chatId: "chat-1",
+        activeParticipantCount: 1,
+        activeParticipantUserIds: ["organizer"],
+      }),
+    ]);
+    const current = buildConferenceActivitySnapshot([
+      conference({
+        id: "conference-1",
+        chatId: "chat-1",
+        activeParticipantCount: 2,
+        activeParticipantUserIds: ["guest", "organizer"],
+      }),
     ]);
 
     expect(hasConferenceActivitySinceSeen(current, seen)).toBe(true);

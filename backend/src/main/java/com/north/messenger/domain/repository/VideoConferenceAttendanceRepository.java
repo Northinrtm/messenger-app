@@ -2,6 +2,7 @@ package com.north.messenger.domain.repository;
 
 import com.north.messenger.domain.model.VideoConferenceAttendance;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -19,6 +20,15 @@ public interface VideoConferenceAttendanceRepository extends JpaRepository<Video
               and attendance.lastSeenAt >= :activeAfter
             """)
     long countActiveSessions(UUID conferenceId, Instant activeAfter);
+
+    @Query("""
+            select distinct attendance.userId
+            from VideoConferenceAttendance attendance
+            where attendance.conferenceId = :conferenceId
+              and attendance.leftAt is null
+              and attendance.lastSeenAt >= :activeAfter
+            """)
+    List<UUID> findActiveUserIds(UUID conferenceId, Instant activeAfter);
 
     @Query("""
             select max(attendance.lastSeenAt)

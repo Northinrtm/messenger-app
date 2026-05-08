@@ -7,6 +7,7 @@
   MessageStatus,
   Participant,
   UserProfile,
+  VideoConference,
 } from "../../../lib/types";
 import type { AttachmentUploadProgress, SubmitDraftOptions } from "../hooks/useMessageActions";
 import { readSendDiagnosticRecord } from "../../../lib/sendDiagnostics";
@@ -96,6 +97,7 @@ const COMPOSER_COPY = {
 type Props = {
   activeChat: ChatSummary;
   activeDirectParticipant: Participant | null;
+  activeGroupConference: VideoConference | null;
   sessionUser: UserProfile;
   conversationSubtitle: string;
   showTypingIndicator: boolean;
@@ -122,6 +124,7 @@ type Props = {
   onBack: () => void;
   onToggleChatMenu: () => void;
   onOpenMembers: () => void;
+  onStartOrJoinGroupConference: () => void;
   onCloseChat: () => void;
   onJumpToPinned: () => void;
   onUnpin: () => void;
@@ -163,6 +166,7 @@ type Props = {
 export function ActiveChatConversation({
   activeChat,
   activeDirectParticipant,
+  activeGroupConference,
   sessionUser,
   conversationSubtitle,
   showTypingIndicator,
@@ -189,6 +193,7 @@ export function ActiveChatConversation({
   onBack,
   onToggleChatMenu,
   onOpenMembers,
+  onStartOrJoinGroupConference,
   onCloseChat,
   onJumpToPinned,
   onUnpin,
@@ -219,6 +224,9 @@ export function ActiveChatConversation({
   buildMessagePreview,
 }: Props) {
   const allowDeleteSelectedMessagesForSelf = activeChat.direct;
+  const activeGroupConferenceLabel = activeGroupConference
+    ? `Идет созвон • ${activeGroupConference.activeParticipantCount} в эфире`
+    : null;
   return (
     <>
       <header
@@ -326,12 +334,21 @@ export function ActiveChatConversation({
                 onClick={onOpenMembers}
                 aria-label="Открыть участников группы"
               >
-                {conversationSubtitle}
+                {activeGroupConferenceLabel ?? conversationSubtitle}
               </button>
             </div>
           )}
         </div>
         <div className="conversation-actions">
+          {!activeChat.direct ? (
+            <button
+              type="button"
+              className="ghost-button compact conversation-call-button"
+              onClick={onStartOrJoinGroupConference}
+            >
+              {activeGroupConference ? "Войти" : "Созвон"}
+            </button>
+          ) : null}
           <button
             type="button"
             className="conversation-close-button"

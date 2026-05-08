@@ -410,7 +410,12 @@ export function getArchivedVideoConferences(token: string) {
 
 export function createVideoConference(
   token: string,
-  input: { title: string; scheduledAt: string; participantUsernames: string[] }
+  input: {
+    title: string;
+    scheduledAt: string;
+    participantUsernames: string[];
+    chatId?: string | null;
+  }
 ) {
   return request<VideoConference>("/api/conferences", {
     method: "POST",
@@ -433,6 +438,13 @@ export function updateVideoConference(
 
 export function startVideoConference(token: string, conferenceId: string) {
   return request<VideoConference>(`/api/conferences/${conferenceId}/start`, {
+    method: "POST",
+    token,
+  });
+}
+
+export function startGroupConferenceCall(token: string, chatId: string) {
+  return request<VideoConference>(`/api/chats/${chatId}/conference-call`, {
     method: "POST",
     token,
   });

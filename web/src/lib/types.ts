@@ -159,6 +159,9 @@ export type VideoConference = {
   recordingMimeType: string | null;
   createdBy: Participant;
   participants: Participant[];
+  chatId: string | null;
+  activeParticipantCount: number;
+  activeParticipantUserIds: string[];
 };
 
 export type InviteLink = {

@@ -1,4 +1,4 @@
-import type { ChatPrejoinHistoryPolicy, ChatSummary, Participant, UserProfile } from "../../../lib/types";
+import type { ChatPrejoinHistoryPolicy, ChatSummary, Participant, UserProfile, VideoConference } from "../../../lib/types";
 import { AvatarCircle } from "./AvatarCircle";
 
 type Props = {
@@ -6,6 +6,7 @@ type Props = {
   activeDirectParticipant: Participant | null;
   activeDirectInContacts: boolean;
   isDirectBlocked: boolean;
+  activeGroupConference: VideoConference | null;
   groupDetailsTitle: string;
   groupDetailsAvatarUrl: string | null;
   groupDetailsPrejoinHistoryPolicy: ChatPrejoinHistoryPolicy;
@@ -40,6 +41,7 @@ type Props = {
   onToggleGroupInviteParticipant: (username: string) => void;
   onSubmitAddGroupParticipants: () => void;
   onOpenGroupConferenceComposer: (mode: "instant" | "scheduled") => void;
+  onStartOrJoinGroupConference: () => void;
   onCreateChat: (username: string) => void;
   onLeaveGroup: () => void;
   onDeleteGroup: () => void;
@@ -98,6 +100,7 @@ export function ChatMenuPanel({
   activeDirectParticipant,
   activeDirectInContacts,
   isDirectBlocked,
+  activeGroupConference,
   groupDetailsTitle,
   groupDetailsAvatarUrl,
   groupDetailsPrejoinHistoryPolicy,
@@ -120,6 +123,7 @@ export function ChatMenuPanel({
   onGenerateGroupInviteLink,
   onCopyGroupInviteLink,
   onOpenGroupConferenceComposer,
+  onStartOrJoinGroupConference,
   onLeaveGroup,
   onDeleteGroup,
   onAddToContacts,
@@ -230,8 +234,8 @@ export function ChatMenuPanel({
 
       <div className="chat-menu-primary-actions">
         <div className="chat-menu-actions">
-          <button type="button" className="ghost-button compact" onClick={() => onOpenGroupConferenceComposer("instant")}>
-            {COPY.call}
+          <button type="button" className="ghost-button compact" onClick={onStartOrJoinGroupConference}>
+            {activeGroupConference ? "Войти" : COPY.call}
           </button>
           <button
             type="button"

@@ -2372,6 +2372,29 @@ select {
   box-shadow: 0 0 0 2px #17212b;
 }
 
+.avatar-activity-badge {
+  position: absolute;
+  left: -0.15rem;
+  bottom: -0.15rem;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  display: grid;
+  place-items: center;
+  padding: 0 0.16rem;
+  border-radius: 999px;
+  background: #203140;
+  color: #9fd7ff;
+  font-size: 0;
+  line-height: 1;
+  box-shadow: 0 0 0 2px #17212b;
+  z-index: 1;
+}
+
+.avatar-activity-badge::before {
+  content: "\1F3A7";
+  font-size: 0.62rem;
+}
+
 .avatar-presence {
   position: absolute;
   right: -0.05rem;
@@ -2434,10 +2457,24 @@ select {
 .chat-detail-line {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.35rem;
   min-height: 1.1rem;
   color: #7f91a4;
   font-size: 0.84rem;
+}
+
+.chat-live-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  margin-left: auto;
+  padding: 0.14rem 0.48rem;
+  border-radius: 999px;
+  background: rgba(78, 191, 160, 0.14);
+  color: #8ee5cd;
+  font-size: 0.72rem;
+  font-weight: 700;
 }
 
 .chat-detail-dot {
@@ -2627,6 +2664,18 @@ select {
 .conversation-actions {
   display: flex;
   align-self: center;
+}
+
+.conversation-call-button {
+  min-width: 6.2rem;
+  justify-content: center;
+  background: rgba(79, 164, 246, 0.14);
+  border-color: rgba(99, 168, 246, 0.24);
+  color: #dbefff;
+}
+
+.conversation-call-button:hover {
+  background: rgba(79, 164, 246, 0.2);
 }
 
 .conversation-close-button {
