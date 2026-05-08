@@ -79,7 +79,6 @@ public class ChatDraftService {
     @Transactional
     public void deleteOwnDraft(String username, UUID chatId) {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
-        requireVisibleChatMembership(chatId, currentUser);
         userChatDraftRepository.deleteByUserIdAndChatId(currentUser.getId(), chatId);
     }
 

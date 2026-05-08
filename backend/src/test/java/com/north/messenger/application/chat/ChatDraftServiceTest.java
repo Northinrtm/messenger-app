@@ -14,11 +14,9 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.web.server.ResponseStatusException;
 
 import static com.north.messenger.support.TestUserAccounts.testUserAccount;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -111,15 +109,14 @@ class ChatDraftServiceTest {
     }
 
     @Test
-    void deleteOwnDraftRejectsHiddenOrUnknownChat() {
+    void deleteOwnDraftIsIdempotentEvenWhenChatIsUnknown() {
         UserAccount user = testUserAccount(UUID.randomUUID(), "north", "North", "hash", Instant.now());
         UUID chatId = UUID.randomUUID();
 
         when(authService.requireAuthenticatedUser("north")).thenReturn(user);
-        when(chatRoomRepository.findById(chatId)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> chatDraftService.deleteOwnDraft("north", chatId))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("404 NOT_FOUND");
+        chatDraftService.deleteOwnDraft("north", chatId);
+
+        verify(userChatDraftRepository).deleteByUserIdAndChatId(user.getId(), chatId);
     }
 }
