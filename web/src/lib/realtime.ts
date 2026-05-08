@@ -481,12 +481,28 @@ function registerLifecycleHandlers(connection: RealtimeConnection) {
     pauseConnectionForLifecycle(connection);
   };
 
+  const handleVisibilityChange = () => {
+    if (!isActiveConnection(connection)) {
+      return;
+    }
+
+    if (document.visibilityState === "hidden") {
+      scheduleVisibilityPause(connection);
+      return;
+    }
+
+    clearVisibilityPause(connection);
+    resumeConnectionFromLifecyclePause(connection);
+  };
+
   window.addEventListener("pagehide", handlePageHide);
   window.addEventListener("beforeunload", handlePageHide);
+  document.addEventListener("visibilitychange", handleVisibilityChange);
 
   return () => {
     window.removeEventListener("pagehide", handlePageHide);
     window.removeEventListener("beforeunload", handlePageHide);
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
   };
 }
 

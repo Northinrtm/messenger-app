@@ -131,6 +131,10 @@ describe("realtime transport", () => {
     stompClients.length = 0;
     hydrateApiChatMessageMock.mockClear();
     vi.useFakeTimers();
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    });
   });
 
   afterEach(() => {
@@ -268,6 +272,34 @@ describe("realtime transport", () => {
       destination: "/app/chats/chat-1/typing",
       body: JSON.stringify({ typing: true }),
     });
+
+    dispose();
+  });
+
+  it("pauses realtime after the tab stays hidden and resumes on return", () => {
+    const onConnectionChange = vi.fn();
+    const dispose = createSubscription({ onConnectionChange });
+    const client = stompClients[0];
+    client.connected = true;
+    client.onConnect();
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+    vi.advanceTimersByTime(15_000);
+
+    expect(client.deactivateCalls).toBe(1);
+    expect(onConnectionChange).toHaveBeenCalledWith(false);
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    expect(client.activateCalls).toBe(2);
 
     dispose();
   });
