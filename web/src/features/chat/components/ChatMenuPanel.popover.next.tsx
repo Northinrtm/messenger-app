@@ -30,6 +30,7 @@ type Props = {
   canManageInviteLink: boolean;
   onClose: () => void;
   onOpenMembers: () => void;
+  onOpenMediaBrowser: () => void;
   onGroupDetailsTitleChange: (value: string) => void;
   onGroupAvatarSelected: (file: File) => void;
   onRemoveGroupAvatar: () => void;
@@ -59,6 +60,7 @@ const COPY = {
   addToContacts: "\u0412 \u043A\u043E\u043D\u0442\u0430\u043A\u0442\u044B",
   call: "\u0421\u043E\u0437\u0432\u043E\u043D",
   schedule: "\u0417\u0430\u043F\u043B\u0430\u043D\u0438\u0440\u043E\u0432\u0430\u0442\u044C",
+  mediaBrowser: "\u041C\u0435\u0434\u0438\u0430 \u0438 \u0444\u0430\u0439\u043B\u044B",
   participants: "\u0423\u0447\u0430\u0441\u0442\u043D\u0438\u043A\u0438",
   inviteLink: "\u0421\u0441\u044B\u043B\u043A\u0430-\u043F\u0440\u0438\u0433\u043B\u0430\u0448\u0435\u043D\u0438\u0435",
   copy: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C",
@@ -115,6 +117,7 @@ export function ChatMenuPanel({
   canManageInviteLink,
   onClose,
   onOpenMembers,
+  onOpenMediaBrowser,
   onGroupDetailsTitleChange,
   onGroupAvatarSelected,
   onRemoveGroupAvatar,
@@ -162,6 +165,9 @@ export function ChatMenuPanel({
               {COPY.addToContacts}
             </button>
           ) : null}
+          <button type="button" className="ghost-button compact" onClick={onOpenMediaBrowser}>
+            {COPY.mediaBrowser}
+          </button>
           <button
             type="button"
             className="ghost-button compact"
@@ -236,6 +242,9 @@ export function ChatMenuPanel({
         <div className="chat-menu-actions">
           <button type="button" className="ghost-button compact" onClick={onStartOrJoinGroupConference}>
             {activeGroupConference ? "Войти" : COPY.call}
+          </button>
+          <button type="button" className="ghost-button compact" onClick={onOpenMediaBrowser}>
+            {COPY.mediaBrowser}
           </button>
           <button
             type="button"

@@ -1,5 +1,6 @@
 export type SidebarSheet =
   | "archive"
+  | "chatMedia"
   | "conference"
   | "conferenceMembers"
   | "profile"

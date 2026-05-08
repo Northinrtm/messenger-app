@@ -8,6 +8,11 @@ type UseMessageStreamNavigationOptions = {
   lastMessageId: string | null;
   messages: ChatMessage[];
   currentUserId: string;
+  pendingMessageJump: {
+    chatId: string;
+    messageId: string;
+  } | null;
+  clearPendingMessageJump: (chatId: string, messageId: string) => void;
   pendingInitialAnchor: {
     chatId: string;
     unreadCount: number;
@@ -45,6 +50,8 @@ export function useMessageStreamNavigation({
   lastMessageId,
   messages,
   currentUserId,
+  pendingMessageJump,
+  clearPendingMessageJump,
   pendingInitialAnchor,
   clearPendingInitialAnchor,
   openChat,
@@ -170,6 +177,28 @@ export function useMessageStreamNavigation({
       return;
     }
 
+    const pendingMessageJumpForCurrentChat =
+      currentChatId && pendingMessageJump?.chatId === currentChatId
+        ? pendingMessageJump
+        : null;
+    if (currentChatId && pendingMessageJumpForCurrentChat) {
+      const targetMessageLoaded = messages.some(
+        (message) => message.id === pendingMessageJumpForCurrentChat.messageId
+      );
+      if (targetMessageLoaded) {
+        scheduleInitialViewportPosition(pendingMessageJumpForCurrentChat.messageId, null);
+        clearPendingMessageJump(
+          currentChatId,
+          pendingMessageJumpForCurrentChat.messageId
+        );
+        viewportSnapshotRef.current = {
+          chatId: currentChatId,
+          lastMessageAnchorKey,
+        };
+      }
+      return;
+    }
+
     const pendingAnchorForCurrentChat =
       currentChatId && pendingInitialAnchor?.chatId === currentChatId
         ? pendingInitialAnchor
@@ -201,12 +230,14 @@ export function useMessageStreamNavigation({
       lastMessageAnchorKey,
     };
   }, [
+    clearPendingMessageJump,
     clearPendingInitialAnchor,
     currentChatId,
     currentUserId,
     lastMessageAnchorKey,
     lastMessageId,
     messages,
+    pendingMessageJump,
     pendingInitialAnchor,
   ]);
 

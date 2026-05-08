@@ -1,12 +1,22 @@
 import type { MouseEvent as ReactMouseEvent } from "react";
-import type { ChatMessage, ChatSummary, Participant, UserProfile } from "../../../lib/types";
+import type {
+  ChatAttachmentBrowserItem,
+  ChatMessage,
+  ChatMessageAttachment,
+  ChatSummary,
+  Participant,
+  UserProfile,
+} from "../../../lib/types";
 import { AvatarCircle } from "./AvatarCircle";
+import { ChatAttachmentBrowserSheet } from "./ChatAttachmentBrowserSheet";
 
-type UtilitySheet = "conference" | "archive" | "forward" | null;
+type UtilitySheet = "conference" | "archive" | "forward" | "chatMedia" | null;
 
 type Props = {
   sheet: UtilitySheet;
+  activeChat: ChatSummary | null;
   sessionUser: UserProfile;
+  sessionToken: string;
   conferenceComposerMode: "instant" | "scheduled" | null;
   conferenceChatId: string | null;
   conferenceEditingId: string | null;
@@ -39,6 +49,9 @@ type Props = {
   onJumpToReplyTarget: (chatId: string, messageId: string) => void;
   onForwardToChat: (chatId: string) => void;
   onForwardToContact: (username: string) => void;
+  onDownloadAttachment: (chatId: string, attachment: ChatMessageAttachment) => void;
+  onLoadAttachmentPreview: (chatId: string, attachment: ChatMessageAttachment) => Promise<Blob>;
+  onJumpToAttachmentSourceMessage: (chatId: string, item: ChatAttachmentBrowserItem) => void;
   createMinimumConferenceDateTime: () => string;
   buildMessagePreview: (content: string, maxLength?: number) => string;
   describeChat: (chat: ChatSummary, currentUser: UserProfile) => string;
@@ -48,7 +61,9 @@ type Props = {
 
 export function SidebarUtilitySheets({
   sheet,
+  activeChat,
   sessionUser,
+  sessionToken,
   conferenceComposerMode,
   conferenceChatId,
   conferenceEditingId,
@@ -81,6 +96,9 @@ export function SidebarUtilitySheets({
   onJumpToReplyTarget,
   onForwardToChat,
   onForwardToContact,
+  onDownloadAttachment,
+  onLoadAttachmentPreview,
+  onJumpToAttachmentSourceMessage,
   createMinimumConferenceDateTime,
   buildMessagePreview,
   describeChat,
@@ -298,6 +316,19 @@ export function SidebarUtilitySheets({
           )}
         </div>
       </div>
+    );
+  }
+
+  if (sheet === "chatMedia") {
+    return (
+      <ChatAttachmentBrowserSheet
+        activeChat={activeChat}
+        sessionToken={sessionToken}
+        onClose={onClose}
+        onDownloadAttachment={onDownloadAttachment}
+        onLoadAttachmentPreview={onLoadAttachmentPreview}
+        onJumpToSourceMessage={onJumpToAttachmentSourceMessage}
+      />
     );
   }
 

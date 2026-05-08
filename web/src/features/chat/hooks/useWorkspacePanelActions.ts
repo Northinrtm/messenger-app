@@ -3,7 +3,7 @@ import { useEffectEvent, type Dispatch, type SetStateAction } from "react";
 
 import type { ChatSummary, Participant, UserProfile, VideoConference } from "../../../lib/types";
 import { removeVideoConference } from "../chatPresentation";
-import type { MenuActionId } from "../chatUi";
+import type { MenuActionId, SidebarSheet } from "../chatUi";
 
 type EndConferenceMutationLike = {
   mutate: (conferenceId: string, options?: { onError?: () => void }) => void;
@@ -25,7 +25,7 @@ type UseWorkspacePanelActionsOptions = {
   endConferenceMutation: EndConferenceMutationLike;
   openConferenceEditor: (conference: VideoConference) => void;
   openConferenceSheet: () => void;
-  openSidebarSheet: (sheet: "archive" | "profile" | "group" | "contacts" | "sessions" | "groupInfo" | "groupMembers" | "conferenceMembers") => void;
+  openSidebarSheet: (sheet: Exclude<SidebarSheet, null>) => void;
   queryClient: QueryClient;
   sessionToken: string;
   setIsGroupInvitePickerOpen: Dispatch<SetStateAction<boolean>>;

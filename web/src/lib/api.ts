@@ -4,6 +4,8 @@ import type {
   ApiErrorResponse,
   ApiChatMessage,
   AuthResponse,
+  ChatAttachmentBrowserKind,
+  ChatAttachmentBrowserPage,
   ChatOpen,
   MessagePage,
   ChatSummary,
@@ -755,6 +757,25 @@ export function getMessagesPage(
     query: {
       acknowledgeDelivered:
         options.acknowledgeDelivered === undefined ? undefined : options.acknowledgeDelivered ? 1 : 0,
+      cursor: options.cursor,
+      limit: options.limit,
+    },
+  });
+}
+
+export function getChatAttachmentBrowserPage(
+  token: string,
+  chatId: string,
+  options: {
+    kind?: ChatAttachmentBrowserKind;
+    cursor?: string | null;
+    limit?: number;
+  } = {}
+) {
+  return request<ChatAttachmentBrowserPage>(`/api/chats/${chatId}/attachments/browser`, {
+    token,
+    query: {
+      kind: options.kind,
       cursor: options.cursor,
       limit: options.limit,
     },

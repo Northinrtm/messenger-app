@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  getChatAttachmentBrowserPage,
   register,
   requestPasswordReset,
   resendOwnEmailVerification,
@@ -89,5 +90,40 @@ describe("api request helpers", () => {
       displayName: "North",
       password: "riverlantern",
     });
+  });
+
+  it("requests chat attachment browser pages with kind and cursor query params", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [],
+          nextCursor: null,
+        }),
+        {
+          status: 200,
+          statusText: "OK",
+          headers: {
+            "content-type": "application/json",
+          },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await getChatAttachmentBrowserPage("access-token", "chat-1", {
+      kind: "DOCUMENTS",
+      cursor: "101|2026-05-08T12:00:00Z|attachment-1",
+      limit: 25,
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [requestUrl, requestInit] = fetchSpy.mock.calls[0] as [RequestInfo | URL, RequestInit];
+    expect(String(requestUrl)).toContain("/api/chats/chat-1/attachments/browser");
+    expect(String(requestUrl)).toContain("kind=DOCUMENTS");
+    expect(String(requestUrl)).toContain("cursor=101%7C2026-05-08T12%3A00%3A00Z%7Cattachment-1");
+    expect(String(requestUrl)).toContain("limit=25");
+    expect((requestInit.headers as Record<string, string>).Authorization).toBe(
+      "Bearer access-token"
+    );
   });
 });

@@ -52,6 +52,7 @@ import {
 import { rememberCurrentBuildRevision } from "../../lib/messageHydrationDiagnostics";
 import type {
   AuthResponse,
+  ChatAttachmentBrowserItem,
   ChatMessage,
   ChatMessageAttachment,
   ChatPrejoinHistoryPolicy,
@@ -125,6 +126,7 @@ import {
 } from "./messagePresentation";
 import { type ConferenceRecordingState } from "./ManagedConferenceStage";
 import { ActiveChatConversation } from "./components/ActiveChatConversation";
+import { buildAttachmentMessageJumpCursor } from "./components/ChatAttachmentBrowserSheet";
 import { ChatMembersPanel } from "./components/ChatMembersPanel.next";
 import { ChatMenuPanel } from "./components/ChatMenuPanel";
 import { ChatListPanel } from "./components/ChatListPanel";
@@ -278,6 +280,11 @@ export function NorthMessengerWorkspace({
   const [initialChatViewportHint, setInitialChatViewportHint] = useState<{
     chatId: string;
     unreadCount: number;
+  } | null>(null);
+  const [pendingMessageJump, setPendingMessageJump] = useState<{
+    chatId: string;
+    messageId: string;
+    initialCursor: string | null;
   } | null>(null);
   const [lastSeenChatsActivityAt, setLastSeenChatsActivityAt] = useState<string | null>(null);
   const [seenConferenceActivitySnapshot, setSeenConferenceActivitySnapshot] = useState<
@@ -594,6 +601,12 @@ export function NorthMessengerWorkspace({
     initialWorkspaceBootstrapUpdatedAt: workspaceBootstrapUpdatedAt,
     isRealtimeConnected,
     messageQueryGcTimeMs: MESSAGE_QUERY_GC_TIME_MS,
+    messageNavigationSeed: pendingMessageJump
+      ? {
+          chatId: pendingMessageJump.chatId,
+          cursor: pendingMessageJump.initialCursor,
+        }
+      : null,
     searchQueryGcTimeMs: SEARCH_QUERY_GC_TIME_MS,
     searchText: search,
     sessionToken: session.token,
@@ -1255,6 +1268,15 @@ export function NorthMessengerWorkspace({
     setSidebarSheet,
     stopTyping,
   });
+  const openActiveChatMediaBrowser = useEffectEvent(() => {
+    if (!activeChat) {
+      return;
+    }
+
+    setIsChatMenuOpen(false);
+    setIsChatMembersOpen(false);
+    openSidebarSheet("chatMedia");
+  });
   const { messageStreamRef, preserveOlderMessagesOffset, scrollToMessage } =
     useMessageStreamNavigation({
       activeChatId,
@@ -1263,6 +1285,16 @@ export function NorthMessengerWorkspace({
       lastMessageId,
       messages,
       currentUserId: session.user.id,
+      pendingMessageJump: pendingMessageJump
+        ? {
+            chatId: pendingMessageJump.chatId,
+            messageId: pendingMessageJump.messageId,
+          }
+        : null,
+      clearPendingMessageJump: (chatId, messageId) =>
+        setPendingMessageJump((current) =>
+          current?.chatId === chatId && current.messageId === messageId ? null : current
+        ),
       pendingInitialAnchor: initialChatViewportHint,
       clearPendingInitialAnchor: (chatId) =>
         setInitialChatViewportHint((current) =>
@@ -1270,6 +1302,42 @@ export function NorthMessengerWorkspace({
         ),
       openChat,
     });
+
+  const jumpToAttachmentSourceMessage = useEffectEvent(
+    (chatId: string, item: ChatAttachmentBrowserItem) => {
+      const targetMessageLoaded =
+        activeChatId === chatId && messages.some((message) => message.id === item.messageId);
+
+      if (targetMessageLoaded) {
+        setPendingMessageJump(null);
+        setInitialChatViewportHint(null);
+        openChat(chatId);
+        setInitialChatViewportHint(null);
+        scrollToMessage(chatId, item.messageId);
+        return;
+      }
+
+      setPendingMessageJump({
+        chatId,
+        messageId: item.messageId,
+        initialCursor: buildAttachmentMessageJumpCursor(item.messageServerOrder),
+      });
+      setInitialChatViewportHint(null);
+      openChat(chatId);
+      setInitialChatViewportHint(null);
+    }
+  );
+
+  useEffect(() => {
+    if (!pendingMessageJump) {
+      return;
+    }
+
+    queryClient.removeQueries({
+      queryKey: buildMessagesQueryKey(session.user.id, pendingMessageJump.chatId),
+      exact: true,
+    });
+  }, [pendingMessageJump, queryClient, session.user.id]);
 
   const deleteChatLocally = useEffectEvent((chatId: string) => {
     queryClient.setQueryData<ChatSummary[]>(["chats", session.token], (current) =>
@@ -2128,10 +2196,13 @@ export function NorthMessengerWorkspace({
     sheet:
       sidebarSheet === "conference" ||
       sidebarSheet === "archive" ||
-      sidebarSheet === "forward"
+      sidebarSheet === "forward" ||
+      sidebarSheet === "chatMedia"
         ? sidebarSheet
         : null,
+    activeChat,
     sessionUser: session.user,
+    sessionToken: session.token,
     conferenceComposerMode,
     conferenceChatId,
     conferenceEditingId,
@@ -2167,6 +2238,9 @@ export function NorthMessengerWorkspace({
     onJumpToReplyTarget: scrollToMessage,
     onForwardToChat: forwardMessageToChat,
     onForwardToContact: forwardMessageToContact,
+    onDownloadAttachment: handleDownloadAttachment,
+    onLoadAttachmentPreview: handleLoadAttachmentPreview,
+    onJumpToAttachmentSourceMessage: jumpToAttachmentSourceMessage,
     createMinimumConferenceDateTime,
     buildMessagePreview,
     describeChat,
@@ -2443,6 +2517,7 @@ export function NorthMessengerWorkspace({
             setIsChatMenuOpen(false);
             setIsChatMembersOpen(true);
           },
+          onOpenMediaBrowser: openActiveChatMediaBrowser,
           onGroupDetailsTitleChange: setGroupDetailsTitle,
           onGroupAvatarSelected: (file) => void uploadGroupAvatarFromFile(file),
           onRemoveGroupAvatar: () => setGroupDetailsAvatarUrl(null),

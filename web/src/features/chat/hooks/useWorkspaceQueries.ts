@@ -48,6 +48,7 @@ type UseWorkspaceQueriesOptions = {
   initialWorkspaceBootstrapUpdatedAt: number | undefined;
   isRealtimeConnected: boolean;
   messageQueryGcTimeMs: number;
+  messageNavigationSeed: MessageNavigationSeed | null;
   searchQueryGcTimeMs: number;
   searchText: string;
   sessionToken: string;
@@ -70,6 +71,11 @@ function isDocumentVisibleNow() {
 export type MessagePageCursor = {
   cursor: string | null;
   limit: number;
+};
+
+export type MessageNavigationSeed = {
+  chatId: string;
+  cursor: string | null;
 };
 
 export function createInitialMessagePageCursor(): MessagePageCursor {
@@ -169,6 +175,7 @@ export function useWorkspaceQueries({
   initialWorkspaceBootstrapUpdatedAt,
   isRealtimeConnected,
   messageQueryGcTimeMs,
+  messageNavigationSeed,
   searchQueryGcTimeMs,
   searchText,
   sessionToken,
@@ -203,7 +210,7 @@ export function useWorkspaceQueries({
 
   useEffect(() => {
     nextMessageCursorByRequestKeyRef.current.clear();
-  }, [activeChatId]);
+  }, [activeChatId, messageNavigationSeed?.chatId, messageNavigationSeed?.cursor]);
 
   const chatsQuery = useQuery({
     queryKey: ["chats", sessionToken],
@@ -331,6 +338,13 @@ export function useWorkspaceQueries({
   });
 
   const activeChat = (chatsQuery.data ?? []).find((chat) => chat.id === activeChatId) ?? null;
+  const initialMessagePageCursor =
+    activeChat?.id && messageNavigationSeed?.chatId === activeChat.id
+      ? ({
+          cursor: messageNavigationSeed.cursor,
+          limit: MESSAGE_PAGE_SIZE,
+        } satisfies MessagePageCursor)
+      : createInitialMessagePageCursor();
   const pendingOutgoingMessagesQuery = useQuery({
     queryKey: ["pending-outgoing-messages", userId],
     queryFn: () => getPendingOutgoingMessages(sessionToken),
@@ -412,7 +426,7 @@ export function useWorkspaceQueries({
       return (chatOpen?.initialMessages ?? messagePage?.messages ?? []).map(hydrateApiChatMessage);
     },
     enabled: Boolean(activeChat?.id),
-    initialPageParam: createInitialMessagePageCursor(),
+    initialPageParam: initialMessagePageCursor,
     getNextPageParam: (_lastPage, _allPages, lastPageParam) =>
       getNextMessagePageCursor(
         nextMessageCursorByRequestKeyRef.current.get(

@@ -679,8 +679,8 @@ export function useMessageActions({
   const deleteChatForSelf = (chatId: string) => {
     setContextMenu(null);
     const chat = chats.find((item) => item.id === chatId);
-    const title = chat?.title ?? "этот чат";
-    if (!window.confirm(`Удалить чат "${title}" только у вас?`)) {
+    const title = chat?.title ?? "\u044d\u0442\u043e\u0442 \u0447\u0430\u0442";
+    if (!window.confirm(`\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0447\u0430\u0442 "${title}" \u0442\u043e\u043b\u044c\u043a\u043e \u0443 \u0432\u0430\u0441?`)) {
       return;
     }
 
@@ -695,7 +695,9 @@ export function useMessageActions({
     setContextMenu(null);
     if (
       !skipConfirm &&
-      !window.confirm("РЈРґР°Р»РёС‚СЊ СЃРѕРѕР±С‰РµРЅРёРµ РґР»СЏ РІСЃРµС… СѓС‡Р°СЃС‚РЅРёРєРѕРІ С‡Р°С‚Р°?")
+      !window.confirm(
+        "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435 \u0434\u043b\u044f \u0432\u0441\u0435\u0445 \u0443\u0447\u0430\u0441\u0442\u043d\u0438\u043a\u043e\u0432 \u0447\u0430\u0442\u0430?"
+      )
     ) {
       return false;
     }
@@ -717,7 +719,9 @@ export function useMessageActions({
     if (pendingMessage) {
       if (
         !skipConfirm &&
-        !window.confirm("РЈРґР°Р»РёС‚СЊ РЅРµРѕС‚РїСЂР°РІР»РµРЅРЅРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ С‚РѕР»СЊРєРѕ Сѓ РІР°СЃ?")
+        !window.confirm(
+          "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u043d\u0435\u043e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u043d\u043e\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435 \u0442\u043e\u043b\u044c\u043a\u043e \u0443 \u0432\u0430\u0441?"
+        )
       ) {
         return false;
       }
@@ -735,7 +739,9 @@ export function useMessageActions({
 
     if (
       !skipConfirm &&
-      !window.confirm("РЈРґР°Р»РёС‚СЊ СЃРѕРѕР±С‰РµРЅРёРµ С‚РѕР»СЊРєРѕ Сѓ РІР°СЃ?")
+      !window.confirm(
+        "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435 \u0442\u043e\u043b\u044c\u043a\u043e \u0443 \u0432\u0430\u0441?"
+      )
     ) {
       return false;
     }
@@ -753,13 +759,6 @@ export function useMessageActions({
       return;
     }
     void deleteMessageForEveryoneInternal(chatId, messageId, true);
-    return;
-    setContextMenu(null);
-    if (!window.confirm("Удалить сообщение для всех участников чата?")) {
-      return;
-    }
-
-    deleteMessageMutation.mutate({ chatId, messageId, scope: "EVERYONE" });
   };
 
   const deleteMessageForSelf = (chatId: string, messageId: string) => {
@@ -776,33 +775,6 @@ export function useMessageActions({
       return;
     }
     void deleteMessageForSelfInternal(chatId, messageId, true);
-    return;
-    setContextMenu(null);
-    const pendingMessages =
-      queryClient.getQueryData<PendingOutgoingMessage[]>(["pending-outgoing-messages", currentUser.id]) ??
-      pendingOutgoingMessages;
-    const pendingMessage = pendingMessages.find((message) => message.clientMessageId === messageId);
-    if (pendingMessage) {
-      if (!window.confirm("Удалить неотправленное сообщение только у вас?")) {
-        return;
-      }
-
-      discardedLocalClientMessageIdsRef.current.add(messageId);
-      removePendingMessagesFromCache(queryClient, currentUser.id, messageId);
-      void deletePendingOutgoingMessage(sessionToken, messageId).catch(() => undefined);
-      queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
-        getMessagesKey(chatId),
-        (current) => removeMessageByClientMessageId(current, messageId),
-      );
-      syncChatPreviewFromCache(chatId);
-      return;
-    }
-
-    if (!window.confirm("Удалить сообщение только у вас?")) {
-      return;
-    }
-
-    deleteMessageMutation.mutate({ chatId, messageId, scope: "SELF" });
   };
 
   const deleteMessagesForEveryone = async (chatId: string, messageIds: string[]) => {
@@ -917,7 +889,7 @@ export function useMessageActions({
   const copyMessageText = (message: ChatMessage) => {
     setContextMenu(null);
     void navigator.clipboard.writeText(message.content).catch(() => {
-      window.alert("Не получилось скопировать текст сообщения.");
+      window.alert("\u041d\u0435 \u043f\u043e\u043b\u0443\u0447\u0438\u043b\u043e\u0441\u044c \u0441\u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0442\u0435\u043a\u0441\u0442 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u044f.");
     });
   };
 
@@ -969,7 +941,7 @@ export function useMessageActions({
       const oversizedFile = files.find((file) => file.size > MAX_ATTACHMENT_SIZE_BYTES);
       if (oversizedFile) {
         window.alert(
-          `Файл "${oversizedFile.name}" больше 25 MB. Выберите файл меньшего размера.`
+          `\u0424\u0430\u0439\u043b "${oversizedFile.name}" \u0431\u043e\u043b\u044c\u0448\u0435 25 MB. \u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0444\u0430\u0439\u043b \u043c\u0435\u043d\u044c\u0448\u0435\u0433\u043e \u0440\u0430\u0437\u043c\u0435\u0440\u0430.`
         );
         return false;
       }

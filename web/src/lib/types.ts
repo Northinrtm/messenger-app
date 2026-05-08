@@ -68,6 +68,24 @@ export type ChatMessageAttachment = {
   sizeBytes: number;
 };
 
+export type ChatAttachmentBrowserKind = "ALL" | "PHOTOS" | "DOCUMENTS";
+
+export type ChatAttachmentBrowserItem = {
+  id: string;
+  messageId: string;
+  messageServerOrder: number;
+  createdAt: string;
+  sender: Participant;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+};
+
+export type ChatAttachmentBrowserPage = {
+  items: ChatAttachmentBrowserItem[];
+  nextCursor: string | null;
+};
+
 export type PlainMessagePayload = {
   content: string;
 };
