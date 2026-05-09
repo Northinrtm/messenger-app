@@ -22,9 +22,9 @@ import org.springframework.web.server.ResponseStatusException;
 import static com.north.messenger.support.TestUserAccounts.testUserAccount;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -104,9 +104,11 @@ class ChatLinkBrowserServiceTest {
         when(chatMessageLinkRepository.findBrowserItems(
                 eq(chatId),
                 eq(currentUser.getId()),
-                isNull(),
-                isNull(),
-                isNull(),
+                eq(true),
+                eq(membership.getJoinedAt()),
+                eq(false),
+                any(Long.class),
+                any(Integer.class),
                 eq(PageRequest.of(0, 2))
         )).thenReturn(List.of(first, second));
         when(userAccountRepository.findAllByIdIn(anyCollection())).thenReturn(List.of(sender));
@@ -129,10 +131,117 @@ class ChatLinkBrowserServiceTest {
         verify(chatMessageLinkRepository).findBrowserItems(
                 eq(chatId),
                 eq(currentUser.getId()),
-                isNull(),
-                isNull(),
-                isNull(),
+                eq(true),
+                eq(membership.getJoinedAt()),
+                eq(false),
+                any(Long.class),
+                any(Integer.class),
                 eq(PageRequest.of(0, 2))
+        );
+    }
+
+    @Test
+    void listLinkBrowserPageShouldApplyVisibleFromForJoinOnlyHistory() {
+        UserAccount currentUser = testUserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UUID chatId = UUID.randomUUID();
+        ChatRoom room = new ChatRoom(chatId, "Group", false, Instant.parse("2026-03-25T11:30:00Z"));
+        room.updateGroupDetails(
+                room.getTitle(),
+                room.getAvatarUrl(),
+                com.north.messenger.domain.model.ChatPrejoinHistoryPolicy.JOIN_ONLY
+        );
+        Instant joinedAt = Instant.parse("2026-03-25T12:00:00Z");
+        ChatParticipant membership = new ChatParticipant(
+                UUID.randomUUID(),
+                chatId,
+                currentUser.getId(),
+                joinedAt
+        );
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
+        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(room);
+        when(chatParticipantRepository.findByChatIdAndUserId(chatId, currentUser.getId()))
+                .thenReturn(Optional.of(membership));
+        when(chatMessageLinkRepository.findBrowserItems(
+                eq(chatId),
+                eq(currentUser.getId()),
+                eq(true),
+                eq(joinedAt),
+                eq(false),
+                any(Long.class),
+                any(Integer.class),
+                eq(PageRequest.of(0, 21))
+        )).thenReturn(List.of());
+
+        var response = chatLinkBrowserService.listLinkBrowserPage(chatId, "north", null, 20);
+
+        assertThat(response.items()).isEmpty();
+        assertThat(response.nextCursor()).isNull();
+        verify(chatMessageLinkRepository).findBrowserItems(
+                eq(chatId),
+                eq(currentUser.getId()),
+                eq(true),
+                eq(joinedAt),
+                eq(false),
+                any(Long.class),
+                any(Integer.class),
+                eq(PageRequest.of(0, 21))
+        );
+    }
+
+    @Test
+    void listLinkBrowserPageShouldApplyVisibleFromForReopenedDirectChat() {
+        UserAccount currentUser = testUserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UUID chatId = UUID.randomUUID();
+        Instant reopenedAt = Instant.parse("2026-03-25T12:00:00Z");
+        ChatRoom room = new ChatRoom(chatId, "Direct", true, Instant.parse("2026-03-25T11:30:00Z"));
+        ChatParticipant membership = new ChatParticipant(
+                UUID.randomUUID(),
+                chatId,
+                currentUser.getId(),
+                reopenedAt
+        );
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
+        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(room);
+        when(chatParticipantRepository.findByChatIdAndUserId(chatId, currentUser.getId()))
+                .thenReturn(Optional.of(membership));
+        when(chatMessageLinkRepository.findBrowserItems(
+                eq(chatId),
+                eq(currentUser.getId()),
+                eq(true),
+                eq(reopenedAt),
+                eq(false),
+                any(Long.class),
+                any(Integer.class),
+                eq(PageRequest.of(0, 21))
+        )).thenReturn(List.of());
+
+        var response = chatLinkBrowserService.listLinkBrowserPage(chatId, "north", null, 20);
+
+        assertThat(response.items()).isEmpty();
+        assertThat(response.nextCursor()).isNull();
+        verify(chatMessageLinkRepository).findBrowserItems(
+                eq(chatId),
+                eq(currentUser.getId()),
+                eq(true),
+                eq(reopenedAt),
+                eq(false),
+                any(Long.class),
+                any(Integer.class),
+                eq(PageRequest.of(0, 21))
         );
     }
 

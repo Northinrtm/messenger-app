@@ -102,6 +102,8 @@ type Props = {
   conversationSubtitle: string;
   showTypingIndicator: boolean;
   activePinnedMessage: MessageSnippet | null;
+  activePinnedMessageIndex: number;
+  activePinnedMessageCount: number;
   timelineItems: TimelineItem[];
   messagesLoading: boolean;
   hasNextPage: boolean;
@@ -127,6 +129,8 @@ type Props = {
   onStartOrJoinGroupConference: () => void;
   onCloseChat: () => void;
   onJumpToPinned: () => void;
+  onSelectPreviousPinned: () => void;
+  onSelectNextPinned: () => void;
   onUnpin: () => void;
   onLoadOlderMessages: () => void;
   onOpenMessageContextMenu: (
@@ -171,6 +175,8 @@ export function ActiveChatConversation({
   conversationSubtitle,
   showTypingIndicator,
   activePinnedMessage,
+  activePinnedMessageIndex,
+  activePinnedMessageCount,
   timelineItems,
   messagesLoading,
   hasNextPage,
@@ -196,6 +202,8 @@ export function ActiveChatConversation({
   onStartOrJoinGroupConference,
   onCloseChat,
   onJumpToPinned,
+  onSelectPreviousPinned,
+  onSelectNextPinned,
   onUnpin,
   onLoadOlderMessages,
   onOpenMessageContextMenu,
@@ -227,6 +235,12 @@ export function ActiveChatConversation({
   const activeGroupConferenceLabel = activeGroupConference
     ? `Идет созвон • ${activeGroupConference.activeParticipantCount} в эфире`
     : null;
+  const canSelectPreviousPinned =
+    activePinnedMessageCount > 1 && activePinnedMessageIndex > 0;
+  const canSelectNextPinned =
+    activePinnedMessageCount > 1 && activePinnedMessageIndex >= 0
+      ? activePinnedMessageIndex < activePinnedMessageCount - 1
+      : false;
   return (
     <>
       <header
@@ -364,10 +378,38 @@ export function ActiveChatConversation({
 
       {activePinnedMessage ? (
         <div className="pinned-message-banner">
+          <div className="pinned-message-banner-head">
+            <span className="pinned-message-label">
+              {activePinnedMessageCount > 1
+                ? `Закрепленное сообщение ${activePinnedMessageIndex + 1}/${activePinnedMessageCount}`
+                : "Закрепленное сообщение"}
+            </span>
+            {activePinnedMessageCount > 1 ? (
+              <div className="pinned-message-nav" aria-label="Навигация по закрепленным сообщениям">
+                <button
+                  type="button"
+                  className="ghost-button compact pinned-message-nav-button"
+                  onClick={onSelectPreviousPinned}
+                  disabled={!canSelectPreviousPinned}
+                  aria-label="Показать предыдущее закрепленное сообщение"
+                >
+                  {"<"}
+                </button>
+                <button
+                  type="button"
+                  className="ghost-button compact pinned-message-nav-button"
+                  onClick={onSelectNextPinned}
+                  disabled={!canSelectNextPinned}
+                  aria-label="Показать следующее закрепленное сообщение"
+                >
+                  {">"}
+                </button>
+              </div>
+            ) : null}
+          </div>
           <button type="button" className="pinned-message-main" onClick={onJumpToPinned}>
             <span className="message-reply-accent pinned-message-accent" aria-hidden="true" />
             <span className="pinned-message-copy">
-              <span className="pinned-message-label">Закрепленное сообщение</span>
               <strong className="pinned-message-sender">{activePinnedMessage.sender.displayName}</strong>
               <span className="pinned-message-preview">{activePinnedMessage.preview}</span>
             </span>
@@ -611,6 +653,10 @@ const ConversationComposer = memo(function ConversationComposer({
     previousActiveDraftRef.current = activeDraft;
     const currentValue = composerTextareaRef.current?.value ?? latestComposerValueRef.current;
     if (currentValue === activeDraft) {
+      return;
+    }
+
+    if (composerTextareaRef.current && document.activeElement === composerTextareaRef.current) {
       return;
     }
 
@@ -1038,6 +1084,7 @@ const MessageRow = memo(function MessageRow({
   getReactionOption,
 }: MessageRowProps) {
   const ownMessage = message.sender.id === sessionUser.id;
+  const metaTimestamp = formatClock(message.editedAt ?? message.createdAt);
   const failedSendSummary =
     ownMessage &&
     message.status?.state === "FAILED" &&
@@ -1050,7 +1097,7 @@ const MessageRow = memo(function MessageRow({
   const messageMetaTrailing = (
     <div className="message-meta-trailing">
       {message.editedAt ? <span className="message-edited-label">изменено</span> : null}
-      <span>{formatClock(message.createdAt)}</span>
+      <span>{metaTimestamp}</span>
       {ownMessage ? (
         <span
           className={getMessageStatusClassName(message.status)}
@@ -1069,13 +1116,14 @@ const MessageRow = memo(function MessageRow({
     : ownMessage
       ? "message-row is-mine"
       : "message-row";
+  const usesInlineBottomMeta = directChat && ownMessage && message.status?.state === "FAILED";
   const selectionRowClassName = isSelectingMessages
     ? `${rowClassName} is-selecting${selected ? " is-selected" : ""}`
     : rowClassName;
   const bubbleClassName = ownMessage ? "message-bubble is-mine" : "message-bubble";
   const selectionBubbleClassName = isSelectingMessages
-    ? `${bubbleClassName} is-selection-mode${selected ? " is-selected" : ""}`
-    : bubbleClassName;
+    ? `${bubbleClassName}${usesInlineBottomMeta ? " has-inline-meta" : ""} is-selection-mode${selected ? " is-selected" : ""}`
+    : `${bubbleClassName}${usesInlineBottomMeta ? " has-inline-meta" : ""}`;
   const attachments = message.attachments ?? [];
   const shouldShowMessageText =
     message.content.trim().length > 0 && !isAttachmentOnlyFallback(message.content, attachments);
@@ -1116,7 +1164,7 @@ const MessageRow = memo(function MessageRow({
           {!directChat ? <strong>{ownMessage ? "Вы" : message.sender.displayName}</strong> : <span />}
           <div className="message-meta-trailing">
             {message.editedAt ? <span className="message-edited-label">изменено</span> : null}
-            <span>{formatClock(message.createdAt)}</span>
+            <span>{metaTimestamp}</span>
             {ownMessage ? (
               <span
                 className={getMessageStatusClassName(message.status)}
@@ -1173,7 +1221,15 @@ const MessageRow = memo(function MessageRow({
           </div>
         ) : null}
         {directChat ? (
-          <div className="message-meta-clone message-meta is-compact is-bottom">{messageMetaTrailing}</div>
+          <div
+            className={
+              usesInlineBottomMeta
+                ? "message-meta-clone message-meta is-compact is-bottom is-inline"
+                : "message-meta-clone message-meta is-compact is-bottom"
+            }
+          >
+            {messageMetaTrailing}
+          </div>
         ) : null}
         {message.reactions.length > 0 ? (
           <div className="message-reactions" aria-label="Реакции на сообщение">

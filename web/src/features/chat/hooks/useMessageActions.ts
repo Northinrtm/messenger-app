@@ -90,7 +90,7 @@ type SendMessageMutationContext = {
 
 type UseMessageActionsOptions = {
   activeChat: ChatSummary | null;
-  activePinnedMessageId: string | null;
+  activePinnedMessageIdSet: ReadonlySet<string>;
   chats: ChatSummary[];
   currentUser: UserProfile;
   session: AuthResponse;
@@ -122,13 +122,14 @@ type UseMessageActionsOptions = {
   setForwardingMessageIds: Dispatch<SetStateAction<string[]>>;
   setReplyingToMessageId: Dispatch<SetStateAction<string | null>>;
   stopTyping: (chatId: string) => void;
-  syncChatPinnedSummary: (chatId: string, snippet: MessageSnippet | null) => void;
+  removeChatPinnedMessage: (chatId: string, messageId: string) => void;
+  syncChatPinnedMessage: (chatId: string, snippet: MessageSnippet) => void;
   syncChatPreviewFromCache: (chatId: string) => void;
 };
 
 export function useMessageActions({
   activeChat,
-  activePinnedMessageId,
+  activePinnedMessageIdSet,
   applyChatPreviewMessage,
   applyServerChatPreviewMessage,
   chats,
@@ -157,7 +158,8 @@ export function useMessageActions({
   setForwardingMessageIds,
   setReplyingToMessageId,
   stopTyping,
-  syncChatPinnedSummary,
+  removeChatPinnedMessage,
+  syncChatPinnedMessage,
   syncChatPreviewFromCache,
 }: UseMessageActionsOptions) {
   const queryClient = useQueryClient();
@@ -467,9 +469,11 @@ export function useMessageActions({
         current,
       ),
     );
-    if (activePinnedMessageId && deletedMessageIdSet.has(activePinnedMessageId)) {
-      syncChatPinnedSummary(chatId, null);
-    }
+    deletedMessageIdSet.forEach((deletedMessageId) => {
+      if (activePinnedMessageIdSet.has(deletedMessageId)) {
+        removeChatPinnedMessage(chatId, deletedMessageId);
+      }
+    });
     if (replyingToMessage && deletedMessageIdSet.has(replyingToMessage.id)) {
       setReplyingToMessageId(null);
     }
@@ -579,8 +583,8 @@ export function useMessageActions({
         getMessagesKey(variables.chatId),
         (current) => updateMessageById(current, variables.messageId, () => message),
       );
-      if (activePinnedMessageId === message.id) {
-        syncChatPinnedSummary(variables.chatId, toMessageSnippet(message));
+      if (activePinnedMessageIdSet.has(message.id)) {
+        syncChatPinnedMessage(variables.chatId, toMessageSnippet(message));
       }
       syncChatPreviewFromCache(variables.chatId);
       clearComposerContext("edit");
@@ -882,7 +886,7 @@ export function useMessageActions({
     setContextMenu(null);
     pinMessageMutation.mutate({
       chatId: message.chatId,
-      messageId: activePinnedMessageId === message.id ? null : message.id,
+      messageId: message.id,
     });
   };
 

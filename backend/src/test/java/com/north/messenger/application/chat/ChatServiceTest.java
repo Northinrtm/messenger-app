@@ -1,6 +1,7 @@
 package com.north.messenger.application.chat;
 
 import com.north.messenger.api.dto.CreateGroupChatRequest;
+import com.north.messenger.api.dto.AddGroupParticipantsRequest;
 import com.north.messenger.api.dto.ChatSummaryResponse;
 import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.api.dto.UpdateGroupChatRequest;
@@ -9,6 +10,8 @@ import com.north.messenger.application.message.MessagePreviewService;
 import com.north.messenger.application.message.RealtimeMessagingGateway;
 import com.north.messenger.observability.MessengerTelemetry;
 import com.north.messenger.domain.model.ChatMessage;
+import com.north.messenger.domain.model.ChatPinnedMessage;
+import com.north.messenger.domain.model.MessageReaction;
 import com.north.messenger.domain.model.ChatParticipant;
 import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.ChatRoomModerator;
@@ -17,10 +20,12 @@ import com.north.messenger.domain.model.UserArchivedChat;
 import com.north.messenger.domain.model.UserDeletedChat;
 import com.north.messenger.domain.model.UserDeletedMessage;
 import com.north.messenger.domain.repository.ChatMessageRepository;
+import com.north.messenger.domain.repository.ChatPinnedMessageRepository;
 import com.north.messenger.domain.repository.ChatRoomBanRepository;
 import com.north.messenger.domain.repository.ChatParticipantRepository;
 import com.north.messenger.domain.repository.ChatRoomModeratorRepository;
 import com.north.messenger.domain.repository.ChatRoomRepository;
+import com.north.messenger.domain.repository.MessageReactionRepository;
 import com.north.messenger.domain.repository.MessageReceiptRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import com.north.messenger.domain.repository.UserArchivedChatRepository;
@@ -28,6 +33,7 @@ import com.north.messenger.domain.repository.UserDeletedChatRepository;
 import com.north.messenger.domain.repository.UserDeletedMessageRepository;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -44,6 +50,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -56,7 +63,9 @@ class ChatServiceTest {
     private ChatRoomBanRepository chatRoomBanRepository;
     private ChatRoomModeratorRepository chatRoomModeratorRepository;
     private ChatParticipantRepository chatParticipantRepository;
+    private ChatPinnedMessageRepository chatPinnedMessageRepository;
     private ChatMessageRepository chatMessageRepository;
+    private MessageReactionRepository messageReactionRepository;
     private MessageReceiptRepository messageReceiptRepository;
     private UserAccountRepository userAccountRepository;
     private UserArchivedChatRepository userArchivedChatRepository;
@@ -76,7 +85,9 @@ class ChatServiceTest {
         chatRoomBanRepository = mock(ChatRoomBanRepository.class);
         chatRoomModeratorRepository = mock(ChatRoomModeratorRepository.class);
         chatParticipantRepository = mock(ChatParticipantRepository.class);
+        chatPinnedMessageRepository = mock(ChatPinnedMessageRepository.class);
         chatMessageRepository = mock(ChatMessageRepository.class);
+        messageReactionRepository = mock(MessageReactionRepository.class);
         messageReceiptRepository = mock(MessageReceiptRepository.class);
         userAccountRepository = mock(UserAccountRepository.class);
         userArchivedChatRepository = mock(UserArchivedChatRepository.class);
@@ -93,7 +104,9 @@ class ChatServiceTest {
                 chatRoomBanRepository,
                 chatRoomModeratorRepository,
                 chatParticipantRepository,
+                chatPinnedMessageRepository,
                 chatMessageRepository,
+                messageReactionRepository,
                 messageReceiptRepository,
                 userAccountRepository,
                 userArchivedChatRepository,
@@ -109,7 +122,9 @@ class ChatServiceTest {
                 .thenReturn("Latest message");
         when(userArchivedChatRepository.save(any(UserArchivedChat.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(userDeletedChatRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(userDeletedChatRepository.findByUserIdAndChatId(any(UUID.class), any(UUID.class))).thenReturn(Optional.empty());
         when(chatRoomModeratorRepository.findAllByChatId(any(UUID.class))).thenReturn(List.of());
+        when(messageReactionRepository.findAllByMessageIdIn(any())).thenReturn(List.of());
         when(chatMessageRepository.findLatestVisibleByChatIdAndUserIdCreatedAfter(
                 any(UUID.class),
                 any(UUID.class),
@@ -222,7 +237,12 @@ class ChatServiceTest {
         when(userAccountRepository.findAllByIdIn(List.of(user.getId(), peer.getId()))).thenReturn(List.of(user, peer));
         when(authService.resolveOnlineByUserIds(List.of(user.getId(), peer.getId())))
                 .thenReturn(java.util.Map.of(user.getId(), true, peer.getId(), true));
-        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(eq(chatId), eq(user.getId()), any(Pageable.class)))
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserIdCreatedAfter(
+                eq(chatId),
+                eq(user.getId()),
+                eq(ownMembership.getJoinedAt()),
+                any(Pageable.class)
+        ))
                 .thenReturn(List.of(latestMessage));
         when(authService.toParticipant(user, true)).thenReturn(new com.north.messenger.api.dto.ParticipantResponse(
                 user.getId(), user.getUsername(), user.getDisplayName(), user.getAvatarUrl(), true
@@ -235,6 +255,243 @@ class ChatServiceTest {
 
         assertThat(chats).hasSize(1);
         assertThat(chats.get(0).lastMessage()).isEqualTo("Latest message");
+    }
+
+    @Test
+    void listChatsShouldFlagReactionsOnTheLastMessage() {
+        UserAccount user = testUserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UserAccount peer = testUserAccount(
+                UUID.randomUUID(),
+                "alice",
+                "Alice",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UUID chatId = UUID.randomUUID();
+        ChatRoom room = new ChatRoom(chatId, null, true, Instant.parse("2026-03-21T12:00:00Z"));
+        ChatParticipant ownMembership = new ChatParticipant(UUID.randomUUID(), chatId, user.getId(), Instant.parse("2026-03-21T12:00:00Z"));
+        ChatParticipant peerMembership = new ChatParticipant(UUID.randomUUID(), chatId, peer.getId(), Instant.parse("2026-03-21T12:00:00Z"));
+        ChatMessage latestMessage = new ChatMessage(
+                UUID.randomUUID(),
+                chatId,
+                peer.getId(),
+                "latest message",
+                Instant.parse("2026-03-22T12:00:00Z")
+        );
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(user);
+        when(chatParticipantRepository.findAllByUserIdOrderByJoinedAtAsc(user.getId())).thenReturn(List.of(ownMembership));
+        when(userDeletedChatRepository.findAllByUserIdOrderByDeletedAtDesc(user.getId())).thenReturn(List.of());
+        when(chatRoomRepository.findAllById(List.of(chatId))).thenReturn(List.of(room));
+        when(messageReceiptRepository.countUnreadByUserIdAndChatIdIn(user.getId(), List.of(chatId)))
+                .thenReturn(List.of());
+        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId)).thenReturn(List.of(ownMembership, peerMembership));
+        when(userAccountRepository.findAllByIdIn(List.of(user.getId(), peer.getId()))).thenReturn(List.of(user, peer));
+        when(authService.resolveOnlineByUserIds(List.of(user.getId(), peer.getId())))
+                .thenReturn(java.util.Map.of(user.getId(), true, peer.getId(), true));
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserIdCreatedAfter(
+                eq(chatId),
+                eq(user.getId()),
+                eq(ownMembership.getJoinedAt()),
+                any(Pageable.class)
+        ))
+                .thenReturn(List.of(latestMessage));
+        when(messageReactionRepository.findAllByMessageIdIn(List.of(latestMessage.getId()))).thenReturn(List.of(
+                new MessageReaction(
+                        UUID.randomUUID(),
+                        latestMessage.getId(),
+                        user.getId(),
+                        "LIKE",
+                        Instant.parse("2026-03-22T12:01:00Z")
+                )
+        ));
+        when(authService.toParticipant(user, true)).thenReturn(new com.north.messenger.api.dto.ParticipantResponse(
+                user.getId(), user.getUsername(), user.getDisplayName(), user.getAvatarUrl(), true
+        ));
+        when(authService.toParticipant(peer, true)).thenReturn(new com.north.messenger.api.dto.ParticipantResponse(
+                peer.getId(), peer.getUsername(), peer.getDisplayName(), peer.getAvatarUrl(), true
+        ));
+
+        var chats = chatService.listChats("north");
+
+        assertThat(chats).hasSize(1);
+        assertThat(chats.get(0).lastMessageHasReactions()).isTrue();
+    }
+
+    @Test
+    void updatePinnedMessageShouldToggleMultiplePinnedMessagesWithoutDroppingExistingPins() {
+        UserAccount user = testUserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UserAccount peer = testUserAccount(
+                UUID.randomUUID(),
+                "alice",
+                "Alice",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UUID chatId = UUID.randomUUID();
+        ChatRoom room = new ChatRoom(chatId, null, true, Instant.parse("2026-03-21T12:00:00Z"));
+        ChatParticipant ownMembership = new ChatParticipant(
+                UUID.randomUUID(),
+                chatId,
+                user.getId(),
+                Instant.parse("2026-03-21T12:00:00Z")
+        );
+        ChatParticipant peerMembership = new ChatParticipant(
+                UUID.randomUUID(),
+                chatId,
+                peer.getId(),
+                Instant.parse("2026-03-21T12:00:00Z")
+        );
+        ChatMessage firstMessage = withServerOrder(new ChatMessage(
+                UUID.randomUUID(),
+                chatId,
+                peer.getId(),
+                "first pinned message",
+                Instant.parse("2026-03-22T12:00:00Z")
+        ), 11L);
+        ChatMessage secondMessage = withServerOrder(new ChatMessage(
+                UUID.randomUUID(),
+                chatId,
+                peer.getId(),
+                "second pinned message",
+                Instant.parse("2026-03-22T12:05:00Z")
+        ), 12L);
+        List<ChatPinnedMessage> pinnedMessages = new ArrayList<>();
+        java.util.Map<UUID, ChatMessage> messagesById = java.util.Map.of(
+                firstMessage.getId(), firstMessage,
+                secondMessage.getId(), secondMessage
+        );
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(user);
+        when(chatRoomRepository.findById(chatId)).thenReturn(Optional.of(room));
+        when(chatParticipantRepository.existsByChatIdAndUserId(chatId, user.getId())).thenReturn(true);
+        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId))
+                .thenReturn(List.of(ownMembership, peerMembership));
+        when(userAccountRepository.findAllByIdIn(List.of(user.getId(), peer.getId())))
+                .thenReturn(List.of(user, peer));
+        when(authService.resolveOnlineByUserIds(List.of(user.getId(), peer.getId())))
+                .thenReturn(java.util.Map.of(user.getId(), true, peer.getId(), true));
+        when(messageReceiptRepository.countUnreadByUserIdAndChatIdIn(user.getId(), List.of(chatId)))
+                .thenReturn(List.of());
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserIdCreatedAfter(
+                eq(chatId),
+                eq(user.getId()),
+                eq(ownMembership.getJoinedAt()),
+                any(Pageable.class)
+        )).thenReturn(List.of());
+        when(chatMessageRepository.findById(firstMessage.getId())).thenReturn(Optional.of(firstMessage));
+        when(chatMessageRepository.findById(secondMessage.getId())).thenReturn(Optional.of(secondMessage));
+        when(chatMessageRepository.findAllById(any())).thenAnswer(invocation -> {
+            Iterable<UUID> ids = invocation.getArgument(0);
+            List<ChatMessage> matchedMessages = new ArrayList<>();
+            ids.forEach(id -> {
+                ChatMessage message = messagesById.get(id);
+                if (message != null) {
+                    matchedMessages.add(message);
+                }
+            });
+            return matchedMessages;
+        });
+        when(userDeletedMessageRepository.findAllByUserIdAndMessageIdIn(eq(user.getId()), any()))
+                .thenReturn(List.of());
+        when(authService.toParticipant(user, true)).thenReturn(new com.north.messenger.api.dto.ParticipantResponse(
+                user.getId(), user.getUsername(), user.getDisplayName(), user.getAvatarUrl(), true
+        ));
+        when(authService.toParticipant(peer, true)).thenReturn(new com.north.messenger.api.dto.ParticipantResponse(
+                peer.getId(), peer.getUsername(), peer.getDisplayName(), peer.getAvatarUrl(), true
+        ));
+        when(chatRoomRepository.save(any(ChatRoom.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(chatPinnedMessageRepository.findByChatIdAndMessageId(eq(chatId), any(UUID.class)))
+                .thenAnswer(invocation -> pinnedMessages.stream()
+                        .filter(pinnedMessage -> pinnedMessage.getMessageId().equals(invocation.getArgument(1)))
+                        .findFirst());
+        when(chatPinnedMessageRepository.findAllByChatIdOrderByPinnedAtDescIdDesc(chatId))
+                .thenAnswer(invocation -> pinnedMessages.stream()
+                        .sorted(Comparator.comparing(ChatPinnedMessage::getPinnedAt)
+                                .reversed()
+                                .thenComparing(ChatPinnedMessage::getId, Comparator.reverseOrder()))
+                        .toList());
+        when(chatPinnedMessageRepository.save(any(ChatPinnedMessage.class))).thenAnswer(invocation -> {
+            ChatPinnedMessage pinnedMessage = invocation.getArgument(0);
+            Instant pinnedAt = pinnedMessages.isEmpty()
+                    ? Instant.parse("2026-03-22T12:10:00Z")
+                    : Instant.parse("2026-03-22T12:11:00Z");
+            ChatPinnedMessage storedPinnedMessage = new ChatPinnedMessage(
+                    pinnedMessage.getId(),
+                    pinnedMessage.getChatId(),
+                    pinnedMessage.getMessageId(),
+                    pinnedAt
+            );
+            pinnedMessages.add(storedPinnedMessage);
+            return storedPinnedMessage;
+        });
+        doAnswer(invocation -> {
+            UUID deletedMessageId = invocation.getArgument(1);
+            pinnedMessages.removeIf(pinnedMessage -> pinnedMessage.getMessageId().equals(deletedMessageId));
+            return null;
+        }).when(chatPinnedMessageRepository).deleteByChatIdAndMessageId(eq(chatId), any(UUID.class));
+
+        ChatSummaryResponse firstPinnedResponse = chatService.updatePinnedMessage("north", chatId, firstMessage.getId());
+        ChatSummaryResponse secondPinnedResponse = chatService.updatePinnedMessage("north", chatId, secondMessage.getId());
+        ChatSummaryResponse unpinnedSecondResponse = chatService.updatePinnedMessage("north", chatId, secondMessage.getId());
+
+        assertThat(firstPinnedResponse.pinnedMessages()).extracting(message -> message.id())
+                .containsExactly(firstMessage.getId());
+        assertThat(secondPinnedResponse.pinnedMessages()).extracting(message -> message.id())
+                .containsExactly(secondMessage.getId(), firstMessage.getId());
+        assertThat(secondPinnedResponse.pinnedMessage()).isNotNull();
+        assertThat(secondPinnedResponse.pinnedMessage().id()).isEqualTo(secondMessage.getId());
+        assertThat(unpinnedSecondResponse.pinnedMessages()).extracting(message -> message.id())
+                .containsExactly(firstMessage.getId());
+        assertThat(unpinnedSecondResponse.pinnedMessage()).isNotNull();
+        assertThat(unpinnedSecondResponse.pinnedMessage().id()).isEqualTo(firstMessage.getId());
+        assertThat(room.getPinnedMessageId()).isEqualTo(firstMessage.getId());
+    }
+
+    @Test
+    void listChatsShouldShowDeletedUserTitleForDirectChatsLeftWithOneMember() {
+        UserAccount user = testUserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UUID chatId = UUID.randomUUID();
+        ChatRoom room = new ChatRoom(chatId, null, true, Instant.parse("2026-03-21T12:00:00Z"));
+        ChatParticipant ownMembership = new ChatParticipant(UUID.randomUUID(), chatId, user.getId(), Instant.parse("2026-03-21T12:00:00Z"));
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(user);
+        when(chatParticipantRepository.findAllByUserIdOrderByJoinedAtAsc(user.getId())).thenReturn(List.of(ownMembership));
+        when(userDeletedChatRepository.findAllByUserIdOrderByDeletedAtDesc(user.getId())).thenReturn(List.of());
+        when(chatRoomRepository.findAllById(List.of(chatId))).thenReturn(List.of(room));
+        when(messageReceiptRepository.countUnreadByUserIdAndChatIdIn(user.getId(), List.of(chatId)))
+                .thenReturn(List.of());
+        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId)).thenReturn(List.of(ownMembership));
+        when(userAccountRepository.findAllByIdIn(List.of(user.getId()))).thenReturn(List.of(user));
+        when(authService.resolveOnlineByUserIds(List.of(user.getId()))).thenReturn(java.util.Map.of(user.getId(), true));
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(eq(chatId), eq(user.getId()), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(authService.toParticipant(user, true)).thenReturn(new com.north.messenger.api.dto.ParticipantResponse(
+                user.getId(), user.getUsername(), user.getDisplayName(), user.getAvatarUrl(), true
+        ));
+
+        var chats = chatService.listChats("north");
+
+        assertThat(chats).hasSize(1);
+        assertThat(chats.get(0).title()).isEqualTo("Deleted user");
     }
 
     @Test
@@ -413,7 +670,12 @@ class ChatServiceTest {
                 latestMessage.getId(),
                 Instant.parse("2026-03-22T12:02:00Z")
         )));
-        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(eq(chatId), eq(peer.getId()), any(Pageable.class)))
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserIdCreatedAfter(
+                eq(chatId),
+                eq(peer.getId()),
+                eq(peerMembership.getJoinedAt()),
+                any(Pageable.class)
+        ))
                 .thenReturn(List.of(previousMessage));
         when(authService.toParticipant(user, true)).thenReturn(new ParticipantResponse(
                 user.getId(), user.getUsername(), user.getDisplayName(), user.getAvatarUrl(), true
@@ -432,8 +694,18 @@ class ChatServiceTest {
         int peerIndex = usernameCaptor.getAllValues().indexOf("alice");
         assertThat(summaryCaptor.getAllValues().get(ownIndex).lastMessageServerOrder()).isEqualTo(42L);
         assertThat(summaryCaptor.getAllValues().get(peerIndex).lastMessageServerOrder()).isEqualTo(41L);
-        verify(chatMessageRepository).findLatestVisibleByChatIdAndUserId(eq(chatId), eq(peer.getId()), any(Pageable.class));
-        verify(chatMessageRepository, never()).findLatestVisibleByChatIdAndUserId(eq(chatId), eq(user.getId()), any(Pageable.class));
+        verify(chatMessageRepository).findLatestVisibleByChatIdAndUserIdCreatedAfter(
+                eq(chatId),
+                eq(peer.getId()),
+                eq(peerMembership.getJoinedAt()),
+                any(Pageable.class)
+        );
+        verify(chatMessageRepository, never()).findLatestVisibleByChatIdAndUserIdCreatedAfter(
+                eq(chatId),
+                eq(user.getId()),
+                any(Instant.class),
+                any(Pageable.class)
+        );
     }
 
     @Test
@@ -592,6 +864,112 @@ class ChatServiceTest {
         verify(chatRoomRepository, never()).findDirectChatByParticipantIds(currentUser.getId(), peer.getId());
         verify(chatRoomRepository, never()).save(any(ChatRoom.class));
         verify(eventPublisher).publishEvent(new ChatUpdatedDeferredEvent(chatId));
+    }
+
+    @Test
+    void createDirectChatShouldReopenDeletedDirectChatFromDeletionTime() {
+        UserAccount currentUser = testUserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UserAccount peer = testUserAccount(
+                UUID.randomUUID(),
+                "alice",
+                "Alice",
+                "password-hash",
+                Instant.parse("2026-03-20T12:05:00Z")
+        );
+        UUID chatId = UUID.randomUUID();
+        ChatRoom room = new ChatRoom(
+                chatId,
+                null,
+                true,
+                Instant.parse("2026-03-21T12:00:00Z"),
+                currentUser.getId(),
+                peer.getId()
+        );
+        Instant originalJoinedAt = Instant.parse("2026-03-21T12:00:00Z");
+        Instant deletedAt = Instant.parse("2026-03-23T09:30:00Z");
+        ChatParticipant currentMembership = new ChatParticipant(
+                UUID.randomUUID(),
+                chatId,
+                currentUser.getId(),
+                originalJoinedAt
+        );
+        ChatParticipant peerMembership = new ChatParticipant(
+                UUID.randomUUID(),
+                chatId,
+                peer.getId(),
+                originalJoinedAt
+        );
+        UserDeletedChat deletedChat = new UserDeletedChat(
+                UUID.randomUUID(),
+                currentUser.getId(),
+                chatId,
+                deletedAt
+        );
+        ParticipantResponse currentParticipant = new ParticipantResponse(
+                currentUser.getId(),
+                currentUser.getUsername(),
+                currentUser.getDisplayName(),
+                currentUser.getAvatarUrl(),
+                true
+        );
+        ParticipantResponse peerParticipant = new ParticipantResponse(
+                peer.getId(),
+                peer.getUsername(),
+                peer.getDisplayName(),
+                peer.getAvatarUrl(),
+                true
+        );
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(currentUser);
+        when(authService.requireExistingUser("alice")).thenReturn(peer);
+        when(chatRoomRepository.findByDirectIsTrueAndDirectUserLowIdAndDirectUserHighId(any(UUID.class), any(UUID.class)))
+                .thenReturn(Optional.of(room));
+        when(chatParticipantRepository.findByChatIdAndUserId(chatId, currentUser.getId()))
+                .thenReturn(Optional.of(currentMembership));
+        when(userDeletedChatRepository.findByUserIdAndChatId(currentUser.getId(), chatId))
+                .thenReturn(Optional.of(deletedChat));
+        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId))
+                .thenReturn(List.of(currentMembership, peerMembership));
+        when(userAccountRepository.findAllByIdIn(List.of(currentUser.getId(), peer.getId())))
+                .thenReturn(List.of(currentUser, peer));
+        when(authService.resolveOnlineByUserIds(List.of(currentUser.getId(), peer.getId())))
+                .thenReturn(java.util.Map.of(currentUser.getId(), true, peer.getId(), true));
+        when(messageReceiptRepository.countUnreadByChatId(chatId)).thenReturn(List.of());
+        when(messageReceiptRepository.countUnreadByUserIdAndChatIdIn(currentUser.getId(), List.of(chatId)))
+                .thenReturn(List.of());
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserIdCreatedAfter(
+                eq(chatId),
+                eq(currentUser.getId()),
+                eq(deletedAt),
+                any(Pageable.class)
+        )).thenReturn(List.of());
+        when(authService.toParticipant(currentUser, true)).thenReturn(currentParticipant);
+        when(authService.toParticipant(peer, true)).thenReturn(peerParticipant);
+
+        var response = chatService.createDirectChat("north", new com.north.messenger.api.dto.CreateDirectChatRequest("alice"));
+
+        assertThat(response.id()).isEqualTo(chatId);
+        assertThat(response.lastMessage()).isNull();
+        assertThat(currentMembership.getJoinedAt()).isEqualTo(deletedAt);
+        verify(userDeletedChatRepository).delete(deletedChat);
+        verify(userArchivedChatRepository).deleteByUserIdAndChatId(currentUser.getId(), chatId);
+        verify(chatMessageRepository).findLatestVisibleByChatIdAndUserIdCreatedAfter(
+                eq(chatId),
+                eq(currentUser.getId()),
+                eq(deletedAt),
+                any(Pageable.class)
+        );
+        verify(chatMessageRepository, never()).findLatestVisibleByChatIdAndUserId(
+                eq(chatId),
+                eq(currentUser.getId()),
+                any(Pageable.class)
+        );
     }
 
     @Test
@@ -858,6 +1236,77 @@ class ChatServiceTest {
         verify(chatParticipantRepository).deleteByChatIdAndUserId(chatId, member.getId());
         verify(eventPublisher).publishEvent(new ChatRemovalDeferredEvent(chatId, List.of("alice")));
         verify(eventPublisher).publishEvent(new ChatUpdatedDeferredEvent(chatId));
+    }
+
+    @Test
+    void unbanGroupParticipantShouldDeleteBanRecordAndAllowReaddingUser() {
+        UserAccount owner = testUserAccount(UUID.randomUUID(), "north", "North", "hash", Instant.now());
+        UserAccount member = testUserAccount(UUID.randomUUID(), "alice", "Alice", "hash", Instant.now());
+        UUID chatId = UUID.randomUUID();
+        ChatRoom room = new ChatRoom(chatId, "Project", false, Instant.now());
+        room.updateOwnerUserId(owner.getId());
+        ChatParticipant ownerMembership = new ChatParticipant(
+                UUID.randomUUID(),
+                chatId,
+                owner.getId(),
+                Instant.parse("2026-04-09T10:00:00Z")
+        );
+        ParticipantResponse ownerParticipant = new ParticipantResponse(
+                owner.getId(),
+                owner.getUsername(),
+                owner.getDisplayName(),
+                owner.getAvatarUrl(),
+                true
+        );
+        ParticipantResponse invitedParticipant = new ParticipantResponse(
+                member.getId(),
+                member.getUsername(),
+                member.getDisplayName(),
+                member.getAvatarUrl(),
+                false
+        );
+        List<ChatParticipant> memberships = new ArrayList<>(List.of(ownerMembership));
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(owner);
+        when(chatRoomRepository.findById(chatId)).thenReturn(Optional.of(room));
+        when(chatParticipantRepository.existsByChatIdAndUserId(chatId, owner.getId())).thenReturn(true);
+        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId))
+                .thenAnswer(invocation -> List.copyOf(memberships));
+        when(authService.requireExistingUser("alice")).thenReturn(member);
+        when(chatRoomRepository.save(any(ChatRoom.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(chatParticipantRepository.save(any(ChatParticipant.class))).thenAnswer(invocation -> {
+            ChatParticipant membership = invocation.getArgument(0);
+            memberships.add(membership);
+            return membership;
+        });
+        when(userAccountRepository.findAllByIdIn(List.of(owner.getId()))).thenReturn(List.of(owner));
+        when(userAccountRepository.findAllByIdIn(List.of(owner.getId(), member.getId())))
+                .thenReturn(List.of(owner, member));
+        when(authService.resolveOnlineByUserIds(List.of(owner.getId())))
+                .thenReturn(java.util.Map.of(owner.getId(), true));
+        when(authService.resolveOnlineByUserIds(List.of(owner.getId(), member.getId())))
+                .thenReturn(java.util.Map.of(owner.getId(), true, member.getId(), false));
+        when(messageReceiptRepository.countUnreadByChatId(any(UUID.class))).thenReturn(List.of());
+        when(messageReceiptRepository.countUnreadByUserIdAndChatIdIn(any(UUID.class), any())).thenReturn(List.of());
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserId(
+                any(UUID.class),
+                eq(owner.getId()),
+                any(Pageable.class)
+        )).thenReturn(List.of());
+        when(authService.toParticipant(owner, true)).thenReturn(ownerParticipant);
+        when(authService.toParticipant(member, false)).thenReturn(invitedParticipant);
+        when(chatRoomBanRepository.existsByChatIdAndUserId(chatId, member.getId())).thenReturn(false);
+
+        chatService.unbanGroupParticipant("north", chatId, "alice");
+        ChatSummaryResponse response = chatService.addGroupParticipants(
+                "north",
+                chatId,
+                new AddGroupParticipantsRequest(List.of("alice"))
+        );
+
+        verify(chatRoomBanRepository).deleteByChatIdAndUserId(chatId, member.getId());
+        assertThat(response.members()).containsExactly(ownerParticipant, invitedParticipant);
+        verify(eventPublisher, times(2)).publishEvent(new ChatUpdatedDeferredEvent(chatId));
     }
 
     @Test

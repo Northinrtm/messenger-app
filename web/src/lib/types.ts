@@ -10,6 +10,13 @@ export type UserProfile = {
   email?: string | null;
   emailVerified?: boolean;
   emailVerificationEnabled?: boolean;
+  mailEnabled?: boolean;
+};
+
+export type UserMailbox = {
+  id: string;
+  email: string;
+  createdAt: string;
 };
 
 export type Participant = {
@@ -46,6 +53,7 @@ export type MessageSnippet = {
   sender: Participant;
   createdAt: string;
   preview: string;
+  serverOrder?: number | null;
 };
 
 export type ChatPrejoinHistoryPolicy = "JOIN_ONLY" | "FULL_HISTORY";
@@ -118,11 +126,13 @@ export type ChatSummary = {
   members: Participant[];
   lastMessage: string | null;
   lastMessageAt: string | null;
+  lastMessageHasReactions?: boolean;
   lastMessageServerOrder?: number | null;
   updatedAt: string;
   unreadCount: number;
   membershipVersion?: number;
   pinnedMessage: MessageSnippet | null;
+  pinnedMessages?: MessageSnippet[];
   prejoinHistoryPolicy?: ChatPrejoinHistoryPolicy | null;
 };
 
@@ -154,6 +164,7 @@ export type WorkspaceBootstrap = {
   blockedUsers: UserProfile[];
   drafts: ChatDraft[];
   pendingOutgoingMessages: PendingOutgoingMessage[];
+  mailboxes: UserMailbox[];
   conferences: VideoConference[];
   archivedConferences: VideoConference[];
 };

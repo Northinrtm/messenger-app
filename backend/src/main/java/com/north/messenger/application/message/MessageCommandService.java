@@ -95,6 +95,7 @@ class MessageCommandService {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
         ChatRoom room = chatService.requireChatMembership(chatId, currentUser);
         chatService.assertChatInteractionAllowed(room, currentUser);
+        chatService.reopenDeletedChatForUser(room, currentUser);
         List<UserAccount> participants = chatService.findParticipants(chatId);
         String clientMessageId = messageSupport.normalizeClientMessageId(request.clientMessageId());
         UUID replyToMessageId = messageSupport.validateReplyTarget(room, currentUser, request.replyToMessageId());
@@ -180,11 +181,6 @@ class MessageCommandService {
             if (!receipts.isEmpty()) {
                 messageReceiptRepository.saveAll(receipts);
             }
-
-            chatService.restoreDeletedChatStateForUsers(
-                    chatId,
-                    participants.stream().map(UserAccount::getId).toList()
-            );
 
             MessageSupport.MessageReceiptSummary summary = messageSupport.summarizeReceipts(receipts);
             MessageSnippetResponse replyTo = messageSupport.loadReplySnippetsByMessageId(
@@ -405,9 +401,7 @@ class MessageCommandService {
             );
         }
 
-        if (room.getPinnedMessageId() != null && orderedMessageIds.contains(room.getPinnedMessageId())) {
-            room.clearPinnedMessage();
-        }
+        chatService.removePinnedMessages(room, orderedMessageIds);
 
         List<UserAccount> participants = chatService.findParticipants(chatId);
         orderedMessages.forEach(message -> chatAttachmentService.deleteAttachmentsForMessage(message.getId()));

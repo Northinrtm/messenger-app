@@ -14,6 +14,7 @@ public record UserProfileResponse(
         String email,
         boolean emailVerified,
         boolean emailVerificationEnabled,
+        boolean mailEnabled,
         long passwordVersion
 ) {
     public UserProfileResponse(
@@ -23,9 +24,38 @@ public record UserProfileResponse(
             String profession,
             Instant createdAt,
             String avatarUrl,
+            boolean online,
+            String email,
+            boolean emailVerified,
+            boolean emailVerificationEnabled,
+            long passwordVersion
+    ) {
+        this(
+                id,
+                username,
+                displayName,
+                profession,
+                createdAt,
+                avatarUrl,
+                online,
+                email,
+                emailVerified,
+                emailVerificationEnabled,
+                false,
+                passwordVersion
+        );
+    }
+
+    public UserProfileResponse(
+            UUID id,
+            String username,
+            String displayName,
+            String profession,
+            Instant createdAt,
+            String avatarUrl,
             boolean online
     ) {
-        this(id, username, displayName, profession, createdAt, avatarUrl, online, null, false, false, 1L);
+        this(id, username, displayName, profession, createdAt, avatarUrl, online, null, false, false, false, 1L);
     }
 
     public UserProfileResponse(
@@ -36,6 +66,6 @@ public record UserProfileResponse(
             String avatarUrl,
             boolean online
     ) {
-        this(id, username, displayName, null, createdAt, avatarUrl, online, null, false, false, 1L);
+        this(id, username, displayName, null, createdAt, avatarUrl, online, null, false, false, false, 1L);
     }
 }

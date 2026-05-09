@@ -19,6 +19,7 @@ import {
   addContact as addContactRequest,
   addConferenceParticipants as addConferenceParticipantsRequest,
   addGroupParticipants,
+  addOwnMailbox as addOwnMailboxRequest,
   clearConferencePresence as clearConferencePresenceRequest,
   createConferenceInviteLink as createConferenceInviteLinkRequest,
   createGroupInviteLink as createGroupInviteLinkRequest,
@@ -31,10 +32,12 @@ import {
   endVideoConference as endVideoConferenceRequest,
   createDirectChat,
   createGroupChat,
+  listGroupBans as listGroupBansRequest,
   touchConferencePresence as touchConferencePresenceRequest,
   updatePinnedMessage as updatePinnedMessageRequest,
   logout,
   removeContact as removeContactRequest,
+  removeOwnMailbox as removeOwnMailboxRequest,
   revokeSession,
   updateArchivedChat,
   updateProfile,
@@ -59,6 +62,7 @@ import type {
   ChatSummary,
   Participant,
   SourceMessageJumpTarget,
+  UserMailbox,
   UserProfile,
   UserSessionInfo,
   VideoConference,
@@ -66,6 +70,7 @@ import type {
 import {
   buildMessagesQueryKey,
   clearChatUnreadCount,
+  getChatPinnedMessages,
   getMessageIdentityKey,
   removeChatById,
   upsertChat,
@@ -154,7 +159,7 @@ import { useTypingSignals } from "./hooks/useTypingSignals";
 import { useWorkspaceMutations } from "./hooks/useWorkspaceMutations";
 import { useWorkspaceQueries } from "./hooks/useWorkspaceQueries";
 import { useWorkspaceNavigation } from "./hooks/useWorkspaceNavigation";
-import { useWorkspaceStatus } from "./hooks/useWorkspaceStatus";
+import { shouldListChat, useWorkspaceStatus } from "./hooks/useWorkspaceStatus";
 import {
   readWorkspaceNavigationState,
   writeWorkspaceNavigationState,
@@ -221,7 +226,10 @@ export function NorthMessengerWorkspace({
     initialNavigationState.conferenceViewportMode
   );
   const [activeListTab, setActiveListTab] = useState<ConversationListTab>(
-    initialNavigationState.activeListTab
+    normalizeConversationListTabForProfile(
+      initialNavigationState.activeListTab,
+      session.user.mailEnabled
+    )
   );
   const [conferenceBrowserMode, setConferenceBrowserMode] = useState<"list" | "calendar">("list");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -245,6 +253,7 @@ export function NorthMessengerWorkspace({
   const [conferenceInviteUsernames, setConferenceInviteUsernames] = useState<string[]>([]);
   const [profileDisplayName, setProfileDisplayName] = useState(session.user.displayName);
   const [profileProfession, setProfileProfession] = useState(session.user.profession ?? "");
+  const [mailboxEmailInput, setMailboxEmailInput] = useState("");
   const [passwordChangeCurrent, setPasswordChangeCurrent] = useState("");
   const [passwordChangeNext, setPasswordChangeNext] = useState("");
   const [passwordChangeConfirm, setPasswordChangeConfirm] = useState("");
@@ -265,13 +274,13 @@ export function NorthMessengerWorkspace({
   const [conferenceExitRequestToken, setConferenceExitRequestToken] = useState(0);
   const [replyingToMessageId, setReplyingToMessageId] = useState<string | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [activePinnedMessageId, setActivePinnedMessageId] = useState<string | null>(null);
   const [forwardingMessageIds, setForwardingMessageIds] = useState<string[]>([]);
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
   const [isDeleteSelectedMessagesDialogOpen, setIsDeleteSelectedMessagesDialogOpen] =
     useState(false);
   const [groupInviteCodesByChatId, setGroupInviteCodesByChatId] = useState<Record<string, string>>({});
   const [conferenceInviteCodesById, setConferenceInviteCodesById] = useState<Record<string, string>>({});
-  const [pendingGroupMenuOpenChatId, setPendingGroupMenuOpenChatId] = useState<string | null>(null);
   const [pushNotificationState, setPushNotificationState] =
     useState<PushNotificationClientState>(initialPushNotificationState);
   const [pushNotificationPending, setPushNotificationPending] = useState(false);
@@ -308,7 +317,12 @@ export function NorthMessengerWorkspace({
     setActiveChatId(restoredNavigationState.activeChatId);
     setActiveConferenceId(restoredNavigationState.activeConferenceId);
     setConferenceViewportMode(restoredNavigationState.conferenceViewportMode);
-    setActiveListTab(restoredNavigationState.activeListTab);
+    setActiveListTab(
+      normalizeConversationListTabForProfile(
+        restoredNavigationState.activeListTab,
+        session.user.mailEnabled
+      )
+    );
     setMobilePane(restoredNavigationState.mobilePane);
     setHasExplicitlyOpenedActiveChatThisSession(false);
     setSidebarSheet(null);
@@ -319,6 +333,7 @@ export function NorthMessengerWorkspace({
     setConferenceComposerMode(null);
     setConferenceEditingId(null);
     setConferenceChatId(null);
+    setMailboxEmailInput("");
     setSearch("");
   }, [session.user.id]);
   useEffect(() => {
@@ -424,19 +439,37 @@ export function NorthMessengerWorkspace({
     },
   });
   const createConferenceInviteLinkMutation = useMutation({
-    mutationFn: (conferenceId: string) => createConferenceInviteLinkRequest(session.token, conferenceId),
-    onSuccess: (inviteLink, conferenceId) => {
+    mutationFn: (input: { conferenceId: string; refresh?: boolean }) =>
+      createConferenceInviteLinkRequest(session.token, input.conferenceId, {
+        refresh: input.refresh,
+      }),
+    onSuccess: (inviteLink, input) => {
       setConferenceInviteCodesById((current) => ({
         ...current,
-        [conferenceId]: inviteLink.code,
+        [input.conferenceId]: inviteLink.code,
       }));
     },
   });
-  const handleGroupCreated = useEffectEvent((chat: ChatSummary, options: { openMenu: boolean }) => {
+  const addMailboxMutation = useMutation({
+    mutationFn: (email: string) => addOwnMailboxRequest(session.token, email),
+    onSuccess: (mailbox) => {
+      queryClient.setQueryData<UserMailbox[]>(["mailboxes", session.token], (current) => {
+        const next = current?.filter((item) => item.id !== mailbox.id) ?? [];
+        return [mailbox, ...next];
+      });
+      setMailboxEmailInput("");
+    },
+  });
+  const removeMailboxMutation = useMutation({
+    mutationFn: (mailboxId: string) => removeOwnMailboxRequest(session.token, mailboxId),
+    onSuccess: (_result, mailboxId) => {
+      queryClient.setQueryData<UserMailbox[]>(["mailboxes", session.token], (current) =>
+        current?.filter((item) => item.id !== mailboxId) ?? []
+      );
+    },
+  });
+  const handleGroupCreated = useEffectEvent((chat: ChatSummary) => {
     createGroupInviteLinkMutation.mutate({ chatId: chat.id });
-    if (options.openMenu) {
-      setPendingGroupMenuOpenChatId(chat.id);
-    }
   });
   const {
     contextMenu,
@@ -479,6 +512,7 @@ export function NorthMessengerWorkspace({
       workspaceBootstrapData.blockedUsers
     );
     queryClient.setQueryData(["drafts", session.token], workspaceBootstrapData.drafts);
+    queryClient.setQueryData(["mailboxes", session.token], workspaceBootstrapData.mailboxes);
     queryClient.setQueryData(
       ["video-conferences", session.token],
       workspaceBootstrapData.conferences
@@ -493,6 +527,7 @@ export function NorthMessengerWorkspace({
     clearDraftForChat,
     commitDraftForChat,
     composerTextareaRef,
+    draftActivityByChatId,
     draftsByChatId,
     draftsQuery,
     focusComposer,
@@ -582,6 +617,7 @@ export function NorthMessengerWorkspace({
     conferencesQuery,
     contactsQuery,
     contactsSearchQuery,
+    mailboxesQuery,
     messages,
     messagesQuery,
     pendingOutgoingMessagesQuery,
@@ -631,7 +667,9 @@ export function NorthMessengerWorkspace({
     applyChatPreviewMessage,
     applyServerChatPreviewMessage,
     refreshChatPreviewFromServer,
-    syncChatPinnedSummary,
+    removeChatPinnedMessage,
+    syncChatPinnedMessage,
+    syncChatPinnedMessages,
     syncChatPreviewFromCache,
   } = useChatPreviews({
     formatPreviewText: buildChatListPreviewText,
@@ -641,6 +679,12 @@ export function NorthMessengerWorkspace({
   const chats = serverChats;
   const sessions = sessionsQuery.data ?? [];
   const profile = profileQuery.data ?? session.user;
+  const mailboxes = mailboxesQuery.data ?? [];
+  useEffect(() => {
+    if (activeListTab === "mail" && !profile.mailEnabled) {
+      setActiveListTab("chats");
+    }
+  }, [activeListTab, profile.mailEnabled]);
   const deleteAccountRequiresMatch =
     normalizeAccountDeletionConfirmation(deleteAccountConfirmation) ===
     profile.username.toLowerCase();
@@ -659,6 +703,8 @@ export function NorthMessengerWorkspace({
     (archivedChatsQuery.data === undefined && archivedChatsQuery.isFetching);
   const contactsLoading =
     workspaceBootstrapLoading || (contactsQuery.data === undefined && contactsQuery.isFetching);
+  const mailboxesLoading =
+    workspaceBootstrapLoading || (mailboxesQuery.data === undefined && mailboxesQuery.isFetching);
   const conferencesLoading =
     workspaceBootstrapLoading || (conferencesQuery.data === undefined && conferencesQuery.isFetching);
   const archivedConferencesLoading =
@@ -701,8 +747,8 @@ export function NorthMessengerWorkspace({
   const chatIds = useMemo(() => chats.map((chat) => chat.id).sort(), [chats]);
   const chatIdsKey = useMemo(() => chatIds.join(","), [chatIds]);
   const listedChats = useMemo(
-    () => chats.filter((chat) => !chat.direct || chat.lastMessageAt !== null),
-    [chats]
+    () => chats.filter((chat) => shouldListChat(chat, draftActivityByChatId)),
+    [chats, draftActivityByChatId]
   );
   const nonArchivedChats = useMemo(
     () => listedChats.filter((chat) => !archivedChatIdSet.has(chat.id)),
@@ -747,11 +793,21 @@ export function NorthMessengerWorkspace({
     () => (normalizedSearch ? userSearchQuery.data?.conferences ?? [] : listedConferences),
     [listedConferences, normalizedSearch, userSearchQuery.data?.conferences]
   );
+  const failedChatIds = useMemo(
+    () =>
+      new Set(
+        (pendingOutgoingMessagesQuery.data ?? [])
+          .filter((message) => message.status === "FAILED")
+          .map((message) => message.chatId)
+      ),
+    [pendingOutgoingMessagesQuery.data]
+  );
   const latestUnreadChatActivityAt = getLatestUnreadChatActivityAt(nonArchivedChats);
   const currentConferenceActivitySnapshot = useMemo(
     () => buildConferenceActivitySnapshot(listedConferences),
     [listedConferences]
   );
+  const showMailTab = Boolean(profile.mailEnabled);
   const isViewingChatsSection = !sidebarSheet && activeListTab === "chats";
   const isViewingConferencesSection = !sidebarSheet && activeListTab === "conferences";
   const showChatsTabIndicator =
@@ -813,6 +869,15 @@ export function NorthMessengerWorkspace({
   const activeChatCanManageRoles = Boolean(activeChatCapabilities?.canManageRoles);
   const activeChatCanModerateMembers = Boolean(activeChatCapabilities?.canModerateMembers);
   const activeChatCanLeaveGroup = Boolean(activeChatCapabilities?.canLeaveGroup);
+  const groupBansQuery = useQuery({
+    queryKey: ["group-bans", session.token, activeChat?.id],
+    queryFn: () => listGroupBansRequest(session.token, activeChat!.id),
+    enabled:
+      Boolean(activeChat && !activeChat.direct && activeChatCanModerateMembers) &&
+      (isChatMembersOpen || sidebarSheet === "groupMembers"),
+    staleTime: 15_000,
+  });
+  const bannedGroupParticipants = groupBansQuery.data ?? [];
   const refreshPushNotifications = useEffectEvent(async () => {
     const nextState = await getPushNotificationState(session.token);
     setPushNotificationState(nextState);
@@ -1020,14 +1085,41 @@ export function NorthMessengerWorkspace({
     setSelectedMessageIds([]);
     setIsDeleteSelectedMessagesDialogOpen(false);
   }, [activeChat?.id]);
-  const hydratedPinnedMessage =
-    activeChat?.pinnedMessage &&
-    messages.find((message) => message.id === activeChat.pinnedMessage?.id)
-      ? toMessageSnippet(
-          messages.find((message) => message.id === activeChat.pinnedMessage?.id)!
-        )
-      : null;
-  const activePinnedMessage = hydratedPinnedMessage ?? activeChat?.pinnedMessage ?? null;
+  const activePinnedMessages = useMemo(() => {
+    const pinnedMessages = getChatPinnedMessages(activeChat);
+    if (pinnedMessages.length === 0) {
+      return [];
+    }
+
+    const messagesById = new Map(messages.map((message) => [message.id, message] as const));
+    return pinnedMessages.map((pinnedMessage) => {
+      const hydratedMessage = messagesById.get(pinnedMessage.id);
+      return hydratedMessage ? toMessageSnippet(hydratedMessage) : pinnedMessage;
+    });
+  }, [activeChat, messages]);
+  const activePinnedMessageIdSet = useMemo(
+    () => new Set(activePinnedMessages.map((message) => message.id)),
+    [activePinnedMessages]
+  );
+  useEffect(() => {
+    if (activePinnedMessages.length === 0) {
+      setActivePinnedMessageId(null);
+      return;
+    }
+
+    setActivePinnedMessageId((current) =>
+      current && activePinnedMessages.some((message) => message.id === current)
+        ? current
+        : activePinnedMessages[0]!.id
+    );
+  }, [activePinnedMessages]);
+  const activePinnedMessage =
+    activePinnedMessages.find((message) => message.id === activePinnedMessageId) ??
+    activePinnedMessages[0] ??
+    null;
+  const activePinnedMessageIndex = activePinnedMessage
+    ? activePinnedMessages.findIndex((message) => message.id === activePinnedMessage.id)
+    : -1;
   const forwardableChats = visibleChats.filter((chat) => chat.id !== activeChat?.id);
   const canDeleteContextMenuMessageForSelf = Boolean(contextMenuMessage && activeChat?.direct);
   const showDeleteContextMenuMessageForEveryone = Boolean(
@@ -1056,8 +1148,9 @@ export function NorthMessengerWorkspace({
       activeChat &&
       contextMenuMessage.id !== contextMenuMessage.clientMessageId
   );
-  const isPinnedContextMenuMessage =
-    Boolean(contextMenuMessage && activeChat?.pinnedMessage?.id === contextMenuMessage.id);
+  const isPinnedContextMenuMessage = Boolean(
+    contextMenuMessage && activePinnedMessageIdSet.has(contextMenuMessage.id)
+  );
   const deleteForEveryoneLabel = activeChat?.direct
     ? "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0434\u043B\u044F \u043E\u0431\u043E\u0438\u0445"
     : "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0434\u043B\u044F \u0432\u0441\u0435\u0445";
@@ -1103,21 +1196,6 @@ export function NorthMessengerWorkspace({
     sendMessageMutation.reset();
     editMessageMutation.reset();
   }, [activeChatId, session.sessionId, session.user.id]);
-
-  useEffect(() => {
-    if (
-      !pendingGroupMenuOpenChatId ||
-      activeChatId !== pendingGroupMenuOpenChatId ||
-      !activeChat ||
-      activeChat.direct
-    ) {
-      return;
-    }
-
-    setIsChatMenuOpen(true);
-    setIsChatMembersOpen(false);
-    setPendingGroupMenuOpenChatId(null);
-  }, [activeChat, activeChatId, pendingGroupMenuOpenChatId]);
 
   useEffect(() => {
     setConferenceRecordingState("idle");
@@ -1303,28 +1381,34 @@ export function NorthMessengerWorkspace({
       openChat,
     });
 
-  const jumpToAttachmentSourceMessage = useEffectEvent(
-    (chatId: string, item: SourceMessageJumpTarget) => {
+  const jumpToSourceMessageTarget = useEffectEvent(
+    (chatId: string, target: SourceMessageJumpTarget) => {
       const targetMessageLoaded =
-        activeChatId === chatId && messages.some((message) => message.id === item.messageId);
+        activeChatId === chatId && messages.some((message) => message.id === target.messageId);
 
       if (targetMessageLoaded) {
         setPendingMessageJump(null);
         setInitialChatViewportHint(null);
         openChat(chatId);
         setInitialChatViewportHint(null);
-        scrollToMessage(chatId, item.messageId);
+        scrollToMessage(chatId, target.messageId);
         return;
       }
 
       setPendingMessageJump({
         chatId,
-        messageId: item.messageId,
-        initialCursor: buildAttachmentMessageJumpCursor(item.messageServerOrder),
+        messageId: target.messageId,
+        initialCursor: buildAttachmentMessageJumpCursor(target.messageServerOrder),
       });
       setInitialChatViewportHint(null);
       openChat(chatId);
       setInitialChatViewportHint(null);
+    }
+  );
+
+  const jumpToAttachmentSourceMessage = useEffectEvent(
+    (chatId: string, item: SourceMessageJumpTarget) => {
+      jumpToSourceMessageTarget(chatId, item);
     }
   );
 
@@ -1383,7 +1467,7 @@ export function NorthMessengerWorkspace({
     toggleReactionFromContextMenu,
   } = useMessageActions({
     activeChat,
-    activePinnedMessageId: activeChat?.pinnedMessage?.id ?? null,
+    activePinnedMessageIdSet,
     applyChatPreviewMessage,
     applyServerChatPreviewMessage,
     chats,
@@ -1412,7 +1496,8 @@ export function NorthMessengerWorkspace({
     setForwardingMessageIds,
     setReplyingToMessageId,
     stopTyping,
-    syncChatPinnedSummary,
+    removeChatPinnedMessage,
+    syncChatPinnedMessage,
     syncChatPreviewFromCache,
   });
 
@@ -1530,6 +1615,7 @@ export function NorthMessengerWorkspace({
     submitUpdateGroupPrejoinHistoryPolicy,
     submitProfileDisplayName,
     toggleArchiveChat,
+    unbanGroupParticipantMutation,
     updateArchivedChatMutation,
     updateConferenceMutation,
     updateGroupMutation,
@@ -1594,6 +1680,8 @@ export function NorthMessengerWorkspace({
   const emailVerificationError = resendOwnEmailVerificationMutation.error
     ? describeError(resendOwnEmailVerificationMutation.error)
     : null;
+  const mailboxMutationError = addMailboxMutation.error ?? removeMailboxMutation.error;
+  const mailboxError = mailboxMutationError ? describeError(mailboxMutationError) : null;
 
   useEffect(() => {
     if (sidebarSheet === "profile") {
@@ -1604,6 +1692,19 @@ export function NorthMessengerWorkspace({
     setPasswordChangeNext("");
     setPasswordChangeConfirm("");
   }, [sidebarSheet]);
+
+  const handleAddMailbox = useEffectEvent(() => {
+    const nextEmail = mailboxEmailInput.trim();
+    if (!nextEmail) {
+      return;
+    }
+
+    addMailboxMutation.mutate(nextEmail);
+  });
+
+  const handleRemoveMailbox = useEffectEvent((mailboxId: string) => {
+    removeMailboxMutation.mutate(mailboxId);
+  });
 
   const uploadAvatarFromFile = useEffectEvent(async (file: File) => {
     try {
@@ -1704,7 +1805,10 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    createConferenceInviteLinkMutation.mutate(activeConference.id);
+    createConferenceInviteLinkMutation.mutate({
+      conferenceId: activeConference.id,
+      refresh: Boolean(conferenceInviteCodesById[activeConference.id]),
+    });
   });
 
   const handleSubmitUpdateGroup = useEffectEvent(() => {
@@ -1768,6 +1872,18 @@ export function NorthMessengerWorkspace({
     }
 
     banGroupParticipantMutation.mutate(participant);
+  });
+
+  const handleUnbanParticipantAction = useEffectEvent((participant: Participant) => {
+    if (!activeChat || activeChat.direct || !activeChatCanModerateMembers) {
+      return;
+    }
+
+    if (!window.confirm(`Снять бан с ${participant.displayName}?`)) {
+      return;
+    }
+
+    unbanGroupParticipantMutation.mutate(participant);
   });
 
   const handleRemoveParticipantAction = useEffectEvent((participant: Participant) => {
@@ -1956,7 +2072,7 @@ export function NorthMessengerWorkspace({
     hasEditingMessage: Boolean(editingMessage),
     hasForwardingMessages: forwardingMessages.length > 0,
     hasReplyingMessage: Boolean(replyingToMessage),
-    hydratedPinnedMessage,
+    hydratedPinnedMessages: activePinnedMessages,
     lastMessage,
     lastMessageId,
     messageCount: messages.length,
@@ -1981,7 +2097,7 @@ export function NorthMessengerWorkspace({
     setReplyingToMessageId,
     setSidebarSheet,
     sidebarSheet,
-    syncChatPinnedSummary,
+    syncChatPinnedMessages,
     uploadAvatarFromFile,
   });
 
@@ -1991,7 +2107,7 @@ export function NorthMessengerWorkspace({
     activeChatId,
     isActiveChatOpen,
     hasActiveComposerTextRef,
-    activePinnedMessageId: activeChat?.pinnedMessage?.id ?? null,
+    activePinnedMessageIdSet,
     applyChatPreviewMessage,
     applyServerChatPreviewMessage,
     chatIdsKey,
@@ -2018,7 +2134,7 @@ export function NorthMessengerWorkspace({
     setReplyingToMessageId,
     setTypingByChatId,
     showIncomingToast,
-    syncChatPinnedSummary,
+    removeChatPinnedMessage,
     syncChatPreviewFromCache,
   });
 
@@ -2037,6 +2153,7 @@ export function NorthMessengerWorkspace({
   const { errorText, showContactSearchResults, tabChats, tabChatsEmptyText } = useWorkspaceStatus({
     activeListTab,
     contactSearch,
+    draftActivityByChatId,
     errors: [
       acceptInviteMutation.error,
       createChatMutation.error,
@@ -2075,6 +2192,8 @@ export function NorthMessengerWorkspace({
       removeContactMutation.error,
       blockUserMutation.error,
       unblockUserMutation.error,
+      addMailboxMutation.error,
+      removeMailboxMutation.error,
       workspaceBootstrapQuery.error,
       chatsQuery.error,
       sessionsQuery.error,
@@ -2082,6 +2201,7 @@ export function NorthMessengerWorkspace({
       archivedChatsQuery.error,
       contactsQuery.error,
       blockedUsersQuery.error,
+      mailboxesQuery.error,
       conferencesQuery.error,
       archivedConferencesQuery.error,
       draftsQuery.error,
@@ -2108,16 +2228,26 @@ export function NorthMessengerWorkspace({
         activeConferenceId={activeConference?.id ?? null}
         conferenceListScrollRef={conferenceListScrollRef}
         sessionUser={session.user}
+        addMailboxPending={addMailboxMutation.isPending}
         chatsLoading={chatsLoading}
+        mailboxError={mailboxError}
+        mailboxInput={mailboxEmailInput}
+        mailboxes={mailboxes}
+        mailboxesLoading={mailboxesLoading}
+        removeMailboxPending={removeMailboxMutation.isPending}
         tabChats={tabChats}
         tabChatsEmptyText={tabChatsEmptyText}
         activeChatId={activeChat?.id ?? null}
         liveGroupConferencesByChatId={liveGroupConferencesByChatId}
         typingByChatId={typingByChatId}
         draftsByChatId={draftsByChatId}
+        failedChatIds={failedChatIds}
         openConference={openConference}
         openChat={openChat}
         openChatContextMenu={openChatContextMenu}
+        onAddMailbox={handleAddMailbox}
+        onMailboxInputChange={setMailboxEmailInput}
+        onRemoveMailbox={handleRemoveMailbox}
         formatConferenceListPreview={formatConferenceListPreview}
         formatConferenceTileTime={formatConferenceTileTime}
         formatConferenceSchedule={formatConferenceSchedule}
@@ -2133,16 +2263,26 @@ export function NorthMessengerWorkspace({
       activeChat?.id,
       activeConference?.id,
       activeListTab,
+      addMailboxMutation.isPending,
       chatsLoading,
       conferenceBrowserMode,
       conferencesLoading,
       draftsByChatId,
+      failedChatIds,
+      handleAddMailbox,
+      handleRemoveMailbox,
       liveGroupConferencesByChatId,
+      mailboxEmailInput,
+      mailboxError,
+      mailboxes,
+      mailboxesLoading,
       normalizedSearch,
       openChat,
       openChatContextMenu,
       openConference,
+      removeMailboxMutation.isPending,
       session.user,
+      setMailboxEmailInput,
       tabChats,
       tabChatsEmptyText,
       toggleConferenceViewMode,
@@ -2219,6 +2359,9 @@ export function NorthMessengerWorkspace({
     forwardableChats,
     forwardContactOptions,
     forwardPending: forwardMessageMutation.isPending,
+    forwardErrorText: forwardMessageMutation.error
+      ? describeError(forwardMessageMutation.error)
+      : null,
     onClose: () => setSidebarSheet(null),
     onCloseConferenceComposer: () => {
       resetConferenceComposer();
@@ -2281,6 +2424,8 @@ export function NorthMessengerWorkspace({
     sessionsLoading,
     activeChat,
     activeConference,
+    bannedGroupParticipants,
+    groupBansLoading: groupBansQuery.isFetching && bannedGroupParticipants.length === 0,
     groupInviteLinkUrl: activeGroupInviteUrl,
     groupContacts,
     selectedGroupContacts,
@@ -2298,6 +2443,7 @@ export function NorthMessengerWorkspace({
     addConferenceParticipantsPending: addConferenceParticipantsMutation.isPending,
     updateGroupPending:
       updateGroupMutation.isPending || updateGroupHistoryPolicyMutation.isPending,
+    unbanGroupParticipantPending: unbanGroupParticipantMutation.isPending,
     createChatPending: createChatMutation.isPending,
     updateProfilePending: updateProfileMutation.isPending,
     changePasswordPending: changePasswordMutation.isPending,
@@ -2319,6 +2465,12 @@ export function NorthMessengerWorkspace({
     onProfileDisplayNameChange: setProfileDisplayName,
     onProfileProfessionChange: setProfileProfession,
     onSubmitProfileDisplayName: handleSubmitProfileDisplayName,
+    onSetMailEnabled: (mailEnabled) =>
+      updateProfileMutation.mutate({
+        displayName: profile.displayName,
+        profession: profile.profession ?? null,
+        mailEnabled,
+      }),
     onPasswordChangeCurrentChange: setPasswordChangeCurrent,
     onPasswordChangeNextChange: setPasswordChangeNext,
     onPasswordChangeConfirmChange: setPasswordChangeConfirm,
@@ -2343,6 +2495,7 @@ export function NorthMessengerWorkspace({
     onToggleGroupInvitePicker: () => setIsGroupInvitePickerOpen((current) => !current),
     onToggleGroupInviteParticipant: toggleGroupInviteParticipant,
     onSubmitAddGroupParticipants: submitAddGroupParticipants,
+    onUnbanParticipant: handleUnbanParticipantAction,
     onGenerateGroupInviteLink: handleGenerateGroupInviteLink,
     onCopyGroupInviteLink: (value) => void navigator.clipboard.writeText(value),
     onToggleConferenceInviteParticipant: toggleConferenceInviteParticipant,
@@ -2415,6 +2568,8 @@ export function NorthMessengerWorkspace({
           conversationSubtitle,
           showTypingIndicator,
           activePinnedMessage,
+          activePinnedMessageIndex,
+          activePinnedMessageCount: activePinnedMessages.length,
           timelineItems,
           messagesLoading,
           hasNextPage: Boolean(messagesQuery.hasNextPage),
@@ -2447,14 +2602,37 @@ export function NorthMessengerWorkspace({
           onCloseChat: closeActiveChat,
           onJumpToPinned: () => {
             if (activePinnedMessage) {
-              scrollToMessage(activeChat.id, activePinnedMessage.id);
+              jumpToSourceMessageTarget(activeChat.id, {
+                messageId: activePinnedMessage.id,
+                messageServerOrder: activePinnedMessage.serverOrder ?? null,
+              });
             }
           },
+          onSelectPreviousPinned: () => {
+            if (activePinnedMessages.length <= 1 || activePinnedMessageIndex <= 0) {
+              return;
+            }
+
+            setActivePinnedMessageId(activePinnedMessages[activePinnedMessageIndex - 1]!.id);
+          },
+          onSelectNextPinned: () => {
+            if (
+              activePinnedMessages.length <= 1 ||
+              activePinnedMessageIndex < 0 ||
+              activePinnedMessageIndex >= activePinnedMessages.length - 1
+            ) {
+              return;
+            }
+
+            setActivePinnedMessageId(activePinnedMessages[activePinnedMessageIndex + 1]!.id);
+          },
           onUnpin: () =>
-            pinMessageMutation.mutate({
-              chatId: activeChat.id,
-              messageId: null,
-            }),
+            activePinnedMessage
+              ? pinMessageMutation.mutate({
+                  chatId: activeChat.id,
+                  messageId: activePinnedMessage.id,
+                })
+              : undefined,
           onLoadOlderMessages: loadOlderMessages,
           onOpenMessageContextMenu: openMessageContextMenu,
           onToggleReaction: toggleReactionForMessage,
@@ -2546,14 +2724,17 @@ export function NorthMessengerWorkspace({
     (!activeConference || isConferenceMinimized) && activeChat && isChatMembersOpen
       ? {
           activeChat,
+          bannedParticipants: bannedGroupParticipants,
           activeConferenceParticipantUserIds: [...activeChatLiveParticipantIdSet],
           sessionUserId: session.user.id,
           createChatPending: createChatMutation.isPending,
           addGroupParticipantsPending: addGroupParticipantsMutation.isPending,
           banGroupParticipantPending: banGroupParticipantMutation.isPending,
+          groupBansLoading: groupBansQuery.isFetching && bannedGroupParticipants.length === 0,
           removeGroupParticipantPending: removeGroupParticipantMutation.isPending,
           assignModeratorPending: assignGroupModeratorMutation.isPending,
           revokeModeratorPending: revokeGroupModeratorMutation.isPending,
+          unbanGroupParticipantPending: unbanGroupParticipantMutation.isPending,
           canAddMembers: activeChatCanAddMembers,
           canManageRoles: activeChatCanManageRoles,
           canModerateMembers: activeChatCanModerateMembers,
@@ -2567,6 +2748,7 @@ export function NorthMessengerWorkspace({
           onToggleGroupInviteParticipant: toggleGroupInviteParticipant,
           onSubmitAddGroupParticipants: submitAddGroupParticipants,
           onBanParticipant: handleBanParticipantAction,
+          onUnbanParticipant: handleUnbanParticipantAction,
           onRemoveParticipant: handleRemoveParticipantAction,
           onAssignModerator: handleAssignModeratorAction,
           onRevokeModerator: handleRevokeModeratorAction,
@@ -2640,6 +2822,7 @@ export function NorthMessengerWorkspace({
         onToggleMenu={() => setIsMenuOpen((current) => !current)}
         search={search}
         showChatsTabIndicator={showChatsTabIndicator}
+        showMailTab={showMailTab}
         showConferencesTabIndicator={showConferencesTabIndicator}
         showTopSearchResults={showTopSearchResults}
         sidebarManagementSheetProps={sidebarManagementSheetProps}
@@ -2681,6 +2864,13 @@ export function NorthMessengerWorkspace({
 
 function isTransientSendConfirmationError(error: unknown) {
   return error instanceof ApiError && [0, 503, 504].includes(error.status);
+}
+
+function normalizeConversationListTabForProfile(
+  tab: ConversationListTab,
+  mailEnabled: boolean | undefined
+): ConversationListTab {
+  return !mailEnabled && tab === "mail" ? "chats" : tab;
 }
 
 async function readCurrentBuildRevision(): Promise<BuildRevisionMeta | null> {

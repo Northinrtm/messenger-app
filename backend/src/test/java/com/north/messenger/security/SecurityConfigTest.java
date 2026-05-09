@@ -12,6 +12,7 @@ import com.north.messenger.api.dto.UserProfileResponse;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.auth.EmailVerificationService;
 import com.north.messenger.application.auth.PasswordResetService;
+import com.north.messenger.application.auth.UserMailboxService;
 import com.north.messenger.security.RefreshTokenCookieService;
 import java.time.Instant;
 import java.util.UUID;
@@ -70,6 +71,9 @@ class SecurityConfigTest {
 
     @MockitoBean
     private EmailVerificationService emailVerificationService;
+
+    @MockitoBean
+    private UserMailboxService userMailboxService;
 
     @Test
     void shouldRejectAnonymousAccessToAuthenticatedAuthEndpoints() throws Exception {

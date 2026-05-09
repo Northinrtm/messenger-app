@@ -13,4 +13,6 @@ public interface ChatRoomBanRepository extends JpaRepository<ChatRoomBan, UUID> 
     Optional<ChatRoomBan> findByChatIdAndUserId(UUID chatId, UUID userId);
 
     List<ChatRoomBan> findAllByChatId(UUID chatId);
+
+    void deleteByChatIdAndUserId(UUID chatId, UUID userId);
 }

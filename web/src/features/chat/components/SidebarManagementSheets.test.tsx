@@ -26,6 +26,7 @@ function buildProps(
       email: "north@example.com",
       emailVerified: true,
       emailVerificationEnabled: true,
+      mailEnabled: true,
     },
     sessionUser: {
       id: "user-1",
@@ -38,6 +39,7 @@ function buildProps(
       email: "north@example.com",
       emailVerified: true,
       emailVerificationEnabled: true,
+      mailEnabled: true,
     },
     profileDisplayName: "North",
     profileProfession: "",
@@ -68,6 +70,8 @@ function buildProps(
     currentSessionId: "session-1",
     activeChat: null,
     activeConference: null,
+    bannedGroupParticipants: [],
+    groupBansLoading: false,
     groupInviteLinkUrl: null,
     groupContacts: [],
     selectedGroupContacts: [],
@@ -84,6 +88,7 @@ function buildProps(
     addGroupParticipantsPending: false,
     addConferenceParticipantsPending: false,
     updateGroupPending: false,
+    unbanGroupParticipantPending: false,
     createChatPending: false,
     updateProfilePending: false,
     changePasswordPending: false,
@@ -116,6 +121,7 @@ function buildProps(
     onResendEmailVerification: noop,
     onEnablePushNotifications: noop,
     onDisablePushNotifications: noop,
+    onSetMailEnabled: noop,
     onGroupTitleChange: noop,
     onGroupDetailsTitleChange: noop,
     onGroupDetailsPrejoinHistoryPolicyChange: noop,
@@ -129,6 +135,7 @@ function buildProps(
     onToggleGroupInvitePicker: noop,
     onToggleGroupInviteParticipant: noop,
     onSubmitAddGroupParticipants: noop,
+    onUnbanParticipant: noop,
     onGenerateGroupInviteLink: noop,
     onCopyGroupInviteLink: noop,
     onToggleConferenceInviteParticipant: noop,
@@ -265,5 +272,198 @@ describe("SidebarManagementSheets group info sheet", () => {
     });
 
     expect(onGroupDetailsPrejoinHistoryPolicyChange).toHaveBeenCalledWith("FULL_HISTORY");
+  });
+});
+
+describe("SidebarManagementSheets contacts search", () => {
+  let container: HTMLDivElement;
+  let root: Root | null;
+
+  beforeEach(() => {
+    (globalThis as ReactActEnvironment).IS_REACT_ACT_ENVIRONMENT = true;
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root?.unmount();
+    });
+    root = null;
+    container.remove();
+    (globalThis as ReactActEnvironment).IS_REACT_ACT_ENVIRONMENT = false;
+  });
+
+  it("closes the contact search dropdown on blur but keeps it open when focus moves to a result action", async () => {
+    await act(async () => {
+      root!.render(
+        <SidebarManagementSheets
+          {...buildProps({
+            sheet: "contacts",
+            contactSearch: "north",
+            showContactSearchResults: true,
+            contactSearchResults: [
+              {
+                id: "user-2",
+                username: "northwind",
+                displayName: "Northwind",
+                profession: null,
+                createdAt: "2026-04-18T08:00:00Z",
+                avatarUrl: null,
+                online: true,
+              },
+            ],
+          })}
+        />
+      );
+    });
+
+    const input = container.querySelector(".contact-search-shell input") as HTMLInputElement | null;
+    if (!input) {
+      throw new Error("Contact search input is missing");
+    }
+
+    await act(async () => {
+      input.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    });
+
+    expect(container.querySelector(".contact-search-dropdown")).not.toBeNull();
+
+    const addButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Добавить")
+    ) as HTMLButtonElement | undefined;
+    if (!addButton) {
+      throw new Error("Contact result action is missing");
+    }
+
+    await act(async () => {
+      input.dispatchEvent(
+        new FocusEvent("focusout", {
+          bubbles: true,
+          relatedTarget: addButton,
+        })
+      );
+    });
+
+    expect(container.querySelector(".contact-search-dropdown")).not.toBeNull();
+
+    const outsideButton = document.createElement("button");
+    document.body.appendChild(outsideButton);
+    try {
+      await act(async () => {
+        input.dispatchEvent(
+          new FocusEvent("focusout", {
+            bubbles: true,
+            relatedTarget: outsideButton,
+          })
+        );
+      });
+    } finally {
+      outsideButton.remove();
+    }
+
+    expect(container.querySelector(".contact-search-dropdown")).toBeNull();
+  });
+});
+
+describe("SidebarManagementSheets group members bans", () => {
+  let container: HTMLDivElement;
+  let root: Root | null;
+
+  beforeEach(() => {
+    (globalThis as ReactActEnvironment).IS_REACT_ACT_ENVIRONMENT = true;
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root?.unmount();
+    });
+    root = null;
+    container.remove();
+    (globalThis as ReactActEnvironment).IS_REACT_ACT_ENVIRONMENT = false;
+  });
+
+  it("renders banned participants and unbans them from the group members sheet", async () => {
+    const onUnbanParticipant = vi.fn();
+
+    await act(async () => {
+      root!.render(
+        <SidebarManagementSheets
+          {...buildProps({
+            sheet: "groupMembers",
+            activeChat: {
+              id: "chat-1",
+              direct: false,
+              title: "Team",
+              avatarUrl: null,
+              chatVersion: "chat-version-1",
+              capabilities: {
+                canEditGroup: true,
+                canDeleteGroup: true,
+                canManageInviteLink: true,
+                canAddMembers: true,
+                canManageRoles: true,
+                canModerateMembers: true,
+                canTogglePrejoinHistory: true,
+                canLeaveGroup: false,
+              },
+              ownerUserId: "user-1",
+              moderatorUserIds: [],
+              members: [
+                {
+                  id: "user-1",
+                  username: "north",
+                  displayName: "North",
+                  profession: null,
+                  avatarUrl: null,
+                  online: true,
+                },
+              ],
+              lastMessage: null,
+              lastMessageAt: null,
+              updatedAt: "2026-04-29T10:00:00Z",
+              unreadCount: 0,
+              membershipVersion: 1,
+              pinnedMessage: null,
+              prejoinHistoryPolicy: "JOIN_ONLY",
+            },
+            bannedGroupParticipants: [
+              {
+                id: "user-2",
+                username: "alice",
+                displayName: "Alice",
+                profession: null,
+                avatarUrl: null,
+                online: false,
+              },
+            ],
+            onUnbanParticipant,
+          })}
+        />
+      );
+    });
+
+    expect(container.textContent).toContain("Alice");
+    const unbanButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Разбанить")
+    );
+    if (!unbanButton) {
+      throw new Error("Unban button is missing");
+    }
+
+    await act(async () => {
+      unbanButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(onUnbanParticipant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "user-2",
+        username: "alice",
+      })
+    );
   });
 });

@@ -39,6 +39,9 @@ function readOptionalString(value: unknown) {
 }
 
 function readConversationListTab(value: unknown): ConversationListTab {
+  if (value === "mail") {
+    return "mail";
+  }
   return value === "conferences" ? "conferences" : "chats";
 }
 

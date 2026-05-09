@@ -3,14 +3,17 @@ import { AvatarCircle } from "./AvatarCircle";
 
 type Props = {
   activeChat: ChatSummary;
+  bannedParticipants: Participant[];
   activeConferenceParticipantUserIds: string[];
   sessionUserId: string;
   createChatPending: boolean;
   addGroupParticipantsPending: boolean;
   banGroupParticipantPending: boolean;
+  groupBansLoading: boolean;
   removeGroupParticipantPending: boolean;
   assignModeratorPending: boolean;
   revokeModeratorPending: boolean;
+  unbanGroupParticipantPending: boolean;
   canAddMembers: boolean;
   canManageRoles: boolean;
   canModerateMembers: boolean;
@@ -24,6 +27,7 @@ type Props = {
   onToggleGroupInviteParticipant: (username: string) => void;
   onSubmitAddGroupParticipants: () => void;
   onBanParticipant: (participant: Participant) => void;
+  onUnbanParticipant: (participant: Participant) => void;
   onRemoveParticipant: (participant: Participant) => void;
   onAssignModerator: (participant: Participant) => void;
   onRevokeModerator: (participant: Participant) => void;
@@ -41,14 +45,17 @@ function renderMemberCount(count: number) {
 
 export function ChatMembersPanel({
   activeChat,
+  bannedParticipants,
   activeConferenceParticipantUserIds,
   sessionUserId,
   createChatPending,
   addGroupParticipantsPending,
   banGroupParticipantPending,
+  groupBansLoading,
   removeGroupParticipantPending,
   assignModeratorPending,
   revokeModeratorPending,
+  unbanGroupParticipantPending,
   canAddMembers,
   canManageRoles,
   canModerateMembers,
@@ -62,6 +69,7 @@ export function ChatMembersPanel({
   onToggleGroupInviteParticipant,
   onSubmitAddGroupParticipants,
   onBanParticipant,
+  onUnbanParticipant,
   onRemoveParticipant,
   onAssignModerator,
   onRevokeModerator,
@@ -258,6 +266,44 @@ export function ChatMembersPanel({
           );
         })}
       </div>
+      {canModerateMembers ? (
+        <div className="chat-members-panel-list">
+          <div className="sheet-section">
+            <div className="section-title">Заблокированные участники</div>
+            {groupBansLoading ? (
+              <div className="empty-list">Загружаем список банов...</div>
+            ) : bannedParticipants.length === 0 ? (
+              <div className="empty-list">Список банов пуст.</div>
+            ) : (
+              bannedParticipants.map((participant) => (
+                <div key={participant.id} className="sheet-row sheet-row-with-avatar">
+                  <AvatarCircle
+                    className="menu-row-avatar sheet-contact-avatar"
+                    name={participant.displayName}
+                    avatarUrl={participant.avatarUrl}
+                    online={participant.online}
+                  />
+                  <div className="sheet-row-copy">
+                    <strong>{participant.displayName}</strong>
+                    <span>@{participant.username}</span>
+                  </div>
+                  <div className="sheet-row-actions">
+                    <button
+                      type="button"
+                      className="ghost-button compact"
+                      disabled={unbanGroupParticipantPending}
+                      onClick={() => onUnbanParticipant(participant)}
+                    >
+                      Разбанить
+                    </button>
+                    <span className="member-pill">В бане</span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -17,6 +17,7 @@ const defaultPushNotificationProps = {
   pushNotificationsError: null,
   onEnablePushNotifications: () => {},
   onDisablePushNotifications: () => {},
+  onSetMailEnabled: () => {},
 };
 
 describe("ProfileSettingsCard email status", () => {
@@ -54,6 +55,7 @@ describe("ProfileSettingsCard email status", () => {
             email: "north@example.com",
             emailVerified: false,
             emailVerificationEnabled: false,
+            mailEnabled: true,
           }}
           profileDisplayName="North"
           profileProfession=""

@@ -44,7 +44,17 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, UUID> 
                 lower(user.username) like lower(concat('%', :query, '%'))
                 or lower(user.displayName) like lower(concat('%', :query, '%'))
               )
-            order by user.displayName asc, user.username asc
+            order by
+              case
+                when lower(user.username) = lower(:query) then 0
+                when lower(user.displayName) = lower(:query) then 1
+                when lower(user.username) like lower(concat(:query, '%')) then 2
+                when lower(user.displayName) like lower(concat(:query, '%')) then 3
+                when lower(user.username) like lower(concat('%', :query, '%')) then 4
+                else 5
+              end asc,
+              user.displayName asc,
+              user.username asc
             """)
     List<UserAccount> searchByUsernameOrDisplayName(
             @Param("excludeUserId") UUID excludeUserId,

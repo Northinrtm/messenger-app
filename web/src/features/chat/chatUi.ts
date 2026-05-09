@@ -12,7 +12,7 @@ export type SidebarSheet =
   | "forward"
   | null;
 
-export type ConversationListTab = "chats" | "conferences";
+export type ConversationListTab = "chats" | "mail" | "conferences";
 
 export type MenuActionId =
   | "conference"

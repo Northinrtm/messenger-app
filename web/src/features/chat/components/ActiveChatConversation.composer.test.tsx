@@ -102,6 +102,8 @@ function conversationProps(
     conversationSubtitle: "subtitle",
     showTypingIndicator: false,
     activePinnedMessage: null,
+    activePinnedMessageIndex: 0,
+    activePinnedMessageCount: 0,
     timelineItems: [],
     messagesLoading: false,
     hasNextPage: false,
@@ -127,6 +129,8 @@ function conversationProps(
     onStartOrJoinGroupConference: () => {},
     onCloseChat: () => {},
     onJumpToPinned: () => {},
+    onSelectPreviousPinned: () => {},
+    onSelectNextPinned: () => {},
     onUnpin: () => {},
     onLoadOlderMessages: () => {},
     onOpenMessageContextMenu: () => {},
@@ -359,6 +363,43 @@ describe("ActiveChatConversation composer", () => {
     });
 
     expect(textarea.value).toBe("2");
+  });
+
+  it("keeps the focused composer text when a stale parent draft arrives during typing activity", async () => {
+    const props = conversationProps({
+      activeDraft: "hello",
+    });
+
+    await act(async () => {
+      root!.render(<ActiveChatConversation {...props} />);
+      await Promise.resolve();
+    });
+
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement | null;
+    if (!textarea) {
+      throw new Error("Composer textarea is missing");
+    }
+
+    await act(async () => {
+      textarea.focus();
+      await Promise.resolve();
+    });
+
+    expect(document.activeElement).toBe(textarea);
+
+    await act(async () => {
+      root!.render(
+        <ActiveChatConversation
+          {...props}
+          activeDraft=""
+          showTypingIndicator
+          conversationSubtitle="Anna is typing"
+        />
+      );
+      await Promise.resolve();
+    });
+
+    expect(textarea.value).toBe("hello");
   });
 
   it("commits the previous local draft and loads the next chat draft on chat switch", async () => {
@@ -697,5 +738,96 @@ describe("ActiveChatConversation composer", () => {
 
     expect(onToggleChatMenu).toHaveBeenCalledTimes(1);
     expect(onOpenMembers).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders failed direct messages with inline bottom meta so retry does not overlap the timestamp", async () => {
+    await act(async () => {
+      root!.render(
+        <ActiveChatConversation
+          {...conversationProps({
+            timelineItems: [
+              {
+                type: "message",
+                key: "message-1",
+                message: chatMessage({
+                  status: {
+                    state: "FAILED",
+                    recipientCount: 1,
+                    deliveredCount: 0,
+                    readCount: 0,
+                  },
+                  clientMessageId: "client-1",
+                }),
+              },
+            ],
+          })}
+        />
+      );
+      await Promise.resolve();
+    });
+
+    const failedOwnBubble = container.querySelector(
+      ".message-row.is-direct.is-mine .message-bubble.has-inline-meta"
+    );
+    const inlineMeta = container.querySelector(
+      ".message-row.is-direct.is-mine .message-meta-clone.is-inline"
+    );
+    const retryButton = container.querySelector(".message-retry-button");
+
+    expect(failedOwnBubble).not.toBeNull();
+    expect(inlineMeta).not.toBeNull();
+    expect(retryButton?.textContent).toContain("Retry");
+  });
+
+  it("renders pinned banner navigation for multiple pinned messages", async () => {
+    const onJumpToPinned = vi.fn();
+    const onSelectPreviousPinned = vi.fn();
+    const onSelectNextPinned = vi.fn();
+    const onUnpin = vi.fn();
+
+    await act(async () => {
+      root!.render(
+        <ActiveChatConversation
+          {...conversationProps({
+            activePinnedMessage: {
+              id: "message-2",
+              sender: participant({ id: "user-2", username: "anna", displayName: "Anna" }),
+              createdAt: "2026-04-19T10:10:00.000Z",
+              preview: "Pinned preview",
+              serverOrder: 12,
+            },
+            activePinnedMessageIndex: 1,
+            activePinnedMessageCount: 3,
+            onJumpToPinned,
+            onSelectPreviousPinned,
+            onSelectNextPinned,
+            onUnpin,
+          })}
+        />
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Закрепленное сообщение 2/3");
+    expect(container.textContent).toContain("Pinned preview");
+
+    const navButtons = container.querySelectorAll(".pinned-message-nav-button");
+    const jumpButton = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Перейти")
+    );
+    const unpinButton = container.querySelector(".pinned-message-close") as HTMLButtonElement | null;
+
+    await act(async () => {
+      (navButtons[0] as HTMLButtonElement).click();
+      (navButtons[1] as HTMLButtonElement).click();
+      jumpButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      unpinButton?.click();
+      await Promise.resolve();
+    });
+
+    expect(onSelectPreviousPinned).toHaveBeenCalledTimes(1);
+    expect(onSelectNextPinned).toHaveBeenCalledTimes(1);
+    expect(onJumpToPinned).toHaveBeenCalledTimes(1);
+    expect(onUnpin).toHaveBeenCalledTimes(1);
   });
 });

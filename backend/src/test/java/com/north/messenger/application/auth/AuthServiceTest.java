@@ -34,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -361,6 +362,33 @@ class AuthServiceTest {
     }
 
     @Test
+    void updateProfileShouldKeepMailVisibilityWhenFlagIsOmitted() {
+        UserAccount user = userAccount("north");
+        user.updateMailEnabled(false);
+        when(userAccountRepository.findByUsernameIgnoreCase("north")).thenReturn(Optional.of(user));
+        when(userAccountRepository.existsByDisplayNameIgnoreCaseAndIdNot("North River", user.getId())).thenReturn(false);
+
+        var profile = authService.updateProfile("north", "North River", null, null);
+
+        assertThat(profile.displayName()).isEqualTo("North River");
+        assertThat(profile.mailEnabled()).isFalse();
+        assertThat(user.isMailEnabled()).isFalse();
+    }
+
+    @Test
+    void updateProfileShouldApplyMailVisibilityWhenFlagIsProvided() {
+        UserAccount user = userAccount("north");
+        when(userAccountRepository.findByUsernameIgnoreCase("north")).thenReturn(Optional.of(user));
+        when(userAccountRepository.existsByDisplayNameIgnoreCaseAndIdNot("North", user.getId())).thenReturn(false);
+
+        var profile = authService.updateProfile("north", "North", "Builder", false);
+
+        assertThat(profile.profession()).isEqualTo("Builder");
+        assertThat(profile.mailEnabled()).isFalse();
+        assertThat(user.isMailEnabled()).isFalse();
+    }
+
+    @Test
     void logoutShouldOnlyRevokeSession() {
         UserAccount user = userAccount("north");
         UUID sessionId = UUID.randomUUID();
@@ -438,8 +466,8 @@ class AuthServiceTest {
 
         verify(userAccountRepository).delete(user);
         verify(userAccountRepository).flush();
-        verify(chatRoomRepository).deleteDirectRoomsWithFewerThanTwoParticipants();
         verify(chatRoomRepository).deleteRoomsWithoutParticipants();
+        verify(chatRoomRepository, never()).deleteDirectRoomsWithFewerThanTwoParticipants();
         verify(eventPublisher, times(2)).publishEvent(any(SessionRevokedEvent.class));
     }
 
@@ -623,6 +651,52 @@ class AuthServiceTest {
 
         assertThat(user.getPasswordHash()).isEqualTo("new-password-hash");
         assertThat(user.getPasswordVersion()).isEqualTo(2L);
+    }
+
+    @Test
+    void changePasswordShouldRequireNewPasswordForNextLogin() {
+        UserAccount user = userAccount("north");
+        ChangePasswordRequest request = new ChangePasswordRequest(
+                "current-password",
+                "HarborKey9!"
+        );
+
+        when(userAccountRepository.findByUsernameIgnoreCase("north")).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches(anyString(), anyString())).thenAnswer(invocation -> {
+            String rawPassword = invocation.getArgument(0);
+            String encodedPassword = invocation.getArgument(1);
+            return switch (encodedPassword) {
+                case "password-hash" -> "current-password".equals(rawPassword);
+                case "new-password-hash" -> "HarborKey9!".equals(rawPassword);
+                default -> false;
+            };
+        });
+        when(passwordEncoder.encode("HarborKey9!")).thenReturn("new-password-hash");
+        when(userSessionRepository.findAllByUserIdAndRevokedAtIsNullOrderByLastUsedAtDesc(user.getId()))
+                .thenReturn(java.util.List.of());
+        when(jwtService.issueAccessToken(eq(user), any(UUID.class), any(Instant.class))).thenAnswer(invocation -> {
+            Instant issuedAt = invocation.getArgument(2);
+            return new JwtService.IssuedAccessToken("password-changed-access-token", issuedAt.plus(Duration.ofHours(12)));
+        });
+
+        authService.changePassword("north", request);
+
+        assertThatThrownBy(() -> authService.login(new LoginRequest("North", "current-password"), null))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(exception -> {
+                    ResponseStatusException responseStatusException = (ResponseStatusException) exception;
+                    assertThat(responseStatusException.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+                    assertThat(responseStatusException.getReason()).isEqualTo("Invalid credentials");
+                });
+
+        AuthService.IssuedAuthSession issuedAuthSession = authService.login(
+                new LoginRequest("North", "HarborKey9!"),
+                null
+        );
+
+        assertThat(user.getPasswordHash()).isEqualTo("new-password-hash");
+        assertThat(issuedAuthSession.response().token()).isEqualTo("password-changed-access-token");
+        assertThat(issuedAuthSession.refreshToken()).startsWith(issuedAuthSession.response().sessionId() + ".");
     }
 
     @Test

@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  createConferenceInviteLink,
   getChatAttachmentBrowserPage,
   getChatLinkBrowserPage,
+  listGroupBans,
   register,
   requestPasswordReset,
   resendOwnEmailVerification,
+  unbanGroupParticipant,
 } from "./api";
 
 describe("api request helpers", () => {
@@ -157,6 +160,78 @@ describe("api request helpers", () => {
     expect(String(requestUrl)).toContain("cursor=101%7C2");
     expect(String(requestUrl)).toContain("limit=25");
     expect((requestInit.headers as Record<string, string>).Authorization).toBe(
+      "Bearer access-token"
+    );
+  });
+
+  it("requests conference invite link refresh with the refresh query flag", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          code: "+NEWCODE123456789",
+        }),
+        {
+          status: 200,
+          statusText: "OK",
+          headers: {
+            "content-type": "application/json",
+          },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await createConferenceInviteLink("access-token", "conference-1", { refresh: true });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [requestUrl, requestInit] = fetchSpy.mock.calls[0] as [RequestInfo | URL, RequestInit];
+    expect(String(requestUrl)).toContain("/api/invite-links/conferences/conference-1");
+    expect(String(requestUrl)).toContain("refresh=1");
+    expect(requestInit.method).toBe("POST");
+    expect((requestInit.headers as Record<string, string>).Authorization).toBe(
+      "Bearer access-token"
+    );
+  });
+
+  it("requests group bans and unbans with authenticated group endpoints", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          statusText: "OK",
+          headers: {
+            "content-type": "application/json",
+          },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 204,
+          statusText: "No Content",
+        })
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await listGroupBans("access-token", "chat-1");
+    await unbanGroupParticipant("access-token", "chat-1", "alice smith");
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+    const [listRequestUrl, listRequestInit] = fetchSpy.mock.calls[0] as [RequestInfo | URL, RequestInit];
+    expect(String(listRequestUrl)).toContain("/api/chats/chat-1/bans");
+    expect(listRequestInit.method ?? "GET").toBe("GET");
+    expect((listRequestInit.headers as Record<string, string>).Authorization).toBe(
+      "Bearer access-token"
+    );
+
+    const [unbanRequestUrl, unbanRequestInit] = fetchSpy.mock.calls[1] as [
+      RequestInfo | URL,
+      RequestInit,
+    ];
+    expect(String(unbanRequestUrl)).toContain("/api/chats/chat-1/bans/alice%20smith");
+    expect(unbanRequestInit.method).toBe("DELETE");
+    expect((unbanRequestInit.headers as Record<string, string>).Authorization).toBe(
       "Bearer access-token"
     );
   });

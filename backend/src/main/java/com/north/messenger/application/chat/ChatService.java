@@ -14,6 +14,7 @@ import com.north.messenger.application.message.MessagePreviewService;
 import com.north.messenger.application.message.RealtimeMessagingGateway;
 import com.north.messenger.observability.MessengerTelemetry;
 import com.north.messenger.domain.model.ChatMessage;
+import com.north.messenger.domain.model.ChatPinnedMessage;
 import com.north.messenger.domain.model.ChatParticipant;
 import com.north.messenger.domain.model.ChatPrejoinHistoryPolicy;
 import com.north.messenger.domain.model.ChatRoom;
@@ -24,10 +25,12 @@ import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.UserDeletedChat;
 import com.north.messenger.domain.model.UserDeletedMessage;
 import com.north.messenger.domain.repository.UserArchivedChatRepository;
+import com.north.messenger.domain.repository.ChatPinnedMessageRepository;
 import com.north.messenger.domain.repository.ChatMessageRepository;
 import com.north.messenger.domain.repository.ChatRoomBanRepository;
 import com.north.messenger.domain.repository.ChatParticipantRepository;
 import com.north.messenger.domain.repository.ChatRoomRepository;
+import com.north.messenger.domain.repository.MessageReactionRepository;
 import com.north.messenger.domain.repository.ChatRoomModeratorRepository;
 import com.north.messenger.domain.repository.MessageReceiptRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
@@ -64,7 +67,9 @@ public class ChatService {
     private final ChatRoomBanRepository chatRoomBanRepository;
     private final ChatRoomModeratorRepository chatRoomModeratorRepository;
     private final ChatParticipantRepository chatParticipantRepository;
+    private final ChatPinnedMessageRepository chatPinnedMessageRepository;
     private final ChatMessageRepository chatMessageRepository;
+    private final MessageReactionRepository messageReactionRepository;
     private final MessageReceiptRepository messageReceiptRepository;
     private final UserAccountRepository userAccountRepository;
     private final UserArchivedChatRepository userArchivedChatRepository;
@@ -82,7 +87,9 @@ public class ChatService {
             ChatRoomBanRepository chatRoomBanRepository,
             ChatRoomModeratorRepository chatRoomModeratorRepository,
             ChatParticipantRepository chatParticipantRepository,
+            ChatPinnedMessageRepository chatPinnedMessageRepository,
             ChatMessageRepository chatMessageRepository,
+            MessageReactionRepository messageReactionRepository,
             MessageReceiptRepository messageReceiptRepository,
             UserAccountRepository userAccountRepository,
             UserArchivedChatRepository userArchivedChatRepository,
@@ -99,7 +106,9 @@ public class ChatService {
         this.chatRoomBanRepository = chatRoomBanRepository;
         this.chatRoomModeratorRepository = chatRoomModeratorRepository;
         this.chatParticipantRepository = chatParticipantRepository;
+        this.chatPinnedMessageRepository = chatPinnedMessageRepository;
         this.chatMessageRepository = chatMessageRepository;
+        this.messageReactionRepository = messageReactionRepository;
         this.messageReceiptRepository = messageReceiptRepository;
         this.userAccountRepository = userAccountRepository;
         this.userArchivedChatRepository = userArchivedChatRepository;
@@ -209,7 +218,7 @@ public class ChatService {
 
         return findDirectChat(directChatPair, currentUser, participant)
                 .map(room -> {
-                    restoreDeletedChatStateForUsers(room.getId(), List.of(currentUser.getId()));
+                    reopenDeletedChatForUser(room, currentUser);
                     scheduleChatUpdated(room.getId());
                     return toSummary(room, currentUser.getId());
                 })
@@ -404,6 +413,59 @@ public class ChatService {
             scheduleChatRemoval(chatId, List.of(bannedUser.getUsername()));
             scheduleChatUpdated(chatId);
         }
+    }
+
+    @Transactional
+    public void unbanGroupParticipant(String username, UUID chatId, String unbannedUsername) {
+        UserAccount currentUser = authService.requireAuthenticatedUser(username);
+        ChatRoom room = requireChatMembership(chatId, currentUser);
+        if (room.isDirect()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Direct chat does not support bans");
+        }
+        requireGroupModeratorOrOwnerAccess(room, currentUser);
+
+        UserAccount unbannedUser = authService.requireExistingUser(unbannedUsername);
+        chatRoomBanRepository.deleteByChatIdAndUserId(chatId, unbannedUser.getId());
+        scheduleChatUpdated(chatId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ParticipantResponse> listGroupBans(String username, UUID chatId) {
+        UserAccount currentUser = authService.requireAuthenticatedUser(username);
+        ChatRoom room = requireChatMembership(chatId, currentUser);
+        if (room.isDirect()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Direct chat does not support bans");
+        }
+        requireGroupModeratorOrOwnerAccess(room, currentUser);
+
+        List<ChatRoomBan> bans = chatRoomBanRepository.findAllByChatId(chatId);
+        if (bans.isEmpty()) {
+            return List.of();
+        }
+
+        List<UUID> bannedUserIds = bans.stream()
+                .map(ChatRoomBan::getUserId)
+                .distinct()
+                .toList();
+        Map<UUID, UserAccount> usersById = findUsersById(bannedUserIds);
+        Map<UUID, Boolean> onlineByUserId = authService.resolveOnlineByUserIds(bannedUserIds);
+        LinkedHashMap<UUID, ParticipantResponse> participantsById = new LinkedHashMap<>();
+
+        bans.forEach(ban -> {
+            UUID bannedUserId = ban.getUserId();
+            UserAccount bannedUser = usersById.get(bannedUserId);
+            ParticipantResponse participant = bannedUser != null
+                    ? authService.toParticipant(
+                            bannedUser,
+                            onlineByUserId.getOrDefault(bannedUserId, false)
+                    )
+                    : authService.toDeletedParticipant(
+                            bannedUserId,
+                            onlineByUserId.getOrDefault(bannedUserId, false)
+                    );
+            participantsById.putIfAbsent(bannedUserId, participant);
+        });
+        return List.copyOf(participantsById.values());
     }
 
     @Transactional
@@ -630,19 +692,79 @@ public class ChatService {
         ChatRoom room = requireChatMembership(chatId, currentUser);
 
         if (messageId == null) {
-            room.clearPinnedMessage();
+            chatPinnedMessageRepository.deleteByChatId(chatId);
+            syncPinnedMessageAlias(room);
         } else {
             ChatMessage message = chatMessageRepository.findById(messageId)
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found"));
             if (!message.getChatId().equals(chatId)) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Message must belong to the same chat");
             }
-
-            room.pinMessage(message.getId(), Instant.now());
+            chatPinnedMessageRepository.findByChatIdAndMessageId(chatId, messageId)
+                    .ifPresentOrElse(
+                            existingPinnedMessage ->
+                                    chatPinnedMessageRepository.deleteByChatIdAndMessageId(chatId, messageId),
+                            () -> chatPinnedMessageRepository.save(
+                                    new ChatPinnedMessage(
+                                            UUID.randomUUID(),
+                                            chatId,
+                                            message.getId(),
+                                            Instant.now()
+                                    )
+                            )
+                    );
+            syncPinnedMessageAlias(room);
         }
 
         scheduleChatUpdated(chatId);
         return getChatSummaryForUser(chatId, currentUser);
+    }
+
+    @Transactional
+    public void removePinnedMessages(ChatRoom room, Collection<UUID> messageIds) {
+        if (room == null || messageIds == null || messageIds.isEmpty()) {
+            return;
+        }
+
+        List<UUID> uniqueMessageIds = messageIds.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (uniqueMessageIds.isEmpty()) {
+            return;
+        }
+
+        chatPinnedMessageRepository.deleteByChatIdAndMessageIdIn(room.getId(), uniqueMessageIds);
+        syncPinnedMessageAlias(room);
+    }
+
+    private void syncPinnedMessageAlias(ChatRoom room) {
+        if (room == null) {
+            return;
+        }
+
+        ChatPinnedMessage primaryPinnedMessage = chatPinnedMessageRepository
+                .findAllByChatIdOrderByPinnedAtDescIdDesc(room.getId())
+                .stream()
+                .findFirst()
+                .orElse(null);
+
+        if (primaryPinnedMessage == null) {
+            if (room.getPinnedMessageId() == null && room.getPinnedAt() == null) {
+                return;
+            }
+            room.clearPinnedMessage();
+            chatRoomRepository.save(room);
+            return;
+        }
+
+        if (Objects.equals(room.getPinnedMessageId(), primaryPinnedMessage.getMessageId())
+                && Objects.equals(room.getPinnedAt(), primaryPinnedMessage.getPinnedAt())) {
+            return;
+        }
+
+        room.pinMessage(primaryPinnedMessage.getMessageId(), primaryPinnedMessage.getPinnedAt());
+        chatRoomRepository.save(room);
     }
 
     private Optional<ChatRoom> findDirectChat(
@@ -691,6 +813,31 @@ public class ChatService {
 
     private ChatSummaryResponse toSummary(ChatRoom room, UUID currentUserId) {
         return toSummary(room, currentUserId, loadUnreadCount(room.getId(), currentUserId));
+    }
+
+    @Transactional
+    public void reopenDeletedChatForUser(ChatRoom room, UserAccount currentUser) {
+        if (room == null || currentUser == null) {
+            return;
+        }
+
+        UserDeletedChat deletedChat = userDeletedChatRepository.findByUserIdAndChatId(currentUser.getId(), room.getId())
+                .orElse(null);
+        if (deletedChat == null) {
+            return;
+        }
+
+        if (room.isDirect()) {
+            ChatParticipant membership = chatParticipantRepository.findByChatIdAndUserId(room.getId(), currentUser.getId())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied for this chat"));
+            Instant reopenedVisibleFrom = deletedChat.getDeletedAt().isAfter(membership.getJoinedAt())
+                    ? deletedChat.getDeletedAt()
+                    : membership.getJoinedAt();
+            membership.rejoin(reopenedVisibleFrom);
+        }
+
+        userDeletedChatRepository.delete(deletedChat);
+        userArchivedChatRepository.deleteByUserIdAndChatId(currentUser.getId(), room.getId());
     }
 
     @Transactional
@@ -766,8 +913,15 @@ public class ChatService {
                 .filter(membership -> membership.getUserId().equals(currentUserId))
                 .findFirst()
                 .orElse(null);
-        MessageSnippetResponse pinnedMessage = buildPinnedSnippet(room, currentMembership, currentUserId, usersById);
+        List<MessageSnippetResponse> pinnedMessages = buildPinnedSnippets(
+                room,
+                currentMembership,
+                currentUserId,
+                usersById
+        );
+        MessageSnippetResponse pinnedMessage = pinnedMessages.isEmpty() ? null : pinnedMessages.get(0);
         Instant updatedAt = lastMessage != null ? lastMessage.getCreatedAt() : room.getCreatedAt();
+        boolean lastMessageHasReactions = hasReactions(lastMessage);
 
         String title;
         if (room.isDirect()) {
@@ -775,7 +929,7 @@ public class ChatService {
                     .filter(member -> !member.id().equals(currentUserId))
                     .map(ParticipantResponse::displayName)
                     .findFirst()
-                    .orElse("Direct chat");
+                    .orElse(AuthService.DELETED_USER_DISPLAY_NAME);
         } else {
             title = room.getTitle() != null && !room.getTitle().isBlank() ? room.getTitle() : "Untitled room";
         }
@@ -791,24 +945,27 @@ public class ChatService {
                         ownerUserId,
                         moderatorUserIds,
                         lastMessage,
-                        updatedAt,
-                        unreadCount,
-                        pinnedMessage
-                ),
-                buildChatCapabilities(room, currentUserId, ownerUserId, moderatorUserIds),
-                room.isDirect() ? null : ownerUserId,
+                          lastMessageHasReactions,
+                          updatedAt,
+                          unreadCount,
+                          pinnedMessages
+                  ),
+                  buildChatCapabilities(room, currentUserId, ownerUserId, moderatorUserIds),
+                  room.isDirect() ? null : ownerUserId,
                 room.isDirect() ? List.of() : moderatorUserIds,
                 members,
                 lastMessage != null ? summarizeLastMessage(lastMessage) : null,
                 lastMessage != null ? lastMessage.getCreatedAt() : null,
+                lastMessageHasReactions,
                 lastMessage != null ? lastMessage.getServerOrder() : null,
-                updatedAt,
-                unreadCount,
-                room.getMembershipVersion(),
-                pinnedMessage,
-                room.isDirect() ? null : room.getPrejoinHistoryPolicy().name()
-        );
-    }
+                  updatedAt,
+                  unreadCount,
+                  room.getMembershipVersion(),
+                  pinnedMessage,
+                  pinnedMessages,
+                  room.isDirect() ? null : room.getPrejoinHistoryPolicy().name()
+          );
+      }
 
     private String buildChatVersion(
             ChatRoom room,
@@ -816,14 +973,26 @@ public class ChatService {
             UUID ownerUserId,
             List<UUID> moderatorUserIds,
             ChatMessage lastMessage,
+            boolean lastMessageHasReactions,
             Instant updatedAt,
             int unreadCount,
-            MessageSnippetResponse pinnedMessage
+            List<MessageSnippetResponse> pinnedMessages
     ) {
         String moderatorsVersion = moderatorUserIds.stream()
                 .map(UUID::toString)
                 .sorted()
                 .collect(Collectors.joining(","));
+        String pinnedMessagesVersion = pinnedMessages.isEmpty()
+                ? "-"
+                : pinnedMessages.stream()
+                        .map(pinnedMessage -> String.join(
+                                "~",
+                                pinnedMessage.id().toString(),
+                                pinnedMessage.createdAt().toString(),
+                                String.valueOf(pinnedMessage.serverOrder()),
+                                pinnedMessage.preview()
+                        ))
+                        .collect(Collectors.joining(","));
         return String.join(
                 "|",
                 room.getId().toString(),
@@ -831,6 +1000,7 @@ public class ChatService {
                 String.valueOf(title),
                 String.valueOf(room.getAvatarUrl()),
                 String.valueOf(updatedAt),
+                Boolean.toString(lastMessageHasReactions),
                 Long.toString(lastMessage != null && lastMessage.getServerOrder() != null ? lastMessage.getServerOrder() : Long.MIN_VALUE),
                 Long.toString(room.getMembershipVersion()),
                 String.valueOf(room.getPinnedMessageId()),
@@ -839,14 +1009,7 @@ public class ChatService {
                 moderatorsVersion,
                 Integer.toString(unreadCount),
                 String.valueOf(room.getPrejoinHistoryPolicy()),
-                pinnedMessage == null
-                        ? "-"
-                        : String.join(
-                                "|",
-                                pinnedMessage.id().toString(),
-                                pinnedMessage.createdAt().toString(),
-                                pinnedMessage.preview()
-                        )
+                pinnedMessagesVersion
         );
     }
 
@@ -896,9 +1059,16 @@ public class ChatService {
             Map<UUID, Boolean> onlineByUserId
     ) {
         return memberships.stream()
-                .map(membership -> usersById.get(membership.getUserId()))
-                .filter(Objects::nonNull)
-                .map(user -> authService.toParticipant(user, onlineByUserId.getOrDefault(user.getId(), false)))
+                .map(membership -> {
+                    UserAccount user = usersById.get(membership.getUserId());
+                    if (user != null) {
+                        return authService.toParticipant(
+                                user,
+                                onlineByUserId.getOrDefault(user.getId(), false)
+                        );
+                    }
+                    return authService.toDeletedParticipant(membership.getUserId());
+                })
                 .toList();
     }
 
@@ -980,48 +1150,91 @@ public class ChatService {
         return lastMessagesByUserId;
     }
 
-    private MessageSnippetResponse buildPinnedSnippet(
+    private List<MessageSnippetResponse> buildPinnedSnippets(
             ChatRoom room,
             ChatParticipant currentMembership,
             UUID currentUserId,
             Map<UUID, UserAccount> usersById
     ) {
-        UUID pinnedMessageId = room.getPinnedMessageId();
-        if (pinnedMessageId == null) {
-            return null;
+        List<ChatPinnedMessage> pinnedEntries = chatPinnedMessageRepository
+                .findAllByChatIdOrderByPinnedAtDescIdDesc(room.getId());
+        if (pinnedEntries.isEmpty()) {
+            return List.of();
         }
 
-        if (userDeletedMessageRepository.existsByUserIdAndMessageId(currentUserId, pinnedMessageId)) {
-            return null;
-        }
-
-        ChatMessage pinnedMessage = chatMessageRepository.findById(pinnedMessageId).orElse(null);
-        if (pinnedMessage == null || !pinnedMessage.getChatId().equals(room.getId())) {
-            return null;
+        List<UUID> pinnedMessageIds = pinnedEntries.stream()
+                .map(ChatPinnedMessage::getMessageId)
+                .distinct()
+                .toList();
+        Map<UUID, ChatMessage> pinnedMessagesById = chatMessageRepository.findAllById(pinnedMessageIds).stream()
+                .collect(Collectors.toMap(ChatMessage::getId, Function.identity()));
+        Set<UUID> deletedPinnedMessageIds = userDeletedMessageRepository
+                .findAllByUserIdAndMessageIdIn(currentUserId, pinnedMessageIds)
+                .stream()
+                .map(UserDeletedMessage::getMessageId)
+                .collect(Collectors.toSet());
+        Set<UUID> missingSenderIds = pinnedMessagesById.values().stream()
+                .map(ChatMessage::getSenderId)
+                .filter(senderId -> !usersById.containsKey(senderId))
+                .collect(Collectors.toSet());
+        Map<UUID, UserAccount> resolvedUsersById = new LinkedHashMap<>(usersById);
+        if (!missingSenderIds.isEmpty()) {
+            userAccountRepository.findAllByIdIn(missingSenderIds)
+                    .forEach(user -> resolvedUsersById.put(user.getId(), user));
         }
         Instant visibleFrom = resolveVisibleHistoryStart(room, currentMembership);
+
+        return pinnedEntries.stream()
+                .map(pinnedEntry -> buildPinnedSnippet(
+                        room,
+                        pinnedMessagesById.get(pinnedEntry.getMessageId()),
+                        deletedPinnedMessageIds,
+                        visibleFrom,
+                        resolvedUsersById
+                ))
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    private MessageSnippetResponse buildPinnedSnippet(
+            ChatRoom room,
+            ChatMessage pinnedMessage,
+            Set<UUID> deletedPinnedMessageIds,
+            Instant visibleFrom,
+            Map<UUID, UserAccount> usersById
+    ) {
+        if (pinnedMessage == null || deletedPinnedMessageIds.contains(pinnedMessage.getId())) {
+            return null;
+        }
+        if (!pinnedMessage.getChatId().equals(room.getId())) {
+            return null;
+        }
         if (visibleFrom != null && pinnedMessage.getCreatedAt().isBefore(visibleFrom)) {
             return null;
         }
 
         UserAccount sender = usersById.get(pinnedMessage.getSenderId());
-        if (sender == null) {
-            sender = userAccountRepository.findById(pinnedMessage.getSenderId()).orElse(null);
-        }
-        if (sender == null) {
-            return null;
-        }
-
         return new MessageSnippetResponse(
                 pinnedMessage.getId(),
-                authService.toParticipant(sender),
+                sender != null
+                        ? authService.toParticipant(sender)
+                        : authService.toDeletedParticipant(pinnedMessage.getSenderId()),
                 pinnedMessage.getCreatedAt(),
-                summarizeLastMessage(pinnedMessage)
+                summarizeLastMessage(pinnedMessage),
+                pinnedMessage.getServerOrder()
         );
     }
 
     private String summarizeLastMessage(ChatMessage lastMessage) {
         return messagePreviewService.summarizeMessagePreview(lastMessage);
+    }
+
+    private boolean hasReactions(ChatMessage message) {
+        if (message == null || message.getId() == null) {
+            return false;
+        }
+
+        return !messageReactionRepository.findAllByMessageIdIn(List.of(message.getId())).isEmpty();
     }
 
     private Map<UUID, Integer> loadUnreadCounts(Collection<UUID> chatIds, UUID userId) {
@@ -1266,8 +1479,11 @@ public class ChatService {
     }
 
     private Instant resolveVisibleHistoryStart(ChatRoom room, ChatParticipant membership) {
-        if (room == null || room.isDirect() || membership == null) {
+        if (room == null || membership == null) {
             return null;
+        }
+        if (room.isDirect()) {
+            return membership.getJoinedAt();
         }
         if (room.getPrejoinHistoryPolicy() == ChatPrejoinHistoryPolicy.FULL_HISTORY) {
             return null;

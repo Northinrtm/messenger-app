@@ -52,11 +52,13 @@ class ChatOpenServiceTest {
                 List.of(),
                 "Latest message",
                 Instant.parse("2026-05-03T10:00:00Z"),
+                false,
                 42L,
                 Instant.parse("2026-05-03T10:00:00Z"),
                 0,
                 3L,
                 null,
+                List.of(),
                 null
         );
         MessageResponse message = new MessageResponse(
@@ -104,11 +106,13 @@ class ChatOpenServiceTest {
                 List.of(),
                 null,
                 null,
+                false,
                 null,
                 Instant.parse("2026-05-03T10:00:00Z"),
                 0,
                 1L,
                 null,
+                List.of(),
                 "JOIN_ONLY"
         );
 

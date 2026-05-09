@@ -79,11 +79,13 @@ class WorkspaceSearchServiceTest {
                         List.of(new ParticipantResponse(UUID.randomUUID(), "remote_user", "Remote User", null, true)),
                         null,
                         Instant.parse("2026-05-03T00:00:00Z"),
+                        false,
                         null,
                         Instant.parse("2026-05-03T00:00:00Z"),
                         0,
                         1L,
                         null,
+                        List.of(),
                         "FULL_HISTORY"
                 ),
                 new ChatSummaryResponse(
@@ -98,11 +100,13 @@ class WorkspaceSearchServiceTest {
                         List.of(new ParticipantResponse(UUID.randomUUID(), "archived_user", "Archived User", null, true)),
                         null,
                         Instant.parse("2026-05-03T00:00:00Z"),
+                        false,
                         null,
                         Instant.parse("2026-05-03T00:00:00Z"),
                         0,
                         1L,
                         null,
+                        List.of(),
                         "FULL_HISTORY"
                 )
         ));

@@ -5,12 +5,16 @@ import {
   applyChatPreviewOverrides,
   clearChatMessageActivity,
   flattenMessagePages,
+  getChatPinnedMessages,
   getMessageIdentityKey,
   mergeMessagePages,
   parseUsernames,
   reconcileMessageInfiniteData,
+  removeChatPinnedMessage,
+  replaceChatPinnedMessage,
   replaceChatPreviewOverride,
   removeMessageByClientMessageId,
+  setChatPinnedMessages,
   upsertChat,
   upsertChatPreviewOverride,
   updateMessageByClientMessageId,
@@ -613,6 +617,48 @@ describe("chatState", () => {
     expect(next?.[0]?.unreadCount).toBe(0);
   });
 
+  it("resets the reaction indicator when a newer message becomes the latest chat activity", () => {
+    const chats: ChatSummary[] = [
+      {
+        id: "chat-1",
+        direct: true,
+        title: "Alice",
+        avatarUrl: null,
+        chatVersion: "chat-version-1",
+        capabilities: {
+          canEditGroup: false,
+          canDeleteGroup: false,
+          canManageInviteLink: false,
+          canAddMembers: false,
+          canManageRoles: false,
+          canModerateMembers: false,
+          canTogglePrejoinHistory: false,
+          canLeaveGroup: false,
+        },
+        ownerUserId: null,
+        moderatorUserIds: [],
+        members: [],
+        lastMessage: "previous",
+        lastMessageAt: "2026-03-22T10:00:00.000Z",
+        lastMessageHasReactions: true,
+        updatedAt: "2026-03-22T10:00:00.000Z",
+        unreadCount: 0,
+        pinnedMessage: null,
+      },
+    ];
+
+    const next = applyChatMessageActivity(
+      chats,
+      {
+        ...message("2", "2026-03-22T10:01:00.000Z"),
+        chatId: "chat-1",
+      },
+      "keep"
+    );
+
+    expect(next?.[0]?.lastMessageHasReactions).toBe(false);
+  });
+
   it("clears the chat preview when the last visible message is deleted", () => {
     const chats: ChatSummary[] = [
       {
@@ -651,5 +697,126 @@ describe("chatState", () => {
       lastMessageServerOrder: null,
       updatedAt: "2026-03-22T10:02:00.000Z",
     });
+  });
+
+  it("stores multiple pinned messages while keeping the first one as the summary alias", () => {
+    const chats: ChatSummary[] = [
+      {
+        id: "chat-1",
+        direct: true,
+        title: "Alice",
+        avatarUrl: null,
+        chatVersion: "chat-version-1",
+        capabilities: {
+          canEditGroup: false,
+          canDeleteGroup: false,
+          canManageInviteLink: false,
+          canAddMembers: false,
+          canManageRoles: false,
+          canModerateMembers: false,
+          canTogglePrejoinHistory: false,
+          canLeaveGroup: false,
+        },
+        ownerUserId: null,
+        moderatorUserIds: [],
+        members: [],
+        lastMessage: null,
+        lastMessageAt: null,
+        updatedAt: "2026-03-22T10:00:00.000Z",
+        unreadCount: 0,
+        pinnedMessage: null,
+      },
+    ];
+    const pinnedMessages = [
+      {
+        id: "message-2",
+        sender: message("message-2", "2026-03-22T10:02:00.000Z").sender,
+        createdAt: "2026-03-22T10:02:00.000Z",
+        preview: "Second pinned",
+        serverOrder: 12,
+      },
+      {
+        id: "message-1",
+        sender: message("message-1", "2026-03-22T10:01:00.000Z").sender,
+        createdAt: "2026-03-22T10:01:00.000Z",
+        preview: "First pinned",
+        serverOrder: 11,
+      },
+    ];
+
+    const next = setChatPinnedMessages(chats, "chat-1", pinnedMessages);
+
+    expect(next?.[0]?.pinnedMessage?.id).toBe("message-2");
+    expect(getChatPinnedMessages(next?.[0])).toEqual(pinnedMessages);
+  });
+
+  it("updates and removes pinned snippets without dropping the remaining pinned list", () => {
+    const chats: ChatSummary[] = [
+      {
+        id: "chat-1",
+        direct: true,
+        title: "Alice",
+        avatarUrl: null,
+        chatVersion: "chat-version-1",
+        capabilities: {
+          canEditGroup: false,
+          canDeleteGroup: false,
+          canManageInviteLink: false,
+          canAddMembers: false,
+          canManageRoles: false,
+          canModerateMembers: false,
+          canTogglePrejoinHistory: false,
+          canLeaveGroup: false,
+        },
+        ownerUserId: null,
+        moderatorUserIds: [],
+        members: [],
+        lastMessage: null,
+        lastMessageAt: null,
+        updatedAt: "2026-03-22T10:00:00.000Z",
+        unreadCount: 0,
+        pinnedMessage: {
+          id: "message-2",
+          sender: message("message-2", "2026-03-22T10:02:00.000Z").sender,
+          createdAt: "2026-03-22T10:02:00.000Z",
+          preview: "Second pinned",
+          serverOrder: 12,
+        },
+        pinnedMessages: [
+          {
+            id: "message-2",
+            sender: message("message-2", "2026-03-22T10:02:00.000Z").sender,
+            createdAt: "2026-03-22T10:02:00.000Z",
+            preview: "Second pinned",
+            serverOrder: 12,
+          },
+          {
+            id: "message-1",
+            sender: message("message-1", "2026-03-22T10:01:00.000Z").sender,
+            createdAt: "2026-03-22T10:01:00.000Z",
+            preview: "First pinned",
+            serverOrder: 11,
+          },
+        ],
+      },
+    ];
+
+    const replaced = replaceChatPinnedMessage(chats, "chat-1", {
+      id: "message-1",
+      sender: message("message-1", "2026-03-22T10:01:00.000Z").sender,
+      createdAt: "2026-03-22T10:01:00.000Z",
+      preview: "First pinned (edited)",
+      serverOrder: 11,
+    });
+    const removed = removeChatPinnedMessage(replaced, "chat-1", "message-2");
+
+    expect(getChatPinnedMessages(replaced?.[0])).toEqual([
+      expect.objectContaining({ id: "message-2", preview: "Second pinned" }),
+      expect.objectContaining({ id: "message-1", preview: "First pinned (edited)" }),
+    ]);
+    expect(removed?.[0]?.pinnedMessage?.id).toBe("message-1");
+    expect(getChatPinnedMessages(removed?.[0])).toEqual([
+      expect.objectContaining({ id: "message-1", preview: "First pinned (edited)" }),
+    ]);
   });
 });

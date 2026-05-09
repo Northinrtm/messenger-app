@@ -9,6 +9,7 @@ const SIDEBAR_WIDTH_STORAGE_KEY = "north-messenger-sidebar-width";
 const DEFAULT_SIDEBAR_WIDTH = 380;
 const MIN_SIDEBAR_WIDTH = 280;
 const MAX_SIDEBAR_WIDTH = 560;
+const MOBILE_CHAT_LAYOUT_BREAKPOINT_PX = 820;
 
 export function useSidebarResize() {
   const [sidebarWidth, setSidebarWidth] = useState(() => readStoredSidebarWidth());
@@ -64,7 +65,7 @@ export function useSidebarResize() {
   }, []);
 
   const startSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (window.innerWidth <= 960) {
+    if (window.innerWidth <= MOBILE_CHAT_LAYOUT_BREAKPOINT_PX) {
       return;
     }
 

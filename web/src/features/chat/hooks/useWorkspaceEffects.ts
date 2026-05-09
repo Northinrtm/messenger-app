@@ -26,7 +26,7 @@ type UseWorkspaceEffectsOptions = {
   hasEditingMessage: boolean;
   hasForwardingMessages: boolean;
   hasReplyingMessage: boolean;
-  hydratedPinnedMessage: MessageSnippet | null;
+  hydratedPinnedMessages: MessageSnippet[];
   lastMessage: ChatMessage | null;
   lastMessageId: string | null;
   messageCount: number;
@@ -51,7 +51,7 @@ type UseWorkspaceEffectsOptions = {
   setReplyingToMessageId: React.Dispatch<React.SetStateAction<string | null>>;
   setSidebarSheet: React.Dispatch<React.SetStateAction<SidebarSheet>>;
   sidebarSheet: SidebarSheet;
-  syncChatPinnedSummary: (chatId: string, message: MessageSnippet | null) => void;
+  syncChatPinnedMessages: (chatId: string, messages: MessageSnippet[]) => void;
   uploadAvatarFromFile: (file: File) => void | Promise<void>;
 };
 
@@ -76,7 +76,7 @@ export function useWorkspaceEffects({
   hasEditingMessage,
   hasForwardingMessages,
   hasReplyingMessage,
-  hydratedPinnedMessage,
+  hydratedPinnedMessages,
   lastMessage,
   lastMessageId,
   messageCount,
@@ -101,7 +101,7 @@ export function useWorkspaceEffects({
   setReplyingToMessageId,
   setSidebarSheet,
   sidebarSheet,
-  syncChatPinnedSummary,
+  syncChatPinnedMessages,
   uploadAvatarFromFile,
 }: UseWorkspaceEffectsOptions) {
   useEffect(() => {
@@ -289,16 +289,32 @@ export function useWorkspaceEffects({
   ]);
 
   useEffect(() => {
-    if (!activeChat?.id || !activeChat.pinnedMessage || !hydratedPinnedMessage) {
+    if (!activeChat?.id || hydratedPinnedMessages.length === 0) {
       return;
     }
 
-    if (activeChat.pinnedMessage.preview === hydratedPinnedMessage.preview) {
+    const currentPinnedMessages = activeChat.pinnedMessages?.length
+      ? activeChat.pinnedMessages
+      : activeChat.pinnedMessage
+        ? [activeChat.pinnedMessage]
+        : [];
+    const previewChanged =
+      currentPinnedMessages.length !== hydratedPinnedMessages.length ||
+      currentPinnedMessages.some((message, index) => {
+        const hydratedPinnedMessage = hydratedPinnedMessages[index];
+        return (
+          !hydratedPinnedMessage ||
+          message.id !== hydratedPinnedMessage.id ||
+          message.preview !== hydratedPinnedMessage.preview ||
+          (message.serverOrder ?? null) !== (hydratedPinnedMessage.serverOrder ?? null)
+        );
+      });
+    if (!previewChanged) {
       return;
     }
 
-    syncChatPinnedSummary(activeChat.id, hydratedPinnedMessage);
-  }, [activeChat, hydratedPinnedMessage, syncChatPinnedSummary]);
+    syncChatPinnedMessages(activeChat.id, hydratedPinnedMessages);
+  }, [activeChat, hydratedPinnedMessages, syncChatPinnedMessages]);
 
   useEffect(() => {
     const handleVisibilityChange = () => {

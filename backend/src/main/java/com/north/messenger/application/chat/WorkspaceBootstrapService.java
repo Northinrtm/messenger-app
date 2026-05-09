@@ -2,6 +2,7 @@ package com.north.messenger.application.chat;
 
 import com.north.messenger.api.dto.WorkspaceBootstrapResponse;
 import com.north.messenger.application.auth.AuthService;
+import com.north.messenger.application.auth.UserMailboxService;
 import com.north.messenger.application.message.PendingOutgoingMessageService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,6 +15,7 @@ public class WorkspaceBootstrapService {
     private final ChatService chatService;
     private final ChatDraftService chatDraftService;
     private final PendingOutgoingMessageService pendingOutgoingMessageService;
+    private final UserMailboxService userMailboxService;
     private final VideoConferenceService videoConferenceService;
 
     public WorkspaceBootstrapService(
@@ -21,12 +23,14 @@ public class WorkspaceBootstrapService {
             ChatService chatService,
             ChatDraftService chatDraftService,
             PendingOutgoingMessageService pendingOutgoingMessageService,
+            UserMailboxService userMailboxService,
             VideoConferenceService videoConferenceService
     ) {
         this.authService = authService;
         this.chatService = chatService;
         this.chatDraftService = chatDraftService;
         this.pendingOutgoingMessageService = pendingOutgoingMessageService;
+        this.userMailboxService = userMailboxService;
         this.videoConferenceService = videoConferenceService;
     }
 
@@ -38,6 +42,7 @@ public class WorkspaceBootstrapService {
         var blockedUsers = authService.listBlockedUsers(username);
         var drafts = chatDraftService.listOwnDrafts(username);
         var pendingOutgoingMessages = pendingOutgoingMessageService.listOwnPendingOutgoingMessages(username);
+        var mailboxes = userMailboxService.listOwnMailboxes(username);
         var conferences = videoConferenceService.listConferences(username);
         var archivedConferences = videoConferenceService.listArchivedConferences(username);
         return new WorkspaceBootstrapResponse(
@@ -49,6 +54,7 @@ public class WorkspaceBootstrapService {
                         blockedUsers,
                         drafts,
                         pendingOutgoingMessages,
+                        mailboxes,
                         conferences,
                         archivedConferences
                 ),
@@ -59,6 +65,7 @@ public class WorkspaceBootstrapService {
                 blockedUsers,
                 drafts,
                 pendingOutgoingMessages,
+                mailboxes,
                 conferences,
                 archivedConferences
         );
@@ -72,6 +79,7 @@ public class WorkspaceBootstrapService {
             java.util.List<com.north.messenger.api.dto.UserProfileResponse> blockedUsers,
             java.util.List<com.north.messenger.api.dto.ChatDraftResponse> drafts,
             java.util.List<com.north.messenger.api.dto.PendingOutgoingMessageResponse> pendingOutgoingMessages,
+            java.util.List<com.north.messenger.api.dto.UserMailboxResponse> mailboxes,
             java.util.List<com.north.messenger.api.dto.VideoConferenceResponse> conferences,
             java.util.List<com.north.messenger.api.dto.VideoConferenceResponse> archivedConferences
     ) {
@@ -106,6 +114,10 @@ public class WorkspaceBootstrapService {
                 .sorted(java.util.Comparator.comparing(com.north.messenger.api.dto.PendingOutgoingMessageResponse::clientMessageId))
                 .map(message -> message.chatId() + ":" + message.clientMessageId() + ":" + message.updatedAt() + ":" + message.status())
                 .collect(java.util.stream.Collectors.joining(","));
+        String mailboxVersion = mailboxes.stream()
+                .sorted(java.util.Comparator.comparing(com.north.messenger.api.dto.UserMailboxResponse::id))
+                .map(mailbox -> mailbox.id() + ":" + mailbox.email())
+                .collect(java.util.stream.Collectors.joining(","));
         String conferencesVersion = conferences.stream()
                 .sorted(java.util.Comparator.comparing(com.north.messenger.api.dto.VideoConferenceResponse::id))
                 .map(conference -> conference.id() + ":" + conference.title() + ":" + conference.scheduledAt() + ":" + conference.endedAt())
@@ -120,12 +132,14 @@ public class WorkspaceBootstrapService {
                 profile.displayName(),
                 String.valueOf(profile.avatarUrl()),
                 Boolean.toString(profile.online()),
+                Boolean.toString(profile.mailEnabled()),
                 chatsVersion,
                 archivedChatsVersion,
                 contactsVersion,
                 blockedUsersVersion,
                 draftsVersion,
                 pendingOutgoingVersion,
+                mailboxVersion,
                 conferencesVersion,
                 archivedConferencesVersion
         );

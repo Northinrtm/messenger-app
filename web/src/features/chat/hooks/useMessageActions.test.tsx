@@ -156,7 +156,7 @@ function Harness({
   });
   const actions = useMessageActions({
     activeChat: activeChat(),
-    activePinnedMessageId: null,
+    activePinnedMessageIdSet: new Set<string>(),
     chats: [activeChat()],
     currentUser: currentUser(),
     session: session(),
@@ -186,7 +186,8 @@ function Harness({
     setForwardingMessageIds: () => undefined,
     setReplyingToMessageId: () => undefined,
     stopTyping: () => undefined,
-    syncChatPinnedSummary: () => undefined,
+    removeChatPinnedMessage: () => undefined,
+    syncChatPinnedMessage: () => undefined,
     syncChatPreviewFromCache: () => undefined,
   });
 

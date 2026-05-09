@@ -231,8 +231,10 @@ class MessageQueryService {
     }
 
     private Instant resolveVisibleHistoryStart(ChatRoom room, ChatParticipant membership) {
-        if (room.isDirect()
-                || room.getPrejoinHistoryPolicy() == ChatPrejoinHistoryPolicy.FULL_HISTORY
+        if (room.isDirect()) {
+            return membership.getJoinedAt();
+        }
+        if (room.getPrejoinHistoryPolicy() == ChatPrejoinHistoryPolicy.FULL_HISTORY
                 || membership.getPrejoinHistoryAccessGrantedAt() != null) {
             return null;
         }
@@ -251,17 +253,18 @@ class MessageQueryService {
     ) {
         UserAccount sender = usersById.get(message.getSenderId());
         if (sender == null) {
-            log.warn(
-                    "Skipping chat message with missing sender chatId={} messageId={} senderId={} currentUserId={}",
+            log.info(
+                    "Rendering chat message with deleted sender chatId={} messageId={} senderId={} currentUserId={}",
                     chatId,
                     message.getId(),
                     message.getSenderId(),
                     currentUser.getId()
             );
-            return Optional.empty();
         }
 
-        ParticipantResponse senderParticipant = authService.toParticipant(sender);
+        ParticipantResponse senderParticipant = sender != null
+                ? authService.toParticipant(sender)
+                : authService.toDeletedParticipant(message.getSenderId());
 
         return Optional.of(new RenderedMessage(
                 message,

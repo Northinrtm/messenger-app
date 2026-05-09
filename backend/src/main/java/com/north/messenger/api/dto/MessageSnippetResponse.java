@@ -7,6 +7,7 @@ public record MessageSnippetResponse(
         UUID id,
         ParticipantResponse sender,
         Instant createdAt,
-        String preview
+        String preview,
+        Long serverOrder
 ) {
 }

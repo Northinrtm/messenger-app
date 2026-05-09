@@ -123,13 +123,17 @@ export function buildChatListPreviewText(
 }
 
 export function toMessageSnippet(
-  message: Pick<ChatMessage, "id" | "sender" | "createdAt" | "content" | "attachments">,
+  message: Pick<
+    ChatMessage,
+    "id" | "sender" | "createdAt" | "content" | "attachments" | "serverOrder"
+  >,
 ): MessageSnippet {
   return {
     id: message.id,
     sender: message.sender,
     createdAt: message.createdAt,
     preview: buildMessageContentPreview(message, 88),
+    serverOrder: message.serverOrder ?? null,
   };
 }
 

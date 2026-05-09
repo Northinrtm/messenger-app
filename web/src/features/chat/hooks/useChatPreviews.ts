@@ -3,7 +3,9 @@ import { useEffectEvent } from "react";
 import type { ChatMessage, ChatSummary, MessageSnippet } from "../../../lib/types";
 import {
   applyChatMessageActivity,
-  updateChatPinnedMessage,
+  removeChatPinnedMessage,
+  replaceChatPinnedMessage,
+  setChatPinnedMessages,
   type ChatMessageActivityMode,
 } from "../chatState";
 
@@ -81,9 +83,21 @@ export function useChatPreviews({
     void refreshChatPreviewFromServer(chatId);
   });
 
-  const syncChatPinnedSummary = useEffectEvent((chatId: string, pinnedMessage: MessageSnippet | null) => {
+  const syncChatPinnedMessages = useEffectEvent((chatId: string, pinnedMessages: MessageSnippet[]) => {
     queryClient.setQueryData<ChatSummary[]>(["chats", token], (current) =>
-      updateChatPinnedMessage(current, chatId, pinnedMessage)
+      setChatPinnedMessages(current, chatId, pinnedMessages)
+    );
+  });
+
+  const syncChatPinnedMessage = useEffectEvent((chatId: string, pinnedMessage: MessageSnippet) => {
+    queryClient.setQueryData<ChatSummary[]>(["chats", token], (current) =>
+      replaceChatPinnedMessage(current, chatId, pinnedMessage)
+    );
+  });
+
+  const removeChatPinnedMessageLocally = useEffectEvent((chatId: string, messageId: string) => {
+    queryClient.setQueryData<ChatSummary[]>(["chats", token], (current) =>
+      removeChatPinnedMessage(current, chatId, messageId)
     );
   });
 
@@ -91,7 +105,9 @@ export function useChatPreviews({
     applyChatPreviewMessage,
     applyServerChatPreviewMessage,
     refreshChatPreviewFromServer,
-    syncChatPinnedSummary,
+    syncChatPinnedMessage,
+    syncChatPinnedMessages,
+    removeChatPinnedMessage: removeChatPinnedMessageLocally,
     syncChatPreviewFromCache,
   };
 }

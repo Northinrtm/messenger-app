@@ -25,6 +25,7 @@ class ChatMessageLinkService {
     @Transactional
     void syncLinks(ChatMessage message, String plainContent) {
         chatMessageLinkRepository.deleteAllByMessageId(message.getId());
+        chatMessageLinkRepository.flush();
 
         List<ChatMessageLink> links = messageLinkExtractor.extractLinks(plainContent).stream()
                 .map(link -> new ChatMessageLink(

@@ -36,6 +36,9 @@ public class UserAccount {
     @Column(name = "password_version", nullable = false)
     private long passwordVersion;
 
+    @Column(name = "mail_enabled", nullable = false)
+    private boolean mailEnabled;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -55,7 +58,7 @@ public class UserAccount {
             String passwordHash,
             Instant createdAt
     ) {
-        this(id, username, email, displayName, profession, avatarUrl, passwordHash, 1L, createdAt, createdAt);
+        this(id, username, email, displayName, profession, avatarUrl, passwordHash, 1L, true, createdAt, createdAt);
     }
 
     public UserAccount(
@@ -69,7 +72,7 @@ public class UserAccount {
             Instant createdAt,
             Instant emailVerifiedAt
     ) {
-        this(id, username, email, displayName, profession, avatarUrl, passwordHash, 1L, createdAt, emailVerifiedAt);
+        this(id, username, email, displayName, profession, avatarUrl, passwordHash, 1L, true, createdAt, emailVerifiedAt);
     }
 
     public UserAccount(
@@ -84,6 +87,22 @@ public class UserAccount {
             Instant createdAt,
             Instant emailVerifiedAt
     ) {
+        this(id, username, email, displayName, profession, avatarUrl, passwordHash, passwordVersion, true, createdAt, emailVerifiedAt);
+    }
+
+    public UserAccount(
+            UUID id,
+            String username,
+            String email,
+            String displayName,
+            String profession,
+            String avatarUrl,
+            String passwordHash,
+            long passwordVersion,
+            boolean mailEnabled,
+            Instant createdAt,
+            Instant emailVerifiedAt
+    ) {
         this.id = id;
         this.username = username;
         this.email = normalizeRequiredEmail(email);
@@ -92,6 +111,7 @@ public class UserAccount {
         this.avatarUrl = avatarUrl;
         this.passwordHash = passwordHash;
         this.passwordVersion = Math.max(1L, passwordVersion);
+        this.mailEnabled = mailEnabled;
         this.createdAt = createdAt;
         this.emailVerifiedAt = emailVerifiedAt;
     }
@@ -126,6 +146,10 @@ public class UserAccount {
 
     public long getPasswordVersion() {
         return passwordVersion;
+    }
+
+    public boolean isMailEnabled() {
+        return mailEnabled;
     }
 
     public Instant getCreatedAt() {
@@ -163,6 +187,10 @@ public class UserAccount {
     public long advancePasswordVersion() {
         this.passwordVersion = Math.max(1L, this.passwordVersion + 1L);
         return this.passwordVersion;
+    }
+
+    public void updateMailEnabled(boolean mailEnabled) {
+        this.mailEnabled = mailEnabled;
     }
 
     public void markEmailVerified(Instant emailVerifiedAt) {

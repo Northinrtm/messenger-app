@@ -169,12 +169,8 @@ export function useWorkspaceNavigation({
     });
     clearComposerContext();
     clearChatAttention(chatId);
-    if (tabHint && tabHint !== "conferences") {
-      setActiveListTab(tabHint);
-    } else {
-      if (targetChat) {
-        setActiveListTab("chats");
-      }
+    if (tabHint === "chats" || targetChat) {
+      setActiveListTab("chats");
     }
     setIsMenuOpen(false);
     setSidebarSheet(null);

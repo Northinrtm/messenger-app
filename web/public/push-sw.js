@@ -17,8 +17,7 @@ self.addEventListener("notificationclick", (event) => {
 });
 
 async function showGenericMessageNotification() {
-  const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-  if (clients.length > 0) {
+  if (await hasVisibleNorthMessengerClient()) {
     return;
   }
 
@@ -32,4 +31,13 @@ async function showGenericMessageNotification() {
       url: "/",
     },
   });
+}
+
+async function hasVisibleNorthMessengerClient() {
+  const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+  return clients.some(
+    (client) =>
+      client.url.startsWith(self.location.origin) &&
+      (client.visibilityState === "visible" || client.focused === true)
+  );
 }

@@ -11,6 +11,16 @@ import {
   resendEmailVerification,
 } from "../../lib/api";
 import type { AuthResponse } from "../../lib/types";
+import {
+  AUTH_PASSWORD_HELP,
+  isLoginFormValid,
+  isRegistrationFormValid,
+  validateEmailAddress,
+  validateLoginForm,
+  validateRegistrationForm,
+  validateRegistrationPassword,
+  validateRequiredField,
+} from "./authValidation";
 
 type Props = {
   onAuthenticated: (response: AuthResponse) => void;
@@ -35,6 +45,15 @@ type VerificationViewState =
   | { kind: "expired"; message: string }
   | { kind: "alreadyVerified"; message: string };
 
+type FieldName =
+  | "username"
+  | "email"
+  | "displayName"
+  | "password"
+  | "passwordConfirm"
+  | "resetToken"
+  | "resetPassword";
+
 export function AuthCard({
   onAuthenticated,
   initialPasswordResetToken = null,
@@ -52,6 +71,10 @@ export function AuthCard({
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [resetToken, setResetToken] = useState(initialPasswordResetToken ?? "");
   const [resetPassword, setResetPassword] = useState("");
+  const [touchedFields, setTouchedFields] = useState<Partial<Record<FieldName, boolean>>>({});
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
   const [infoMessage, setInfoMessage] = useState<string | null>(
     initialPasswordResetToken ? "Choose a new password for this reset link." : null
   );
@@ -140,6 +163,10 @@ export function AuthCard({
     resendVerificationMutation.reset();
     confirmResetMutation.reset();
     verifyEmailMutation.reset();
+    setTouchedFields({});
+    setSubmitAttempted(false);
+    setShowPassword(false);
+    setShowPasswordConfirm(false);
     setInfoMessage(nextInfoMessage);
     setVerificationViewState({ kind: "idle", message: null });
     setMode(nextMode);
@@ -197,10 +224,36 @@ export function AuthCard({
     .filter(Boolean)
     .map((item) => describeError(item))
     .find(Boolean);
-  const registrationPasswordsMatch = password === passwordConfirm;
-  const registrationPasswordReady =
-    mode !== "register" || (password.length > 0 && passwordConfirm.length > 0 && registrationPasswordsMatch);
+  const registrationValues = {
+    username,
+    email,
+    displayName,
+    password,
+    passwordConfirm,
+  };
+  const registrationErrors = validateRegistrationForm(registrationValues);
+  const loginErrors = validateLoginForm({ username, password });
+  const requestResetEmailError = validateEmailAddress(email);
+  const resendVerificationEmailError = validateEmailAddress(email);
+  const confirmResetTokenError = validateRequiredField(resetToken);
+  const confirmResetPasswordError = validateRegistrationPassword({
+    username: "",
+    displayName: "",
+    password: resetPassword,
+  });
   const isAuthMode = mode === "login" || mode === "register";
+  const canSubmit =
+    mode === "register"
+      ? isRegistrationFormValid(registrationValues)
+      : mode === "login"
+        ? isLoginFormValid({ username, password })
+        : mode === "requestReset"
+          ? requestResetEmailError === null
+          : mode === "resendVerification"
+            ? resendVerificationEmailError === null
+            : mode === "confirmReset"
+              ? confirmResetTokenError === null && confirmResetPasswordError === null
+              : false;
   const isBusy =
     authMutation.isPending ||
     requestResetMutation.isPending ||
@@ -233,6 +286,61 @@ export function AuthCard({
     onEmailVerificationHandled?.();
     switchMode("resendVerification", "Enter your email to receive a fresh verification link.");
   }
+
+  function touchField(fieldName: FieldName) {
+    setTouchedFields((current) => (current[fieldName] ? current : { ...current, [fieldName]: true }));
+  }
+
+  function touchFields(fieldNames: FieldName[]) {
+    setTouchedFields((current) => {
+      let next = current;
+      fieldNames.forEach((fieldName) => {
+        if (!next[fieldName]) {
+          next = { ...next, [fieldName]: true };
+        }
+      });
+      return next;
+    });
+  }
+
+  function visibleFieldError(fieldName: FieldName, errorMessage: string | null) {
+    if (!errorMessage) {
+      return null;
+    }
+
+    return submitAttempted || touchedFields[fieldName] ? errorMessage : null;
+  }
+
+  const usernameFieldError =
+    mode === "register"
+      ? visibleFieldError("username", registrationErrors.username)
+      : mode === "login"
+        ? visibleFieldError("username", loginErrors.username)
+        : null;
+  const emailFieldError =
+    mode === "register"
+      ? visibleFieldError("email", registrationErrors.email)
+      : mode === "requestReset"
+        ? visibleFieldError("email", requestResetEmailError)
+        : mode === "resendVerification"
+          ? visibleFieldError("email", resendVerificationEmailError)
+          : null;
+  const displayNameFieldError =
+    mode === "register" ? visibleFieldError("displayName", registrationErrors.displayName) : null;
+  const passwordFieldError =
+    mode === "register"
+      ? visibleFieldError("password", registrationErrors.password)
+      : mode === "login"
+        ? visibleFieldError("password", loginErrors.password)
+        : null;
+  const passwordConfirmFieldError =
+    mode === "register"
+      ? visibleFieldError("passwordConfirm", registrationErrors.passwordConfirm)
+      : null;
+  const resetTokenFieldError =
+    mode === "confirmReset" ? visibleFieldError("resetToken", confirmResetTokenError) : null;
+  const resetPasswordFieldError =
+    mode === "confirmReset" ? visibleFieldError("resetPassword", confirmResetPasswordError) : null;
 
   return (
     <main className="auth-shell">
@@ -269,22 +377,46 @@ export function AuthCard({
           className="auth-form"
           onSubmit={(event) => {
             event.preventDefault();
+            setSubmitAttempted(true);
             if (mode === "requestReset") {
+              touchFields(["email"]);
+              if (requestResetEmailError) {
+                return;
+              }
               requestResetMutation.mutate();
               return;
             }
             if (mode === "resendVerification") {
+              touchFields(["email"]);
+              if (resendVerificationEmailError) {
+                return;
+              }
               resendVerificationMutation.mutate();
               return;
             }
             if (mode === "confirmReset") {
+              touchFields(["resetToken", "resetPassword"]);
+              if (confirmResetTokenError || confirmResetPasswordError) {
+                return;
+              }
               confirmResetMutation.mutate();
               return;
             }
             if (mode === "verifyEmail") {
               return;
             }
-            if (mode === "register" && !registrationPasswordReady) {
+            if (mode === "register") {
+              touchFields(["username", "email", "displayName", "password", "passwordConfirm"]);
+              if (!isRegistrationFormValid(registrationValues)) {
+                return;
+              }
+            } else {
+              touchFields(["username", "password"]);
+              if (!isLoginFormValid({ username, password })) {
+                return;
+              }
+            }
+            if (!canSubmit) {
               return;
             }
             authMutation.mutate();
@@ -294,103 +426,144 @@ export function AuthCard({
           mode === "confirmReset" ||
           mode === "resendVerification" ||
           mode === "verifyEmail" ? null : (
-            <label className="field">
-              <span>Username or email</span>
+            <label className={usernameFieldError ? "field is-invalid" : "field"}>
+              <span>{mode === "register" ? "Username" : "Username or email"}</span>
               <input
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
+                onBlur={() => touchField("username")}
                 placeholder=""
                 autoComplete="username"
                 autoCapitalize="none"
                 autoCorrect="off"
                 spellCheck={false}
+                aria-invalid={usernameFieldError ? "true" : undefined}
                 required
               />
+              {usernameFieldError ? <div className="field-error-text">{usernameFieldError}</div> : null}
             </label>
           )}
 
           {mode === "register" || mode === "requestReset" || mode === "resendVerification" ? (
-            <label className="field">
+            <label className={emailFieldError ? "field is-invalid" : "field"}>
               <span>Email</span>
               <input
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
+                onBlur={() => touchField("email")}
                 placeholder=""
                 type="email"
                 autoComplete="email"
                 autoCapitalize="none"
                 autoCorrect="off"
                 spellCheck={false}
+                aria-invalid={emailFieldError ? "true" : undefined}
                 required
               />
+              {emailFieldError ? <div className="field-error-text">{emailFieldError}</div> : null}
             </label>
           ) : null}
 
           {mode === "register" ? (
-            <label className="field">
+            <label className={displayNameFieldError ? "field is-invalid" : "field"}>
               <span>Display name</span>
               <input
                 value={displayName}
                 onChange={(event) => setDisplayName(event.target.value)}
+                onBlur={() => touchField("displayName")}
                 placeholder=""
                 autoComplete="off"
                 autoCorrect="off"
                 spellCheck={false}
+                aria-invalid={displayNameFieldError ? "true" : undefined}
                 required
               />
+              {displayNameFieldError ? <div className="field-error-text">{displayNameFieldError}</div> : null}
             </label>
           ) : null}
 
           {mode === "confirmReset" ? (
             <>
-              <label className="field">
+              <label className={resetTokenFieldError ? "field is-invalid" : "field"}>
                 <span>Reset token</span>
                 <input
                   value={resetToken}
                   onChange={(event) => setResetToken(event.target.value)}
+                  onBlur={() => touchField("resetToken")}
                   autoComplete="off"
                   autoCapitalize="none"
                   autoCorrect="off"
                   spellCheck={false}
+                  aria-invalid={resetTokenFieldError ? "true" : undefined}
                   required
                 />
+                {resetTokenFieldError ? <div className="field-error-text">{resetTokenFieldError}</div> : null}
               </label>
-              <label className="field">
+              <label className={resetPasswordFieldError ? "field is-invalid" : "field"}>
                 <span>New password</span>
                 <input
                   value={resetPassword}
                   onChange={(event) => setResetPassword(event.target.value)}
+                  onBlur={() => touchField("resetPassword")}
                   placeholder=""
                   type="password"
                   autoComplete="new-password"
+                  aria-invalid={resetPasswordFieldError ? "true" : undefined}
                   required
                 />
+                <div className="field-help">{AUTH_PASSWORD_HELP}</div>
+                {resetPasswordFieldError ? <div className="field-error-text">{resetPasswordFieldError}</div> : null}
               </label>
             </>
           ) : mode === "requestReset" ? null : (
             <>
-              <label className="field">
+              <label className={passwordFieldError ? "field is-invalid" : "field"}>
                 <span>Password</span>
-                <input
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  placeholder=""
-                  type="password"
-                  autoComplete={mode === "register" ? "new-password" : "current-password"}
-                  required
-                />
-              </label>
-              {mode === "register" ? (
-                <label className="field">
-                  <span>Confirm password</span>
+                <div className="field-input">
                   <input
-                    value={passwordConfirm}
-                    onChange={(event) => setPasswordConfirm(event.target.value)}
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    onBlur={() => touchField("password")}
                     placeholder=""
-                    type="password"
-                    autoComplete="new-password"
+                    type={showPassword ? "text" : "password"}
+                    autoComplete={mode === "register" ? "new-password" : "current-password"}
+                    aria-invalid={passwordFieldError ? "true" : undefined}
                     required
                   />
+                  <PasswordVisibilityButton
+                    shown={showPassword}
+                    onClick={() => setShowPassword((current) => !current)}
+                    labelWhenShown="Hide password"
+                    labelWhenHidden="Show password"
+                  />
+                </div>
+                {mode === "register" ? <div className="field-help">{AUTH_PASSWORD_HELP}</div> : null}
+                {passwordFieldError ? <div className="field-error-text">{passwordFieldError}</div> : null}
+              </label>
+              {mode === "register" ? (
+                <label className={passwordConfirmFieldError ? "field is-invalid" : "field"}>
+                  <span>Confirm password</span>
+                  <div className="field-input">
+                    <input
+                      value={passwordConfirm}
+                      onChange={(event) => setPasswordConfirm(event.target.value)}
+                      onBlur={() => touchField("passwordConfirm")}
+                      placeholder=""
+                      type={showPasswordConfirm ? "text" : "password"}
+                      autoComplete="new-password"
+                      aria-invalid={passwordConfirmFieldError ? "true" : undefined}
+                      required
+                    />
+                    <PasswordVisibilityButton
+                      shown={showPasswordConfirm}
+                      onClick={() => setShowPasswordConfirm((current) => !current)}
+                      labelWhenShown="Hide confirm password"
+                      labelWhenHidden="Show confirm password"
+                    />
+                  </div>
+                  {passwordConfirmFieldError ? (
+                    <div className="field-error-text">{passwordConfirmFieldError}</div>
+                  ) : null}
                 </label>
               ) : null}
             </>
@@ -410,18 +583,10 @@ export function AuthCard({
             </div>
           ) : null}
 
-          {mode === "register" && passwordConfirm.length > 0 && !registrationPasswordsMatch ? (
-            <div className="form-error">Passwords do not match.</div>
-          ) : null}
-
           {error ? <div className="form-error">{error}</div> : null}
 
           {mode === "verifyEmail" ? null : (
-            <button
-              type="submit"
-              className="primary-button"
-              disabled={isBusy || (mode === "register" && !registrationPasswordReady)}
-            >
+            <button type="submit" className="primary-button" disabled={isBusy || !canSubmit}>
               {mode === "requestReset"
                 ? requestResetMutation.isPending
                   ? "Sending reset link..."
@@ -534,4 +699,83 @@ function resolveVerificationViewState(error: unknown): VerificationViewState {
     kind: "invalid",
     message: "This verification link is invalid. Request a new email verification link.",
   };
+}
+
+function PasswordVisibilityButton({
+  shown,
+  onClick,
+  labelWhenShown,
+  labelWhenHidden,
+}: {
+  shown: boolean;
+  onClick: () => void;
+  labelWhenShown: string;
+  labelWhenHidden: string;
+}) {
+  return (
+    <button
+      type="button"
+      className="password-visibility-button"
+      aria-label={shown ? labelWhenShown : labelWhenHidden}
+      onClick={onClick}
+    >
+      {shown ? (
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path
+            d="M3 4.5 19.5 21"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.7"
+          />
+          <path
+            d="M10.6 6.2c.45-.12.92-.2 1.4-.2 5.24 0 9.5 5.5 9.5 6s-1.1 1.9-2.95 3.24M6.2 9.1C3.98 10.65 2.5 12.45 2.5 13c0 .5 4.26 6 9.5 6 1.58 0 3.08-.5 4.4-1.25"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.7"
+          />
+          <path
+            d="M9.8 9.82A3.2 3.2 0 0 1 15 12.4"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.7"
+          />
+          <path
+            d="M14.17 14.19A3.2 3.2 0 0 1 9.4 9.42"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.7"
+          />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path
+            d="M2.5 12c0-.5 4.26-6 9.5-6s9.5 5.5 9.5 6-4.26 6-9.5 6-9.5-5.5-9.5-6Z"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.7"
+          />
+          <circle
+            cx="12"
+            cy="12"
+            r="3.2"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.7"
+          />
+        </svg>
+      )}
+    </button>
+  );
 }

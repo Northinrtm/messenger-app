@@ -10,6 +10,7 @@ public record UpdateProfileRequest(
         @Pattern(regexp = "^(?=.*[\\p{L}\\p{N}])[\\p{L}\\p{N} ._'\\-]{2,40}$", message = "Display name must contain letters or numbers and may use spaces, dot, underscore, apostrophe or dash")
         String displayName,
         @Size(max = 80)
-        String profession
+        String profession,
+        Boolean mailEnabled
 ) {
 }

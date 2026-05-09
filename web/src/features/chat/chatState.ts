@@ -60,6 +60,7 @@ export function applyChatPreviewOverrides(
       ...chat,
       lastMessage: override.lastMessage,
       lastMessageAt: override.lastMessageAt,
+      lastMessageHasReactions: false,
       updatedAt,
     };
   });
@@ -156,6 +157,7 @@ export function applyChatMessageActivity(
         ...chat,
         lastMessage: buildMessageContentPreview(message, 88),
         lastMessageAt: message.createdAt,
+        lastMessageHasReactions: message.reactions.length > 0,
         lastMessageServerOrder: message.serverOrder ?? chat.lastMessageServerOrder,
         updatedAt: message.createdAt,
         unreadCount: unreadMode === "clear" ? 0 : chat.unreadCount,
@@ -190,6 +192,7 @@ export function clearChatMessageActivity(
       ...chat,
       lastMessage: null,
       lastMessageAt: null,
+      lastMessageHasReactions: false,
       lastMessageServerOrder: null,
     };
   });
@@ -221,10 +224,22 @@ export function clearChatUnreadCount(
   return changed ? next : current;
 }
 
-export function updateChatPinnedMessage(
+export function getChatPinnedMessages(chat: Pick<ChatSummary, "pinnedMessage" | "pinnedMessages"> | null | undefined) {
+  if (!chat) {
+    return [];
+  }
+
+  if (chat.pinnedMessages?.length) {
+    return chat.pinnedMessages;
+  }
+
+  return chat.pinnedMessage ? [chat.pinnedMessage] : [];
+}
+
+export function setChatPinnedMessages(
   current: ChatSummary[] | undefined,
   chatId: string,
-  pinnedMessage: MessageSnippet | null
+  pinnedMessages: MessageSnippet[]
 ) {
   if (!current) {
     return current;
@@ -236,18 +251,71 @@ export function updateChatPinnedMessage(
       return chat;
     }
 
-    if (chat.pinnedMessage?.id === pinnedMessage?.id && chat.pinnedMessage?.preview === pinnedMessage?.preview) {
+    const existingPinnedMessages = getChatPinnedMessages(chat);
+    if (
+      existingPinnedMessages.length === pinnedMessages.length &&
+      existingPinnedMessages.every((message, index) => {
+        const nextMessage = pinnedMessages[index];
+        return (
+          nextMessage &&
+          message.id === nextMessage.id &&
+          message.preview === nextMessage.preview &&
+          (message.serverOrder ?? null) === (nextMessage.serverOrder ?? null)
+        );
+      })
+    ) {
       return chat;
     }
 
     changed = true;
     return {
       ...chat,
-      pinnedMessage,
+      pinnedMessage: pinnedMessages[0] ?? null,
+      pinnedMessages,
     };
   });
 
   return changed ? next : current;
+}
+
+export function replaceChatPinnedMessage(
+  current: ChatSummary[] | undefined,
+  chatId: string,
+  pinnedMessage: MessageSnippet
+) {
+  if (!current) {
+    return current;
+  }
+
+  const chat = current.find((item) => item.id === chatId);
+  if (!chat) {
+    return current;
+  }
+
+  const nextPinnedMessages = getChatPinnedMessages(chat).map((message) =>
+    message.id === pinnedMessage.id ? pinnedMessage : message
+  );
+  return setChatPinnedMessages(current, chatId, nextPinnedMessages);
+}
+
+export function removeChatPinnedMessage(
+  current: ChatSummary[] | undefined,
+  chatId: string,
+  messageId: string
+) {
+  if (!current) {
+    return current;
+  }
+
+  const chat = current.find((item) => item.id === chatId);
+  if (!chat) {
+    return current;
+  }
+
+  const nextPinnedMessages = getChatPinnedMessages(chat).filter(
+    (message) => message.id !== messageId
+  );
+  return setChatPinnedMessages(current, chatId, nextPinnedMessages);
 }
 
 export function mergeMessagePages(

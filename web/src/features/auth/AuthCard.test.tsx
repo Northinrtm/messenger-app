@@ -79,6 +79,18 @@ function setInputValue(input: HTMLInputElement, value: string) {
   input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
+function blurInput(input: HTMLInputElement) {
+  input.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+}
+
+function getPrimaryButton(container: HTMLDivElement) {
+  const button = container.querySelector(".primary-button");
+  if (!(button instanceof HTMLButtonElement)) {
+    throw new Error("Primary submit button is missing");
+  }
+  return button;
+}
+
 function renderAuthCard(root: Root, node: ReactNode) {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -175,7 +187,7 @@ describe("AuthCard auth flow", () => {
     await act(async () => {
       setInputValue(usernameInput, "north");
       setInputValue(emailInput, "north@example.com");
-      setInputValue(displayNameInput, "");
+      setInputValue(displayNameInput, "North");
       setInputValue(passwordInput, "riverlantern");
       setInputValue(passwordConfirmInput, "riverlantern");
       (container.querySelector("form") as HTMLFormElement).dispatchEvent(
@@ -227,7 +239,110 @@ describe("AuthCard auth flow", () => {
     });
 
     expect(register).not.toHaveBeenCalled();
-    expect(container.textContent).toContain("Passwords do not match.");
+    expect(container.textContent).toContain("Пароли не совпадают.");
+  });
+
+  it("shows registration validation errors on blur and enables submit only for valid data", async () => {
+    await act(async () => {
+      renderAuthCard(root!, <AuthCard onAuthenticated={vi.fn()} />);
+      await flushMicrotasks();
+    });
+
+    const inputs = container.querySelectorAll("input");
+    const usernameInput = inputs[0] as HTMLInputElement;
+    const emailInput = inputs[1] as HTMLInputElement;
+    const displayNameInput = inputs[2] as HTMLInputElement;
+    const passwordInput = inputs[3] as HTMLInputElement;
+    const passwordConfirmInput = inputs[4] as HTMLInputElement;
+    const submitButton = getPrimaryButton(container);
+
+    expect(submitButton.disabled).toBe(true);
+    expect(container.textContent).toContain(
+      "Минимум 8 символов, хотя бы одна буква."
+    );
+
+    await act(async () => {
+      blurInput(usernameInput);
+      blurInput(emailInput);
+      blurInput(displayNameInput);
+      blurInput(passwordInput);
+      await flushMicrotasks();
+    });
+
+    expect(container.textContent).toContain("Поле обязательное для заполнения");
+    expect(usernameInput.getAttribute("aria-invalid")).toBe("true");
+    expect(emailInput.getAttribute("aria-invalid")).toBe("true");
+    expect(displayNameInput.getAttribute("aria-invalid")).toBe("true");
+    expect(passwordInput.getAttribute("aria-invalid")).toBe("true");
+
+    await act(async () => {
+      setInputValue(emailInput, "north");
+      blurInput(emailInput);
+      await flushMicrotasks();
+    });
+
+    expect(container.textContent).toContain("Введите корректный email");
+
+    await act(async () => {
+      setInputValue(emailInput, "north@");
+      blurInput(emailInput);
+      await flushMicrotasks();
+    });
+
+    expect(container.textContent).toContain("Введите корректный email");
+
+    await act(async () => {
+      setInputValue(passwordInput, "1");
+      blurInput(passwordInput);
+      await flushMicrotasks();
+    });
+
+    expect(container.textContent).toContain("Пароль должен содержать минимум 8 символов");
+    expect(submitButton.disabled).toBe(true);
+
+    await act(async () => {
+      setInputValue(usernameInput, "north");
+      setInputValue(emailInput, "north@example.com");
+      setInputValue(displayNameInput, "North");
+      setInputValue(passwordInput, "riverlantern");
+      setInputValue(passwordConfirmInput, "riverlantern");
+      await flushMicrotasks();
+    });
+
+    expect(submitButton.disabled).toBe(false);
+  });
+
+  it("toggles password visibility in registration", async () => {
+    await act(async () => {
+      renderAuthCard(root!, <AuthCard onAuthenticated={vi.fn()} />);
+      await flushMicrotasks();
+    });
+
+    const inputs = container.querySelectorAll("input");
+    const passwordInput = inputs[3] as HTMLInputElement;
+    const passwordConfirmInput = inputs[4] as HTMLInputElement;
+    const showPasswordButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.getAttribute("aria-label") === "Show password"
+    );
+    const showConfirmPasswordButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.getAttribute("aria-label") === "Show confirm password"
+    );
+
+    if (!showPasswordButton || !showConfirmPasswordButton) {
+      throw new Error("Password visibility buttons are missing");
+    }
+
+    expect(passwordInput.type).toBe("password");
+    expect(passwordConfirmInput.type).toBe("password");
+
+    await act(async () => {
+      showPasswordButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      showConfirmPasswordButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await flushMicrotasks();
+    });
+
+    expect(passwordInput.type).toBe("text");
+    expect(passwordConfirmInput.type).toBe("text");
   });
 
   it("sign in works with email as the login identifier", async () => {
@@ -267,6 +382,56 @@ describe("AuthCard auth flow", () => {
 
     expect(login).toHaveBeenCalledWith({ username: "north@example.com", password: "riverlantern" });
     expect(authenticatedSpy).toHaveBeenCalledWith(response);
+  });
+
+  it("shows sign in required errors on blur and keeps submit disabled until fields are filled", async () => {
+    await act(async () => {
+      renderAuthCard(root!, <AuthCard onAuthenticated={vi.fn()} />);
+      await flushMicrotasks();
+    });
+
+    const signInButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Sign in")
+    );
+    if (!signInButton) {
+      throw new Error("Sign in mode button is missing");
+    }
+
+    await act(async () => {
+      signInButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await flushMicrotasks();
+    });
+
+    const inputs = container.querySelectorAll("input");
+    const usernameInput = inputs[0] as HTMLInputElement;
+    const passwordInput = inputs[1] as HTMLInputElement;
+    const submitButton = getPrimaryButton(container);
+
+    expect(submitButton.disabled).toBe(true);
+
+    await act(async () => {
+      blurInput(usernameInput);
+      blurInput(passwordInput);
+      await flushMicrotasks();
+    });
+
+    expect(container.textContent).toContain("Поле обязательное для заполнения");
+    expect(usernameInput.getAttribute("aria-invalid")).toBe("true");
+    expect(passwordInput.getAttribute("aria-invalid")).toBe("true");
+
+    await act(async () => {
+      setInputValue(usernameInput, "north");
+      await flushMicrotasks();
+    });
+
+    expect(submitButton.disabled).toBe(true);
+
+    await act(async () => {
+      setInputValue(passwordInput, "riverlantern");
+      await flushMicrotasks();
+    });
+
+    expect(submitButton.disabled).toBe(false);
   });
 
   it("returns to sign in immediately after opening a valid verification link", async () => {

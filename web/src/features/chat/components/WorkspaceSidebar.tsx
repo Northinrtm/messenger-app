@@ -1,4 +1,4 @@
-import type { ComponentProps, ReactNode, RefObject } from "react";
+import { useRef, useState, type ComponentProps, type FocusEvent, type ReactNode, type RefObject } from "react";
 
 import type { UserProfile } from "../../../lib/types";
 import type { ConversationListTab, SidebarSheet } from "../chatUi";
@@ -6,6 +6,22 @@ import { AvatarCircle } from "./AvatarCircle";
 import { SidebarManagementSheets } from "./SidebarManagementSheets";
 import { SidebarMenuOverlay } from "./SidebarMenuOverlay";
 import { SidebarUtilitySheets } from "./SidebarUtilitySheets";
+
+const SIDEBAR_COPY = {
+  openMenuAria: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043C\u0435\u043D\u044E",
+  searchPlaceholder: "\u041F\u043E\u0438\u0441\u043A",
+  searchLoading:
+    "\u0418\u0449\u0435\u043C \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u0435\u0439...",
+  searchEmpty: "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E.",
+  chatsAria: "\u0427\u0430\u0442\u044B",
+  chatsLabel: "\u0427\u0430\u0442\u044B",
+  mailAria: "\u041F\u043E\u0447\u0442\u0430",
+  mailLabel: "\u041F\u043E\u0447\u0442\u0430",
+  conferencesAria:
+    "\u0412\u0438\u0434\u0435\u043E\u043A\u043E\u043D\u0444\u0435\u0440\u0435\u043D\u0446\u0438\u0438",
+  conferencesLabel:
+    "\u0412\u0438\u0434\u0435\u043E\u043A\u043E\u043D\u0444\u0435\u0440\u0435\u043D\u0446\u0438\u0438",
+} as const;
 
 type Props = {
   activeListTab: ConversationListTab;
@@ -21,6 +37,7 @@ type Props = {
   onToggleMenu: () => void;
   search: string;
   showChatsTabIndicator: boolean;
+  showMailTab: boolean;
   showConferencesTabIndicator: boolean;
   showTopSearchResults: boolean;
   sidebarManagementSheetProps: ComponentProps<typeof SidebarManagementSheets>;
@@ -44,6 +61,7 @@ export function WorkspaceSidebar({
   onToggleMenu,
   search,
   showChatsTabIndicator,
+  showMailTab,
   showConferencesTabIndicator,
   showTopSearchResults,
   sidebarManagementSheetProps,
@@ -52,6 +70,18 @@ export function WorkspaceSidebar({
   userSearchIsFetching,
   userSearchResults,
 }: Props) {
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const searchShellRef = useRef<HTMLDivElement | null>(null);
+
+  const handleSearchBlur = (event: FocusEvent<HTMLDivElement>) => {
+    const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof Node && searchShellRef.current?.contains(nextTarget)) {
+      return;
+    }
+
+    setIsSearchFocused(false);
+  };
+
   return (
     <aside className="sidebar north-sidebar notranslate" translate="no">
       <div className="north-sidebar-top">
@@ -61,27 +91,32 @@ export function WorkspaceSidebar({
           className={isMenuOpen ? "sidebar-menu-button is-active" : "sidebar-menu-button"}
           onClick={onToggleMenu}
           aria-expanded={isMenuOpen}
-          aria-label="Открыть меню"
+          aria-label={SIDEBAR_COPY.openMenuAria}
         >
           <span />
           <span />
           <span />
         </button>
 
-        <div className="north-search-shell">
+        <div
+          ref={searchShellRef}
+          className="north-search-shell"
+          onBlur={handleSearchBlur}
+        >
           <input
             className="north-search"
             value={search}
             onChange={(event) => onSearchChange(event.target.value)}
-            placeholder="Поиск"
+            onFocus={() => setIsSearchFocused(true)}
+            placeholder={SIDEBAR_COPY.searchPlaceholder}
           />
 
-          {showTopSearchResults ? (
+          {showTopSearchResults && isSearchFocused ? (
             <div className="search-dropdown top-search-dropdown">
               {userSearchIsFetching ? (
-                <div className="search-result-empty">Ищем пользователей...</div>
+                <div className="search-result-empty">{SIDEBAR_COPY.searchLoading}</div>
               ) : userSearchResults.length === 0 ? (
-                <div className="search-result-empty">Ничего не найдено.</div>
+                <div className="search-result-empty">{SIDEBAR_COPY.searchEmpty}</div>
               ) : (
                 userSearchResults.map((user) => (
                   <button
@@ -123,11 +158,26 @@ export function WorkspaceSidebar({
                 .join(" ")
             }
             data-tab="chats"
-            aria-label="Чаты"
+            aria-label={SIDEBAR_COPY.chatsAria}
             onClick={() => onActivateListTab("chats")}
           >
-            Диалоги
+            {SIDEBAR_COPY.chatsLabel}
           </button>
+          {showMailTab ? (
+            <button
+              type="button"
+              className={
+                activeListTab === "mail"
+                  ? "conversation-list-tab is-active"
+                  : "conversation-list-tab"
+              }
+              data-tab="mail"
+              aria-label={SIDEBAR_COPY.mailAria}
+              onClick={() => onActivateListTab("mail")}
+            >
+              {SIDEBAR_COPY.mailLabel}
+            </button>
+          ) : null}
           <button
             type="button"
             className={
@@ -141,10 +191,10 @@ export function WorkspaceSidebar({
                 .join(" ")
             }
             data-tab="conferences"
-            aria-label="Видеоконференции"
+            aria-label={SIDEBAR_COPY.conferencesAria}
             onClick={() => onActivateListTab("conferences")}
           >
-            Видеоконференции
+            {SIDEBAR_COPY.conferencesLabel}
           </button>
         </div>
       ) : null}

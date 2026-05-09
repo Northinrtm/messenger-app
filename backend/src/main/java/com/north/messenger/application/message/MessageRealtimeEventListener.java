@@ -51,5 +51,6 @@ public class MessageRealtimeEventListener {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onMessageReactionChanged(MessageReactionChangedEvent event) {
         messageReactionService.broadcastReactionChanged(event.chatId(), event.messageId());
+        chatService.notifyChatUpdated(event.chatId());
     }
 }

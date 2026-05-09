@@ -12,6 +12,7 @@ public record WorkspaceBootstrapResponse(
         List<UserProfileResponse> blockedUsers,
         List<ChatDraftResponse> drafts,
         List<PendingOutgoingMessageResponse> pendingOutgoingMessages,
+        List<UserMailboxResponse> mailboxes,
         List<VideoConferenceResponse> conferences,
         List<VideoConferenceResponse> archivedConferences
 ) {

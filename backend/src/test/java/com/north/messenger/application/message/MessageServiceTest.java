@@ -43,6 +43,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -212,6 +213,8 @@ class MessageServiceTest {
         assertThat(response.status().state()).isEqualTo(MessageDeliveryState.SENT);
         verify(messageDispatchOutboxService).enqueue(any(MessageDispatchEvent.class));
         verify(pendingOutgoingMessageService).deleteByUserIdAndClientMessageId(currentUser.getId(), "client-1");
+        verify(chatService).reopenDeletedChatForUser(room, currentUser);
+        verify(chatService, never()).restoreDeletedChatStateForUsers(eq(chatId), anyList());
     }
 
     @Test
@@ -296,6 +299,12 @@ class MessageServiceTest {
         ), 10L);
         when(chatMessageRepository.findVisibleByChatIdOrderByServerOrderDesc(eq(chatId), eq(currentUser.getId()), any()))
                 .thenReturn(List.of(later, earlier));
+        when(chatMessageRepository.findVisibleByChatIdAndCreatedAtAfterOrderByServerOrderDesc(
+                eq(chatId),
+                eq(currentUser.getId()),
+                eq(Instant.parse("2026-04-01T00:00:00Z")),
+                any()
+        )).thenReturn(List.of(later, earlier));
 
         MessagePageResponse response = messageService.listMessagePage(chatId, "north", null, 2, false);
 
@@ -303,6 +312,77 @@ class MessageServiceTest {
                 .containsExactly("earlier", "later");
         assertThat(response.nextCursor()).isEqualTo("10");
         assertThat(response.confirmedPendingOutgoingClientMessageIds()).containsExactly("client-2");
+    }
+
+    @Test
+    void listMessagePageShouldKeepMessagesFromDeletedSenders() {
+        ChatMessage deletedSenderMessage = withServerOrder(new ChatMessage(
+                UUID.randomUUID(),
+                chatId,
+                peerUser.getId(),
+                "message from deleted user",
+                null,
+                null,
+                Instant.parse("2026-04-02T10:00:00Z")
+        ), 10L);
+        when(chatMessageRepository.findVisibleByChatIdOrderByServerOrderDesc(eq(chatId), eq(currentUser.getId()), any()))
+                .thenReturn(List.of(deletedSenderMessage));
+        when(chatMessageRepository.findVisibleByChatIdAndCreatedAtAfterOrderByServerOrderDesc(
+                eq(chatId),
+                eq(currentUser.getId()),
+                eq(Instant.parse("2026-04-01T00:00:00Z")),
+                any()
+        )).thenReturn(List.of(deletedSenderMessage));
+        when(userAccountRepository.findAllByIdIn(anyList())).thenReturn(List.of(currentUser));
+        when(authService.toDeletedParticipant(peerUser.getId())).thenReturn(
+                new ParticipantResponse(peerUser.getId(), "deleted-user", "Deleted user", null, false)
+        );
+
+        MessagePageResponse response = messageService.listMessagePage(chatId, "north", null, 1, false);
+
+        assertThat(response.messages()).hasSize(1);
+        assertThat(response.messages().get(0).sender().displayName()).isEqualTo("Deleted user");
+        assertThat(response.messages().get(0).plainPayload().content()).isEqualTo("message from deleted user");
+    }
+
+    @Test
+    void listMessagePageShouldApplyVisibleFromForReopenedDirectChat() {
+        Instant reopenedAt = Instant.parse("2026-04-02T00:00:00Z");
+        ChatParticipant reopenedMembership = new ChatParticipant(
+                UUID.randomUUID(),
+                chatId,
+                currentUser.getId(),
+                reopenedAt
+        );
+        ChatMessage visibleMessage = withServerOrder(new ChatMessage(
+                UUID.randomUUID(),
+                chatId,
+                peerUser.getId(),
+                "new thread message",
+                null,
+                null,
+                Instant.parse("2026-04-02T10:00:00Z")
+        ), 11L);
+
+        when(chatParticipantRepository.findByChatIdAndUserId(chatId, currentUser.getId()))
+                .thenReturn(Optional.of(reopenedMembership));
+        when(chatMessageRepository.findVisibleByChatIdAndCreatedAtAfterOrderByServerOrderDesc(
+                eq(chatId),
+                eq(currentUser.getId()),
+                eq(reopenedAt),
+                any()
+        )).thenReturn(List.of(visibleMessage));
+
+        MessagePageResponse response = messageService.listMessagePage(chatId, "north", null, 1, false);
+
+        assertThat(response.messages()).hasSize(1);
+        assertThat(response.messages().get(0).plainPayload().content()).isEqualTo("new thread message");
+        verify(chatMessageRepository).findVisibleByChatIdAndCreatedAtAfterOrderByServerOrderDesc(
+                eq(chatId),
+                eq(currentUser.getId()),
+                eq(reopenedAt),
+                any()
+        );
     }
 
     @Test
@@ -333,6 +413,25 @@ class MessageServiceTest {
         ))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("Reply target not found");
+    }
+
+    @Test
+    void deleteMessageForEveryoneShouldRemovePinnedMessagesThroughChatService() {
+        ChatMessage pinnedMessage = new ChatMessage(
+                UUID.randomUUID(),
+                chatId,
+                currentUser.getId(),
+                "pinned",
+                null,
+                null,
+                Instant.parse("2026-04-02T10:00:00Z")
+        );
+        room.pinMessage(pinnedMessage.getId(), Instant.parse("2026-04-02T10:01:00Z"));
+        when(chatMessageRepository.findAllById(List.of(pinnedMessage.getId()))).thenReturn(List.of(pinnedMessage));
+
+        messageService.deleteMessage(chatId, pinnedMessage.getId(), "north", "EVERYONE");
+
+        verify(chatService).removePinnedMessages(room, List.of(pinnedMessage.getId()));
     }
 
     private static ChatMessage withServerOrder(ChatMessage message, long serverOrder) {

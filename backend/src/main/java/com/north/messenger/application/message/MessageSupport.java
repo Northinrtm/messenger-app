@@ -139,20 +139,19 @@ class MessageSupport {
                     }
 
                     UserAccount sender = usersById.get(referencedMessage.getSenderId());
-                    if (sender == null) {
-                        return null;
-                    }
-
                     return Map.entry(
                             message.getId(),
                             new MessageSnippetResponse(
                                     referencedMessage.getId(),
-                                    authService.toParticipant(sender),
+                                    sender != null
+                                            ? authService.toParticipant(sender)
+                                            : authService.toDeletedParticipant(referencedMessage.getSenderId()),
                                     referencedMessage.getCreatedAt(),
                                     messagePreviewService.summarizeMessagePreview(
                                             referencedMessage,
                                             attachmentsByMessageId.getOrDefault(referencedMessage.getId(), List.of())
-                                    )
+                                    ),
+                                    referencedMessage.getServerOrder()
                             )
                     );
                 })
@@ -523,8 +522,10 @@ class MessageSupport {
     }
 
     private Instant resolveVisibleHistoryStart(ChatRoom room, ChatParticipant membership) {
-        if (room.isDirect()
-                || room.getPrejoinHistoryPolicy() == ChatPrejoinHistoryPolicy.FULL_HISTORY
+        if (room.isDirect()) {
+            return membership.getJoinedAt();
+        }
+        if (room.getPrejoinHistoryPolicy() == ChatPrejoinHistoryPolicy.FULL_HISTORY
                 || membership.getPrejoinHistoryAccessGrantedAt() != null) {
             return null;
         }

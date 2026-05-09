@@ -33,6 +33,7 @@ type Props = {
   forwardableChats: ChatSummary[];
   forwardContactOptions: UserProfile[];
   forwardPending: boolean;
+  forwardErrorText: string | null;
   onClose: () => void;
   onCloseConferenceComposer: () => void;
   onOpenConferenceComposer: (mode: "instant" | "scheduled") => void;
@@ -80,6 +81,7 @@ export function SidebarUtilitySheets({
   forwardableChats,
   forwardContactOptions,
   forwardPending,
+  forwardErrorText,
   onClose,
   onCloseConferenceComposer,
   onOpenConferenceComposer,
@@ -351,7 +353,17 @@ export function SidebarUtilitySheets({
         {forwardingMessages.length === 0 ? (
           <div className="empty-list">Сообщение для пересылки не найдено.</div>
         ) : (
-          <div className="sheet-list">
+          <div className="sheet-list" aria-busy={forwardPending}>
+            {forwardPending ? (
+              <div className="forward-status" role="status" aria-live="polite">
+                {"\u041f\u0435\u0440\u0435\u0441\u044B\u043B\u0430\u0435\u043C \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F..."}
+              </div>
+            ) : null}
+            {!forwardPending && forwardErrorText ? (
+              <div className="forward-status is-error" role="alert">
+                {forwardErrorText}
+              </div>
+            ) : null}
             <div className="forward-preview-card">
               <span className="forward-preview-label">Сообщение</span>
               {forwardingMessage?.replyTo ? (

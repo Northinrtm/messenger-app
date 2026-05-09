@@ -2,6 +2,12 @@ import { useEffect, useState } from "react";
 
 import type { PushNotificationPermission } from "../../../lib/pushNotifications";
 import type { UserProfile } from "../../../lib/types";
+import {
+  AUTH_PASSWORD_HELP,
+  validatePasswordConfirmation,
+  validateRegistrationPassword,
+  validateRequiredField,
+} from "../../auth/authValidation";
 import { AvatarCircle } from "./AvatarCircle";
 
 type Props = {
@@ -41,7 +47,10 @@ type Props = {
   onResendEmailVerification: () => void;
   onEnablePushNotifications: () => void;
   onDisablePushNotifications: () => void;
+  onSetMailEnabled: (value: boolean) => void;
 };
+
+type PasswordField = "current" | "next" | "confirm";
 
 export function ProfileSettingsCard({
   profile,
@@ -80,16 +89,17 @@ export function ProfileSettingsCard({
   onResendEmailVerification,
   onEnablePushNotifications,
   onDisablePushNotifications,
+  onSetMailEnabled,
 }: Props) {
   const [isPasswordFormOpen, setIsPasswordFormOpen] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [passwordFieldTouched, setPasswordFieldTouched] = useState<
+    Partial<Record<PasswordField, boolean>>
+  >({});
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNextPassword, setShowNextPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  const passwordChangeMatches = passwordChangeNext === passwordChangeConfirm;
-  const passwordChangeReady =
-    passwordChangeCurrent.length > 0 &&
-    passwordChangeNext.length >= 8 &&
-    passwordChangeMatches &&
-    passwordChangeCurrent !== passwordChangeNext;
   const normalizedProfileDisplayName = profileDisplayName.trim();
   const normalizedProfileProfession = profileProfession.trim();
   const profileChanged =
@@ -101,9 +111,42 @@ export function ProfileSettingsCard({
     normalizedProfileProfession.length > 0
       ? normalizedProfileProfession
       : (profile.profession ?? "");
+
+  const rawPasswordChangeCurrentError = validateRequiredField(passwordChangeCurrent);
+  const rawPasswordChangeNextError = validateRegistrationPassword({
+    username: profile.username,
+    displayName: displayedProfileName,
+    password: passwordChangeNext,
+  });
+  const rawPasswordChangeConfirmError = validatePasswordConfirmation(
+    passwordChangeNext,
+    passwordChangeConfirm
+  );
+  const passwordChangeSameAsCurrentError =
+    passwordChangeCurrent &&
+    passwordChangeNext &&
+    passwordChangeCurrent === passwordChangeNext
+      ? "\u041d\u043e\u0432\u044b\u0439 \u043f\u0430\u0440\u043e\u043b\u044c \u0434\u043e\u043b\u0436\u0435\u043d \u043e\u0442\u043b\u0438\u0447\u0430\u0442\u044c\u0441\u044f \u043e\u0442 \u0442\u0435\u043a\u0443\u0449\u0435\u0433\u043e"
+      : null;
+  const passwordChangeCurrentError = passwordFieldTouched.current
+    ? rawPasswordChangeCurrentError
+    : null;
+  const passwordChangeNextError = passwordFieldTouched.next
+    ? rawPasswordChangeNextError ?? passwordChangeSameAsCurrentError
+    : null;
+  const passwordChangeConfirmError = passwordFieldTouched.confirm
+    ? rawPasswordChangeConfirmError
+    : null;
+  const passwordChangeReady =
+    rawPasswordChangeCurrentError === null &&
+    rawPasswordChangeNextError === null &&
+    rawPasswordChangeConfirmError === null &&
+    passwordChangeSameAsCurrentError === null;
+
   const emailValue = profile.email ?? null;
   const emailVerified = Boolean(profile.emailVerified);
   const emailVerificationEnabled = Boolean(profile.emailVerificationEnabled);
+  const mailEnabled = Boolean(profile.mailEnabled);
   const showUnverifiedEmailStatus = !emailVerified && !emailVerificationEnabled;
   const pushNotificationsStatus = describePushNotificationsStatusV2({
     enabled: pushNotificationsEnabled,
@@ -122,10 +165,12 @@ export function ProfileSettingsCard({
   useEffect(() => {
     setIsPasswordFormOpen(false);
     setIsDeleteConfirmOpen(false);
+    resetPasswordUiState();
   }, [profile.id]);
 
   const closePasswordForm = () => {
     setIsPasswordFormOpen(false);
+    resetPasswordUiState();
     onPasswordChangeCurrentChange("");
     onPasswordChangeNextChange("");
     onPasswordChangeConfirmChange("");
@@ -136,14 +181,27 @@ export function ProfileSettingsCard({
     onDeleteAccountConfirmationChange("");
   };
 
+  function resetPasswordUiState() {
+    setPasswordFieldTouched({});
+    setShowCurrentPassword(false);
+    setShowNextPassword(false);
+    setShowConfirmPassword(false);
+  }
+
+  function touchPasswordField(field: PasswordField) {
+    setPasswordFieldTouched((current) => ({ ...current, [field]: true }));
+  }
+
   return (
     <div className="sheet-card">
       <div className="sheet-head">
         <div>
-          <div className="section-title">Мой профиль</div>
+          <div className="section-title">
+            {"\u041c\u043e\u0439 \u043f\u0440\u043e\u0444\u0438\u043b\u044c"}
+          </div>
         </div>
         <button type="button" className="ghost-button compact" onClick={onClose}>
-          Закрыть
+          {"\u0417\u0430\u043a\u0440\u044b\u0442\u044c"}
         </button>
       </div>
 
@@ -159,7 +217,9 @@ export function ProfileSettingsCard({
               online={profile.online}
             />
             <span className="profile-avatar-badge">
-              {avatarPending ? "Загружаем..." : "Изменить фото"}
+              {avatarPending
+                ? "\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c..."
+                : "\u0418\u0437\u043c\u0435\u043d\u0438\u0442\u044c \u0444\u043e\u0442\u043e"}
             </span>
             <input
               className="profile-avatar-input"
@@ -191,47 +251,61 @@ export function ProfileSettingsCard({
             onSubmitProfileDisplayName();
           }}
         >
-          <span className="profile-label">Имя</span>
+          <span className="profile-label">{"\u0418\u043c\u044f"}</span>
           <div className="profile-inline-row">
-            <input
-              value={profileDisplayName}
-              onChange={(event) => onProfileDisplayNameChange(event.target.value)}
-              placeholder="Ваше имя"
-              maxLength={40}
-            />
+            <div className="profile-inline-stack">
+              <input
+                value={profileDisplayName}
+                onChange={(event) => onProfileDisplayNameChange(event.target.value)}
+                placeholder={"\u0412\u0430\u0448\u0435 \u0438\u043c\u044f"}
+                maxLength={40}
+              />
+              <span className="profile-field-meta">
+                {profileDisplayName.length}/40
+              </span>
+            </div>
             {profileChanged ? (
               <button
                 type="submit"
                 className="ghost-button compact profile-inline-save"
                 disabled={updateProfilePending || normalizedProfileDisplayName.length < 2}
               >
-                {updateProfilePending ? "Сохраняем..." : "Сохранить"}
+                {updateProfilePending
+                  ? "\u0421\u043e\u0445\u0440\u0430\u043d\u044f\u0435\u043c..."
+                  : "\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c"}
               </button>
             ) : null}
           </div>
 
-          <span className="profile-label">О себе</span>
-          <textarea
-            className="profile-about-input"
-            value={profileProfession}
-            onChange={(event) => onProfileProfessionChange(event.target.value)}
-            placeholder="Любые подробности, например род занятий, интересы или город."
-            maxLength={160}
-            rows={3}
-          />
+          <span className="profile-label">{"\u041e \u0441\u0435\u0431\u0435"}</span>
+          <div className="profile-inline-stack">
+            <textarea
+              className="profile-about-input"
+              value={profileProfession}
+              onChange={(event) => onProfileProfessionChange(event.target.value)}
+              placeholder={
+                "\u041b\u044e\u0431\u044b\u0435 \u043f\u043e\u0434\u0440\u043e\u0431\u043d\u043e\u0441\u0442\u0438, \u043d\u0430\u043f\u0440\u0438\u043c\u0435\u0440 \u0440\u043e\u0434 \u0437\u0430\u043d\u044f\u0442\u0438\u0439, \u0438\u043d\u0442\u0435\u0440\u0435\u0441\u044b \u0438\u043b\u0438 \u0433\u043e\u0440\u043e\u0434."
+              }
+              maxLength={160}
+              rows={3}
+            />
+            <span className="profile-field-meta">
+              {profileProfession.length}/160
+            </span>
+          </div>
         </form>
 
         <div className="profile-line profile-action-panel">
           <div className="profile-action-row">
             <div className="profile-action-copy">
-              <span className="profile-label">Почта</span>
-              <strong>{emailValue ?? "Email недоступен"}</strong>
+              <span className="profile-label">{"\u041f\u043e\u0447\u0442\u0430"}</span>
+              <strong>{emailValue ?? "Email \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d"}</strong>
               <span>
                 {emailVerified
-                  ? "Почта подтверждена."
+                  ? "\u041f\u043e\u0447\u0442\u0430 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d\u0430."
                   : emailVerificationEnabled
-                    ? "Почта не подтверждена. Можно отправить письмо со ссылкой для подтверждения."
-                    : "Верификация почты отключена в этой среде."}
+                    ? "\u041f\u043e\u0447\u0442\u0430 \u043d\u0435 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d\u0430. \u041c\u043e\u0436\u043d\u043e \u043e\u0442\u043f\u0440\u0430\u0432\u0438\u0442\u044c \u043f\u0438\u0441\u044c\u043c\u043e \u0441\u043e \u0441\u0441\u044b\u043b\u043a\u043e\u0439 \u0434\u043b\u044f \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d\u0438\u044f."
+                    : "\u0412\u0435\u0440\u0438\u0444\u0438\u043a\u0430\u0446\u0438\u044f \u043f\u043e\u0447\u0442\u044b \u043e\u0442\u043a\u043b\u044e\u0447\u0435\u043d\u0430 \u0432 \u044d\u0442\u043e\u0439 \u0441\u0440\u0435\u0434\u0435."}
               </span>
               {showUnverifiedEmailStatus ? (
                 <span>{"\u041f\u043e\u0447\u0442\u0430 \u043d\u0435 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d\u0430."}</span>
@@ -244,7 +318,9 @@ export function ProfileSettingsCard({
                 onClick={onResendEmailVerification}
                 disabled={emailVerificationPending}
               >
-                {emailVerificationPending ? "Отправляем..." : "Верифицировать почту"}
+                {emailVerificationPending
+                  ? "\u041e\u0442\u043f\u0440\u0430\u0432\u043b\u044f\u0435\u043c..."
+                  : "\u0412\u0435\u0440\u0438\u0444\u0438\u0446\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u043f\u043e\u0447\u0442\u0443"}
               </button>
             ) : null}
           </div>
@@ -255,8 +331,40 @@ export function ProfileSettingsCard({
         <div className="profile-line profile-action-panel">
           <div className="profile-action-row">
             <div className="profile-action-copy">
-              <span className="profile-label">Уведомления</span>
-              <strong>Push на этом устройстве</strong>
+              <span className="profile-label">
+                {"\u0412\u043a\u043b\u0430\u0434\u043a\u0430 \u043f\u043e\u0447\u0442\u044b"}
+              </span>
+              <strong>
+                {mailEnabled
+                  ? "\u041f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0435\u0442\u0441\u044f \u0432 \u0441\u043f\u0438\u0441\u043a\u0435"
+                  : "\u0421\u043a\u0440\u044b\u0442\u0430"}
+              </strong>
+              <span>
+                {mailEnabled
+                  ? "\u041f\u043e\u0447\u0442\u0430 \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u0430 \u043c\u0435\u0436\u0434\u0443 \u0447\u0430\u0442\u0430\u043c\u0438 \u0438 \u043a\u043e\u043d\u0444\u0435\u0440\u0435\u043d\u0446\u0438\u044f\u043c\u0438."
+                  : "\u0415\u0441\u043b\u0438 \u043e\u0442\u043a\u043b\u044e\u0447\u0438\u0442\u044c \u043f\u043e\u0447\u0442\u0443, \u043e\u0441\u0442\u0430\u043d\u0443\u0442\u0441\u044f \u0442\u043e\u043b\u044c\u043a\u043e \u0432\u043a\u043b\u0430\u0434\u043a\u0438 \u0447\u0430\u0442\u043e\u0432 \u0438 \u043a\u043e\u043d\u0444\u0435\u0440\u0435\u043d\u0446\u0438\u0439."}
+              </span>
+            </div>
+            <button
+              type="button"
+              className="ghost-button compact"
+              onClick={() => onSetMailEnabled(!mailEnabled)}
+              disabled={updateProfilePending}
+            >
+              {updateProfilePending
+                ? "\u0421\u043e\u0445\u0440\u0430\u043d\u044f\u0435\u043c..."
+                : mailEnabled
+                  ? "\u0423\u0431\u0440\u0430\u0442\u044c \u043f\u043e\u0447\u0442\u0443"
+                  : "\u0412\u043a\u043b\u044e\u0447\u0438\u0442\u044c \u043f\u043e\u0447\u0442\u0443"}
+            </button>
+          </div>
+        </div>
+
+        <div className="profile-line profile-action-panel">
+          <div className="profile-action-row">
+            <div className="profile-action-copy">
+              <span className="profile-label">{"\u0423\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u044f"}</span>
+              <strong>Push {"\u043d\u0430 \u044d\u0442\u043e\u043c \u0443\u0441\u0442\u0440\u043e\u0439\u0441\u0442\u0432\u0435"}</strong>
               <span>{pushNotificationsStatus}</span>
             </div>
             {canEnablePushNotifications ? (
@@ -266,7 +374,9 @@ export function ProfileSettingsCard({
                 onClick={onEnablePushNotifications}
                 disabled={pushNotificationsPending}
               >
-                {pushNotificationsPending ? "Включаем..." : "Включить"}
+                {pushNotificationsPending
+                  ? "\u0412\u043a\u043b\u044e\u0447\u0430\u0435\u043c..."
+                  : "\u0412\u043a\u043b\u044e\u0447\u0438\u0442\u044c"}
               </button>
             ) : canDisablePushNotifications ? (
               <button
@@ -275,7 +385,9 @@ export function ProfileSettingsCard({
                 onClick={onDisablePushNotifications}
                 disabled={pushNotificationsPending}
               >
-                {pushNotificationsPending ? "Выключаем..." : "Выключить"}
+                {pushNotificationsPending
+                  ? "\u0412\u044b\u043a\u043b\u044e\u0447\u0430\u0435\u043c..."
+                  : "\u0412\u044b\u043a\u043b\u044e\u0447\u0438\u0442\u044c"}
               </button>
             ) : null}
           </div>
@@ -286,8 +398,8 @@ export function ProfileSettingsCard({
         <div className="profile-line profile-action-panel">
           <div className="profile-action-row">
             <div className="profile-action-copy">
-              <span className="profile-label">Безопасность</span>
-              <strong>Пароль</strong>
+              <span className="profile-label">{"\u0411\u0435\u0437\u043e\u043f\u0430\u0441\u043d\u043e\u0441\u0442\u044c"}</span>
+              <strong>{"\u041f\u0430\u0440\u043e\u043b\u044c"}</strong>
             </div>
             <button
               type="button"
@@ -302,7 +414,9 @@ export function ProfileSettingsCard({
                 setIsPasswordFormOpen(true);
               }}
             >
-              {isPasswordFormOpen ? "Скрыть" : "Сменить пароль"}
+              {isPasswordFormOpen
+                ? "\u0421\u043a\u0440\u044b\u0442\u044c"
+                : "\u0421\u043c\u0435\u043d\u0438\u0442\u044c \u043f\u0430\u0440\u043e\u043b\u044c"}
             </button>
           </div>
 
@@ -314,40 +428,90 @@ export function ProfileSettingsCard({
                 onSubmitPasswordChange();
               }}
             >
-              <input
-                value={passwordChangeCurrent}
-                onChange={(event) => onPasswordChangeCurrentChange(event.target.value)}
-                placeholder="Текущий пароль"
-                type="password"
-                autoComplete="current-password"
-              />
-              <input
-                value={passwordChangeNext}
-                onChange={(event) => onPasswordChangeNextChange(event.target.value)}
-                placeholder="Новый пароль"
-                type="password"
-                autoComplete="new-password"
-              />
-              <input
-                value={passwordChangeConfirm}
-                onChange={(event) => onPasswordChangeConfirmChange(event.target.value)}
-                placeholder="Повторите новый пароль"
-                type="password"
-                autoComplete="new-password"
-              />
-              {!passwordChangeMatches && passwordChangeConfirm.length > 0 ? (
-                <div className="form-error">Пароли не совпадают.</div>
-              ) : null}
+              <div className={passwordChangeCurrentError ? "field is-invalid" : "field"}>
+                <div className="field-input">
+                  <input
+                    value={passwordChangeCurrent}
+                    onChange={(event) => onPasswordChangeCurrentChange(event.target.value)}
+                    onBlur={() => touchPasswordField("current")}
+                    placeholder={"\u0422\u0435\u043a\u0443\u0449\u0438\u0439 \u043f\u0430\u0440\u043e\u043b\u044c"}
+                    type={showCurrentPassword ? "text" : "password"}
+                    autoComplete="current-password"
+                    aria-invalid={passwordChangeCurrentError ? "true" : undefined}
+                  />
+                  <PasswordVisibilityButton
+                    shown={showCurrentPassword}
+                    onClick={() => setShowCurrentPassword((current) => !current)}
+                    labelWhenShown="Hide current password"
+                    labelWhenHidden="Show current password"
+                  />
+                </div>
+                {passwordChangeCurrentError ? (
+                  <div className="field-error-text">{passwordChangeCurrentError}</div>
+                ) : null}
+              </div>
+
+              <div className={passwordChangeNextError ? "field is-invalid" : "field"}>
+                <div className="field-input">
+                  <input
+                    value={passwordChangeNext}
+                    onChange={(event) => onPasswordChangeNextChange(event.target.value)}
+                    onBlur={() => touchPasswordField("next")}
+                    placeholder={"\u041d\u043e\u0432\u044b\u0439 \u043f\u0430\u0440\u043e\u043b\u044c"}
+                    type={showNextPassword ? "text" : "password"}
+                    autoComplete="new-password"
+                    aria-invalid={passwordChangeNextError ? "true" : undefined}
+                  />
+                  <PasswordVisibilityButton
+                    shown={showNextPassword}
+                    onClick={() => setShowNextPassword((current) => !current)}
+                    labelWhenShown="Hide new password"
+                    labelWhenHidden="Show new password"
+                  />
+                </div>
+                <div className="field-help">{AUTH_PASSWORD_HELP}</div>
+                {passwordChangeNextError ? (
+                  <div className="field-error-text">{passwordChangeNextError}</div>
+                ) : null}
+              </div>
+
+              <div className={passwordChangeConfirmError ? "field is-invalid" : "field"}>
+                <div className="field-input">
+                  <input
+                    value={passwordChangeConfirm}
+                    onChange={(event) => onPasswordChangeConfirmChange(event.target.value)}
+                    onBlur={() => touchPasswordField("confirm")}
+                    placeholder={
+                      "\u041f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435 \u043d\u043e\u0432\u044b\u0439 \u043f\u0430\u0440\u043e\u043b\u044c"
+                    }
+                    type={showConfirmPassword ? "text" : "password"}
+                    autoComplete="new-password"
+                    aria-invalid={passwordChangeConfirmError ? "true" : undefined}
+                  />
+                  <PasswordVisibilityButton
+                    shown={showConfirmPassword}
+                    onClick={() => setShowConfirmPassword((current) => !current)}
+                    labelWhenShown="Hide confirm password"
+                    labelWhenHidden="Show confirm password"
+                  />
+                </div>
+                {passwordChangeConfirmError ? (
+                  <div className="field-error-text">{passwordChangeConfirmError}</div>
+                ) : null}
+              </div>
+
               <div className="profile-inline-row">
                 <button
                   type="submit"
                   className="secondary-button"
                   disabled={changePasswordPending || !passwordChangeReady}
                 >
-                  {changePasswordPending ? "Меняем пароль..." : "Сменить пароль"}
+                  {changePasswordPending
+                    ? "\u041c\u0435\u043d\u044f\u0435\u043c \u043f\u0430\u0440\u043e\u043b\u044c..."
+                    : "\u0421\u043c\u0435\u043d\u0438\u0442\u044c \u043f\u0430\u0440\u043e\u043b\u044c"}
                 </button>
                 <button type="button" className="ghost-button compact" onClick={closePasswordForm}>
-                  Отмена
+                  {"\u041e\u0442\u043c\u0435\u043d\u0430"}
                 </button>
               </div>
             </form>
@@ -357,8 +521,10 @@ export function ProfileSettingsCard({
         <div className="profile-line profile-action-panel profile-danger-panel">
           <div className="profile-action-row">
             <div className="profile-action-copy">
-              <span className="profile-label">Аккаунт</span>
-              <strong>Удаление аккаунта</strong>
+              <span className="profile-label">{"\u0410\u043a\u043a\u0430\u0443\u043d\u0442"}</span>
+              <strong>
+                {"\u0423\u0434\u0430\u043b\u0435\u043d\u0438\u0435 \u0430\u043a\u043a\u0430\u0443\u043d\u0442\u0430"}
+              </strong>
             </div>
             <button
               type="button"
@@ -373,15 +539,18 @@ export function ProfileSettingsCard({
                 setIsDeleteConfirmOpen(true);
               }}
             >
-              {isDeleteConfirmOpen ? "Скрыть" : "Удалить аккаунт"}
+              {isDeleteConfirmOpen
+                ? "\u0421\u043a\u0440\u044b\u0442\u044c"
+                : "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0430\u043a\u043a\u0430\u0443\u043d\u0442"}
             </button>
           </div>
 
           {isDeleteConfirmOpen ? (
             <div className="profile-delete-confirm">
               <p>
-                Это действие необратимо. Введите <strong>{profile.username}</strong>, чтобы
-                подтвердить удаление.
+                {"\u042d\u0442\u043e \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u043d\u0435\u043e\u0431\u0440\u0430\u0442\u0438\u043c\u043e. \u0412\u0432\u0435\u0434\u0438\u0442\u0435 "}
+                <strong>{profile.username}</strong>
+                {" \u0447\u0442\u043e\u0431\u044b \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u044c \u0443\u0434\u0430\u043b\u0435\u043d\u0438\u0435."}
               </p>
               <input
                 value={deleteAccountConfirmation}
@@ -398,10 +567,12 @@ export function ProfileSettingsCard({
                   disabled={deleteAccountPending || !deleteAccountRequiresMatch}
                   onClick={onDeleteAccount}
                 >
-                  {deleteAccountPending ? "Удаляем аккаунт..." : "Подтвердить удаление"}
+                  {deleteAccountPending
+                    ? "\u0423\u0434\u0430\u043b\u044f\u0435\u043c \u0430\u043a\u043a\u0430\u0443\u043d\u0442..."
+                    : "\u041f\u043e\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u044c \u0443\u0434\u0430\u043b\u0435\u043d\u0438\u0435"}
                 </button>
                 <button type="button" className="ghost-button compact" onClick={closeDeleteConfirm}>
-                  Отмена
+                  {"\u041e\u0442\u043c\u0435\u043d\u0430"}
                 </button>
               </div>
             </div>
@@ -420,9 +591,9 @@ function describePushNotificationsStatusV2(args: {
 }) {
   if (args.supported && args.serverEnabled && args.permission !== "denied") {
     if (args.enabled) {
-      return "Включены. Если приложение открыто и разблокировано, уведомление покажет превью; когда приложение закрыто, push остается без текста.";
+      return "\u0412\u043a\u043b\u044e\u0447\u0435\u043d\u044b. \u0415\u0441\u043b\u0438 \u043f\u0440\u0438\u043b\u043e\u0436\u0435\u043d\u0438\u0435 \u043e\u0442\u043a\u0440\u044b\u0442\u043e \u0438 \u0440\u0430\u0437\u0431\u043b\u043e\u043a\u0438\u0440\u043e\u0432\u0430\u043d\u043e, \u0443\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u0435 \u043f\u043e\u043a\u0430\u0436\u0435\u0442 \u043f\u0440\u0435\u0432\u044c\u044e; \u043a\u043e\u0433\u0434\u0430 \u043f\u0440\u0438\u043b\u043e\u0436\u0435\u043d\u0438\u0435 \u0437\u0430\u043a\u0440\u044b\u0442\u043e, push \u043e\u0441\u0442\u0430\u0435\u0442\u0441\u044f \u0431\u0435\u0437 \u0442\u0435\u043a\u0441\u0442\u0430.";
     }
-    return "Можно включить. Текст не передается на сервер: превью показывает только открытый клиент после расшифровки.";
+    return "\u041c\u043e\u0436\u043d\u043e \u0432\u043a\u043b\u044e\u0447\u0438\u0442\u044c. \u0422\u0435\u043a\u0441\u0442 \u043d\u0435 \u043f\u0435\u0440\u0435\u0434\u0430\u0435\u0442\u0441\u044f \u043d\u0430 \u0441\u0435\u0440\u0432\u0435\u0440: \u043f\u0440\u0435\u0432\u044c\u044e \u043f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0435\u0442 \u0442\u043e\u043b\u044c\u043a\u043e \u043e\u0442\u043a\u0440\u044b\u0442\u044b\u0439 \u043a\u043b\u0438\u0435\u043d\u0442 \u043f\u043e\u0441\u043b\u0435 \u0440\u0430\u0441\u0448\u0438\u0444\u0440\u043e\u0432\u043a\u0438.";
   }
 
   return describePushNotificationsStatus(args);
@@ -440,16 +611,95 @@ function describePushNotificationsStatus({
   supported: boolean;
 }) {
   if (!supported) {
-    return "Браузер не поддерживает Web Push.";
+    return "\u0411\u0440\u0430\u0443\u0437\u0435\u0440 \u043d\u0435 \u043f\u043e\u0434\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0435\u0442 Web Push.";
   }
   if (!serverEnabled) {
-    return "Push отключен на сервере.";
+    return "Push \u043e\u0442\u043a\u043b\u044e\u0447\u0435\u043d \u043d\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435.";
   }
   if (permission === "denied") {
-    return "Разрешение заблокировано в настройках браузера.";
+    return "\u0420\u0430\u0437\u0440\u0435\u0448\u0435\u043d\u0438\u0435 \u0437\u0430\u0431\u043b\u043e\u043a\u0438\u0440\u043e\u0432\u0430\u043d\u043e \u0432 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0430\u0445 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0430.";
   }
   if (enabled) {
-    return "Включены. Уведомление покажет только факт нового сообщения без текста.";
+    return "\u0412\u043a\u043b\u044e\u0447\u0435\u043d\u044b. \u0423\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u0435 \u043f\u043e\u043a\u0430\u0436\u0435\u0442 \u0442\u043e\u043b\u044c\u043a\u043e \u0444\u0430\u043a\u0442 \u043d\u043e\u0432\u043e\u0433\u043e \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u044f \u0431\u0435\u0437 \u0442\u0435\u043a\u0441\u0442\u0430.";
   }
-  return "Можно включить. Текст сообщения в push не передается.";
+  return "\u041c\u043e\u0436\u043d\u043e \u0432\u043a\u043b\u044e\u0447\u0438\u0442\u044c. \u0422\u0435\u043a\u0441\u0442 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u044f \u0432 push \u043d\u0435 \u043f\u0435\u0440\u0435\u0434\u0430\u0435\u0442\u0441\u044f.";
+}
+
+function PasswordVisibilityButton({
+  shown,
+  onClick,
+  labelWhenShown,
+  labelWhenHidden,
+}: {
+  shown: boolean;
+  onClick: () => void;
+  labelWhenShown: string;
+  labelWhenHidden: string;
+}) {
+  return (
+    <button
+      type="button"
+      className="password-visibility-button"
+      aria-label={shown ? labelWhenShown : labelWhenHidden}
+      onClick={onClick}
+    >
+      {shown ? (
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path
+            d="M3 4.5 19.5 21"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.7"
+          />
+          <path
+            d="M10.6 6.2c.45-.12.92-.2 1.4-.2 5.24 0 9.5 5.5 9.5 6s-1.1 1.9-2.95 3.24M6.2 9.1C3.98 10.65 2.5 12.45 2.5 13c0 .5 4.26 6 9.5 6 1.58 0 3.08-.5 4.4-1.25"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.7"
+          />
+          <path
+            d="M9.8 9.82A3.2 3.2 0 0 1 15 12.4"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.7"
+          />
+          <path
+            d="M14.17 14.19A3.2 3.2 0 0 1 9.4 9.42"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.7"
+          />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path
+            d="M2.5 12c0-.5 4.26-6 9.5-6s9.5 5.5 9.5 6-4.26 6-9.5 6-9.5-5.5-9.5-6Z"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.7"
+          />
+          <circle
+            cx="12"
+            cy="12"
+            r="3.2"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.7"
+          />
+        </svg>
+      )}
+    </button>
+  );
 }

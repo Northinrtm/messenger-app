@@ -27,6 +27,7 @@ type UseChatDraftsResult = {
   clearDraftForChat: (chatId: string) => void;
   commitDraftForChat: (chatId: string, content: string) => void;
   composerTextareaRef: RefObject<HTMLTextAreaElement | null>;
+  draftActivityByChatId: Record<string, string>;
   draftsByChatId: Record<string, string>;
   draftsQuery: ReturnType<typeof useQuery<ChatDraft[]>>;
   focusComposer: () => void;
@@ -44,6 +45,9 @@ export function useChatDrafts({
   token,
 }: UseChatDraftsParams): UseChatDraftsResult {
   const [draftsByChatId, setDraftsByChatIdState] = useState<Record<string, string>>({});
+  const [draftActivityByChatId, setDraftActivityByChatIdState] = useState<Record<string, string>>(
+    {}
+  );
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const draftSaveTimeoutsRef = useRef(new Map<string, number>());
   const pendingDraftContentsRef = useRef(new Map<string, string>());
@@ -69,6 +73,15 @@ export function useChatDrafts({
   const syncDraftLocally = useEffectEvent((chatId: string, content: string) => {
     if (content.trim().length === 0) {
       updateDraftsQueryData((current) => (current ?? []).filter((draft) => draft.chatId !== chatId));
+      setDraftActivityByChatId((current) => {
+        if (!(chatId in current)) {
+          return current;
+        }
+
+        const next = { ...current };
+        delete next[chatId];
+        return next;
+      });
       setDraftsByChatId((current) => {
         if (!(chatId in current)) {
           return current;
@@ -91,6 +104,10 @@ export function useChatDrafts({
       nextDrafts.push(localDraft);
       return nextDrafts.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
     });
+    setDraftActivityByChatId((current) => ({
+      ...current,
+      [chatId]: localDraft.updatedAt,
+    }));
     setDraftsByChatId((current) => {
       if (current[chatId] === content) {
         return current;
@@ -115,6 +132,15 @@ export function useChatDrafts({
           updateDraftsQueryData((current) =>
             (current ?? []).filter((draft) => draft.chatId !== chatId)
           );
+          setDraftActivityByChatId((current) => {
+            if (!(chatId in current)) {
+              return current;
+            }
+
+            const next = { ...current };
+            delete next[chatId];
+            return next;
+          });
           return;
         }
 
@@ -126,6 +152,10 @@ export function useChatDrafts({
           nextDrafts.push(persistedDraft);
           return nextDrafts.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
         });
+        setDraftActivityByChatId((current) => ({
+          ...current,
+          [chatId]: persistedDraft.updatedAt,
+        }));
       } finally {
         if (!draftSaveTimeoutsRef.current.has(chatId)) {
           draftSyncLocksRef.current.delete(chatId);
@@ -175,6 +205,16 @@ export function useChatDrafts({
     }
   );
 
+  const setDraftActivityByChatId = useEffectEvent(
+    (updater: SetStateAction<Record<string, string>>) => {
+      setDraftActivityByChatIdState((current) =>
+        typeof updater === "function"
+          ? (updater as (value: Record<string, string>) => Record<string, string>)(current)
+          : updater
+      );
+    }
+  );
+
   const scheduleDraftSave = useEffectEvent((chatId: string, content: string) => {
     draftSyncLocksRef.current.add(chatId);
     pendingDraftContentsRef.current.set(chatId, content);
@@ -207,10 +247,16 @@ export function useChatDrafts({
     draftSyncLocksRef.current.add(chatId);
     if (nextValue.trim().length === 0) {
       pendingDraftContentsRef.current.delete(chatId);
+      syncDraftLocally(chatId, "");
       return;
     }
 
     pendingDraftContentsRef.current.set(chatId, nextValue);
+    const nextUpdatedAt = new Date().toISOString();
+    setDraftActivityByChatId((current) => ({
+      ...current,
+      [chatId]: nextUpdatedAt,
+    }));
   });
 
   const commitDraftForChat = useEffectEvent((chatId: string, content: string) => {
@@ -243,6 +289,15 @@ export function useChatDrafts({
     pendingDraftContentsRef.current.delete(chatId);
     draftSyncLocksRef.current.add(chatId);
     updateDraftsQueryData((current) => (current ?? []).filter((draft) => draft.chatId !== chatId));
+    setDraftActivityByChatId((current) => {
+      if (!(chatId in current)) {
+        return current;
+      }
+
+      const next = { ...current };
+      delete next[chatId];
+      return next;
+    });
     setDraftsByChatId((current) => {
       if (!(chatId in current)) {
         return current;
@@ -250,8 +305,8 @@ export function useChatDrafts({
 
       const next = { ...current };
       delete next[chatId];
-        return next;
-      });
+      return next;
+    });
     void deleteChatDraft(token, chatId)
       .catch(() => undefined)
       .finally(() => {
@@ -266,6 +321,9 @@ export function useChatDrafts({
 
     const serverDraftsByChatId = Object.fromEntries(
       draftsQuery.data.map((draft) => [draft.chatId, draft.content])
+    );
+    const serverDraftActivityByChatId = Object.fromEntries(
+      draftsQuery.data.map((draft) => [draft.chatId, draft.updatedAt])
     );
     setDraftsByChatId((current) => {
       const next = { ...current };
@@ -295,6 +353,34 @@ export function useChatDrafts({
 
       return changed ? next : current;
     });
+    setDraftActivityByChatId((current) => {
+      const next = { ...current };
+      let changed = false;
+
+      draftsQuery.data.forEach((draft) => {
+        if (draftSyncLocksRef.current.has(draft.chatId)) {
+          return;
+        }
+
+        if (next[draft.chatId] !== draft.updatedAt) {
+          next[draft.chatId] = draft.updatedAt;
+          changed = true;
+        }
+      });
+
+      Object.keys(next).forEach((chatId) => {
+        if (draftSyncLocksRef.current.has(chatId)) {
+          return;
+        }
+
+        if (!(chatId in serverDraftActivityByChatId)) {
+          delete next[chatId];
+          changed = true;
+        }
+      });
+
+      return changed ? next : current;
+    });
   }, [draftsQuery.data]);
 
   useEffect(() => {
@@ -309,7 +395,7 @@ export function useChatDrafts({
       window.removeEventListener("beforeunload", handlePageHide);
       flushPendingDraftSaves();
     };
-  }, [flushPendingDraftSaves]);
+  }, []);
 
   return {
     activeDraft: activeChatId
@@ -318,6 +404,7 @@ export function useChatDrafts({
     clearDraftForChat,
     commitDraftForChat,
     composerTextareaRef,
+    draftActivityByChatId,
     draftsByChatId,
     draftsQuery,
     focusComposer,

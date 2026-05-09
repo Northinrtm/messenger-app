@@ -22,6 +22,7 @@ import {
   revokeSession,
   resendOwnEmailVerification,
   startGroupConferenceCall as startGroupConferenceCallRequest,
+  unbanGroupParticipant as unbanGroupParticipantRequest,
   unblockUser as unblockUserRequest,
   updateArchivedChat,
   updateGroupChat as updateGroupChatRequest,
@@ -38,6 +39,11 @@ import type {
   UserSessionInfo,
   VideoConference,
 } from "../../../lib/types";
+import {
+  validatePasswordConfirmation,
+  validateRegistrationPassword,
+  validateRequiredField,
+} from "../../auth/authValidation";
 import { removeVideoConference, upsertVideoConferences } from "../chatPresentation";
 import { upsertChat } from "../chatState";
 import type { ConversationListTab, SidebarSheet } from "../chatUi";
@@ -65,7 +71,7 @@ type UseWorkspaceMutationsOptions = {
   groupParticipantUsernames: string[];
   groupTitle: string;
   removeChatLocally: (chatId: string) => void;
-  onGroupCreated?: (chat: ChatSummary, options: { openMenu: boolean }) => void;
+  onGroupCreated?: (chat: ChatSummary) => void;
   onPasswordChanged?: () => void;
   onSessionChange: (session: AuthResponse | null) => void;
   openChat: (chatId: string, preferredTab?: ConversationListTab) => void;
@@ -165,7 +171,7 @@ export function useWorkspaceMutations({
       setGroupParticipantUsernames([]);
       setIsGroupCreatePickerOpen(false);
       openChat(chat.id, "chats");
-      onGroupCreated?.(chat, { openMenu: input.participantUsernames.length === 0 });
+      onGroupCreated?.(chat);
       setSidebarSheet(null);
     },
   });
@@ -273,6 +279,16 @@ export function useWorkspaceMutations({
       banGroupParticipantRequest(token, activeChat!.id, participant.username),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["chats", token] });
+      void queryClient.invalidateQueries({ queryKey: ["group-bans", token] });
+    },
+  });
+
+  const unbanGroupParticipantMutation = useMutation({
+    mutationFn: (participant: Participant) =>
+      unbanGroupParticipantRequest(token, activeChat!.id, participant.username),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["chats", token] });
+      void queryClient.invalidateQueries({ queryKey: ["group-bans", token] });
     },
   });
 
@@ -355,7 +371,11 @@ export function useWorkspaceMutations({
   });
 
   const updateProfileMutation = useMutation({
-    mutationFn: (input: { displayName: string; profession: string | null }) => updateProfile(token, input),
+    mutationFn: (input: {
+      displayName: string;
+      profession: string | null;
+      mailEnabled: boolean;
+    }) => updateProfile(token, input),
     onSuccess: (nextProfile) => {
       syncProfile(nextProfile);
       setProfileProfession(nextProfile.profession ?? "");
@@ -533,17 +553,28 @@ export function useWorkspaceMutations({
     updateProfileMutation.mutate({
       displayName: nextDisplayName,
       profession: normalizedProfession,
+      mailEnabled: Boolean(profile.mailEnabled),
     });
   };
 
   const submitPasswordChange = () => {
-    if (!passwordChangeCurrent || !passwordChangeNext) {
-      return;
-    }
-    if (passwordChangeNext.length < 8 || passwordChangeNext !== passwordChangeConfirm) {
-      return;
-    }
-    if (passwordChangeCurrent === passwordChangeNext) {
+    const normalizedPasswordDisplayName = profileDisplayName.trim() || profile.displayName;
+    const passwordChangeNextError =
+      validateRegistrationPassword({
+        username: profile.username,
+        displayName: normalizedPasswordDisplayName,
+        password: passwordChangeNext,
+      }) ??
+      (passwordChangeCurrent &&
+      passwordChangeNext &&
+      passwordChangeCurrent === passwordChangeNext
+        ? "\u041d\u043e\u0432\u044b\u0439 \u043f\u0430\u0440\u043e\u043b\u044c \u0434\u043e\u043b\u0436\u0435\u043d \u043e\u0442\u043b\u0438\u0447\u0430\u0442\u044c\u0441\u044f \u043e\u0442 \u0442\u0435\u043a\u0443\u0449\u0435\u0433\u043e"
+        : null);
+    if (
+      validateRequiredField(passwordChangeCurrent) ||
+      passwordChangeNextError ||
+      validatePasswordConfirmation(passwordChangeNext, passwordChangeConfirm)
+    ) {
       return;
     }
 
@@ -699,6 +730,7 @@ export function useWorkspaceMutations({
     submitUpdateGroupPrejoinHistoryPolicy,
     submitProfileDisplayName,
     toggleArchiveChat,
+    unbanGroupParticipantMutation,
     updateArchivedChatMutation,
     updateConferenceMutation,
     updateGroupMutation,

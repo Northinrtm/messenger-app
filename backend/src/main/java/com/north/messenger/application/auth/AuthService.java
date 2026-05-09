@@ -51,6 +51,9 @@ import org.springframework.web.server.ResponseStatusException;
 @Transactional(readOnly = true)
 public class AuthService {
 
+    public static final String DELETED_USER_DISPLAY_NAME = "Deleted user";
+    public static final String DELETED_USER_USERNAME_PREFIX = "deleted-user";
+
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static final int REFRESH_TOKEN_BYTES = 32;
     private static final Duration ONLINE_WINDOW = Duration.ofMinutes(2);
@@ -186,7 +189,6 @@ public class AuthService {
 
         userAccountRepository.delete(currentUser);
         userAccountRepository.flush();
-        chatRoomRepository.deleteDirectRoomsWithFewerThanTwoParticipants();
         chatRoomRepository.deleteRoomsWithoutParticipants();
 
         activeSessionIds.forEach(sessionId -> notifySessionRevoked(currentUser.getUsername(), sessionId));
@@ -203,7 +205,7 @@ public class AuthService {
     }
 
     @Transactional
-    public UserProfileResponse updateProfile(String username, String displayName, String profession) {
+    public UserProfileResponse updateProfile(String username, String displayName, String profession, Boolean mailEnabled) {
         UserAccount currentUser = requireAuthenticatedUser(username);
         String normalizedDisplayName = normalizeDisplayName(displayName);
         String normalizedProfession = normalizeProfession(profession);
@@ -214,6 +216,9 @@ public class AuthService {
 
         currentUser.updateDisplayName(normalizedDisplayName);
         currentUser.updateProfession(normalizedProfession);
+        if (mailEnabled != null) {
+            currentUser.updateMailEnabled(mailEnabled);
+        }
         userAccountRepository.save(currentUser);
         return toProfile(currentUser);
     }
@@ -538,6 +543,24 @@ public class AuthService {
         );
     }
 
+    public ParticipantResponse toDeletedParticipant(UUID userId) {
+        return toDeletedParticipant(userId, false);
+    }
+
+    public ParticipantResponse toDeletedParticipant(UUID userId, boolean online) {
+        String resolvedUsername = userId == null
+                ? DELETED_USER_USERNAME_PREFIX
+                : DELETED_USER_USERNAME_PREFIX + "-" + userId.toString().substring(0, 8);
+        return new ParticipantResponse(
+                userId,
+                resolvedUsername,
+                DELETED_USER_DISPLAY_NAME,
+                null,
+                null,
+                online
+        );
+    }
+
     public boolean isBlockedEitherDirection(UUID firstUserId, UUID secondUserId) {
         return userBlockRepository.existsByUserIdAndBlockedUserId(firstUserId, secondUserId)
                 || userBlockRepository.existsByUserIdAndBlockedUserId(secondUserId, firstUserId);
@@ -604,6 +627,7 @@ public class AuthService {
                 user.getEmail(),
                 user.isEmailVerified(),
                 emailVerificationService.isEnabled(),
+                user.isMailEnabled(),
                 user.getPasswordVersion()
         );
     }
@@ -620,6 +644,7 @@ public class AuthService {
                 null,
                 false,
                 false,
+                user.isMailEnabled(),
                 user.getPasswordVersion()
         );
     }

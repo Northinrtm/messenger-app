@@ -19,6 +19,7 @@ function profile(overrides: Partial<Parameters<typeof ProfileSettingsCard>[0]["p
     email: "north@example.com",
     emailVerified: false,
     emailVerificationEnabled: true,
+    mailEnabled: true,
     ...overrides,
   };
 }
@@ -33,6 +34,7 @@ const defaultPushNotificationProps = {
   pushNotificationsError: null,
   onEnablePushNotifications: () => {},
   onDisablePushNotifications: () => {},
+  onSetMailEnabled: () => {},
 };
 
 describe("ProfileSettingsCard email verification section", () => {
@@ -149,5 +151,44 @@ describe("ProfileSettingsCard email verification section", () => {
 
     expect(container.textContent).toContain("Почта подтверждена.");
     expect(container.textContent).not.toContain("Верифицировать почту");
+  });
+  it("shows profile field limits aligned with backend constraints", async () => {
+    await act(async () => {
+      root!.render(
+        <ProfileSettingsCard
+          profile={profile()}
+          profileDisplayName="North"
+          profileProfession="Builder"
+          passwordChangeCurrent=""
+          passwordChangeNext=""
+          passwordChangeConfirm=""
+          deleteAccountConfirmation=""
+          deleteAccountRequiresMatch={false}
+          updateProfilePending={false}
+          changePasswordPending={false}
+          avatarPending={false}
+          deleteAccountPending={false}
+          emailVerificationPending={false}
+          emailVerificationInfo={null}
+          emailVerificationError={null}
+          {...defaultPushNotificationProps}
+          onClose={() => {}}
+          onProfileDisplayNameChange={() => {}}
+          onProfileProfessionChange={() => {}}
+          onSubmitProfileDisplayName={() => {}}
+          onPasswordChangeCurrentChange={() => {}}
+          onPasswordChangeNextChange={() => {}}
+          onPasswordChangeConfirmChange={() => {}}
+          onSubmitPasswordChange={() => {}}
+          onDeleteAccountConfirmationChange={() => {}}
+          onDeleteAccount={() => {}}
+          onAvatarSelected={() => {}}
+          onResendEmailVerification={() => {}}
+        />
+      );
+    });
+
+    expect(container.textContent).toContain("5/40");
+    expect(container.textContent).toContain("7/160");
   });
 });

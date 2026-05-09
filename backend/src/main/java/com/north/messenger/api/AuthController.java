@@ -5,16 +5,19 @@ import com.north.messenger.api.dto.ChangePasswordRequest;
 import com.north.messenger.api.dto.EmailVerificationConfirmRequest;
 import com.north.messenger.api.dto.EmailVerificationResendRequest;
 import com.north.messenger.api.dto.LoginRequest;
+import com.north.messenger.api.dto.CreateUserMailboxRequest;
 import com.north.messenger.api.dto.PasswordResetConfirmRequest;
 import com.north.messenger.api.dto.PasswordResetRequest;
 import com.north.messenger.api.dto.RegisterRequest;
 import com.north.messenger.api.dto.UpdateAvatarRequest;
 import com.north.messenger.api.dto.UpdateProfileRequest;
+import com.north.messenger.api.dto.UserMailboxResponse;
 import com.north.messenger.api.dto.UserSessionResponse;
 import com.north.messenger.api.dto.UserProfileResponse;
 import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.auth.EmailVerificationService;
 import com.north.messenger.application.auth.PasswordResetService;
+import com.north.messenger.application.auth.UserMailboxService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -42,17 +45,20 @@ public class AuthController {
     private final EmailVerificationService emailVerificationService;
     private final PasswordResetService passwordResetService;
     private final RefreshTokenCookieService refreshTokenCookieService;
+    private final UserMailboxService userMailboxService;
 
     public AuthController(
             AuthService authService,
             EmailVerificationService emailVerificationService,
             PasswordResetService passwordResetService,
-            RefreshTokenCookieService refreshTokenCookieService
+            RefreshTokenCookieService refreshTokenCookieService,
+            UserMailboxService userMailboxService
     ) {
         this.authService = authService;
         this.emailVerificationService = emailVerificationService;
         this.passwordResetService = passwordResetService;
         this.refreshTokenCookieService = refreshTokenCookieService;
+        this.userMailboxService = userMailboxService;
     }
 
     @PostMapping("/register")
@@ -135,7 +141,32 @@ public class AuthController {
             Authentication authentication,
             @Valid @RequestBody UpdateProfileRequest request
     ) {
-        return authService.updateProfile(authentication.getName(), request.displayName(), request.profession());
+        return authService.updateProfile(
+                authentication.getName(),
+                request.displayName(),
+                request.profession(),
+                request.mailEnabled()
+        );
+    }
+
+    @GetMapping("/me/mailboxes")
+    public List<UserMailboxResponse> listOwnMailboxes(Authentication authentication) {
+        return userMailboxService.listOwnMailboxes(authentication.getName());
+    }
+
+    @PostMapping("/me/mailboxes")
+    @ResponseStatus(HttpStatus.CREATED)
+    public UserMailboxResponse addOwnMailbox(
+            Authentication authentication,
+            @Valid @RequestBody CreateUserMailboxRequest request
+    ) {
+        return userMailboxService.addOwnMailbox(authentication.getName(), request.email());
+    }
+
+    @DeleteMapping("/me/mailboxes/{mailboxId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeOwnMailbox(Authentication authentication, @PathVariable UUID mailboxId) {
+        userMailboxService.removeOwnMailbox(authentication.getName(), mailboxId);
     }
 
     @PutMapping("/password")

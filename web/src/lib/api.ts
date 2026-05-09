@@ -20,6 +20,7 @@ import type {
   PushSubscriptionPayload,
   VideoConference,
   UserProfile,
+  UserMailbox,
   UserSessionInfo,
   WorkspaceBootstrap,
   WorkspaceSearch,
@@ -317,12 +318,31 @@ export function getProfile(token: string) {
 
 export function updateProfile(
   token: string,
-  input: { displayName: string; profession: string | null }
+  input: { displayName: string; profession: string | null; mailEnabled: boolean }
 ) {
   return request<UserProfile>("/api/auth/me", {
     method: "PUT",
     token,
     body: input,
+  });
+}
+
+export function getOwnMailboxes(token: string) {
+  return request<UserMailbox[]>("/api/auth/me/mailboxes", { token });
+}
+
+export function addOwnMailbox(token: string, email: string) {
+  return request<UserMailbox>("/api/auth/me/mailboxes", {
+    method: "POST",
+    token,
+    body: { email },
+  });
+}
+
+export function removeOwnMailbox(token: string, mailboxId: string) {
+  return request<void>(`/api/auth/me/mailboxes/${encodeURIComponent(mailboxId)}`, {
+    method: "DELETE",
+    token,
   });
 }
 
@@ -1099,6 +1119,19 @@ export function banGroupParticipant(token: string, chatId: string, username: str
     method: "POST",
     token,
     body: { username },
+  });
+}
+
+export function listGroupBans(token: string, chatId: string) {
+  return request<Participant[]>(`/api/chats/${chatId}/bans`, {
+    token,
+  });
+}
+
+export function unbanGroupParticipant(token: string, chatId: string, username: string) {
+  return request<void>(`/api/chats/${chatId}/bans/${encodeURIComponent(username)}`, {
+    method: "DELETE",
+    token,
   });
 }
 

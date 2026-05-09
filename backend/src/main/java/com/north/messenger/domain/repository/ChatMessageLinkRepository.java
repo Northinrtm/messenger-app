@@ -41,13 +41,13 @@ public interface ChatMessageLinkRepository extends JpaRepository<ChatMessageLink
             from ChatMessageLink link, ChatMessage message
             where link.chatId = :chatId
               and link.messageId = message.id
-              and (:visibleFrom is null or message.createdAt >= :visibleFrom)
+              and (:applyVisibleFrom = false or message.createdAt >= :visibleFrom)
               and not exists (
                 select 1 from UserDeletedMessage deleted
                 where deleted.userId = :userId and deleted.messageId = message.id
               )
               and (
-                :cursorServerOrder is null
+                :applyCursor = false
                 or message.serverOrder < :cursorServerOrder
                 or (
                     message.serverOrder = :cursorServerOrder
@@ -59,7 +59,9 @@ public interface ChatMessageLinkRepository extends JpaRepository<ChatMessageLink
     List<LinkBrowserItemView> findBrowserItems(
             @Param("chatId") UUID chatId,
             @Param("userId") UUID userId,
+            @Param("applyVisibleFrom") boolean applyVisibleFrom,
             @Param("visibleFrom") Instant visibleFrom,
+            @Param("applyCursor") boolean applyCursor,
             @Param("cursorServerOrder") Long cursorServerOrder,
             @Param("cursorPositionIndex") Integer cursorPositionIndex,
             Pageable pageable

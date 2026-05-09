@@ -1,10 +1,12 @@
 ﻿import { useEffect, useState } from "react";
 import type { PushNotificationPermission } from "../../../lib/pushNotifications";
+import { useRef, type FocusEvent } from "react";
 import type {
   UserProfile,
   UserSessionInfo,
   ChatPrejoinHistoryPolicy,
   ChatSummary,
+  Participant,
   VideoConference,
 } from "../../../lib/types";
 import { AvatarCircle } from "./AvatarCircle";
@@ -49,6 +51,8 @@ type Props = {
   currentSessionId: string;
   activeChat: ChatSummary | null;
   activeConference: VideoConference | null;
+  bannedGroupParticipants: Participant[];
+  groupBansLoading: boolean;
   groupInviteLinkUrl: string | null;
   groupContacts: UserProfile[];
   selectedGroupContacts: UserProfile[];
@@ -65,6 +69,7 @@ type Props = {
   addGroupParticipantsPending: boolean;
   addConferenceParticipantsPending: boolean;
   updateGroupPending: boolean;
+  unbanGroupParticipantPending: boolean;
   createChatPending: boolean;
   updateProfilePending: boolean;
   changePasswordPending: boolean;
@@ -97,6 +102,7 @@ type Props = {
   onResendEmailVerification: () => void;
   onEnablePushNotifications: () => void;
   onDisablePushNotifications: () => void;
+  onSetMailEnabled: (value: boolean) => void;
   onGroupTitleChange: (value: string) => void;
   onGroupDetailsTitleChange: (value: string) => void;
   onGroupDetailsPrejoinHistoryPolicyChange: (value: ChatPrejoinHistoryPolicy) => void;
@@ -110,6 +116,7 @@ type Props = {
   onToggleGroupInvitePicker: () => void;
   onToggleGroupInviteParticipant: (username: string) => void;
   onSubmitAddGroupParticipants: () => void;
+  onUnbanParticipant: (participant: Participant) => void;
   onGenerateGroupInviteLink: () => void;
   onCopyGroupInviteLink: (value: string) => void;
   onToggleConferenceInviteParticipant: (username: string) => void;
@@ -149,6 +156,8 @@ export function SidebarManagementSheets({
   currentSessionId,
   activeChat,
   activeConference,
+  bannedGroupParticipants,
+  groupBansLoading,
   groupInviteLinkUrl,
   groupContacts,
   selectedGroupContacts,
@@ -165,6 +174,7 @@ export function SidebarManagementSheets({
   addGroupParticipantsPending,
   addConferenceParticipantsPending,
   updateGroupPending,
+  unbanGroupParticipantPending,
   createChatPending,
   updateProfilePending,
   changePasswordPending,
@@ -197,6 +207,7 @@ export function SidebarManagementSheets({
   onResendEmailVerification,
   onEnablePushNotifications,
   onDisablePushNotifications,
+  onSetMailEnabled,
   onGroupTitleChange,
   onGroupDetailsTitleChange,
   onGroupDetailsPrejoinHistoryPolicyChange,
@@ -210,6 +221,7 @@ export function SidebarManagementSheets({
   onToggleGroupInvitePicker,
   onToggleGroupInviteParticipant,
   onSubmitAddGroupParticipants,
+  onUnbanParticipant,
   onGenerateGroupInviteLink,
   onCopyGroupInviteLink,
   onToggleConferenceInviteParticipant,
@@ -224,6 +236,17 @@ export function SidebarManagementSheets({
 }: Props) {
   const [isPasswordFormOpen, setIsPasswordFormOpen] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [isContactSearchFocused, setIsContactSearchFocused] = useState(false);
+  const contactSearchShellRef = useRef<HTMLDivElement | null>(null);
+
+  const handleContactSearchBlur = (event: FocusEvent<HTMLDivElement>) => {
+    const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof Node && contactSearchShellRef.current?.contains(nextTarget)) {
+      return;
+    }
+
+    setIsContactSearchFocused(false);
+  };
 
   useEffect(() => {
     if (sheet === "profile") {
@@ -232,6 +255,7 @@ export function SidebarManagementSheets({
 
     setIsPasswordFormOpen(false);
     setIsDeleteConfirmOpen(false);
+    setIsContactSearchFocused(false);
   }, [sheet]);
 
   if (!sheet) {
@@ -277,6 +301,7 @@ export function SidebarManagementSheets({
         onResendEmailVerification={onResendEmailVerification}
         onEnablePushNotifications={onEnablePushNotifications}
         onDisablePushNotifications={onDisablePushNotifications}
+        onSetMailEnabled={onSetMailEnabled}
       />
     );
   }
@@ -922,6 +947,44 @@ export function SidebarManagementSheets({
               </>
             ) : null}
           </div>
+          {groupCapabilities.canModerateMembers ? (
+            <div className="sheet-section">
+              <div className="section-title">Заблокированные участники</div>
+              {groupBansLoading ? (
+                <div className="empty-list">Загружаем список банов...</div>
+              ) : bannedGroupParticipants.length === 0 ? (
+                <div className="empty-list">Список банов пуст.</div>
+              ) : (
+                <div className="sheet-list">
+                  {bannedGroupParticipants.map((participant) => (
+                    <div key={participant.id} className="sheet-row sheet-row-with-avatar">
+                      <AvatarCircle
+                        className="menu-row-avatar sheet-contact-avatar"
+                        name={participant.displayName}
+                        avatarUrl={participant.avatarUrl}
+                        online={participant.online}
+                      />
+                      <div className="sheet-row-copy">
+                        <strong>{participant.displayName}</strong>
+                        <span>@{participant.username}</span>
+                      </div>
+                      <div className="sheet-row-actions">
+                        <button
+                          type="button"
+                          className="ghost-button compact"
+                          disabled={unbanGroupParticipantPending}
+                          onClick={() => onUnbanParticipant(participant)}
+                        >
+                          Разбанить
+                        </button>
+                        <span className="member-pill">В бане</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : null}
         </form>
       </div>
     );
@@ -1010,10 +1073,15 @@ export function SidebarManagementSheets({
         </div>
 
         <div className="sheet-form contact-search-form">
-          <div className="contact-search-shell">
+          <div
+            ref={contactSearchShellRef}
+            className="contact-search-shell"
+            onBlur={handleContactSearchBlur}
+          >
             <input
               value={contactSearch}
               onChange={(event) => onContactSearchChange(event.target.value)}
+              onFocus={() => setIsContactSearchFocused(true)}
               placeholder="Username или display name"
               autoComplete="off"
               autoCapitalize="none"
@@ -1021,7 +1089,7 @@ export function SidebarManagementSheets({
               spellCheck={false}
             />
 
-            {showContactSearchResults ? (
+            {showContactSearchResults && isContactSearchFocused ? (
               <div className="search-dropdown contact-search-dropdown">
                 {contactSearchFetching ? (
                   <div className="search-result-empty">Ищем пользователей...</div>

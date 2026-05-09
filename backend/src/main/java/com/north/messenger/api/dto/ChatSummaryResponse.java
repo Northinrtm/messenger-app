@@ -16,11 +16,13 @@ public record ChatSummaryResponse(
         List<ParticipantResponse> members,
         String lastMessage,
         Instant lastMessageAt,
+        boolean lastMessageHasReactions,
         Long lastMessageServerOrder,
         Instant updatedAt,
         int unreadCount,
         long membershipVersion,
         MessageSnippetResponse pinnedMessage,
+        List<MessageSnippetResponse> pinnedMessages,
         String prejoinHistoryPolicy
 ) {
 }

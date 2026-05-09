@@ -33,6 +33,10 @@ import org.springframework.web.server.ResponseStatusException;
 public class ChatAttachmentBrowserService {
 
     private static final Logger log = LoggerFactory.getLogger(ChatAttachmentBrowserService.class);
+    private static final Instant DEFAULT_VISIBLE_FROM = Instant.EPOCH;
+    private static final long DEFAULT_CURSOR_SERVER_ORDER = Long.MAX_VALUE;
+    private static final Instant DEFAULT_CURSOR_ATTACHMENT_CREATED_AT = Instant.EPOCH;
+    private static final UUID DEFAULT_CURSOR_ATTACHMENT_ID = new UUID(0L, 0L);
 
     private final AuthService authService;
     private final ChatService chatService;
@@ -71,17 +75,21 @@ public class ChatAttachmentBrowserService {
         AttachmentBrowserKind kind = AttachmentBrowserKind.parse(rawKind);
         AttachmentBrowserCursor cursor = parseCursor(rawCursor);
         Instant visibleFrom = resolveVisibleHistoryStart(room, membership);
+        boolean applyVisibleFrom = visibleFrom != null;
+        boolean applyCursor = cursor != null;
         int safeLimit = Math.max(1, Math.min(limit, 100));
 
         List<ChatAttachmentRepository.AttachmentBrowserItemView> browserItems = chatAttachmentRepository.findBrowserItems(
                 chatId,
                 currentUser.getId(),
-                visibleFrom,
+                applyVisibleFrom,
+                applyVisibleFrom ? visibleFrom : DEFAULT_VISIBLE_FROM,
                 kind == AttachmentBrowserKind.PHOTOS,
                 kind == AttachmentBrowserKind.DOCUMENTS,
-                cursor == null ? null : cursor.serverOrder(),
-                cursor == null ? null : cursor.attachmentCreatedAt(),
-                cursor == null ? null : cursor.attachmentId(),
+                applyCursor,
+                applyCursor ? cursor.serverOrder() : DEFAULT_CURSOR_SERVER_ORDER,
+                applyCursor ? cursor.attachmentCreatedAt() : DEFAULT_CURSOR_ATTACHMENT_CREATED_AT,
+                applyCursor ? cursor.attachmentId() : DEFAULT_CURSOR_ATTACHMENT_ID,
                 PageRequest.of(0, safeLimit + 1)
         );
 
@@ -119,20 +127,18 @@ public class ChatAttachmentBrowserService {
     ) {
         UserAccount sender = sendersById.get(item.getSenderId());
         if (sender == null) {
-            log.warn(
-                    "Skipping attachment browser item with missing sender chatId={} messageId={} attachmentId={} senderId={}",
+            log.info(
+                    "Rendering attachment browser item with deleted sender chatId={} messageId={} attachmentId={} senderId={}",
                     chatId,
                     item.getMessageId(),
                     item.getAttachmentId(),
                     item.getSenderId()
             );
-            return java.util.Optional.empty();
         }
 
-        ParticipantResponse senderParticipant = authService.toParticipant(
-                sender,
-                onlineByUserId.getOrDefault(sender.getId(), false)
-        );
+        ParticipantResponse senderParticipant = sender != null
+                ? authService.toParticipant(sender, onlineByUserId.getOrDefault(sender.getId(), false))
+                : authService.toDeletedParticipant(item.getSenderId());
         return java.util.Optional.of(new ChatAttachmentBrowserItemResponse(
                 item.getAttachmentId(),
                 item.getMessageId(),
@@ -175,8 +181,10 @@ public class ChatAttachmentBrowserService {
     }
 
     private Instant resolveVisibleHistoryStart(ChatRoom room, ChatParticipant membership) {
-        if (room.isDirect()
-                || room.getPrejoinHistoryPolicy() == ChatPrejoinHistoryPolicy.FULL_HISTORY
+        if (room.isDirect()) {
+            return membership.getJoinedAt();
+        }
+        if (room.getPrejoinHistoryPolicy() == ChatPrejoinHistoryPolicy.FULL_HISTORY
                 || membership.getPrejoinHistoryAccessGrantedAt() != null) {
             return null;
         }

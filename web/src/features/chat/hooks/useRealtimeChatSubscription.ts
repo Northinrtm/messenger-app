@@ -7,7 +7,6 @@ import type {
   ChatSummary,
   MessageDeletionEvent,
   MessageReactionEvent,
-  MessageSnippet,
   MessageStatusEvent,
   Participant,
   SessionEvent,
@@ -33,7 +32,7 @@ type UseRealtimeChatSubscriptionOptions = {
   activeChatId: string | null;
   isActiveChatOpen: boolean;
   hasActiveComposerTextRef: { current: boolean };
-  activePinnedMessageId: string | null;
+  activePinnedMessageIdSet: ReadonlySet<string>;
   chatIdsKey: string;
   clearChatUnreadIndicator: (chatId: string) => void;
   clearComposerContext: (mode?: "all" | "reply" | "edit" | "forward") => void;
@@ -58,7 +57,7 @@ type UseRealtimeChatSubscriptionOptions = {
   setReplyingToMessageId: React.Dispatch<React.SetStateAction<string | null>>;
   setTypingByChatId: React.Dispatch<React.SetStateAction<Record<string, Participant[]>>>;
   showIncomingToast: (message: ChatMessage) => void;
-  syncChatPinnedSummary: (chatId: string, snippet: MessageSnippet | null) => void;
+  removeChatPinnedMessage: (chatId: string, messageId: string) => void;
   syncChatPreviewFromCache: (chatId: string) => void;
   acknowledgeDelivered: (chatId: string, messageIds: string[]) => void;
   acknowledgeRead: (chatId: string, messageIds: string[]) => void;
@@ -103,7 +102,7 @@ export function useRealtimeChatSubscription({
   activeChatId,
   isActiveChatOpen,
   hasActiveComposerTextRef,
-  activePinnedMessageId,
+  activePinnedMessageIdSet,
   applyChatPreviewMessage,
   applyServerChatPreviewMessage,
   chatIdsKey,
@@ -130,7 +129,7 @@ export function useRealtimeChatSubscription({
   setReplyingToMessageId,
   setTypingByChatId,
   showIncomingToast,
-  syncChatPinnedSummary,
+  removeChatPinnedMessage,
   syncChatPreviewFromCache,
 }: UseRealtimeChatSubscriptionOptions) {
   const handledRealtimeMessageIdsRef = useRef(new Map<string, true>());
@@ -272,8 +271,8 @@ export function useRealtimeChatSubscription({
       getMessagesKey(event.chatId),
       (current) => removeMessageById(current, event.messageId)
     );
-    if (activePinnedMessageId === event.messageId) {
-      syncChatPinnedSummary(event.chatId, null);
+    if (activePinnedMessageIdSet.has(event.messageId)) {
+      removeChatPinnedMessage(event.chatId, event.messageId);
     }
     setReplyingToMessageId((current) => (current === event.messageId ? null : current));
     setEditingMessageId((current) => (current === event.messageId ? null : current));

@@ -7,6 +7,7 @@ import {
   getBlockedUsers,
   getChatOpen,
   getChats,
+  getOwnMailboxes,
   getContacts,
   getMessagesPage,
   getPendingOutgoingMessages,
@@ -291,6 +292,17 @@ export function useWorkspaceQueries({
     ...getConferenceQueryRefreshStrategy(shouldAggressivelyRefreshConferences),
   });
 
+  const mailboxesQuery = useQuery({
+    queryKey: ["mailboxes", sessionToken],
+    queryFn: () => getOwnMailboxes(sessionToken),
+    enabled: bootstrapReady,
+    initialData: initialWorkspaceBootstrap?.mailboxes,
+    initialDataUpdatedAt: initialWorkspaceBootstrap
+      ? initialWorkspaceBootstrapUpdatedAt
+      : undefined,
+    staleTime: 60_000,
+  });
+
   const archivedConferencesQuery = useQuery({
     queryKey: ["video-conferences-archive", sessionToken],
     queryFn: () => getArchivedVideoConferences(sessionToken),
@@ -484,6 +496,7 @@ export function useWorkspaceQueries({
     conferencesQuery,
     contactsQuery,
     contactsSearchQuery,
+    mailboxesQuery,
     messages,
     messagesQuery,
     pendingOutgoingMessagesQuery,

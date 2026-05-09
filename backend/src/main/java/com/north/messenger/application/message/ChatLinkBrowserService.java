@@ -33,6 +33,9 @@ import org.springframework.web.server.ResponseStatusException;
 public class ChatLinkBrowserService {
 
     private static final Logger log = LoggerFactory.getLogger(ChatLinkBrowserService.class);
+    private static final Instant DEFAULT_VISIBLE_FROM = Instant.EPOCH;
+    private static final long DEFAULT_CURSOR_SERVER_ORDER = Long.MAX_VALUE;
+    private static final int DEFAULT_CURSOR_POSITION_INDEX = Integer.MIN_VALUE;
 
     private final AuthService authService;
     private final ChatService chatService;
@@ -66,17 +69,21 @@ public class ChatLinkBrowserService {
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.FORBIDDEN,
                         "Access denied for this chat"
-                ));
+        ));
         LinkBrowserCursor cursor = parseCursor(rawCursor);
         Instant visibleFrom = resolveVisibleHistoryStart(room, membership);
+        boolean applyVisibleFrom = visibleFrom != null;
+        boolean applyCursor = cursor != null;
         int safeLimit = Math.max(1, Math.min(limit, 100));
 
         List<ChatMessageLinkRepository.LinkBrowserItemView> browserItems = chatMessageLinkRepository.findBrowserItems(
                 chatId,
                 currentUser.getId(),
-                visibleFrom,
-                cursor == null ? null : cursor.serverOrder(),
-                cursor == null ? null : cursor.positionIndex(),
+                applyVisibleFrom,
+                applyVisibleFrom ? visibleFrom : DEFAULT_VISIBLE_FROM,
+                applyCursor,
+                applyCursor ? cursor.serverOrder() : DEFAULT_CURSOR_SERVER_ORDER,
+                applyCursor ? cursor.positionIndex() : DEFAULT_CURSOR_POSITION_INDEX,
                 PageRequest.of(0, safeLimit + 1)
         );
 
@@ -114,20 +121,18 @@ public class ChatLinkBrowserService {
     ) {
         UserAccount sender = sendersById.get(item.getSenderId());
         if (sender == null) {
-            log.warn(
-                    "Skipping link browser item with missing sender chatId={} messageId={} linkId={} senderId={}",
+            log.info(
+                    "Rendering link browser item with deleted sender chatId={} messageId={} linkId={} senderId={}",
                     chatId,
                     item.getMessageId(),
                     item.getLinkId(),
                     item.getSenderId()
             );
-            return java.util.Optional.empty();
         }
 
-        ParticipantResponse senderParticipant = authService.toParticipant(
-                sender,
-                onlineByUserId.getOrDefault(sender.getId(), false)
-        );
+        ParticipantResponse senderParticipant = sender != null
+                ? authService.toParticipant(sender, onlineByUserId.getOrDefault(sender.getId(), false))
+                : authService.toDeletedParticipant(item.getSenderId());
         return java.util.Optional.of(new ChatLinkBrowserItemResponse(
                 item.getLinkId(),
                 item.getMessageId(),
@@ -180,8 +185,10 @@ public class ChatLinkBrowserService {
     }
 
     private Instant resolveVisibleHistoryStart(ChatRoom room, ChatParticipant membership) {
-        if (room.isDirect()
-                || room.getPrejoinHistoryPolicy() == ChatPrejoinHistoryPolicy.FULL_HISTORY
+        if (room.isDirect()) {
+            return membership.getJoinedAt();
+        }
+        if (room.getPrejoinHistoryPolicy() == ChatPrejoinHistoryPolicy.FULL_HISTORY
                 || membership.getPrejoinHistoryAccessGrantedAt() != null) {
             return null;
         }

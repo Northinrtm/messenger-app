@@ -7,6 +7,7 @@ import com.north.messenger.api.dto.ChatSummaryResponse;
 import com.north.messenger.api.dto.CreateDirectChatRequest;
 import com.north.messenger.api.dto.CreateGroupChatRequest;
 import com.north.messenger.api.dto.GroupParticipantActionRequest;
+import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.api.dto.UpsertChatDraftRequest;
 import com.north.messenger.api.dto.UpdateGroupChatRequest;
 import com.north.messenger.api.dto.UpdateArchivedChatRequest;
@@ -142,6 +143,24 @@ public class ChatController {
             @Valid @RequestBody GroupParticipantActionRequest request
     ) {
         chatService.banGroupParticipant(authentication.getName(), chatId, request.username());
+    }
+
+    @GetMapping("/{chatId}/bans")
+    public List<ParticipantResponse> listGroupBans(
+            Authentication authentication,
+            @PathVariable UUID chatId
+    ) {
+        return chatService.listGroupBans(authentication.getName(), chatId);
+    }
+
+    @DeleteMapping("/{chatId}/bans/{username}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void unbanGroupParticipant(
+            Authentication authentication,
+            @PathVariable UUID chatId,
+            @PathVariable String username
+    ) {
+        chatService.unbanGroupParticipant(authentication.getName(), chatId, username);
     }
 
     @PostMapping("/{chatId}/moderators")

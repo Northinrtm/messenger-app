@@ -292,4 +292,50 @@ describe("ActiveChatConversation timeline memoization", () => {
     expect(container.textContent).toContain("Waiting for reconnect");
     expect(container.textContent).toContain("Retry");
   });
+
+  it("shows the latest edited time instead of the original sent time after re-editing", async () => {
+    const editedTimelineItems: TimelineItem[] = [
+      {
+        type: "message",
+        key: "edited-message",
+        message: message({
+          id: "edited-message",
+          createdAt: "2026-04-19T10:00:00.000Z",
+          editedAt: "2026-04-19T10:15:00.000Z",
+        }),
+      },
+    ];
+
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(
+        <ConversationTimeline
+          activeChatId="chat-1"
+          directChat={true}
+          isSelectingMessages={false}
+          selectedMessageIdSet={emptySelectionSet}
+          timelineItems={editedTimelineItems}
+          sessionUser={timelineSessionUser}
+          onRender={noop}
+          onOpenMessageContextMenu={noop}
+          onJumpToMessage={noop}
+          onToggleSelectedMessage={noop}
+          onToggleReaction={noop}
+          onRetryMessage={noop}
+          onDownloadAttachment={noop}
+          onLoadAttachmentPreview={loadAttachmentPreview}
+          formatClock={formatClock}
+          getMessageStatusClassName={getMessageStatusClassName}
+          getMessageStatusGlyph={getMessageStatusGlyph}
+          getMessageStatusLabel={getMessageStatusLabel}
+          getReactionOption={getReactionOption}
+        />
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("изменено");
+    expect(container.textContent).toContain("2026-04-19T10:15:00.000Z");
+    expect(container.textContent).not.toContain("2026-04-19T10:00:00.000Z");
+  });
 });

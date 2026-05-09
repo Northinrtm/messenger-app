@@ -57,7 +57,7 @@ public interface ChatAttachmentRepository extends JpaRepository<ChatAttachment, 
             from ChatAttachment attachment, ChatMessage message
             where attachment.chatId = :chatId
               and attachment.messageId = message.id
-              and (:visibleFrom is null or message.createdAt >= :visibleFrom)
+              and (:applyVisibleFrom = false or message.createdAt >= :visibleFrom)
               and (:imagesOnly = false or lower(attachment.mimeType) like 'image/%')
               and (:documentsOnly = false or lower(attachment.mimeType) not like 'image/%')
               and not exists (
@@ -65,7 +65,7 @@ public interface ChatAttachmentRepository extends JpaRepository<ChatAttachment, 
                 where deleted.userId = :userId and deleted.messageId = message.id
               )
               and (
-                :cursorServerOrder is null
+                :applyCursor = false
                 or message.serverOrder < :cursorServerOrder
                 or (message.serverOrder = :cursorServerOrder and attachment.createdAt < :cursorAttachmentCreatedAt)
                 or (
@@ -79,9 +79,11 @@ public interface ChatAttachmentRepository extends JpaRepository<ChatAttachment, 
     List<AttachmentBrowserItemView> findBrowserItems(
             @Param("chatId") UUID chatId,
             @Param("userId") UUID userId,
+            @Param("applyVisibleFrom") boolean applyVisibleFrom,
             @Param("visibleFrom") Instant visibleFrom,
             @Param("imagesOnly") boolean imagesOnly,
             @Param("documentsOnly") boolean documentsOnly,
+            @Param("applyCursor") boolean applyCursor,
             @Param("cursorServerOrder") Long cursorServerOrder,
             @Param("cursorAttachmentCreatedAt") Instant cursorAttachmentCreatedAt,
             @Param("cursorAttachmentId") UUID cursorAttachmentId,

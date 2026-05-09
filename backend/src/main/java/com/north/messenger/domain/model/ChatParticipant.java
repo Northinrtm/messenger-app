@@ -20,7 +20,7 @@ public class ChatParticipant {
     @Column(name = "user_id", nullable = false, updatable = false)
     private UUID userId;
 
-    @Column(name = "joined_at", nullable = false, updatable = false)
+    @Column(name = "joined_at", nullable = false)
     private Instant joinedAt;
 
     @Column(name = "prejoin_history_access_granted_at")
@@ -61,6 +61,10 @@ public class ChatParticipant {
 
     public Instant getJoinedAt() {
         return joinedAt;
+    }
+
+    public void rejoin(Instant joinedAt) {
+        this.joinedAt = joinedAt;
     }
 
     public Instant getPrejoinHistoryAccessGrantedAt() {
