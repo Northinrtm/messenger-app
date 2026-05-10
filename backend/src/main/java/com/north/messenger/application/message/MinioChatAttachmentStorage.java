@@ -9,6 +9,7 @@ import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.util.UriComponentsBuilder;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
@@ -36,6 +37,7 @@ public class MinioChatAttachmentStorage implements ChatAttachmentStorage {
     private final String bucket;
     private final boolean autoCreateBucket;
     private final Duration presignedUrlTtl;
+    private final java.net.URI publicEndpoint;
 
     public MinioChatAttachmentStorage(ChatAttachmentStorageProperties properties) {
         ChatAttachmentStorageProperties.MinioProperties minio = properties.minio();
@@ -51,6 +53,7 @@ public class MinioChatAttachmentStorage implements ChatAttachmentStorage {
 
         this.bucket = minio.bucket().trim();
         this.autoCreateBucket = minio.autoCreateBucket();
+        this.publicEndpoint = normalizePublicEndpoint(minio.publicEndpoint());
         this.presignedUrlTtl = minio.presignedUrlTtl() == null || minio.presignedUrlTtl().isNegative()
                 || minio.presignedUrlTtl().isZero()
                 ? Duration.ofMinutes(10)
@@ -72,7 +75,7 @@ public class MinioChatAttachmentStorage implements ChatAttachmentStorage {
                 .serviceConfiguration(serviceConfiguration)
                 .build();
         this.s3Presigner = S3Presigner.builder()
-                .endpointOverride(minio.publicEndpoint())
+                .endpointOverride(toPresignerEndpoint(publicEndpoint))
                 .region(Region.of(region))
                 .credentialsProvider(credentialsProvider)
                 .serviceConfiguration(serviceConfiguration)
@@ -143,7 +146,7 @@ public class MinioChatAttachmentStorage implements ChatAttachmentStorage {
         );
         return new DirectUploadTarget(
                 storageKey,
-                java.net.URI.create(presignedRequest.url().toString()),
+                toPublicObjectUrl(presignedRequest.url(), publicEndpoint),
                 "PUT",
                 flattenHeaders(presignedRequest),
                 Instant.now().plus(presignedUrlTtl)
@@ -163,9 +166,52 @@ public class MinioChatAttachmentStorage implements ChatAttachmentStorage {
                         .build()
         );
         return new DirectDownloadTarget(
-                java.net.URI.create(presignedRequest.url().toString()),
+                toPublicObjectUrl(presignedRequest.url(), publicEndpoint),
                 Instant.now().plus(presignedUrlTtl)
         );
+    }
+
+    static java.net.URI normalizePublicEndpoint(java.net.URI publicEndpoint) {
+        String path = publicEndpoint.getPath();
+        if (path == null || path.isBlank() || "/".equals(path)) {
+            return UriComponentsBuilder.fromUri(publicEndpoint)
+                    .replacePath("")
+                    .build(true)
+                    .toUri();
+        }
+        return UriComponentsBuilder.fromUri(publicEndpoint)
+                .replacePath(path.endsWith("/") ? path.substring(0, path.length() - 1) : path)
+                .build(true)
+                .toUri();
+    }
+
+    static java.net.URI toPresignerEndpoint(java.net.URI publicEndpoint) {
+        return UriComponentsBuilder.fromUri(publicEndpoint)
+                .replacePath("")
+                .replaceQuery(null)
+                .fragment(null)
+                .build(true)
+                .toUri();
+    }
+
+    static java.net.URI toPublicObjectUrl(java.net.URI signedUrl, java.net.URI publicEndpoint) {
+        String publicPath = publicEndpoint.getPath();
+        if (publicPath == null || publicPath.isBlank() || "/".equals(publicPath)) {
+            return signedUrl;
+        }
+        return UriComponentsBuilder.fromUri(signedUrl)
+                .scheme(publicEndpoint.getScheme())
+                .host(publicEndpoint.getHost())
+                .port(publicEndpoint.getPort())
+                .replacePath(joinPaths(publicPath, signedUrl.getPath()))
+                .build(true)
+                .toUri();
+    }
+
+    private static String joinPaths(String prefix, String path) {
+        String normalizedPrefix = prefix.endsWith("/") ? prefix.substring(0, prefix.length() - 1) : prefix;
+        String normalizedPath = path == null || path.isBlank() ? "" : (path.startsWith("/") ? path : "/" + path);
+        return normalizedPrefix + normalizedPath;
     }
 
     private Map<String, String> flattenHeaders(PresignedPutObjectRequest presignedRequest) {

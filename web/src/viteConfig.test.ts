@@ -10,11 +10,15 @@ describe("vite storage proxy", () => {
     );
 
     const storageProxy = (
-      viteConfig.server?.proxy as Record<string, { rewrite?: (path: string) => string }>
+      viteConfig.server?.proxy as Record<
+        string,
+        { changeOrigin?: boolean; rewrite?: (path: string) => string }
+      >
     )["/storage"];
 
     expect(storageProxy.rewrite?.("/storage/chat-attachments/file.png")).toBe(
       "/chat-attachments/file.png"
     );
+    expect(storageProxy.changeOrigin).toBe(false);
   });
 });

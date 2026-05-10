@@ -11,7 +11,7 @@ export default defineConfig({
     proxy: {
       "/storage": {
         target: "http://localhost:9000",
-        changeOrigin: true,
+        changeOrigin: false,
         rewrite: rewriteStorageProxyPath,
       },
     },
