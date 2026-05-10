@@ -146,7 +146,7 @@ public class MinioChatAttachmentStorage implements ChatAttachmentStorage {
         );
         return new DirectUploadTarget(
                 storageKey,
-                toPublicObjectUrl(presignedRequest.url(), publicEndpoint),
+                toPublicObjectUrl(java.net.URI.create(presignedRequest.url().toString()), publicEndpoint),
                 "PUT",
                 flattenHeaders(presignedRequest),
                 Instant.now().plus(presignedUrlTtl)
@@ -166,7 +166,7 @@ public class MinioChatAttachmentStorage implements ChatAttachmentStorage {
                         .build()
         );
         return new DirectDownloadTarget(
-                toPublicObjectUrl(presignedRequest.url(), publicEndpoint),
+                toPublicObjectUrl(java.net.URI.create(presignedRequest.url().toString()), publicEndpoint),
                 Instant.now().plus(presignedUrlTtl)
         );
     }
