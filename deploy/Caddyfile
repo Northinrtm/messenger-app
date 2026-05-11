@@ -66,8 +66,13 @@
         respond "Not found" 404
     }
 
-    @blocked_phpinfo path_regexp blocked_phpinfo (?i)^/(?:.*?/)?phpinfo(?:\.php(?:\.old)?(?:$|/.*)?|/.*)
-    handle @blocked_phpinfo {
+    @blocked_phpinfo_path path_regexp blocked_phpinfo_path (?i)^/(?:.*?/)?(?:phpinfo(?:$|/.*|\.php(?:\.old)?(?:$|/.*)?)|[^/]*phpinfo[^/]*\.php(?:\.old)?(?:$|/.*)?)
+    handle @blocked_phpinfo_path {
+        respond "Not found" 404
+    }
+
+    @blocked_phpinfo_query query phpinfo=*
+    handle @blocked_phpinfo_query {
         respond "Not found" 404
     }
 
