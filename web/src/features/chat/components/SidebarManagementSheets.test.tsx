@@ -180,6 +180,22 @@ describe("SidebarManagementSheets sessions sheet", () => {
     expect(container.textContent).toContain("Сессии входа");
     expect(container.textContent).not.toContain("Pixel 8");
   });
+
+  it("explains that repeated sign-ins may create multiple browser sessions", async () => {
+    await act(async () => {
+      root!.render(<SidebarManagementSheets {...buildProps()} />);
+    });
+
+    expect(container.textContent).toContain(
+      "\u0410\u043A\u0442\u0438\u0432\u043D\u044B\u0435 \u0441\u0435\u0441\u0441\u0438\u0438"
+    );
+    expect(container.textContent).toContain(
+      "\u0412\u0445\u043E\u0434 \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D: 2026-04-28T12:00:00Z"
+    );
+    expect(container.textContent).toContain(
+      "\u041E\u0434\u0438\u043D \u0438 \u0442\u043E\u0442 \u0436\u0435 \u0431\u0440\u0430\u0443\u0437\u0435\u0440 \u043C\u043E\u0436\u0435\u0442 \u043F\u043E\u044F\u0432\u043B\u044F\u0442\u044C\u0441\u044F \u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0440\u0430\u0437"
+    );
+  });
 });
 
 describe("SidebarManagementSheets group info sheet", () => {
