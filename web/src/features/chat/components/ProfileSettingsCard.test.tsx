@@ -235,6 +235,50 @@ describe("ProfileSettingsCard email verification section", () => {
     expect(container.textContent).toContain("Имя должно содержать от 2 до 40 символов.");
   });
 
+  it("shows the mail section as hidden when the mail tab is disabled", async () => {
+    await act(async () => {
+      root!.render(
+        <ProfileSettingsCard
+          profile={profile({ mailEnabled: false })}
+          profileDisplayName="North"
+          profileProfession=""
+          passwordChangeCurrent=""
+          passwordChangeNext=""
+          passwordChangeConfirm=""
+          deleteAccountConfirmation=""
+          deleteAccountRequiresMatch={false}
+          updateProfilePending={false}
+          changePasswordPending={false}
+          changePasswordError={null}
+          avatarPending={false}
+          deleteAccountPending={false}
+          emailVerificationPending={false}
+          emailVerificationInfo={null}
+          emailVerificationError={null}
+          {...defaultPushNotificationProps}
+          onClose={() => {}}
+          onProfileDisplayNameChange={() => {}}
+          onProfileProfessionChange={() => {}}
+          onSubmitProfileDisplayName={() => {}}
+          onPasswordChangeCurrentChange={() => {}}
+          onPasswordChangeNextChange={() => {}}
+          onPasswordChangeConfirmChange={() => {}}
+          onSubmitPasswordChange={() => {}}
+          onDeleteAccountConfirmationChange={() => {}}
+          onDeleteAccount={() => {}}
+          onAvatarSelected={() => {}}
+          onResendEmailVerification={() => {}}
+        />
+      );
+    });
+
+    expect(container.textContent).toContain("Раздел «Почта»");
+    expect(container.textContent).toContain("Скрыт");
+    expect(container.textContent).toContain(
+      "Раздел «Почта» скрыт в левой колонке. Чаты и конференции останутся доступны как раньше."
+    );
+  });
+
   it("keeps the push enable action visible even when browser permission was denied", async () => {
     await act(async () => {
       root!.render(
