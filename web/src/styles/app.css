@@ -4171,10 +4171,16 @@ select {
   display: none;
 }
 
-.composer-attachment-button {
+.composer-attachment-button,
+.composer-voice-button {
   min-width: 3rem;
   min-height: 3rem;
   padding: 0;
+  width: 3rem;
+  flex: 0 0 3rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 999px;
   border: 1px solid rgba(139, 208, 255, 0.12);
   background: #182638;
@@ -4182,7 +4188,8 @@ select {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
-.composer-attachment-button:hover:not(:disabled) {
+.composer-attachment-button:hover:not(:disabled),
+.composer-voice-button:hover:not(:disabled) {
   border-color: rgba(139, 208, 255, 0.34);
   background: #203248;
   color: #f4fbff;
@@ -4191,23 +4198,6 @@ select {
 .composer-attachment-button svg {
   width: 1.28rem;
   height: 1.28rem;
-}
-
-.composer-voice-button {
-  min-width: 3rem;
-  min-height: 3rem;
-  padding: 0;
-  border-radius: 999px;
-  border: 1px solid rgba(139, 208, 255, 0.12);
-  background: #182638;
-  color: #b9d8f5;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-}
-
-.composer-voice-button:hover:not(:disabled) {
-  border-color: rgba(139, 208, 255, 0.34);
-  background: #203248;
-  color: #f4fbff;
 }
 
 .composer-voice-button.is-recording {
