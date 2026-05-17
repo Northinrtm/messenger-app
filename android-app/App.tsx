@@ -7,6 +7,7 @@ import type {
   MobileAuthResponse,
   PendingOutgoingMessage,
   UserProfile,
+  VideoConference,
   WorkspaceBootstrap,
 } from '@north/shared';
 import {useCallback, useEffect, useRef, useState} from 'react';
@@ -24,14 +25,19 @@ import {
   ChatThreadScreen,
   type RunAuthorized,
 } from './src/features/chat/ChatThreadScreen';
+import {ConferenceDetailScreen} from './src/features/conference/ConferenceDetailScreen';
 import {WorkspaceHomeScreen} from './src/features/workspace/WorkspaceHomeScreen';
 import {
   addContact,
   ApiError,
   blockUser,
+  cancelVideoConference,
+  clearConferencePresence,
+  createConferenceInviteLink,
   createDirectChat,
   describeError,
   deletePendingOutgoingMessage,
+  endVideoConference,
   getWorkspaceBootstrap,
   login,
   logout,
@@ -39,6 +45,8 @@ import {
   refreshSession,
   register,
   searchWorkspace,
+  startVideoConference,
+  touchConferencePresence,
   toAuthResponse,
   unblockUser,
   updateArchivedChat,
@@ -98,6 +106,7 @@ function App() {
   const [session, setSession] = useState<ActiveSession | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceBootstrap | null>(null);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [activeConferenceId, setActiveConferenceId] = useState<string | null>(null);
   const [authPending, setAuthPending] = useState(false);
   const [workspacePending, setWorkspacePending] = useState(false);
   const [realtimeConnected, setRealtimeConnected] = useState(false);
@@ -124,6 +133,7 @@ function App() {
     setSession(null);
     setWorkspace(null);
     setActiveChatId(null);
+    setActiveConferenceId(null);
     setRealtimeConnected(false);
     setLatestRealtimeMessage(null);
     setLatestRealtimeReaction(null);
@@ -444,6 +454,7 @@ function App() {
         sessionRef.current = activeSession;
         setSession(activeSession);
         setActiveChatId(null);
+        setActiveConferenceId(null);
 
         try {
           const bootstrap = await loadWorkspace(activeSession);
@@ -489,6 +500,7 @@ function App() {
         sessionRef.current = activeSession;
         setSession(activeSession);
         setActiveChatId(null);
+        setActiveConferenceId(null);
 
         try {
           const bootstrap = await loadWorkspace(activeSession);
@@ -559,8 +571,101 @@ function App() {
   }, [resetToSignedOutState]);
 
   const handleOpenChat = useCallback((chatId: string) => {
+    setActiveConferenceId(null);
     setActiveChatId(chatId);
   }, []);
+
+  const handleOpenConference = useCallback((conferenceId: string) => {
+    setActiveChatId(null);
+    setActiveConferenceId(conferenceId);
+  }, []);
+
+  const handleStartConference = useCallback(
+    async (conferenceId: string) => {
+      const conference = await runAuthorized(token =>
+        startVideoConference(token, conferenceId),
+      );
+      setWorkspace(currentWorkspace =>
+        currentWorkspace
+          ? upsertWorkspaceConference(currentWorkspace, conference)
+          : currentWorkspace,
+      );
+      return conference;
+    },
+    [runAuthorized],
+  );
+
+  const handleEndConference = useCallback(
+    async (conferenceId: string) => {
+      const conference = await runAuthorized(token =>
+        endVideoConference(token, conferenceId),
+      );
+      setWorkspace(currentWorkspace =>
+        currentWorkspace
+          ? upsertWorkspaceConference(currentWorkspace, conference)
+          : currentWorkspace,
+      );
+      return conference;
+    },
+    [runAuthorized],
+  );
+
+  const handleCancelConference = useCallback(
+    async (conferenceId: string) => {
+      await runAuthorized(token => cancelVideoConference(token, conferenceId));
+      setWorkspace(currentWorkspace =>
+        currentWorkspace
+          ? removeWorkspaceConference(currentWorkspace, conferenceId)
+          : currentWorkspace,
+      );
+      setActiveConferenceId(currentId =>
+        currentId === conferenceId ? null : currentId,
+      );
+    },
+    [runAuthorized],
+  );
+
+  const handleCreateConferenceInviteLink = useCallback(
+    (conferenceId: string, options?: {refresh?: boolean}) =>
+      runAuthorized(token =>
+        createConferenceInviteLink(token, conferenceId, options),
+      ),
+    [runAuthorized],
+  );
+
+  const handleTouchConferencePresence = useCallback(
+    async (conferenceId: string) => {
+      await runAuthorized(token => touchConferencePresence(token, conferenceId));
+      setWorkspace(currentWorkspace =>
+        currentWorkspace
+          ? patchWorkspaceConferencePresence(
+              currentWorkspace,
+              conferenceId,
+              sessionRef.current?.auth.user.id ?? null,
+              true,
+            )
+          : currentWorkspace,
+      );
+    },
+    [runAuthorized],
+  );
+
+  const handleClearConferencePresence = useCallback(
+    async (conferenceId: string) => {
+      await runAuthorized(token => clearConferencePresence(token, conferenceId));
+      setWorkspace(currentWorkspace =>
+        currentWorkspace
+          ? patchWorkspaceConferencePresence(
+              currentWorkspace,
+              conferenceId,
+              sessionRef.current?.auth.user.id ?? null,
+              false,
+            )
+          : currentWorkspace,
+      );
+    },
+    [runAuthorized],
+  );
 
   const handleStartDirectChat = useCallback(
     async (username: string) => {
@@ -643,10 +748,17 @@ function App() {
 
   const handleBackToWorkspace = useCallback(() => {
     setActiveChatId(null);
+    setActiveConferenceId(null);
   }, []);
 
   const activeChat =
     workspace?.chats.find(chat => chat.id === activeChatId) ?? null;
+  const activeConference =
+    workspace?.conferences.find(conference => conference.id === activeConferenceId) ??
+    workspace?.archivedConferences.find(
+      conference => conference.id === activeConferenceId,
+    ) ??
+    null;
 
   return (
     <SafeAreaProvider>
@@ -656,6 +768,19 @@ function App() {
           <ActivityIndicator size="large" color="#2c5c53" />
           <Text style={styles.loadingLabel}>Restoring secure session...</Text>
         </View>
+      ) : session && workspace && activeConferenceId && activeConference ? (
+        <ConferenceDetailScreen
+          session={session.auth}
+          conference={activeConference}
+          onBack={handleBackToWorkspace}
+          onOpenChat={handleOpenChat}
+          onStartConference={handleStartConference}
+          onEndConference={handleEndConference}
+          onCancelConference={handleCancelConference}
+          onCreateConferenceInviteLink={handleCreateConferenceInviteLink}
+          onTouchConferencePresence={handleTouchConferencePresence}
+          onClearConferencePresence={handleClearConferencePresence}
+        />
       ) : session && workspace && activeChatId ? (
         <ChatThreadScreen
           session={session.auth}
@@ -683,11 +808,10 @@ function App() {
         <WorkspaceHomeScreen
           session={session.auth}
           workspace={workspace}
-          loading={workspacePending}
           error={workspaceError}
-          onReload={handleReloadWorkspace}
           onLogout={handleLogout}
           onOpenChat={handleOpenChat}
+          onOpenConference={handleOpenConference}
           onStartDirectChat={handleStartDirectChat}
           onAddContact={handleAddContact}
           onRemoveContact={handleRemoveContact}
@@ -830,6 +954,74 @@ function updateWorkspaceArchivedChatState(
   return {
     ...workspace,
     archivedChatIds: [...archivedChatIds],
+  };
+}
+
+function upsertWorkspaceConference(
+  workspace: WorkspaceBootstrap,
+  conference: VideoConference,
+): WorkspaceBootstrap {
+  const targetKey = conference.endedAt ? 'archivedConferences' : 'conferences';
+  const sourceKey = conference.endedAt ? 'conferences' : 'archivedConferences';
+
+  return {
+    ...workspace,
+    [sourceKey]: workspace[sourceKey].filter(item => item.id !== conference.id),
+    [targetKey]: [
+      conference,
+      ...workspace[targetKey].filter(item => item.id !== conference.id),
+    ].sort((left, right) => left.scheduledAt.localeCompare(right.scheduledAt)),
+  };
+}
+
+function removeWorkspaceConference(
+  workspace: WorkspaceBootstrap,
+  conferenceId: string,
+): WorkspaceBootstrap {
+  return {
+    ...workspace,
+    conferences: workspace.conferences.filter(
+      conference => conference.id !== conferenceId,
+    ),
+    archivedConferences: workspace.archivedConferences.filter(
+      conference => conference.id !== conferenceId,
+    ),
+  };
+}
+
+function patchWorkspaceConferencePresence(
+  workspace: WorkspaceBootstrap,
+  conferenceId: string,
+  userId: string | null,
+  present: boolean,
+): WorkspaceBootstrap {
+  if (!userId) {
+    return workspace;
+  }
+
+  const patchConference = (conference: VideoConference) => {
+    if (conference.id !== conferenceId) {
+      return conference;
+    }
+
+    const activeParticipantUserIds = new Set(conference.activeParticipantUserIds);
+    if (present) {
+      activeParticipantUserIds.add(userId);
+    } else {
+      activeParticipantUserIds.delete(userId);
+    }
+
+    return {
+      ...conference,
+      activeParticipantUserIds: [...activeParticipantUserIds],
+      activeParticipantCount: activeParticipantUserIds.size,
+    };
+  };
+
+  return {
+    ...workspace,
+    conferences: workspace.conferences.map(patchConference),
+    archivedConferences: workspace.archivedConferences.map(patchConference),
   };
 }
 

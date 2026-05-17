@@ -12,7 +12,13 @@ import type {
 } from '@north/shared';
 import type {Dispatch, SetStateAction} from 'react';
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import DocumentPicker from 'react-native-document-picker';
+import {
+  errorCodes as documentPickerErrorCodes,
+  isErrorWithCode as isDocumentPickerErrorWithCode,
+  keepLocalCopy,
+  pick,
+  types as documentPickerTypes,
+} from '@react-native-documents/picker';
 import {
   Image,
   Linking,
@@ -24,6 +30,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {
   acknowledgeRead,
   downloadChatAttachment,
@@ -131,6 +138,7 @@ export function ChatThreadScreen({
   onPersistPendingOutgoingMessage,
   onDeletePendingOutgoingMessages,
 }: Props) {
+  const insets = useSafeAreaInsets();
   const [chat, setChat] = useState<ChatSummary | null>(initialChat);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [composerText, setComposerText] = useState('');
@@ -139,7 +147,6 @@ export function ChatThreadScreen({
   >([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [sendingCount, setSendingCount] = useState(0);
   const [replyingToMessageId, setReplyingToMessageId] = useState<string | null>(
@@ -170,6 +177,7 @@ export function ChatThreadScreen({
     Record<string, boolean>
   >({});
   const [typingParticipants, setTypingParticipants] = useState<Participant[]>([]);
+  const messagesRef = useRef<ChatMessage[]>([]);
   const acknowledgedReadIdsRef = useRef(new Set<string>());
   const nextLocalOrderRef = useRef(0);
   const reactionOverridesRef = useRef<
@@ -195,6 +203,7 @@ export function ChatThreadScreen({
     [pendingOutgoingMessages, session.user],
   );
   const recoveredPendingMessagesRef = useRef(recoveredPendingMessages);
+  const initialChatRef = useRef(initialChat);
   const pendingOutgoingMessagesKey = pendingOutgoingMessages
     .map(message => `${message.clientMessageId}:${message.status}:${message.updatedAt}`)
     .join('|');
@@ -249,6 +258,30 @@ export function ChatThreadScreen({
   useEffect(() => {
     recoveredPendingMessagesRef.current = recoveredPendingMessages;
   }, [recoveredPendingMessages]);
+
+  useEffect(() => {
+    initialChatRef.current = initialChat;
+  }, [initialChat]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  const replaceMessages = useCallback((nextMessages: ChatMessage[]) => {
+    messagesRef.current = nextMessages;
+    setMessages(nextMessages);
+    return nextMessages;
+  }, []);
+
+  const applyMessagesUpdate = useCallback(
+    (updater: (currentMessages: ChatMessage[]) => ChatMessage[]) => {
+      const nextMessages = updater(messagesRef.current);
+      messagesRef.current = nextMessages;
+      setMessages(nextMessages);
+      return nextMessages;
+    },
+    [],
+  );
 
   const clearTypingIdleTimeout = useCallback(() => {
     if (typingSignalRef.current.idleTimeoutId === null) {
@@ -350,7 +383,7 @@ export function ChatThreadScreen({
   }, [forwardingMessage, forwardingMessageId]);
 
   useEffect(() => {
-    setMessages(currentMessages =>
+    applyMessagesUpdate(currentMessages =>
       syncRecoveredPendingMessages(currentMessages, recoveredPendingMessages),
     );
     setMessageErrors(currentErrors =>
@@ -367,6 +400,7 @@ export function ChatThreadScreen({
       maxRecoveredLocalOrder,
     );
   }, [
+    applyMessagesUpdate,
     pendingOutgoingMessages,
     pendingOutgoingMessagesKey,
     recoveredPendingMessages,
@@ -381,8 +415,8 @@ export function ChatThreadScreen({
     clearTypingIdleTimeout();
     typingSignalRef.current.active = false;
     typingSignalRef.current.lastSentAt = 0;
-    setChat(initialChat);
-    setMessages([]);
+    setChat(initialChatRef.current);
+    replaceMessages([]);
     setMessageErrors({});
     setOpeningAttachmentKeys({});
     setSharingAttachmentKeys({});
@@ -414,7 +448,7 @@ export function ChatThreadScreen({
         }
 
         setChat(chatOpen.chat);
-        setMessages(currentMessages =>
+        applyMessagesUpdate(currentMessages =>
           applyReactionOverrides(
             mergeLoadedMessages(
               hydratedMessages,
@@ -455,13 +489,14 @@ export function ChatThreadScreen({
       stopTypingSignal();
     };
   }, [
+    applyMessagesUpdate,
     chatId,
     clearAllTypingParticipantTimeouts,
     clearTypingIdleTimeout,
-    initialChat,
     onChatRead,
     onChatSummaryChange,
     onDeletePendingOutgoingMessages,
+    replaceMessages,
     runAuthorized,
     session.user.id,
     stopTypingSignal,
@@ -485,7 +520,7 @@ export function ChatThreadScreen({
       return;
     }
 
-    setMessages(currentMessages =>
+    applyMessagesUpdate(currentMessages =>
       applyReactionOverrides(
         mergeConfirmedMessage(currentMessages, realtimeMessage.message),
         reactionOverridesRef.current,
@@ -513,6 +548,7 @@ export function ChatThreadScreen({
       onChatRead,
     }).catch(() => undefined);
   }, [
+    applyMessagesUpdate,
     chatId,
     clearTypingParticipantTimeout,
     onChatRead,
@@ -530,13 +566,13 @@ export function ChatThreadScreen({
       realtimeReaction.event.messageId,
       realtimeReaction.event.reactions,
     );
-    setMessages(currentMessages =>
+    applyMessagesUpdate(currentMessages =>
       applyReactionOverrides(
         applyReactionEvent(currentMessages, realtimeReaction.event),
         reactionOverridesRef.current,
       ),
     );
-  }, [chatId, realtimeReaction]);
+  }, [applyMessagesUpdate, chatId, realtimeReaction]);
 
   useEffect(() => {
     if (!realtimeTyping || realtimeTyping.event.chatId !== chatId) {
@@ -568,49 +604,6 @@ export function ChatThreadScreen({
     session.user.id,
   ]);
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    setError(null);
-
-    try {
-      const chatOpen = await runAuthorized(token =>
-        getChatOpen(token, chatId, {
-          limit: MESSAGE_PAGE_SIZE,
-          acknowledgeDelivered: false,
-        }),
-      );
-      const hydratedMessages = chatOpen.initialMessages.map(hydrateApiChatMessage);
-      setChat(chatOpen.chat);
-      setMessages(currentMessages =>
-        applyReactionOverrides(
-          mergeLoadedMessages(
-            hydratedMessages,
-            currentMessages,
-            recoveredPendingMessages,
-          ),
-          reactionOverridesRef.current,
-        ),
-      );
-      setNextCursor(chatOpen.initialMessagesNextCursor);
-      onChatSummaryChange(chatOpen.chat);
-      onDeletePendingOutgoingMessages(
-        chatOpen.confirmedPendingOutgoingClientMessageIds,
-      ).catch(() => undefined);
-      acknowledgeMessagesAsRead({
-        chatId,
-        currentUserId: session.user.id,
-        messages: hydratedMessages,
-        acknowledgedIds: acknowledgedReadIdsRef.current,
-        runAuthorized,
-        onChatRead,
-      }).catch(() => undefined);
-    } catch (nextError) {
-      setError(describeError(nextError));
-    } finally {
-      setRefreshing(false);
-    }
-  };
-
   const handleLoadOlder = async () => {
     if (!nextCursor || loadingOlder) {
       return;
@@ -628,7 +621,7 @@ export function ChatThreadScreen({
         }),
       );
       const olderMessages = page.messages.map(hydrateApiChatMessage);
-      setMessages(currentMessages =>
+      applyMessagesUpdate(currentMessages =>
         applyReactionOverrides(
           mergeOlderMessages(currentMessages, olderMessages),
           reactionOverridesRef.current,
@@ -726,17 +719,34 @@ export function ChatThreadScreen({
     }
 
     try {
-      const results = await DocumentPicker.pick({
+      const results = await pick({
         allowMultiSelection: true,
-        copyTo: 'cachesDirectory',
         presentationStyle: 'fullScreen',
-        type: [DocumentPicker.types.allFiles],
+        type: [documentPickerTypes.allFiles],
+      });
+      const localCopies =
+        results.length > 0
+          ? await keepLocalCopy({
+              destination: 'cachesDirectory',
+              files: results.map(result => ({
+                uri: result.uri,
+                fileName: result.name?.trim() || 'attachment',
+              })) as [
+                {uri: string; fileName: string},
+                ...Array<{uri: string; fileName: string}>,
+              ],
+            })
+          : [];
+      const localCopyBySourceUri = new Map<string, string>();
+      localCopies.forEach(copyResult => {
+        if (copyResult.status === 'success') {
+          localCopyBySourceUri.set(copyResult.sourceUri, copyResult.localUri);
+        }
       });
       const nextAttachments = results
-        .filter(result => Boolean(result.uri || result.fileCopyUri))
         .map(result => ({
           localId: createLocalAttachmentId(),
-          uri: result.fileCopyUri ?? result.uri,
+          uri: localCopyBySourceUri.get(result.uri) ?? result.uri,
           fileName: result.name?.trim() || 'attachment',
           mimeType: result.type?.trim() || 'application/octet-stream',
           sizeBytes:
@@ -766,7 +776,10 @@ export function ChatThreadScreen({
       ]);
       setError(null);
     } catch (pickError) {
-      if (DocumentPicker.isCancel(pickError)) {
+      if (
+        isDocumentPickerErrorWithCode(pickError) &&
+        pickError.code === documentPickerErrorCodes.OPERATION_CANCELED
+      ) {
         return;
       }
       setError(describeError(pickError));
@@ -904,7 +917,7 @@ export function ChatThreadScreen({
             },
           ),
         );
-        setMessages(currentMessages =>
+        applyMessagesUpdate(currentMessages =>
           applyReactionOverrides(
             mergeConfirmedMessage(currentMessages, updatedMessage),
             reactionOverridesRef.current,
@@ -957,7 +970,7 @@ export function ChatThreadScreen({
     clearMessageError(setMessageErrors, clientMessageId);
     setForwardingMessageId(null);
     setForwardingTargetChatId(null);
-    setMessages(currentMessages =>
+    applyMessagesUpdate(currentMessages =>
       sortMessagesForDisplay([...currentMessages, optimisticMessage]),
     );
     onPersistPendingOutgoingMessage(
@@ -973,7 +986,7 @@ export function ChatThreadScreen({
         attachments: uploadedAttachments,
       });
       onDeletePendingOutgoingMessages([clientMessageId]).catch(() => undefined);
-      setMessages(currentMessages =>
+      applyMessagesUpdate(currentMessages =>
         applyReactionOverrides(
           mergeConfirmedMessage(currentMessages, confirmedMessage),
           reactionOverridesRef.current,
@@ -982,26 +995,25 @@ export function ChatThreadScreen({
       setReplyingToMessageId(null);
     } catch (sendError) {
       const nextError = describeError(sendError);
-      setError(nextError);
       setMessageErrors(currentErrors => ({
         ...currentErrors,
         [clientMessageId]: nextError,
       }));
-      setMessages(currentMessages => {
-        const nextMessages = markMessageSendFailed(
+      const nextMessages = applyMessagesUpdate(currentMessages => {
+        const failedMessages = markMessageSendFailed(
           currentMessages,
           clientMessageId,
         );
-        const failedMessage = nextMessages.find(
-          currentMessage => currentMessage.clientMessageId === clientMessageId,
-        );
-        if (failedMessage) {
-          onPersistPendingOutgoingMessage(
-            toPendingOutgoingMessage(failedMessage),
-          ).catch(() => undefined);
-        }
-        return nextMessages;
+        return failedMessages;
       });
+      const failedMessage = nextMessages.find(
+        currentMessage => currentMessage.clientMessageId === clientMessageId,
+      );
+      if (failedMessage) {
+        onPersistPendingOutgoingMessage(
+          toPendingOutgoingMessage(failedMessage),
+        ).catch(() => undefined);
+      }
     } finally {
       setSendingCount(currentCount => Math.max(0, currentCount - 1));
     }
@@ -1039,7 +1051,7 @@ export function ChatThreadScreen({
     setError(null);
     clearMessageError(setMessageErrors, clientMessageId);
     if (!shouldOpenTargetChat) {
-      setMessages(currentMessages =>
+      applyMessagesUpdate(currentMessages =>
         sortMessagesForDisplay([...currentMessages, optimisticMessage]),
       );
     }
@@ -1059,7 +1071,7 @@ export function ChatThreadScreen({
         () => undefined,
       );
       if (!shouldOpenTargetChat) {
-        setMessages(currentMessages =>
+        applyMessagesUpdate(currentMessages =>
           applyReactionOverrides(
             mergeConfirmedMessage(currentMessages, confirmedMessage),
             reactionOverridesRef.current,
@@ -1070,27 +1082,26 @@ export function ChatThreadScreen({
       setForwardingTargetChatId(null);
     } catch (sendError) {
       const nextError = describeError(sendError);
-      setError(nextError);
       setMessageErrors(currentErrors => ({
         ...currentErrors,
         [clientMessageId]: nextError,
       }));
       if (!shouldOpenTargetChat) {
-        setMessages(currentMessages => {
-          const nextMessages = markMessageSendFailed(
+        const nextMessages = applyMessagesUpdate(currentMessages => {
+          const failedMessages = markMessageSendFailed(
             currentMessages,
             clientMessageId,
           );
-          const failedMessage = nextMessages.find(
-            currentMessage => currentMessage.clientMessageId === clientMessageId,
-          );
-          if (failedMessage) {
-            onPersistPendingOutgoingMessage(
-              toPendingOutgoingMessage(failedMessage),
-            ).catch(() => undefined);
-          }
-          return nextMessages;
+          return failedMessages;
         });
+        const failedMessage = nextMessages.find(
+          currentMessage => currentMessage.clientMessageId === clientMessageId,
+        );
+        if (failedMessage) {
+          onPersistPendingOutgoingMessage(
+            toPendingOutgoingMessage(failedMessage),
+          ).catch(() => undefined);
+        }
       }
     } finally {
       setSendingCount(currentCount => Math.max(0, currentCount - 1));
@@ -1108,18 +1119,18 @@ export function ChatThreadScreen({
 
     clearMessageError(setMessageErrors, clientMessageId);
     setError(null);
-    setMessages(currentMessages => {
+    const sendingMessages = applyMessagesUpdate(currentMessages => {
       const nextMessages = markMessageSending(currentMessages, clientMessageId);
-      const sendingMessage = nextMessages.find(
-        currentMessage => currentMessage.clientMessageId === clientMessageId,
-      );
-      if (sendingMessage) {
-        onPersistPendingOutgoingMessage(
-          toPendingOutgoingMessage(sendingMessage),
-        ).catch(() => undefined);
-      }
       return nextMessages;
     });
+    const sendingMessage = sendingMessages.find(
+      currentMessage => currentMessage.clientMessageId === clientMessageId,
+    );
+    if (sendingMessage) {
+      onPersistPendingOutgoingMessage(
+        toPendingOutgoingMessage(sendingMessage),
+      ).catch(() => undefined);
+    }
     setSendingCount(currentCount => currentCount + 1);
 
     try {
@@ -1132,7 +1143,7 @@ export function ChatThreadScreen({
         attachments: message.attachments ?? [],
       });
       onDeletePendingOutgoingMessages([clientMessageId]).catch(() => undefined);
-      setMessages(currentMessages =>
+      applyMessagesUpdate(currentMessages =>
         applyReactionOverrides(
           mergeConfirmedMessage(currentMessages, confirmedMessage),
           reactionOverridesRef.current,
@@ -1140,26 +1151,25 @@ export function ChatThreadScreen({
       );
     } catch (sendError) {
       const nextError = describeError(sendError);
-      setError(nextError);
       setMessageErrors(currentErrors => ({
         ...currentErrors,
         [clientMessageId]: nextError,
       }));
-      setMessages(currentMessages => {
-        const nextMessages = markMessageSendFailed(
+      const nextMessages = applyMessagesUpdate(currentMessages => {
+        const failedMessages = markMessageSendFailed(
           currentMessages,
           clientMessageId,
         );
-        const failedMessage = nextMessages.find(
-          currentMessage => currentMessage.clientMessageId === clientMessageId,
-        );
-        if (failedMessage) {
-          onPersistPendingOutgoingMessage(
-            toPendingOutgoingMessage(failedMessage),
-          ).catch(() => undefined);
-        }
-        return nextMessages;
+        return failedMessages;
       });
+      const failedMessage = nextMessages.find(
+        currentMessage => currentMessage.clientMessageId === clientMessageId,
+      );
+      if (failedMessage) {
+        onPersistPendingOutgoingMessage(
+          toPendingOutgoingMessage(failedMessage),
+        ).catch(() => undefined);
+      }
     } finally {
       setSendingCount(currentCount => Math.max(0, currentCount - 1));
     }
@@ -1189,7 +1199,7 @@ export function ChatThreadScreen({
         toggleMessageReaction(token, chatId, message.id, key),
       );
       reactionOverridesRef.current.set(event.messageId, event.reactions);
-      setMessages(currentMessages =>
+      applyMessagesUpdate(currentMessages =>
         applyReactionOverrides(
           applyReactionEvent(currentMessages, event),
           reactionOverridesRef.current,
@@ -1235,16 +1245,7 @@ export function ChatThreadScreen({
             {realtimeConnected ? 'Realtime live' : 'Realtime reconnecting'}
           </Text>
         </View>
-        <Pressable
-          onPress={handleRefresh}
-          disabled={refreshing || loading}
-          style={
-            refreshing || loading ? styles.headerButtonDisabled : styles.headerButton
-          }>
-          <Text style={styles.headerButtonLabel}>
-            {refreshing ? 'Refreshing' : 'Reload'}
-          </Text>
-        </Pressable>
+        <View style={styles.headerSpacer} />
       </View>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -1482,7 +1483,11 @@ export function ChatThreadScreen({
         )}
       </ScrollView>
 
-      <View style={styles.composer}>
+      <View
+        style={[
+          styles.composer,
+          {paddingBottom: 12 + Math.max(insets.bottom, 8)},
+        ]}>
         {typingParticipants.length > 0 ? (
           <View style={styles.typingIndicator} testID="typing-indicator">
             <Text style={styles.typingIndicatorLabel}>{typingLabel}</Text>
@@ -1643,9 +1648,7 @@ export function ChatThreadScreen({
                 ? 'Edit your message'
                 : replyingToMessage
                   ? 'Write a reply'
-                  : realtimeConnected
-                    ? 'Write a message'
-                    : 'Write now, retry if realtime is still reconnecting'
+                  : 'Write a message'
             }
             placeholderTextColor="#8d7b67"
             multiline
@@ -2258,6 +2261,9 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 2,
   },
+  headerSpacer: {
+    minWidth: 74,
+  },
   headerEyebrow: {
     fontSize: 12,
     fontWeight: '700',
@@ -2577,7 +2583,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#fffaf1',
     paddingHorizontal: 16,
     paddingTop: 12,
-    paddingBottom: 16,
     gap: 12,
   },
   typingIndicator: {
@@ -2724,60 +2729,63 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   attachmentButton: {
-    width: 46,
-    minHeight: 46,
-    borderRadius: 16,
+    width: 42,
+    minHeight: 42,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#efe4d3',
   },
   attachmentButtonDisabled: {
-    width: 46,
-    minHeight: 46,
-    borderRadius: 16,
+    width: 42,
+    minHeight: 42,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#d3c8ba',
   },
   attachmentButtonLabel: {
-    fontSize: 28,
-    lineHeight: 30,
+    fontSize: 24,
+    lineHeight: 26,
     color: '#5b4b3c',
   },
   composerInput: {
     flex: 1,
-    minHeight: 52,
+    minWidth: 0,
+    minHeight: 46,
     maxHeight: 120,
     borderRadius: 18,
     borderWidth: 1,
     borderColor: '#d9ccb8',
     backgroundColor: '#fdf7ed',
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingVertical: 10,
     fontSize: 15,
-    lineHeight: 22,
+    lineHeight: 20,
     color: '#1f1a14',
     textAlignVertical: 'top',
   },
   sendButton: {
-    minWidth: 88,
-    minHeight: 48,
-    borderRadius: 18,
+    minWidth: 64,
+    minHeight: 46,
+    paddingHorizontal: 14,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#2c5c53',
   },
   sendButtonDisabled: {
-    minWidth: 88,
-    minHeight: 48,
-    borderRadius: 18,
+    minWidth: 64,
+    minHeight: 46,
+    paddingHorizontal: 14,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#9aa8a3',
   },
   sendButtonLabel: {
     color: '#fffaf1',
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '800',
   },
 });

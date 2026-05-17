@@ -8,6 +8,7 @@ import type {
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
 import {Linking, Share} from 'react-native';
+import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {ChatThreadScreen} from './ChatThreadScreen';
 
 jest.mock('../../lib/api', () => ({
@@ -32,14 +33,21 @@ jest.mock('../../lib/realtime', () => ({
   publishTypingEvent: jest.fn(() => true),
 }));
 
-jest.mock('react-native-document-picker', () => ({
-  __esModule: true,
-  default: {
-    pick: jest.fn(),
-    isCancel: jest.fn(() => false),
-    types: {
-      allFiles: '*/*',
-    },
+jest.mock('@react-native-documents/picker', () => ({
+  errorCodes: {
+    OPERATION_CANCELED: 'OPERATION_CANCELED',
+  },
+  isErrorWithCode: jest.fn(() => false),
+  keepLocalCopy: jest.fn(async ({files}: {files: Array<{uri: string}>}) =>
+    files.map(file => ({
+      status: 'success',
+      sourceUri: file.uri,
+      localUri: file.uri,
+    })),
+  ),
+  pick: jest.fn(),
+  types: {
+    allFiles: '*/*',
   },
 }));
 
@@ -57,14 +65,13 @@ const realtimeModule = jest.requireMock('../../lib/realtime') as {
   publishTypingEvent: jest.Mock;
 };
 const documentPickerModule = jest.requireMock(
-  'react-native-document-picker',
+  '@react-native-documents/picker',
 ) as {
-  default: {
-    pick: jest.Mock;
-    isCancel: jest.Mock;
-    types: {
-      allFiles: string;
-    };
+  pick: jest.Mock;
+  keepLocalCopy: jest.Mock;
+  isErrorWithCode: jest.Mock;
+  types: {
+    allFiles: string;
   };
 };
 const mountedRenderers: ReactTestRenderer.ReactTestRenderer[] = [];
@@ -202,30 +209,50 @@ function renderChatThread(
     operation('access-token');
 
   const renderer = ReactTestRenderer.create(
-    <ChatThreadScreen
-      session={session}
-      chatId={initialChat.id}
-      initialChat={initialChat}
-      availableChats={options?.availableChats ?? [initialChat, forwardingTargetChat]}
-      pendingOutgoingMessages={pendingOutgoingMessages}
-      realtimeConnected={true}
-      realtimeMessage={null}
-      realtimeReaction={null}
-      realtimeTyping={null}
-      runAuthorized={runAuthorized}
-      onBack={() => undefined}
-      onOpenChat={options?.onOpenChat ?? (() => undefined)}
-      onChatSummaryChange={() => undefined}
-      onChatRead={() => undefined}
-      onPersistPendingOutgoingMessage={
-        options?.onPersistPendingOutgoingMessage ?? (async message => message)
-      }
-      onDeletePendingOutgoingMessages={async () => undefined}
-    />,
+    <SafeAreaProvider
+      initialMetrics={{
+        frame: {x: 0, y: 0, width: 320, height: 640},
+        insets: {top: 0, right: 0, bottom: 0, left: 0},
+      }}>
+      <ChatThreadScreen
+        session={session}
+        chatId={initialChat.id}
+        initialChat={initialChat}
+        availableChats={
+          options?.availableChats ?? [initialChat, forwardingTargetChat]
+        }
+        pendingOutgoingMessages={pendingOutgoingMessages}
+        realtimeConnected={true}
+        realtimeMessage={null}
+        realtimeReaction={null}
+        realtimeTyping={null}
+        runAuthorized={runAuthorized}
+        onBack={() => undefined}
+        onOpenChat={options?.onOpenChat ?? (() => undefined)}
+        onChatSummaryChange={() => undefined}
+        onChatRead={() => undefined}
+        onPersistPendingOutgoingMessage={
+          options?.onPersistPendingOutgoingMessage ?? (async message => message)
+        }
+        onDeletePendingOutgoingMessages={async () => undefined}
+      />
+    </SafeAreaProvider>,
   );
 
   mountedRenderers.push(renderer);
   return renderer;
+}
+
+function withSafeArea(children: React.ReactElement) {
+  return (
+    <SafeAreaProvider
+      initialMetrics={{
+        frame: {x: 0, y: 0, width: 320, height: 640},
+        insets: {top: 0, right: 0, bottom: 0, left: 0},
+      }}>
+      {children}
+    </SafeAreaProvider>
+  );
 }
 
 describe('ChatThreadScreen', () => {
@@ -372,7 +399,7 @@ describe('ChatThreadScreen', () => {
       initialMessagesNextCursor: null,
       confirmedPendingOutgoingClientMessageIds: [],
     });
-    documentPickerModule.default.pick.mockResolvedValue([
+    documentPickerModule.pick.mockResolvedValue([
       {
         uri: 'file:///report.pdf',
         fileCopyUri: 'file:///report.pdf',
@@ -738,7 +765,7 @@ describe('ChatThreadScreen', () => {
     let renderer: ReactTestRenderer.ReactTestRenderer;
     await ReactTestRenderer.act(async () => {
       renderer = ReactTestRenderer.create(
-        <ChatThreadScreen
+        withSafeArea(<ChatThreadScreen
           session={session}
           chatId={initialChat.id}
           initialChat={initialChat}
@@ -755,14 +782,14 @@ describe('ChatThreadScreen', () => {
           onChatRead={() => undefined}
           onPersistPendingOutgoingMessage={async message => message}
           onDeletePendingOutgoingMessages={async () => undefined}
-        />,
+        />),
       );
       mountedRenderers.push(renderer!);
     });
 
     await ReactTestRenderer.act(async () => {
       renderer!.update(
-        <ChatThreadScreen
+        withSafeArea(<ChatThreadScreen
           session={session}
           chatId={initialChat.id}
           initialChat={initialChat}
@@ -792,7 +819,7 @@ describe('ChatThreadScreen', () => {
           onChatRead={() => undefined}
           onPersistPendingOutgoingMessage={async message => message}
           onDeletePendingOutgoingMessages={async () => undefined}
-        />,
+        />),
       );
     });
 
@@ -847,7 +874,7 @@ describe('ChatThreadScreen', () => {
     let renderer: ReactTestRenderer.ReactTestRenderer;
     await ReactTestRenderer.act(async () => {
       renderer = ReactTestRenderer.create(
-        <ChatThreadScreen
+        withSafeArea(<ChatThreadScreen
           session={session}
           chatId={initialChat.id}
           initialChat={initialChat}
@@ -864,14 +891,14 @@ describe('ChatThreadScreen', () => {
           onChatRead={() => undefined}
           onPersistPendingOutgoingMessage={async message => message}
           onDeletePendingOutgoingMessages={async () => undefined}
-        />,
+        />),
       );
       mountedRenderers.push(renderer!);
     });
 
     await ReactTestRenderer.act(async () => {
       renderer!.update(
-        <ChatThreadScreen
+        withSafeArea(<ChatThreadScreen
           session={session}
           chatId={initialChat.id}
           initialChat={initialChat}
@@ -896,7 +923,7 @@ describe('ChatThreadScreen', () => {
           onChatRead={() => undefined}
           onPersistPendingOutgoingMessage={async message => message}
           onDeletePendingOutgoingMessages={async () => undefined}
-        />,
+        />),
       );
     });
 

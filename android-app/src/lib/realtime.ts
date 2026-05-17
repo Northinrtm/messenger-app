@@ -51,6 +51,9 @@ type PendingSendRequest = {
   timeoutId: ReturnType<typeof setTimeout>;
   resolve: (message: ApiChatMessage) => void;
   reject: (error: ApiError) => void;
+  destination: string;
+  body: string;
+  published: boolean;
 };
 
 const REALTIME_CONNECTION_TIMEOUT_MS = 10_000;
@@ -58,7 +61,13 @@ const REALTIME_HEARTBEAT_INTERVAL_MS = 10_000;
 const REALTIME_RECONNECT_INITIAL_DELAY_MS = 2_000;
 const REALTIME_RECONNECT_MAX_DELAY_MS = 30_000;
 const REALTIME_SEND_ACK_TIMEOUT_MS = 4_000;
+const REALTIME_SEND_QUEUE_TIMEOUT_MS =
+  REALTIME_RECONNECT_MAX_DELAY_MS +
+  REALTIME_CONNECTION_TIMEOUT_MS +
+  REALTIME_SEND_ACK_TIMEOUT_MS +
+  5_000;
 const WEB_SOCKET_OPEN_STATE = 1;
+const STOMP_SUBPROTOCOLS = ['v12.stomp', 'v11.stomp', 'v10.stomp'];
 
 let activeConnection: RealtimeConnection | null = null;
 const pendingSendRequests = new Map<string, PendingSendRequest>();
@@ -95,10 +104,14 @@ export function subscribeToChats({
     destroyed: false,
   };
 
+  const brokerURL = `${resolveWebSocketBaseUrl()}/ws`;
+  const authorizationHeader = `Bearer ${token}`;
   const client = new Client({
-    brokerURL: `${resolveWebSocketBaseUrl()}/ws`,
+    brokerURL,
+    webSocketFactory: () =>
+      createAuthorizedWebSocket(brokerURL, authorizationHeader),
     connectHeaders: {
-      Authorization: `Bearer ${token}`,
+      Authorization: authorizationHeader,
     },
     connectionTimeout: REALTIME_CONNECTION_TIMEOUT_MS,
     heartbeatIncoming: REALTIME_HEARTBEAT_INTERVAL_MS,
@@ -163,6 +176,7 @@ export function subscribeToChats({
     );
 
     syncTypingSubscriptions(connection);
+    flushPendingSendRequests(connection);
   };
 
   client.onStompError = (frame: IFrame) => {
@@ -237,7 +251,7 @@ export function sendMessageRealtime(input: {
   timeoutMs?: number;
 }) {
   const connection = activeConnection;
-  if (!connection || !isRealtimeClientReady(connection.client)) {
+  if (!connection) {
     return Promise.reject(
       new ApiError('Realtime connection is unavailable. Retry after reconnect.', 503),
     );
@@ -252,37 +266,40 @@ export function sendMessageRealtime(input: {
   }
 
   return new Promise<ApiChatMessage>((resolve, reject) => {
+    const destination = `/app/chats/${input.chatId}/messages`;
+    const body = JSON.stringify({
+      clientMessageId: input.clientMessageId,
+      replyToMessageId: input.replyToMessageId ?? null,
+      forwardedFromMessageId: input.forwardedFromMessageId ?? null,
+      attachmentIds: input.attachmentIds ?? [],
+      plainPayload: input.plainPayload,
+    });
     const timeoutId = setTimeout(() => {
+      const pendingRequest = pendingSendRequests.get(input.clientMessageId);
+      if (!pendingRequest) {
+        return;
+      }
+
       pendingSendRequests.delete(input.clientMessageId);
       reject(
-        new ApiError('Message send confirmation timed out. Retry the same message.', 504),
+        new ApiError(
+          pendingRequest.published
+            ? 'Message send confirmation timed out. Retry the same message.'
+            : 'Realtime reconnect timed out before the message could be sent. Retry the same message.',
+          504,
+        ),
       );
-    }, input.timeoutMs ?? REALTIME_SEND_ACK_TIMEOUT_MS);
+    }, input.timeoutMs ?? REALTIME_SEND_QUEUE_TIMEOUT_MS);
 
     pendingSendRequests.set(input.clientMessageId, {
       timeoutId,
       resolve,
       reject,
+      destination,
+      body,
+      published: false,
     });
-
-    try {
-      connection.client.publish({
-        destination: `/app/chats/${input.chatId}/messages`,
-        body: JSON.stringify({
-          clientMessageId: input.clientMessageId,
-          replyToMessageId: input.replyToMessageId ?? null,
-          forwardedFromMessageId: input.forwardedFromMessageId ?? null,
-          attachmentIds: input.attachmentIds ?? [],
-          plainPayload: input.plainPayload,
-        }),
-      });
-    } catch {
-      clearPendingSendRequest(input.clientMessageId);
-      handleConnectionFailure(connection);
-      reject(
-        new ApiError('Realtime message send failed before it left the client.', 503),
-      );
-    }
+    publishPendingSendRequest(connection, input.clientMessageId);
   });
 }
 
@@ -316,16 +333,6 @@ function rejectPendingSendRequest(error: MessageSendErrorEvent) {
   pendingSendRequests.delete(clientMessageId);
   clearTimeout(pendingRequest.timeoutId);
   pendingRequest.reject(new ApiError(error.error, error.status, error.details));
-}
-
-function clearPendingSendRequest(clientMessageId: string) {
-  const pendingRequest = pendingSendRequests.get(clientMessageId);
-  if (!pendingRequest) {
-    return;
-  }
-
-  pendingSendRequests.delete(clientMessageId);
-  clearTimeout(pendingRequest.timeoutId);
 }
 
 function clearSubscriptions(connection: RealtimeConnection) {
@@ -386,11 +393,45 @@ function handleConnectionFailure(connection: RealtimeConnection) {
   }
 
   clearSubscriptions(connection);
-  failPendingSendRequests(
-    'Realtime connection was interrupted before the message was confirmed.',
-    503,
-  );
+  requeuePendingSendRequests();
   setConnectionState(connection, false);
+}
+
+function publishPendingSendRequest(
+  connection: RealtimeConnection,
+  clientMessageId: string,
+) {
+  const pendingRequest = pendingSendRequests.get(clientMessageId);
+  if (!pendingRequest || pendingRequest.published) {
+    return;
+  }
+
+  if (!isRealtimeClientReady(connection.client)) {
+    return;
+  }
+
+  try {
+    connection.client.publish({
+      destination: pendingRequest.destination,
+      body: pendingRequest.body,
+    });
+    pendingRequest.published = true;
+  } catch {
+    pendingRequest.published = false;
+    handleConnectionFailure(connection);
+  }
+}
+
+function flushPendingSendRequests(connection: RealtimeConnection) {
+  pendingSendRequests.forEach((_pendingRequest, clientMessageId) => {
+    publishPendingSendRequest(connection, clientMessageId);
+  });
+}
+
+function requeuePendingSendRequests() {
+  pendingSendRequests.forEach(pendingRequest => {
+    pendingRequest.published = false;
+  });
 }
 
 function failPendingSendRequests(message: string, status: number) {
@@ -489,6 +530,22 @@ function deactivateRealtimeClient(client: Client) {
   }
 
   client.deactivate().catch(() => undefined);
+}
+
+function createAuthorizedWebSocket(url: string, authorization: string) {
+  const ReactNativeWebSocket = globalThis.WebSocket as unknown as new (
+    socketUrl: string,
+    protocols?: string | string[],
+    options?: {
+      headers?: Record<string, string>;
+    },
+  ) => WebSocket;
+
+  return new ReactNativeWebSocket(url, STOMP_SUBPROTOCOLS, {
+    headers: {
+      Authorization: authorization,
+    },
+  });
 }
 
 function resolveWebSocketBaseUrl() {

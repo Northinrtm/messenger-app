@@ -5,6 +5,8 @@ import type {
   ChatMessageAttachment,
   ChatOpen,
   ChatSummary,
+  InviteLink,
+  VideoConference,
   MessagePage,
   MessageReactionEvent,
   MobileAuthResponse,
@@ -209,6 +211,68 @@ export function updateArchivedChat(token: string, chatId: string, archived: bool
     token,
     body: {archived},
   });
+}
+
+export function startVideoConference(token: string, conferenceId: string) {
+  return request<VideoConference>(
+    `/api/conferences/${encodeURIComponent(conferenceId)}/start`,
+    {
+      method: 'POST',
+      token,
+    },
+  );
+}
+
+export function endVideoConference(token: string, conferenceId: string) {
+  return request<VideoConference>(`/api/conferences/${encodeURIComponent(conferenceId)}`, {
+    method: 'DELETE',
+    token,
+  });
+}
+
+export function cancelVideoConference(token: string, conferenceId: string) {
+  return request<void>(
+    `/api/conferences/${encodeURIComponent(conferenceId)}/schedule`,
+    {
+      method: 'DELETE',
+      token,
+    },
+  );
+}
+
+export function createConferenceInviteLink(
+  token: string,
+  conferenceId: string,
+  options?: {refresh?: boolean},
+) {
+  return request<InviteLink>(
+    `/api/invite-links/conferences/${encodeURIComponent(conferenceId)}`,
+    {
+      method: 'POST',
+      token,
+      query: {refresh: options?.refresh === true ? 1 : undefined},
+    },
+  );
+}
+
+export function touchConferencePresence(token: string, conferenceId: string) {
+  return request<void>(
+    `/api/conferences/${encodeURIComponent(conferenceId)}/presence`,
+    {
+      method: 'POST',
+      token,
+    },
+  );
+}
+
+export function clearConferencePresence(token: string, conferenceId: string) {
+  return request<void>(
+    `/api/conferences/${encodeURIComponent(conferenceId)}/presence`,
+    {
+      method: 'DELETE',
+      token,
+    },
+  );
 }
 
 export function blockUser(token: string, username: string) {

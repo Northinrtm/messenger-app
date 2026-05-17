@@ -16,6 +16,7 @@ import org.springframework.web.socket.server.standard.ServletServerContainerFact
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     private final WebSocketAuthChannelInterceptor authChannelInterceptor;
+    private final WebSocketAuthHandshakeInterceptor authHandshakeInterceptor;
     private final WebSocketOutboundSecurityInterceptor outboundSecurityInterceptor;
     private final WebSocketSessionTrackingDecoratorFactory sessionTrackingDecoratorFactory;
     private final String[] allowedOrigins;
@@ -35,6 +36,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     public WebSocketConfig(
             WebSocketAuthChannelInterceptor authChannelInterceptor,
+            WebSocketAuthHandshakeInterceptor authHandshakeInterceptor,
             WebSocketOutboundSecurityInterceptor outboundSecurityInterceptor,
             WebSocketSessionTrackingDecoratorFactory sessionTrackingDecoratorFactory,
             @Value("${app.cors.allowed-origins:http://localhost:5173}") String[] allowedOrigins,
@@ -53,6 +55,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
             @Value("${app.realtime.broker.relay.system-heartbeat-receive-interval-ms:10000}") long brokerRelaySystemHeartbeatReceiveIntervalMs
     ) {
         this.authChannelInterceptor = authChannelInterceptor;
+        this.authHandshakeInterceptor = authHandshakeInterceptor;
         this.outboundSecurityInterceptor = outboundSecurityInterceptor;
         this.sessionTrackingDecoratorFactory = sessionTrackingDecoratorFactory;
         this.allowedOrigins = allowedOrigins;
@@ -74,6 +77,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws")
+                .addInterceptors(authHandshakeInterceptor)
                 .setAllowedOriginPatterns(allowedOrigins);
     }
 

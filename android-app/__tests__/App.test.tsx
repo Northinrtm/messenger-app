@@ -12,14 +12,15 @@ jest.mock('react-native-keychain', () => ({
   resetGenericPassword: jest.fn(async () => true),
 }));
 
-jest.mock('react-native-document-picker', () => ({
-  __esModule: true,
-  default: {
-    pick: jest.fn(),
-    isCancel: jest.fn(() => false),
-    types: {
-      allFiles: '*/*',
-    },
+jest.mock('@react-native-documents/picker', () => ({
+  errorCodes: {
+    OPERATION_CANCELED: 'OPERATION_CANCELED',
+  },
+  isErrorWithCode: jest.fn(() => false),
+  keepLocalCopy: jest.fn(async () => []),
+  pick: jest.fn(),
+  types: {
+    allFiles: '*/*',
   },
 }));
 

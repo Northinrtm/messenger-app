@@ -16,6 +16,7 @@ class WebSocketConfigTest {
         WebSocketSessionTrackingDecoratorFactory decoratorFactory = mock(WebSocketSessionTrackingDecoratorFactory.class);
         WebSocketConfig config = new WebSocketConfig(
                 mock(WebSocketAuthChannelInterceptor.class),
+                mock(WebSocketAuthHandshakeInterceptor.class),
                 mock(WebSocketOutboundSecurityInterceptor.class),
                 decoratorFactory,
                 new String[]{"http://localhost:5173"},
@@ -48,6 +49,7 @@ class WebSocketConfigTest {
     void webSocketContainerShouldAlignServletBufferLimitsWithTransportLimits() {
         WebSocketConfig config = new WebSocketConfig(
                 mock(WebSocketAuthChannelInterceptor.class),
+                mock(WebSocketAuthHandshakeInterceptor.class),
                 mock(WebSocketOutboundSecurityInterceptor.class),
                 mock(WebSocketSessionTrackingDecoratorFactory.class),
                 new String[]{"http://localhost:5173"},

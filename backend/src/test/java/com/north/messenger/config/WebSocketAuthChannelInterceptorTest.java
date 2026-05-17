@@ -139,6 +139,35 @@ class WebSocketAuthChannelInterceptorTest {
     }
 
     @Test
+    void shouldAuthenticateUsingHandshakeAuthorizationWhenNativeHeaderIsMissing() {
+        UUID userId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        UserAccount user = testUserAccount(
+                userId,
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        when(authService.authenticateAccessToken("access-token"))
+                .thenReturn(Optional.of(new AuthService.AuthenticatedSession(user, sessionId)));
+
+        StompHeaderAccessor connectAccessor = StompHeaderAccessor.create(StompCommand.CONNECT);
+        connectAccessor.setSessionId("session-1");
+        connectAccessor.setSessionAttributes(new HashMap<>());
+        connectAccessor.getSessionAttributes().put(
+                WebSocketAuthHandshakeInterceptor.SESSION_HANDSHAKE_AUTHORIZATION_ATTRIBUTE,
+                "Bearer access-token"
+        );
+        Message<byte[]> connectMessage = MessageBuilder.createMessage(new byte[0], connectAccessor.getMessageHeaders());
+
+        Message<?> connectResult = interceptor.preSend(connectMessage, mock(MessageChannel.class));
+
+        assertThat(connectResult).isNotNull();
+        verify(webSocketSessionRegistry).register("session-1", "north", userId, sessionId);
+    }
+
+    @Test
     void shouldDropSendToBrokerDestination() {
         UUID userId = UUID.randomUUID();
         UUID sessionId = UUID.randomUUID();

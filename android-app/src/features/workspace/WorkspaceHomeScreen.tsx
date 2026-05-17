@@ -25,11 +25,10 @@ type WorkspaceTab = 'chats' | 'contacts' | 'conferences' | 'profile';
 type Props = {
   session: AuthResponse;
   workspace: WorkspaceBootstrap;
-  loading: boolean;
   error: string | null;
-  onReload: () => Promise<void>;
   onLogout: () => Promise<void>;
   onOpenChat: (chatId: string) => void;
+  onOpenConference: (conferenceId: string) => void;
   onStartDirectChat: (username: string) => Promise<ChatSummary>;
   onAddContact: (username: string) => Promise<UserProfile>;
   onRemoveContact: (username: string) => Promise<void>;
@@ -42,11 +41,10 @@ type Props = {
 export function WorkspaceHomeScreen({
   session,
   workspace,
-  loading,
   error,
-  onReload,
   onLogout,
   onOpenChat,
+  onOpenConference,
   onStartDirectChat,
   onAddContact,
   onRemoveContact,
@@ -307,14 +305,6 @@ export function WorkspaceHomeScreen({
           </Text>
         </View>
         <View style={styles.heroActions}>
-          <Pressable
-            onPress={onReload}
-            disabled={loading}
-            style={loading ? styles.actionDisabled : styles.actionPrimary}>
-            <Text style={styles.actionPrimaryLabel}>
-              {loading ? 'Refreshing...' : 'Refresh workspace'}
-            </Text>
-          </Pressable>
           <Pressable onPress={onLogout} style={styles.actionGhost}>
             <Text style={styles.actionGhostLabel}>Logout</Text>
           </Pressable>
@@ -576,7 +566,11 @@ export function WorkspaceHomeScreen({
           {searchResults.conferences.length > 0 ? (
             <SearchResultGroup title="Conferences">
               {searchResults.conferences.map(conference => (
-                <ConferenceRow key={conference.id} conference={conference} />
+                <ConferenceRow
+                  key={conference.id}
+                  conference={conference}
+                  onOpen={() => onOpenConference(conference.id)}
+                />
               ))}
             </SearchResultGroup>
           ) : null}
@@ -764,7 +758,11 @@ export function WorkspaceHomeScreen({
             <EmptyState label="No conferences yet." />
           ) : (
             activeConferences.map(conference => (
-              <ConferenceRow key={conference.id} conference={conference} />
+              <ConferenceRow
+                key={conference.id}
+                conference={conference}
+                onOpen={() => onOpenConference(conference.id)}
+              />
             ))
           )}
 
@@ -776,7 +774,11 @@ export function WorkspaceHomeScreen({
             <EmptyState label="No archived conferences." />
           ) : (
             archivedConferences.map(conference => (
-              <ConferenceRow key={conference.id} conference={conference} />
+              <ConferenceRow
+                key={conference.id}
+                conference={conference}
+                onOpen={() => onOpenConference(conference.id)}
+              />
             ))
           )}
         </View>
@@ -1048,9 +1050,10 @@ function ProfileRow({profile, actions = []}: ProfileRowProps) {
 
 type ConferenceRowProps = {
   conference: VideoConference;
+  onOpen: () => void;
 };
 
-function ConferenceRow({conference}: ConferenceRowProps) {
+function ConferenceRow({conference, onOpen}: ConferenceRowProps) {
   const state = conference.startedAt
     ? 'Live now'
     : conference.roomName
@@ -1059,7 +1062,15 @@ function ConferenceRow({conference}: ConferenceRowProps) {
 
   return (
     <View style={styles.card}>
-      <Text style={styles.cardTitle}>{conference.title}</Text>
+      <View style={styles.rowHeader}>
+        <Text style={styles.cardTitle}>{conference.title}</Text>
+        <Pressable
+          onPress={onOpen}
+          style={styles.inlineActionPrimary}
+          testID={`open-conference-${conference.id}`}>
+          <Text style={styles.inlineActionPrimaryLabel}>Open</Text>
+        </Pressable>
+      </View>
       <Text style={styles.cardMeta}>
         {conference.participants.length} participants | {state}
       </Text>

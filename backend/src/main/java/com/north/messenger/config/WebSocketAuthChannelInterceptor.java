@@ -5,6 +5,7 @@ import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.repository.ChatParticipantRepository;
 import java.security.Principal;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,6 +20,7 @@ import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 @Component
 public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
@@ -81,7 +83,7 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
     }
 
     private Message<?> authenticate(Message<?> message, StompHeaderAccessor accessor) {
-        String authorization = accessor.getFirstNativeHeader(HttpHeaders.AUTHORIZATION);
+        String authorization = resolveAuthorization(accessor);
         if (authorization == null || !authorization.startsWith("Bearer ")) {
             throw new MessagingException("WebSocket Authorization header is required");
         }
@@ -132,6 +134,38 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
         }
 
         return message;
+    }
+
+    private String resolveAuthorization(StompHeaderAccessor accessor) {
+        String nativeAuthorization = accessor.getFirstNativeHeader(HttpHeaders.AUTHORIZATION);
+        if (StringUtils.hasText(nativeAuthorization)) {
+            return nativeAuthorization;
+        }
+
+        for (Map.Entry<String, List<String>> entry : accessor.toNativeHeaderMap().entrySet()) {
+            if (!HttpHeaders.AUTHORIZATION.equalsIgnoreCase(entry.getKey())) {
+                continue;
+            }
+
+            for (String candidate : entry.getValue()) {
+                if (StringUtils.hasText(candidate)) {
+                    return candidate;
+                }
+            }
+        }
+
+        if (accessor.getSessionAttributes() == null) {
+            return null;
+        }
+
+        Object handshakeAuthorization = accessor.getSessionAttributes()
+                .get(WebSocketAuthHandshakeInterceptor.SESSION_HANDSHAKE_AUTHORIZATION_ATTRIBUTE);
+        if (handshakeAuthorization instanceof String authorization
+                && StringUtils.hasText(authorization)) {
+            return authorization;
+        }
+
+        return null;
     }
 
     private Message<?> authorizeSend(Message<?> message, StompHeaderAccessor accessor, Principal principal) {

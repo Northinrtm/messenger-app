@@ -91,7 +91,34 @@ const workspace: WorkspaceBootstrap = {
   drafts: [],
   pendingOutgoingMessages: [],
   mailboxes: [],
-  conferences: [],
+  conferences: [
+    {
+      id: 'conference-1',
+      title: 'Weekly sync',
+      roomName: 'weekly-sync',
+      roomAccessCode: 'room-code',
+      scheduledAt: '2026-05-17T12:00:00.000Z',
+      createdAt: '2026-05-17T11:00:00.000Z',
+      activatedAt: '2026-05-17T11:55:00.000Z',
+      startedAt: null,
+      endedAt: null,
+      recordingCreatedAt: null,
+      recordingSizeBytes: null,
+      recordingMimeType: null,
+      createdBy: {
+        id: session.user.id,
+        username: session.user.username,
+        displayName: session.user.displayName,
+        profession: session.user.profession,
+        avatarUrl: null,
+        online: true,
+      },
+      participants: [],
+      chatId: null,
+      activeParticipantCount: 0,
+      activeParticipantUserIds: [],
+    },
+  ],
   archivedConferences: [],
 };
 
@@ -152,11 +179,10 @@ describe('WorkspaceHomeScreen', () => {
         <WorkspaceHomeScreen
           session={session}
           workspace={workspace}
-          loading={false}
           error={null}
-          onReload={async () => undefined}
           onLogout={async () => undefined}
           onOpenChat={() => undefined}
+          onOpenConference={() => undefined}
           onStartDirectChat={async () => directChat}
           onAddContact={async username => ({...contact, username})}
           onRemoveContact={async () => undefined}
@@ -188,11 +214,10 @@ describe('WorkspaceHomeScreen', () => {
         <WorkspaceHomeScreen
           session={session}
           workspace={workspace}
-          loading={false}
           error={null}
-          onReload={async () => undefined}
           onLogout={async () => undefined}
           onOpenChat={() => undefined}
+          onOpenConference={() => undefined}
           onStartDirectChat={async () => directChat}
           onAddContact={async username => ({...contact, username})}
           onRemoveContact={async () => undefined}
@@ -250,11 +275,10 @@ describe('WorkspaceHomeScreen', () => {
         <WorkspaceHomeScreen
           session={session}
           workspace={workspace}
-          loading={false}
           error={null}
-          onReload={async () => undefined}
           onLogout={async () => undefined}
           onOpenChat={() => undefined}
+          onOpenConference={() => undefined}
           onStartDirectChat={async () => directChat}
           onAddContact={async username => ({...contact, username})}
           onRemoveContact={async () => undefined}
@@ -298,11 +322,10 @@ describe('WorkspaceHomeScreen', () => {
         <WorkspaceHomeScreen
           session={session}
           workspace={workspace}
-          loading={false}
           error={null}
-          onReload={async () => undefined}
           onLogout={async () => undefined}
           onOpenChat={() => undefined}
+          onOpenConference={() => undefined}
           onStartDirectChat={onStartDirectChat}
           onAddContact={async username => ({...contact, username})}
           onRemoveContact={async () => undefined}
@@ -360,11 +383,10 @@ describe('WorkspaceHomeScreen', () => {
         <WorkspaceHomeScreen
           session={session}
           workspace={workspace}
-          loading={false}
           error={null}
-          onReload={async () => undefined}
           onLogout={async () => undefined}
           onOpenChat={() => undefined}
+          onOpenConference={() => undefined}
           onStartDirectChat={async () => directChat}
           onAddContact={onAddContact}
           onRemoveContact={async () => undefined}
@@ -395,5 +417,47 @@ describe('WorkspaceHomeScreen', () => {
     });
 
     expect(onAddContact).toHaveBeenCalledWith('rina');
+  });
+
+  it('opens a conference from the conferences tab', async () => {
+    const onOpenConference = jest.fn();
+
+    let renderer: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <WorkspaceHomeScreen
+          session={session}
+          workspace={workspace}
+          error={null}
+          onLogout={async () => undefined}
+          onOpenChat={() => undefined}
+          onOpenConference={onOpenConference}
+          onStartDirectChat={async () => directChat}
+          onAddContact={async username => ({...contact, username})}
+          onRemoveContact={async () => undefined}
+          onSearchWorkspace={async () => emptySearchResults}
+          onArchiveChat={async () => undefined}
+          onBlockUser={async username => ({...contact, username})}
+          onUnblockUser={async () => undefined}
+        />,
+      );
+    });
+
+    const conferencesTab = renderer!.root.findByProps({
+      testID: 'tab-conferences',
+    });
+    await ReactTestRenderer.act(async () => {
+      conferencesTab.props.onPress();
+    });
+
+    const openConferenceButton = findPressableByTestId(
+      renderer!.root,
+      'open-conference-conference-1',
+    );
+    await ReactTestRenderer.act(async () => {
+      openConferenceButton.props.onPress();
+    });
+
+    expect(onOpenConference).toHaveBeenCalledWith('conference-1');
   });
 });

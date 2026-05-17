@@ -67,6 +67,7 @@ Implemented now:
 - workspace shell with `Chats / Contacts / Conferences / Profile` sections
 - workspace search plus basic archive/block actions on Android, using the existing backend search/chat/user endpoints
 - contact add/remove plus direct-chat start/open on Android, using existing `/api/users/contacts*` and `/api/chats/direct` endpoints
+- conference open/detail on Android, including start/end/cancel actions for organizers, presence mark/clear, open-linked group chat, invite-link generation/share, and browser handoff into the current Jitsi room URL
 - chat thread read path with `open`, older-message paging, and read acknowledgements
 - Android STOMP realtime subscription on `/ws` for chat summaries, messages, message acks/errors, and session events
 - text composer with optimistic local sends, failed-send retry, and live incoming message merge
@@ -76,6 +77,7 @@ Implemented now:
 - active-chat typing on Android, using STOMP `/app/chats/{chatId}/typing`, realtime `/topic/chats.{chatId}.typing`, composer heartbeats, and a local in-thread typing indicator
 - message forward on Android, including inline target selection from the workspace chat list, forwarded-label hydration, and persisted `forwardedFromMessageId` in pending-outgoing recovery/retry
 - attachment send/open/share/preview on Android, including document picking, local attachment chips, upload through `/attachments/initiate` + presigned PUT, attachment-only message send, on-demand open via backend `download-url`, system share-sheet handoff for attachment links, and in-app preview for `image/*` attachments
+- attachment picking is now on `@react-native-documents/picker` rather than the deprecated `react-native-document-picker`; Android uses `pick(...)` + `keepLocalCopy(...)` before upload
 - recovery screen for "session is valid but workspace bootstrap retry is still needed"
 
 Still pending before Sprint 2 can be considered fully closed:
@@ -84,7 +86,8 @@ Still pending before Sprint 2 can be considered fully closed:
 
 Latest native build check:
 
-- `android-app/android: cmd /c gradlew.bat assembleDebug` currently fails on this workstation because Android SDK is not configured (`ANDROID_HOME` missing and `android/local.properties` not set).
+- `android-app/android: cmd /c gradlew.bat assembleDebug` now succeeds on this workstation after configuring `android/local.properties` to the local SDK at `D:/programs/coding/android-sdk`.
+- emulator smoke check also succeeded on this workstation: AVD `BooksyTablet` booted, `app-debug.apk` installed through `adb`, and `com.north.messenger.android/.MainActivity` launched successfully.
 
 ## Required Backend Changes
 
@@ -251,6 +254,10 @@ Exit criteria:
 
 - user can enter, stay in, and leave a call fully inside the Android app
 
+Current gap before Sprint 4 exit:
+
+- Android already has conference list/detail and lifecycle actions, but join still opens the existing Jitsi room in an external browser. Native in-app call embedding is still pending.
+
 ### Sprint 5: Hardening and beta release
 
 - crash/perf/network hardening
@@ -290,3 +297,13 @@ Start with these concrete tasks:
 - conference join/leave works inside the app
 - notification taps route into the correct chat or conference
 - no dependency on `desktop` runtime remains for supported product behavior
+
+## Local Dev Note
+
+- `android-app/src/config.ts` now supports both local-emulator and shared-server dev endpoints.
+- The current default `devTarget` is `remote`, so Metro builds on this workstation talk to `https://pishi.ktsf.ru` / `/meet` instead of `10.0.2.2`.
+- Android realtime against `pishi.ktsf.ru` depends on STOMP-native auth headers, not only HTTP websocket-upgrade headers.
+- Current Android `src/lib/realtime.ts` sends auth in both places:
+  - STOMP `CONNECT` header `Authorization:Bearer <token>` via `connectHeaders`
+  - websocket handshake header `Authorization: Bearer <token>` via `webSocketFactory`
+- Production edge did not forward the handshake header to Spring during the May 17 websocket incident, so the effective production fix was backend-side case-insensitive STOMP header handling. Keep the handshake header anyway for local or direct deployments where it is preserved.

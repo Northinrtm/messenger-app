@@ -37,13 +37,13 @@ export function AuthScreen({
   onLogin,
   onRegister,
 }: Props) {
-  const [username, setUsername] = useState('');
+  const [loginIdentifier, setLoginIdentifier] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
   const canSubmit =
-    username.trim().length > 0 &&
+    loginIdentifier.trim().length > 0 &&
     password.trim().length > 0 &&
     (mode === 'login' ||
       (displayName.trim().length > 0 && email.trim().length > 0));
@@ -55,14 +55,14 @@ export function AuthScreen({
 
     if (mode === 'login') {
       await onLogin({
-        username: username.trim(),
+        username: loginIdentifier.trim(),
         password,
       });
       return;
     }
 
     await onRegister({
-      username: username.trim(),
+      username: loginIdentifier.trim(),
       email: email.trim(),
       displayName: displayName.trim(),
       password,
@@ -78,10 +78,10 @@ export function AuthScreen({
         keyboardShouldPersistTaps="handled">
         <View style={styles.hero}>
           <Text style={styles.eyebrow}>North Messenger</Text>
-          <Text style={styles.title}>Android client</Text>
+          <Text style={styles.title}>Android messenger</Text>
           <Text style={styles.copy}>
-            Mobile auth is separate from the browser cookie flow. Sign in to
-            bootstrap the workspace directly from Android.
+            Sign in with your email or username and open the workspace directly
+            from Android.
           </Text>
         </View>
 
@@ -117,12 +117,18 @@ export function AuthScreen({
 
           <View style={styles.form}>
             <Field
-              label="Username"
-              value={username}
-              onChangeText={setUsername}
+              label={mode === 'login' ? 'Email or username' : 'Username'}
+              value={loginIdentifier}
+              onChangeText={setLoginIdentifier}
               autoCapitalize="none"
               autoCorrect={false}
-              autoComplete="username"
+              autoComplete={mode === 'login' ? 'off' : 'username'}
+              keyboardType={mode === 'login' ? 'email-address' : 'default'}
+              placeholder={
+                mode === 'login'
+                  ? 'name@example.com or username'
+                  : 'Choose a username'
+              }
             />
             {mode === 'register' ? (
               <>
@@ -132,6 +138,7 @@ export function AuthScreen({
                   onChangeText={setDisplayName}
                   autoCapitalize="words"
                   autoComplete="name"
+                  placeholder="How others will see you"
                 />
                 <Field
                   label="Email"
@@ -141,6 +148,7 @@ export function AuthScreen({
                   autoCorrect={false}
                   autoComplete="email"
                   keyboardType="email-address"
+                  placeholder="name@example.com"
                 />
               </>
             ) : null}
@@ -152,6 +160,7 @@ export function AuthScreen({
               autoCorrect={false}
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
               secureTextEntry
+              placeholder={mode === 'login' ? 'Enter your password' : 'Create a password'}
             />
           </View>
 
@@ -184,6 +193,7 @@ type FieldProps = {
   label: string;
   value: string;
   onChangeText: (value: string) => void;
+  placeholder?: string;
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
   autoCorrect?: boolean;
   autoComplete?:
@@ -206,26 +216,44 @@ function Field({
   label,
   value,
   onChangeText,
+  placeholder,
   autoCapitalize = 'sentences',
   autoCorrect = true,
   autoComplete = 'off',
   keyboardType = 'default',
   secureTextEntry = false,
 }: FieldProps) {
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const resolvedSecureTextEntry = secureTextEntry && !passwordVisible;
+
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        autoCapitalize={autoCapitalize}
-        autoCorrect={autoCorrect}
-        autoComplete={autoComplete}
-        keyboardType={keyboardType}
-        secureTextEntry={secureTextEntry}
-        style={styles.input}
-        placeholderTextColor="#8f7b68"
-      />
+      <View style={styles.inputWrap}>
+        <TextInput
+          value={value}
+          onChangeText={onChangeText}
+          autoCapitalize={autoCapitalize}
+          autoCorrect={autoCorrect}
+          autoComplete={autoComplete}
+          keyboardType={keyboardType}
+          secureTextEntry={resolvedSecureTextEntry}
+          style={secureTextEntry ? styles.inputWithAction : styles.input}
+          placeholder={placeholder}
+          placeholderTextColor="#5d7b95"
+          selectionColor="#55c2ff"
+        />
+        {secureTextEntry ? (
+          <Pressable
+            onPress={() => setPasswordVisible(current => !current)}
+            style={styles.inputActionButton}
+            hitSlop={8}>
+            <Text style={styles.inputActionLabel}>
+              {passwordVisible ? 'Hide' : 'Show'}
+            </Text>
+          </Pressable>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -233,42 +261,49 @@ function Field({
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+    backgroundColor: '#081521',
   },
   content: {
     flexGrow: 1,
     padding: 20,
-    backgroundColor: '#f3efe7',
+    backgroundColor: '#081521',
     gap: 20,
   },
   hero: {
     gap: 8,
     paddingTop: 24,
+    paddingHorizontal: 2,
   },
   eyebrow: {
     fontSize: 13,
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 1,
-    color: '#8a5a2b',
+    color: '#6ea8cf',
   },
   title: {
     fontSize: 34,
     lineHeight: 40,
     fontWeight: '800',
-    color: '#201811',
+    color: '#f4fbff',
   },
   copy: {
     fontSize: 16,
     lineHeight: 24,
-    color: '#4f463c',
+    color: '#9ab5cb',
   },
   panel: {
-    backgroundColor: '#fffaf1',
+    backgroundColor: '#102131',
     borderWidth: 1,
-    borderColor: '#e0d3bf',
+    borderColor: '#1f3b53',
     borderRadius: 28,
     padding: 20,
     gap: 18,
+    shadowColor: '#02070b',
+    shadowOpacity: 0.35,
+    shadowRadius: 20,
+    shadowOffset: {width: 0, height: 10},
+    elevation: 8,
   },
   modeTabs: {
     flexDirection: 'row',
@@ -278,22 +313,24 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 12,
     borderRadius: 999,
-    backgroundColor: '#efe4d3',
+    backgroundColor: '#183044',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#24435e',
   },
   modeTabActive: {
     flex: 1,
     paddingVertical: 12,
     borderRadius: 999,
-    backgroundColor: '#8a5a2b',
+    backgroundColor: '#3cb7ff',
     alignItems: 'center',
   },
   modeTabLabel: {
-    color: '#5b4b3c',
+    color: '#a7c0d4',
     fontWeight: '700',
   },
   modeTabActiveLabel: {
-    color: '#fffaf1',
+    color: '#082033',
     fontWeight: '800',
   },
   form: {
@@ -305,21 +342,47 @@ const styles = StyleSheet.create({
   fieldLabel: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#524738',
+    color: '#b8cedf',
   },
   input: {
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#d5c4ac',
-    backgroundColor: '#fcf7ef',
-    color: '#1f1a14',
+    borderColor: '#28506d',
+    backgroundColor: '#0a1a29',
+    color: '#f4fbff',
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 16,
   },
+  inputWrap: {
+    position: 'relative',
+    justifyContent: 'center',
+  },
+  inputWithAction: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#28506d',
+    backgroundColor: '#0a1a29',
+    color: '#f4fbff',
+    paddingLeft: 16,
+    paddingRight: 72,
+    paddingVertical: 14,
+    fontSize: 16,
+  },
+  inputActionButton: {
+    position: 'absolute',
+    right: 14,
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+  },
+  inputActionLabel: {
+    color: '#7fc8ff',
+    fontSize: 13,
+    fontWeight: '700',
+  },
   info: {
-    color: '#3e6032',
-    backgroundColor: '#e8f1df',
+    color: '#9fd3b6',
+    backgroundColor: '#123126',
     borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -327,8 +390,8 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   error: {
-    color: '#8b221c',
-    backgroundColor: '#f8dfdb',
+    color: '#ffb3aa',
+    backgroundColor: '#3a1719',
     borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -336,21 +399,21 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   submitButton: {
-    backgroundColor: '#2c5c53',
+    backgroundColor: '#38b6ff',
     borderRadius: 20,
     minHeight: 56,
     alignItems: 'center',
     justifyContent: 'center',
   },
   submitButtonDisabled: {
-    backgroundColor: '#9aa8a3',
+    backgroundColor: '#35546d',
     borderRadius: 20,
     minHeight: 56,
     alignItems: 'center',
     justifyContent: 'center',
   },
   submitLabel: {
-    color: '#fffaf1',
+    color: '#081521',
     fontSize: 16,
     fontWeight: '800',
   },
