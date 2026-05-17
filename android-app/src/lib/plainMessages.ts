@@ -8,6 +8,7 @@ export async function sendPlainMessage(input: {
   clientMessageId: string;
   content: string;
   replyToMessageId?: string | null;
+  forwardedFromMessageId?: string | null;
   attachments?: ChatMessageAttachment[];
 }) {
   if (!input.clientMessageId.trim()) {
@@ -24,6 +25,7 @@ export async function sendPlainMessage(input: {
     chatId: input.chatId,
     clientMessageId: input.clientMessageId,
     replyToMessageId: input.replyToMessageId ?? null,
+    forwardedFromMessageId: input.forwardedFromMessageId ?? null,
     attachmentIds: attachments.map(attachment => attachment.id),
     plainPayload: {
       content: normalizedContent,

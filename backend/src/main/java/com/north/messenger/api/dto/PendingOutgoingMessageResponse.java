@@ -12,6 +12,7 @@ public record PendingOutgoingMessageResponse(
         Long localOrder,
         int recipientCount,
         MessageSnippetResponse replyTo,
+        UUID forwardedFromMessageId,
         String status,
         Instant updatedAt,
         List<PendingOutgoingMessageAttachmentPayload> attachments

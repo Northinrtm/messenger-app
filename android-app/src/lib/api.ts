@@ -293,6 +293,7 @@ export function upsertPendingOutgoingMessage(
       createdAt: string;
       preview: string;
     } | null;
+    forwardedFromMessageId?: string | null;
     status: 'SENDING' | 'FAILED';
     attachments?: Array<{
       id: string;

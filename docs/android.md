@@ -72,12 +72,13 @@ Implemented now:
 - reply/edit composer contexts on Android, with reply reusing the websocket send path and edit using `PUT /api/chats/{chatId}/messages/{messageId}`
 - message reactions on Android, using existing `PUT /api/chats/{chatId}/messages/{messageId}/reactions` plus realtime `/user/queue/message-reactions`
 - active-chat typing on Android, using STOMP `/app/chats/{chatId}/typing`, realtime `/topic/chats.{chatId}.typing`, composer heartbeats, and a local in-thread typing indicator
+- message forward on Android, including inline target selection from the workspace chat list, forwarded-label hydration, and persisted `forwardedFromMessageId` in pending-outgoing recovery/retry
 - recovery screen for "session is valid but workspace bootstrap retry is still needed"
 
 Still pending before Sprint 2 can be considered fully closed:
 
 - actual Android native debug assemble on a machine with configured Android SDK
-- forward and attachment send flows on Android
+- attachment send flows on Android
 
 ## Required Backend Changes
 

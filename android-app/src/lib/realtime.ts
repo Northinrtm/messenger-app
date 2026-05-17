@@ -229,6 +229,7 @@ export function sendMessageRealtime(input: {
   chatId: string;
   clientMessageId: string;
   replyToMessageId?: string | null;
+  forwardedFromMessageId?: string | null;
   plainPayload: {
     content: string;
   };
@@ -270,6 +271,7 @@ export function sendMessageRealtime(input: {
         body: JSON.stringify({
           clientMessageId: input.clientMessageId,
           replyToMessageId: input.replyToMessageId ?? null,
+          forwardedFromMessageId: input.forwardedFromMessageId ?? null,
           attachmentIds: input.attachmentIds ?? [],
           plainPayload: input.plainPayload,
         }),

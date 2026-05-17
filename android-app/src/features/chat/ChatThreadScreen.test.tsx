@@ -105,6 +105,14 @@ const initialChat: ChatSummary = {
   prejoinHistoryPolicy: 'FULL_HISTORY',
 };
 
+const forwardingTargetChat: ChatSummary = {
+  ...initialChat,
+  id: 'chat-2',
+  direct: true,
+  title: 'Alex',
+  members: [initialChat.members[0], initialChat.members[1]],
+};
+
 function createApiMessage(overrides: Partial<ApiChatMessage> = {}): ApiChatMessage {
   return {
     id: 'message-1',
@@ -146,6 +154,13 @@ function createChatMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
 
 function renderChatThread(
   pendingOutgoingMessages: PendingOutgoingMessage[] = [],
+  options?: {
+    availableChats?: ChatSummary[];
+    onOpenChat?: (chatId: string) => void;
+    onPersistPendingOutgoingMessage?: (
+      message: PendingOutgoingMessage,
+    ) => Promise<PendingOutgoingMessage>;
+  },
 ) {
   const runAuthorized = async <T,>(operation: (token: string) => Promise<T>) =>
     operation('access-token');
@@ -155,6 +170,7 @@ function renderChatThread(
       session={session}
       chatId={initialChat.id}
       initialChat={initialChat}
+      availableChats={options?.availableChats ?? [initialChat, forwardingTargetChat]}
       pendingOutgoingMessages={pendingOutgoingMessages}
       realtimeConnected={true}
       realtimeMessage={null}
@@ -162,9 +178,12 @@ function renderChatThread(
       realtimeTyping={null}
       runAuthorized={runAuthorized}
       onBack={() => undefined}
+      onOpenChat={options?.onOpenChat ?? (() => undefined)}
       onChatSummaryChange={() => undefined}
       onChatRead={() => undefined}
-      onPersistPendingOutgoingMessage={async message => message}
+      onPersistPendingOutgoingMessage={
+        options?.onPersistPendingOutgoingMessage ?? (async message => message)
+      }
       onDeletePendingOutgoingMessages={async () => undefined}
     />,
   );
@@ -308,6 +327,68 @@ describe('ChatThreadScreen', () => {
     expect(plainMessagesModule.sendPlainMessage).not.toHaveBeenCalled();
   });
 
+  it('forwards a confirmed message to another chat with forwarded metadata', async () => {
+    const onOpenChat = jest.fn();
+    const persistedMessages: PendingOutgoingMessage[] = [];
+    apiModule.getChatOpen.mockResolvedValue({
+      chat: initialChat,
+      initialMessages: [createApiMessage()],
+      initialMessagesNextCursor: null,
+      confirmedPendingOutgoingClientMessageIds: [],
+    });
+    plainMessagesModule.sendPlainMessage.mockResolvedValue(
+      createChatMessage({
+        id: 'message-forwarded-1',
+        chatId: forwardingTargetChat.id,
+        clientMessageId: 'android-forward-1',
+        forwarded: true,
+        forwardedFrom: {
+          sender: initialChat.members[1],
+        },
+      }),
+    );
+
+    let renderer: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = renderChatThread([], {
+        onOpenChat,
+        onPersistPendingOutgoingMessage: async message => {
+          persistedMessages.push(message);
+          return message;
+        },
+      });
+    });
+
+    const forwardButton = renderer!.root.findByProps({
+      testID: 'forward-action-message-1',
+    });
+    await ReactTestRenderer.act(async () => {
+      forwardButton.props.onPress();
+    });
+
+    expect(
+      renderer!.root.findByProps({testID: 'forward-context'}),
+    ).toBeTruthy();
+
+    const targetButton = renderer!.root.findByProps({
+      testID: `forward-target-${forwardingTargetChat.id}`,
+    });
+    await ReactTestRenderer.act(async () => {
+      await targetButton.props.onPress();
+    });
+
+    expect(plainMessagesModule.sendPlainMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatId: forwardingTargetChat.id,
+        content: 'Server message',
+        forwardedFromMessageId: 'message-1',
+      }),
+    );
+    expect(persistedMessages).toHaveLength(1);
+    expect(persistedMessages[0]?.forwardedFromMessageId).toBe('message-1');
+    expect(onOpenChat).toHaveBeenCalledWith(forwardingTargetChat.id);
+  });
+
   it('toggles reactions through the existing message reaction endpoint', async () => {
     apiModule.getChatOpen.mockResolvedValue({
       chat: initialChat,
@@ -372,6 +453,7 @@ describe('ChatThreadScreen', () => {
           session={session}
           chatId={initialChat.id}
           initialChat={initialChat}
+          availableChats={[initialChat, forwardingTargetChat]}
           pendingOutgoingMessages={[]}
           realtimeConnected={true}
           realtimeMessage={null}
@@ -379,6 +461,7 @@ describe('ChatThreadScreen', () => {
           realtimeTyping={null}
           runAuthorized={runAuthorized}
           onBack={() => undefined}
+          onOpenChat={() => undefined}
           onChatSummaryChange={() => undefined}
           onChatRead={() => undefined}
           onPersistPendingOutgoingMessage={async message => message}
@@ -394,6 +477,7 @@ describe('ChatThreadScreen', () => {
           session={session}
           chatId={initialChat.id}
           initialChat={initialChat}
+          availableChats={[initialChat, forwardingTargetChat]}
           pendingOutgoingMessages={[]}
           realtimeConnected={true}
           realtimeMessage={null}
@@ -414,6 +498,7 @@ describe('ChatThreadScreen', () => {
           realtimeTyping={null}
           runAuthorized={runAuthorized}
           onBack={() => undefined}
+          onOpenChat={() => undefined}
           onChatSummaryChange={() => undefined}
           onChatRead={() => undefined}
           onPersistPendingOutgoingMessage={async message => message}
@@ -477,6 +562,7 @@ describe('ChatThreadScreen', () => {
           session={session}
           chatId={initialChat.id}
           initialChat={initialChat}
+          availableChats={[initialChat, forwardingTargetChat]}
           pendingOutgoingMessages={[]}
           realtimeConnected={true}
           realtimeMessage={null}
@@ -484,6 +570,7 @@ describe('ChatThreadScreen', () => {
           realtimeTyping={null}
           runAuthorized={runAuthorized}
           onBack={() => undefined}
+          onOpenChat={() => undefined}
           onChatSummaryChange={() => undefined}
           onChatRead={() => undefined}
           onPersistPendingOutgoingMessage={async message => message}
@@ -499,6 +586,7 @@ describe('ChatThreadScreen', () => {
           session={session}
           chatId={initialChat.id}
           initialChat={initialChat}
+          availableChats={[initialChat, forwardingTargetChat]}
           pendingOutgoingMessages={[]}
           realtimeConnected={true}
           realtimeMessage={null}
@@ -514,6 +602,7 @@ describe('ChatThreadScreen', () => {
           }}
           runAuthorized={runAuthorized}
           onBack={() => undefined}
+          onOpenChat={() => undefined}
           onChatSummaryChange={() => undefined}
           onChatRead={() => undefined}
           onPersistPendingOutgoingMessage={async message => message}

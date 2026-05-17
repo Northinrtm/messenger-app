@@ -26,6 +26,9 @@ export function toRecoveredPendingChatMessage(
     clientMessageId: message.clientMessageId,
     localOrder: message.localOrder,
     replyTo: message.replyTo ?? null,
+    forwarded: Boolean(message.forwardedFromMessageId),
+    forwardedFrom: null,
+    forwardedFromMessageId: message.forwardedFromMessageId ?? null,
     reactions: [],
     attachments: message.attachments ?? [],
   };

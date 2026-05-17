@@ -74,6 +74,7 @@ type Props = {
   session: AuthResponse;
   chatId: string;
   initialChat: ChatSummary | null;
+  availableChats: ChatSummary[];
   pendingOutgoingMessages: PendingOutgoingMessage[];
   realtimeConnected: boolean;
   realtimeMessage: RealtimeMessageEnvelope | null;
@@ -81,6 +82,7 @@ type Props = {
   realtimeTyping: RealtimeTypingEnvelope | null;
   runAuthorized: RunAuthorized;
   onBack: () => void;
+  onOpenChat: (chatId: string) => void;
   onChatSummaryChange: (chat: ChatSummary) => void;
   onChatRead: (chatId: string) => void;
   onPersistPendingOutgoingMessage: (
@@ -93,6 +95,7 @@ export function ChatThreadScreen({
   session,
   chatId,
   initialChat,
+  availableChats,
   pendingOutgoingMessages,
   realtimeConnected,
   realtimeMessage,
@@ -100,6 +103,7 @@ export function ChatThreadScreen({
   realtimeTyping,
   runAuthorized,
   onBack,
+  onOpenChat,
   onChatSummaryChange,
   onChatRead,
   onPersistPendingOutgoingMessage,
@@ -117,6 +121,12 @@ export function ChatThreadScreen({
     null,
   );
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [forwardingMessageId, setForwardingMessageId] = useState<string | null>(
+    null,
+  );
+  const [forwardingTargetChatId, setForwardingTargetChatId] = useState<
+    string | null
+  >(null);
   const [composerDraftBeforeEdit, setComposerDraftBeforeEdit] = useState<
     string | null
   >(null);
@@ -175,6 +185,28 @@ export function ChatThreadScreen({
         : null,
     [editingMessageId, messages, session.user.id],
   );
+  const forwardingMessage = useMemo(
+    () =>
+      forwardingMessageId
+        ? messages.find(
+            message =>
+              message.id === forwardingMessageId && canForwardMessage(message),
+          ) ?? null
+        : null,
+    [forwardingMessageId, messages],
+  );
+  const forwardTargetChats = useMemo(() => {
+    const deduplicated = new Map<string, ChatSummary>();
+    if (chat) {
+      deduplicated.set(chat.id, chat);
+    }
+    availableChats.forEach(availableChat => {
+      if (!deduplicated.has(availableChat.id)) {
+        deduplicated.set(availableChat.id, availableChat);
+      }
+    });
+    return [...deduplicated.values()];
+  }, [availableChats, chat]);
   const typingLabel = useMemo(
     () => formatTypingParticipants(typingParticipants),
     [typingParticipants],
@@ -277,6 +309,13 @@ export function ChatThreadScreen({
   }, [editingMessage, editingMessageId]);
 
   useEffect(() => {
+    if (forwardingMessageId && !forwardingMessage) {
+      setForwardingMessageId(null);
+      setForwardingTargetChatId(null);
+    }
+  }, [forwardingMessage, forwardingMessageId]);
+
+  useEffect(() => {
     setMessages(currentMessages =>
       syncRecoveredPendingMessages(currentMessages, recoveredPendingMessages),
     );
@@ -316,6 +355,8 @@ export function ChatThreadScreen({
     setComposerText('');
     setReplyingToMessageId(null);
     setEditingMessageId(null);
+    setForwardingMessageId(null);
+    setForwardingTargetChatId(null);
     setComposerDraftBeforeEdit(null);
     setNextCursor(null);
     setError(null);
@@ -584,6 +625,8 @@ export function ChatThreadScreen({
       setComposerDraftBeforeEdit(null);
       setEditingMessageId(null);
     }
+    setForwardingMessageId(null);
+    setForwardingTargetChatId(null);
     setReplyingToMessageId(message.id);
     setError(null);
   };
@@ -594,11 +637,29 @@ export function ChatThreadScreen({
     }
 
     setReplyingToMessageId(null);
+    setForwardingMessageId(null);
+    setForwardingTargetChatId(null);
     setComposerDraftBeforeEdit(currentDraft =>
       editingMessageId ? currentDraft : composerText,
     );
     setEditingMessageId(message.id);
     setComposerText(message.content);
+    setError(null);
+  };
+
+  const handleForwardMessage = (message: ChatMessage) => {
+    if (!canForwardMessage(message)) {
+      return;
+    }
+
+    if (editingMessageId) {
+      setComposerText(composerDraftBeforeEdit ?? '');
+      setComposerDraftBeforeEdit(null);
+      setEditingMessageId(null);
+    }
+    setReplyingToMessageId(null);
+    setForwardingMessageId(message.id);
+    setForwardingTargetChatId(chatId);
     setError(null);
   };
 
@@ -612,6 +673,11 @@ export function ChatThreadScreen({
     setComposerDraftBeforeEdit(null);
   };
 
+  const handleCancelForward = () => {
+    setForwardingMessageId(null);
+    setForwardingTargetChatId(null);
+  };
+
   const handleSend = async () => {
     const trimmedContent = composerText.trim();
     const editingAttachments = editingMessage?.attachments ?? [];
@@ -622,6 +688,8 @@ export function ChatThreadScreen({
     stopTypingSignal();
 
     if (editingMessage) {
+      setForwardingMessageId(null);
+      setForwardingTargetChatId(null);
       setError(null);
       setSendingCount(currentCount => currentCount + 1);
 
@@ -669,6 +737,8 @@ export function ChatThreadScreen({
     setComposerText('');
     setError(null);
     clearMessageError(setMessageErrors, clientMessageId);
+    setForwardingMessageId(null);
+    setForwardingTargetChatId(null);
     setMessages(currentMessages =>
       sortMessagesForDisplay([...currentMessages, optimisticMessage]),
     );
@@ -719,6 +789,99 @@ export function ChatThreadScreen({
     }
   };
 
+  const handleForwardToChat = async (targetChatId: string) => {
+    if (!forwardingMessage) {
+      return;
+    }
+
+    const targetChat = forwardTargetChats.find(
+      currentChat => currentChat.id === targetChatId,
+    );
+    if (!targetChat) {
+      setError('Forward target is unavailable.');
+      return;
+    }
+
+    const clientMessageId = createClientMessageId();
+    const optimisticMessage = createOptimisticOutgoingMessage({
+      currentUser: session.user,
+      chatId: targetChatId,
+      content: forwardingMessage.content,
+      clientMessageId,
+      recipientCount: Math.max(0, targetChat.members.length - 1),
+      localOrder: ++nextLocalOrderRef.current,
+      forwardedFrom: {
+        sender: forwardingMessage.sender,
+      },
+      forwardedFromMessageId: forwardingMessage.id,
+    });
+    const shouldOpenTargetChat = targetChatId !== chatId;
+
+    setForwardingTargetChatId(targetChatId);
+    setError(null);
+    clearMessageError(setMessageErrors, clientMessageId);
+    if (!shouldOpenTargetChat) {
+      setMessages(currentMessages =>
+        sortMessagesForDisplay([...currentMessages, optimisticMessage]),
+      );
+    }
+    setSendingCount(currentCount => currentCount + 1);
+    await onPersistPendingOutgoingMessage(
+      toPendingOutgoingMessage(optimisticMessage),
+    ).catch(() => undefined);
+
+    try {
+      const confirmedMessage = await sendPlainMessage({
+        chatId: targetChatId,
+        clientMessageId,
+        content: forwardingMessage.content,
+        forwardedFromMessageId: forwardingMessage.id,
+      });
+      await onDeletePendingOutgoingMessages([clientMessageId]).catch(
+        () => undefined,
+      );
+      if (!shouldOpenTargetChat) {
+        setMessages(currentMessages =>
+          applyReactionOverrides(
+            mergeConfirmedMessage(currentMessages, confirmedMessage),
+            reactionOverridesRef.current,
+          ),
+        );
+      }
+      setForwardingMessageId(null);
+      setForwardingTargetChatId(null);
+    } catch (sendError) {
+      const nextError = describeError(sendError);
+      setError(nextError);
+      setMessageErrors(currentErrors => ({
+        ...currentErrors,
+        [clientMessageId]: nextError,
+      }));
+      if (!shouldOpenTargetChat) {
+        setMessages(currentMessages => {
+          const nextMessages = markMessageSendFailed(
+            currentMessages,
+            clientMessageId,
+          );
+          const failedMessage = nextMessages.find(
+            currentMessage => currentMessage.clientMessageId === clientMessageId,
+          );
+          if (failedMessage) {
+            onPersistPendingOutgoingMessage(
+              toPendingOutgoingMessage(failedMessage),
+            ).catch(() => undefined);
+          }
+          return nextMessages;
+        });
+      }
+    } finally {
+      setSendingCount(currentCount => Math.max(0, currentCount - 1));
+      if (shouldOpenTargetChat) {
+        onOpenChat(targetChatId);
+      }
+    }
+  };
+
   const handleRetryMessage = async (message: ChatMessage) => {
     const clientMessageId = message.clientMessageId?.trim();
     if (!clientMessageId || message.sender.id !== session.user.id) {
@@ -747,6 +910,7 @@ export function ChatThreadScreen({
         clientMessageId,
         content: message.content,
         replyToMessageId: message.replyTo?.id ?? null,
+        forwardedFromMessageId: message.forwardedFromMessageId ?? null,
         attachments: message.attachments ?? [],
       });
       onDeletePendingOutgoingMessages([clientMessageId]).catch(() => undefined);
@@ -893,6 +1057,7 @@ export function ChatThreadScreen({
           messages.map(message => {
             const ownMessage = message.sender.id === session.user.id;
             const canReact = canReactToMessage(message);
+            const canForward = canForwardMessage(message);
             const clientMessageId = message.clientMessageId ?? '';
             const sendFailure =
               clientMessageId.trim().length > 0
@@ -900,6 +1065,11 @@ export function ChatThreadScreen({
                   (ownMessage && message.status?.state === 'FAILED'
                     ? 'Message was not delivered. Retry.'
                     : null)
+                : null;
+            const forwardedLabel = message.forwardedFrom
+              ? `Forwarded from ${message.forwardedFrom.sender.displayName}`
+              : message.forwarded
+                ? 'Forwarded'
                 : null;
 
             return (
@@ -916,6 +1086,9 @@ export function ChatThreadScreen({
                     </Text>
                     <Text style={styles.replySnippet}>{message.replyTo.preview}</Text>
                   </View>
+                ) : null}
+                {forwardedLabel ? (
+                  <Text style={styles.forwardedLabel}>{forwardedLabel}</Text>
                 ) : null}
                 <Text style={styles.messageBody}>
                   {message.content || 'Attachment-only message'}
@@ -969,7 +1142,8 @@ export function ChatThreadScreen({
                   </View>
                 ) : null}
                 {(canReplyToMessage(message) ||
-                  canEditMessage(message, session.user.id)) && (
+                  canEditMessage(message, session.user.id) ||
+                  canForward) && (
                   <View style={styles.messageActions}>
                     {canReplyToMessage(message) ? (
                       <Pressable
@@ -985,6 +1159,14 @@ export function ChatThreadScreen({
                         style={styles.messageActionButton}
                         testID={`edit-action-${message.id}`}>
                         <Text style={styles.messageActionLabel}>Edit</Text>
+                      </Pressable>
+                    ) : null}
+                    {canForward ? (
+                      <Pressable
+                        onPress={() => handleForwardMessage(message)}
+                        style={styles.messageActionButton}
+                        testID={`forward-action-${message.id}`}>
+                        <Text style={styles.messageActionLabel}>Forward</Text>
                       </Pressable>
                     ) : null}
                   </View>
@@ -1047,6 +1229,68 @@ export function ChatThreadScreen({
               testID="cancel-edit-button">
               <Text style={styles.composerContextCloseLabel}>Cancel</Text>
             </Pressable>
+          </View>
+        ) : null}
+        {forwardingMessage ? (
+          <View style={styles.forwardContext} testID="forward-context">
+            <View style={styles.composerContext}>
+              <View style={styles.composerContextCopy}>
+                <Text style={styles.composerContextLabel}>Forward</Text>
+                <Text style={styles.composerContextTitle}>
+                  {forwardingMessage.sender.displayName}
+                </Text>
+                <Text style={styles.composerContextPreview}>
+                  {buildMessageContentPreview(forwardingMessage)}
+                </Text>
+              </View>
+              <Pressable
+                onPress={handleCancelForward}
+                style={styles.composerContextClose}
+                testID="cancel-forward-button">
+                <Text style={styles.composerContextCloseLabel}>Cancel</Text>
+              </Pressable>
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.forwardTargetList}>
+              {forwardTargetChats.map(targetChat => {
+                const selected = forwardingTargetChatId === targetChat.id;
+                return (
+                  <Pressable
+                    key={targetChat.id}
+                    onPress={() => handleForwardToChat(targetChat.id)}
+                    disabled={sendingCount > 0}
+                    style={
+                      selected
+                        ? styles.forwardTargetButtonActive
+                        : sendingCount > 0
+                          ? styles.forwardTargetButtonDisabled
+                          : styles.forwardTargetButton
+                    }
+                    testID={`forward-target-${targetChat.id}`}>
+                    <Text
+                      style={
+                        selected
+                          ? styles.forwardTargetTitleActive
+                          : styles.forwardTargetTitle
+                      }>
+                      {targetChat.id === chatId ? 'This chat' : targetChat.title}
+                    </Text>
+                    <Text
+                      style={
+                        selected
+                          ? styles.forwardTargetMetaActive
+                          : styles.forwardTargetMeta
+                      }>
+                      {targetChat.direct
+                        ? 'Direct chat'
+                        : `${targetChat.members.length} members`}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
           </View>
         ) : null}
         <TextInput
@@ -1128,6 +1372,8 @@ function createOptimisticOutgoingMessage(options: {
   recipientCount: number;
   localOrder: number;
   replyTo?: MessageSnippet | null;
+  forwardedFrom?: ChatMessage['forwardedFrom'];
+  forwardedFromMessageId?: string | null;
 }) {
   const createdAt = new Date().toISOString();
   return {
@@ -1155,6 +1401,9 @@ function createOptimisticOutgoingMessage(options: {
     localOrder: options.localOrder,
     replyTo: options.replyTo ?? null,
     reactions: [],
+    forwarded: Boolean(options.forwardedFromMessageId),
+    forwardedFrom: options.forwardedFrom ?? null,
+    forwardedFromMessageId: options.forwardedFromMessageId ?? null,
     attachments: [],
   } satisfies ChatMessage;
 }
@@ -1380,6 +1629,7 @@ function toPendingOutgoingMessage(message: ChatMessage): PendingOutgoingMessage 
     localOrder: message.localOrder ?? null,
     recipientCount: message.status?.recipientCount ?? 0,
     replyTo: message.replyTo ?? null,
+    forwardedFromMessageId: message.forwardedFromMessageId ?? null,
     status: message.status?.state === 'FAILED' ? 'FAILED' : 'SENDING',
     updatedAt: new Date().toISOString(),
     attachments: message.attachments ?? [],
@@ -1411,6 +1661,10 @@ function canEditMessage(message: ChatMessage, currentUserId: string) {
 
 function canReactToMessage(message: ChatMessage) {
   return canReplyToMessage(message);
+}
+
+function canForwardMessage(message: ChatMessage) {
+  return canReplyToMessage(message) && message.content.trim().length > 0;
 }
 
 function getMessageReaction(
@@ -1678,6 +1932,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#5b4b3c',
   },
+  forwardedLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#8a5a2b',
+  },
   messageBody: {
     fontSize: 15,
     lineHeight: 22,
@@ -1832,6 +2091,55 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: '#5b4b3c',
+  },
+  forwardContext: {
+    gap: 10,
+  },
+  forwardTargetList: {
+    gap: 10,
+    paddingRight: 4,
+  },
+  forwardTargetButton: {
+    minWidth: 132,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: '#efe4d3',
+    gap: 4,
+  },
+  forwardTargetButtonActive: {
+    minWidth: 132,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: '#2c5c53',
+    gap: 4,
+  },
+  forwardTargetButtonDisabled: {
+    minWidth: 132,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: '#d3c8ba',
+    gap: 4,
+  },
+  forwardTargetTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1f1a14',
+  },
+  forwardTargetTitleActive: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fffaf1',
+  },
+  forwardTargetMeta: {
+    fontSize: 12,
+    color: '#6f6256',
+  },
+  forwardTargetMetaActive: {
+    fontSize: 12,
+    color: '#d6ebe6',
   },
   composerInput: {
     minHeight: 52,

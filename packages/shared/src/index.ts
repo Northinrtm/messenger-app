@@ -163,6 +163,7 @@ export type PendingOutgoingMessage = {
   localOrder: number | null;
   recipientCount: number;
   replyTo: MessageSnippet | null;
+  forwardedFromMessageId?: string | null;
   status: "SENDING" | "FAILED";
   updatedAt: string;
   attachments?: ChatMessageAttachment[];
@@ -264,6 +265,7 @@ export type ChatMessage = {
   reactions: MessageReaction[];
   forwarded?: boolean;
   forwardedFrom?: ForwardedMessageInfo | null;
+  forwardedFromMessageId?: string | null;
   attachments?: ChatMessageAttachment[];
 };
 

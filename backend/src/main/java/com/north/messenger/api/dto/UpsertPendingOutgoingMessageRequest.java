@@ -22,6 +22,7 @@ public record UpsertPendingOutgoingMessageRequest(
         @Max(10000)
         int recipientCount,
         MessageSnippetResponse replyTo,
+        UUID forwardedFromMessageId,
         @NotBlank
         String status,
         List<PendingOutgoingMessageAttachmentPayload> attachments

@@ -214,6 +214,7 @@ function App() {
             localOrder: message.localOrder,
             recipientCount: message.recipientCount,
             replyTo: message.replyTo ?? null,
+            forwardedFromMessageId: message.forwardedFromMessageId ?? null,
             status: message.status,
             attachments: message.attachments ?? [],
           }),
@@ -573,6 +574,7 @@ function App() {
           session={session.auth}
           chatId={activeChatId}
           initialChat={activeChat}
+          availableChats={workspace.chats}
           pendingOutgoingMessages={
             workspace.pendingOutgoingMessages.filter(
               message => message.chatId === activeChatId,
@@ -584,6 +586,7 @@ function App() {
           realtimeTyping={latestRealtimeTyping}
           runAuthorized={runAuthorized}
           onBack={handleBackToWorkspace}
+          onOpenChat={handleOpenChat}
           onChatSummaryChange={handleChatSummaryChange}
           onChatRead={handleChatRead}
           onPersistPendingOutgoingMessage={persistPendingOutgoingMessage}

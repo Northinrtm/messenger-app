@@ -17,6 +17,9 @@ export function hydrateApiChatMessage(message: ApiChatMessage): ChatMessage {
     clientMessageId: message.clientMessageId ?? null,
     replyTo: message.replyTo,
     reactions: message.reactions ?? [],
+    forwarded: message.forwarded ?? false,
+    forwardedFrom: message.forwardedFrom ?? null,
+    forwardedFromMessageId: null,
     attachments: normalizeChatMessageAttachments(message.attachments),
   };
 }

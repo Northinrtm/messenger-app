@@ -40,6 +40,9 @@ public class UserPendingOutgoingMessage {
     @Column(name = "reply_to_payload_json", columnDefinition = "text")
     private String replyToPayloadJson;
 
+    @Column(name = "forwarded_from_message_id")
+    private UUID forwardedFromMessageId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 24)
     private PendingOutgoingMessageStatus status;
@@ -63,6 +66,7 @@ public class UserPendingOutgoingMessage {
             Long localOrder,
             int recipientCount,
             String replyToPayloadJson,
+            UUID forwardedFromMessageId,
             PendingOutgoingMessageStatus status,
             String attachmentsPayloadJson,
             Instant updatedAt
@@ -76,6 +80,7 @@ public class UserPendingOutgoingMessage {
         this.localOrder = localOrder;
         this.recipientCount = recipientCount;
         this.replyToPayloadJson = replyToPayloadJson;
+        this.forwardedFromMessageId = forwardedFromMessageId;
         this.status = status;
         this.attachmentsPayloadJson = attachmentsPayloadJson;
         this.updatedAt = updatedAt;
@@ -117,6 +122,10 @@ public class UserPendingOutgoingMessage {
         return replyToPayloadJson;
     }
 
+    public UUID getForwardedFromMessageId() {
+        return forwardedFromMessageId;
+    }
+
     public PendingOutgoingMessageStatus getStatus() {
         return status;
     }
@@ -136,6 +145,7 @@ public class UserPendingOutgoingMessage {
             Long nextLocalOrder,
             int nextRecipientCount,
             String nextReplyToPayloadJson,
+            UUID nextForwardedFromMessageId,
             PendingOutgoingMessageStatus nextStatus,
             String nextAttachmentsPayloadJson,
             Instant nextUpdatedAt
@@ -146,6 +156,7 @@ public class UserPendingOutgoingMessage {
         this.localOrder = nextLocalOrder;
         this.recipientCount = nextRecipientCount;
         this.replyToPayloadJson = nextReplyToPayloadJson;
+        this.forwardedFromMessageId = nextForwardedFromMessageId;
         this.status = nextStatus;
         this.attachmentsPayloadJson = nextAttachmentsPayloadJson;
         this.updatedAt = nextUpdatedAt;

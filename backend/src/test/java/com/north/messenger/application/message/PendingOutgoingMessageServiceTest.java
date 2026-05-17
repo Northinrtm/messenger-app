@@ -77,6 +77,7 @@ class PendingOutgoingMessageServiceTest {
     @Test
     void upsertOwnPendingOutgoingMessageShouldLockCurrentUserBeforeLookup() {
         Instant createdAt = Instant.parse("2026-05-08T13:10:04Z");
+        UUID forwardedFromMessageId = UUID.randomUUID();
         when(userPendingOutgoingMessageRepository.findByUserIdAndClientMessageId(currentUser.getId(), "client-1"))
                 .thenReturn(Optional.empty());
 
@@ -90,6 +91,7 @@ class PendingOutgoingMessageServiceTest {
                         7L,
                         1,
                         null,
+                        forwardedFromMessageId,
                         "FAILED",
                         List.of(new PendingOutgoingMessageAttachmentPayload("att-1", "spec.pdf", "application/pdf", 42))
                 )
@@ -103,6 +105,7 @@ class PendingOutgoingMessageServiceTest {
         assertThat(response.chatId()).isEqualTo(chatId);
         assertThat(response.clientMessageId()).isEqualTo("client-1");
         assertThat(response.content()).isEqualTo("hello");
+        assertThat(response.forwardedFromMessageId()).isEqualTo(forwardedFromMessageId);
         assertThat(response.status()).isEqualTo("FAILED");
         assertThat(response.attachments())
                 .containsExactly(new PendingOutgoingMessageAttachmentPayload("att-1", "spec.pdf", "application/pdf", 42));
@@ -112,6 +115,7 @@ class PendingOutgoingMessageServiceTest {
     void upsertOwnPendingOutgoingMessageShouldUpdateExistingEntryForSameClientMessageId() {
         Instant originalCreatedAt = Instant.parse("2026-05-08T13:00:00Z");
         Instant updatedAt = Instant.parse("2026-05-08T13:10:04Z");
+        UUID forwardedFromMessageId = UUID.randomUUID();
         UserPendingOutgoingMessage existing = new UserPendingOutgoingMessage(
                 UUID.randomUUID(),
                 currentUser.getId(),
@@ -121,6 +125,7 @@ class PendingOutgoingMessageServiceTest {
                 originalCreatedAt,
                 2L,
                 1,
+                null,
                 null,
                 PendingOutgoingMessageStatus.SENDING,
                 "[]",
@@ -139,6 +144,7 @@ class PendingOutgoingMessageServiceTest {
                         8L,
                         3,
                         null,
+                        forwardedFromMessageId,
                         "FAILED",
                         List.of()
                 )
@@ -149,9 +155,11 @@ class PendingOutgoingMessageServiceTest {
         assertThat(existing.getCreatedAt()).isEqualTo(updatedAt);
         assertThat(existing.getLocalOrder()).isEqualTo(8L);
         assertThat(existing.getRecipientCount()).isEqualTo(3);
+        assertThat(existing.getForwardedFromMessageId()).isEqualTo(forwardedFromMessageId);
         assertThat(existing.getStatus()).isEqualTo(PendingOutgoingMessageStatus.FAILED);
         assertThat(response.clientMessageId()).isEqualTo("client-2");
         assertThat(response.content()).isEqualTo("after");
+        assertThat(response.forwardedFromMessageId()).isEqualTo(forwardedFromMessageId);
         assertThat(response.status()).isEqualTo("FAILED");
     }
 }

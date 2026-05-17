@@ -95,6 +95,7 @@ public class PendingOutgoingMessageService {
                             request.localOrder(),
                             request.recipientCount(),
                             replyToPayloadJson,
+                            request.forwardedFromMessageId(),
                             status,
                             attachmentsPayloadJson,
                             now
@@ -111,6 +112,7 @@ public class PendingOutgoingMessageService {
                         request.localOrder(),
                         request.recipientCount(),
                         replyToPayloadJson,
+                        request.forwardedFromMessageId(),
                         status,
                         attachmentsPayloadJson,
                         now
@@ -153,6 +155,7 @@ public class PendingOutgoingMessageService {
                 pendingMessage.getLocalOrder(),
                 pendingMessage.getRecipientCount(),
                 deserializeReplyTo(pendingMessage.getReplyToPayloadJson()),
+                pendingMessage.getForwardedFromMessageId(),
                 pendingMessage.getStatus().name(),
                 pendingMessage.getUpdatedAt(),
                 deserializeAttachments(pendingMessage.getAttachmentsPayloadJson())

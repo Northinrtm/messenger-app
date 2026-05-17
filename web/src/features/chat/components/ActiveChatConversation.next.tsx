@@ -1100,90 +1100,92 @@ const ConversationComposer = memo(function ConversationComposer({
             event.currentTarget.value = '';
           }}
         />
-        <button
-          type="button"
-          className="ghost-button compact composer-attachment-button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={attachmentsDisabled}
-          title={COMPOSER_COPY.attachFile}
-          aria-label={COMPOSER_COPY.attachFile}
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path
-              d="M7.4 12.7 14.9 5.2a3.4 3.4 0 0 1 4.8 4.8l-8.7 8.7a5 5 0 0 1-7.1-7.1l8.9-8.9"
-              fill="none"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2"
-            />
-            <path
-              d="m8.9 14.1 7.6-7.6"
-              fill="none"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeWidth="2"
-            />
-          </svg>
-        </button>
-        <button
-          type="button"
-          className={
-            voiceRecordingState === "idle"
-              ? "ghost-button compact composer-voice-button"
-              : "ghost-button compact composer-voice-button is-recording"
-          }
-          onClick={() => void startVoiceRecording()}
-          disabled={
-            composerUnavailable ||
-            Boolean(editingMessage) ||
-            isSubmittingComposer ||
-            voiceRecordingState === "stopping"
-          }
-          title={
-            voiceRecordingState === "idle"
-              ? COMPOSER_COPY.startVoiceRecording
-              : COMPOSER_COPY.stopVoiceRecording
-          }
-          aria-label={
-            voiceRecordingState === "idle"
-              ? COMPOSER_COPY.startVoiceRecording
-              : COMPOSER_COPY.stopVoiceRecording
-          }
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path
-              d="M12 4.5a2.8 2.8 0 0 1 2.8 2.8v5.2a2.8 2.8 0 1 1-5.6 0V7.3A2.8 2.8 0 0 1 12 4.5Z"
-              fill="none"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="1.8"
-            />
-            <path
-              d="M6.8 11.8a5.2 5.2 0 0 0 10.4 0"
-              fill="none"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="1.8"
-            />
-            <path
-              d="M12 17v3.2"
-              fill="none"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeWidth="1.8"
-            />
-            <path
-              d="M9.3 20.2h5.4"
-              fill="none"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeWidth="1.8"
-            />
-          </svg>
-        </button>
+        <div className="composer-action-stack">
+          <button
+            type="button"
+            className={
+              voiceRecordingState === "idle"
+                ? "ghost-button compact composer-voice-button"
+                : "ghost-button compact composer-voice-button is-recording"
+            }
+            onClick={() => void startVoiceRecording()}
+            disabled={
+              composerUnavailable ||
+              Boolean(editingMessage) ||
+              isSubmittingComposer ||
+              voiceRecordingState === "stopping"
+            }
+            title={
+              voiceRecordingState === "idle"
+                ? COMPOSER_COPY.startVoiceRecording
+                : COMPOSER_COPY.stopVoiceRecording
+            }
+            aria-label={
+              voiceRecordingState === "idle"
+                ? COMPOSER_COPY.startVoiceRecording
+                : COMPOSER_COPY.stopVoiceRecording
+            }
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path
+                d="M12 4.5a2.8 2.8 0 0 1 2.8 2.8v5.2a2.8 2.8 0 1 1-5.6 0V7.3A2.8 2.8 0 0 1 12 4.5Z"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.8"
+              />
+              <path
+                d="M6.8 11.8a5.2 5.2 0 0 0 10.4 0"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.8"
+              />
+              <path
+                d="M12 17v3.2"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeWidth="1.8"
+              />
+              <path
+                d="M9.3 20.2h5.4"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeWidth="1.8"
+              />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className="ghost-button compact composer-attachment-button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={attachmentsDisabled}
+            title={COMPOSER_COPY.attachFile}
+            aria-label={COMPOSER_COPY.attachFile}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path
+                d="M7.4 12.7 14.9 5.2a3.4 3.4 0 0 1 4.8 4.8l-8.7 8.7a5 5 0 0 1-7.1-7.1l8.9-8.9"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+              />
+              <path
+                d="m8.9 14.1 7.6-7.6"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeWidth="2"
+              />
+            </svg>
+          </button>
+        </div>
         <div className="composer-textarea-shell">
           <textarea
             ref={composerTextareaRef}
