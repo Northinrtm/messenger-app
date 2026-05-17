@@ -764,6 +764,13 @@ export function getChatOpen(
   });
 }
 
+export function clearChatReactionAttention(token: string, chatId: string) {
+  return request<void>(`/api/chats/${chatId}/reaction-attention`, {
+    method: "DELETE",
+    token,
+  });
+}
+
 export function getMessagesPage(
   token: string,
   chatId: string,
@@ -1138,6 +1145,14 @@ export function unbanGroupParticipant(token: string, chatId: string, username: s
 export function assignGroupModerator(token: string, chatId: string, username: string) {
   return request<void>(`/api/chats/${chatId}/moderators`, {
     method: "POST",
+    token,
+    body: { username },
+  });
+}
+
+export function transferGroupOwnership(token: string, chatId: string, username: string) {
+  return request<ChatSummary>(`/api/chats/${chatId}/owner`, {
+    method: "PUT",
     token,
     body: { username },
   });

@@ -58,6 +58,7 @@ public interface ChatAttachmentRepository extends JpaRepository<ChatAttachment, 
             where attachment.chatId = :chatId
               and attachment.messageId = message.id
               and (:applyVisibleFrom = false or message.createdAt >= :visibleFrom)
+              and (:applyVisibleTo = false or message.createdAt <= :visibleTo)
               and (:imagesOnly = false or lower(attachment.mimeType) like 'image/%')
               and (:documentsOnly = false or lower(attachment.mimeType) not like 'image/%')
               and not exists (
@@ -81,6 +82,8 @@ public interface ChatAttachmentRepository extends JpaRepository<ChatAttachment, 
             @Param("userId") UUID userId,
             @Param("applyVisibleFrom") boolean applyVisibleFrom,
             @Param("visibleFrom") Instant visibleFrom,
+            @Param("applyVisibleTo") boolean applyVisibleTo,
+            @Param("visibleTo") Instant visibleTo,
             @Param("imagesOnly") boolean imagesOnly,
             @Param("documentsOnly") boolean documentsOnly,
             @Param("applyCursor") boolean applyCursor,

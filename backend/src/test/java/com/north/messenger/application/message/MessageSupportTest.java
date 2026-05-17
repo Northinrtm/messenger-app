@@ -10,6 +10,8 @@ import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.repository.ChatAttachmentRepository;
 import com.north.messenger.domain.repository.ChatMessageRepository;
 import com.north.messenger.domain.repository.ChatParticipantRepository;
+import com.north.messenger.domain.repository.ChatRoomBanRepository;
+import com.north.messenger.domain.repository.ChatRoomRepository;
 import com.north.messenger.domain.repository.MessageReceiptRepository;
 import com.north.messenger.domain.repository.MessageReactionRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
@@ -35,6 +37,8 @@ class MessageSupportTest {
     private ChatAttachmentRepository chatAttachmentRepository;
     private ChatMessageRepository chatMessageRepository;
     private ChatParticipantRepository chatParticipantRepository;
+    private ChatRoomRepository chatRoomRepository;
+    private ChatRoomBanRepository chatRoomBanRepository;
     private UserAccountRepository userAccountRepository;
     private UserDeletedMessageRepository userDeletedMessageRepository;
     private MessageContentCryptoService messageContentCryptoService;
@@ -45,10 +49,13 @@ class MessageSupportTest {
         chatAttachmentRepository = mock(ChatAttachmentRepository.class);
         chatMessageRepository = mock(ChatMessageRepository.class);
         chatParticipantRepository = mock(ChatParticipantRepository.class);
+        chatRoomRepository = mock(ChatRoomRepository.class);
+        chatRoomBanRepository = mock(ChatRoomBanRepository.class);
         userAccountRepository = mock(UserAccountRepository.class);
         userDeletedMessageRepository = mock(UserDeletedMessageRepository.class);
         messageContentCryptoService = mock(MessageContentCryptoService.class);
         when(chatAttachmentRepository.findAllByMessageIdInOrderByCreatedAtAsc(any())).thenReturn(List.of());
+        when(chatRoomBanRepository.findByChatIdAndUserId(any(), any())).thenReturn(Optional.empty());
         when(messageContentCryptoService.requirePlainContent(any(ChatMessage.class))).thenAnswer(invocation -> {
             ChatMessage message = invocation.getArgument(0);
             return message.getContent();
@@ -58,6 +65,8 @@ class MessageSupportTest {
                 chatAttachmentRepository,
                 chatMessageRepository,
                 chatParticipantRepository,
+                chatRoomRepository,
+                chatRoomBanRepository,
                 mock(MessageReceiptRepository.class),
                 mock(MessageReactionRepository.class),
                 userAccountRepository,

@@ -73,6 +73,7 @@ type Props = {
   createChatPending: boolean;
   updateProfilePending: boolean;
   changePasswordPending: boolean;
+  changePasswordError: string | null;
   avatarPending: boolean;
   deleteAccountPending: boolean;
   emailVerificationPending: boolean;
@@ -178,6 +179,7 @@ export function SidebarManagementSheets({
   createChatPending,
   updateProfilePending,
   changePasswordPending,
+  changePasswordError,
   avatarPending,
   deleteAccountPending,
   emailVerificationPending,
@@ -275,6 +277,7 @@ export function SidebarManagementSheets({
         deleteAccountRequiresMatch={deleteAccountRequiresMatch}
         updateProfilePending={updateProfilePending}
         changePasswordPending={changePasswordPending}
+        changePasswordError={changePasswordError}
         avatarPending={avatarPending}
         deleteAccountPending={deleteAccountPending}
         emailVerificationPending={emailVerificationPending}

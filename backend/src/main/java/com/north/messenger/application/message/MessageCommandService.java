@@ -99,6 +99,10 @@ class MessageCommandService {
         List<UserAccount> participants = chatService.findParticipants(chatId);
         String clientMessageId = messageSupport.normalizeClientMessageId(request.clientMessageId());
         UUID replyToMessageId = messageSupport.validateReplyTarget(room, currentUser, request.replyToMessageId());
+        MessageSupport.ForwardedMessageContext forwardedContext = messageSupport.validateForwardTarget(
+                currentUser,
+                request.forwardedFromMessageId()
+        );
 
         MessageResponse existingResponse = messageSupport.findExistingMessageResponse(room, currentUser, clientMessageId);
         if (existingResponse != null) {
@@ -155,6 +159,8 @@ class MessageCommandService {
                     encryptedContent.algorithm(),
                     clientMessageId,
                     replyToMessageId,
+                    null,
+                    forwardedContext != null ? forwardedContext.originalSenderId() : null,
                     Instant.now()
             );
             ChatMessage persistedMessage = chatMessageRepository.saveAndFlush(message);
@@ -167,6 +173,10 @@ class MessageCommandService {
                     request.attachmentIds()
             );
             chatMessageLinkService.syncLinks(persistedMessage, plainContent);
+            if (forwardedContext != null) {
+                forwardedContext.sourceMessage().markForwarded(Instant.now());
+                chatMessageRepository.save(forwardedContext.sourceMessage());
+            }
 
             List<MessageReceipt> receipts = participants.stream()
                     .filter(participant -> !participant.getId().equals(currentUser.getId()))
@@ -394,10 +404,12 @@ class MessageCommandService {
             return;
         }
 
-        if (orderedMessages.stream().anyMatch(message -> !message.getSenderId().equals(currentUser.getId()))) {
+        boolean deletingForeignMessages = orderedMessages.stream()
+                .anyMatch(message -> !message.getSenderId().equals(currentUser.getId()));
+        if (deletingForeignMessages && (room.isDirect() || !chatService.hasGroupModeratorOrOwnerAccess(room, currentUser))) {
             throw new ResponseStatusException(
                     HttpStatus.FORBIDDEN,
-                    "Delete for everyone is only available for your own messages"
+                    "Delete for everyone is only available for your own messages unless you moderate the group"
             );
         }
 

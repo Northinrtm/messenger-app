@@ -12,6 +12,12 @@ backend/target/
 backend/.m2/
 web/node_modules/
 web/dist/
+android-app/node_modules/
+android-app/android/.gradle/
+android-app/android/app/build/
+android-app/android/build/
+android-app/ios/Pods/
+android-app/ios/build/
 .codex-jshell-prefs
 .codex-tmp/
 .codex-tmp-*.js

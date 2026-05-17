@@ -112,9 +112,9 @@ class VideoConferenceServiceTest {
         when(conferenceRecordingRepository.findAllByConferenceIdIn(anyCollection())).thenReturn(List.of());
         when(conferenceRecordingImportService.discoverAvailableRecordings()).thenReturn(List.of());
         when(chatParticipantRepository.findAllByUserIdOrderByJoinedAtAsc(any(UUID.class))).thenReturn(List.of());
-        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(any(UUID.class))).thenReturn(List.of());
+        when(chatParticipantRepository.findAllByChatIdAndLeftAtIsNullOrderByJoinedAtAsc(any(UUID.class))).thenReturn(List.of());
         when(chatParticipantRepository.findAllByChatIdInOrderByJoinedAtAsc(anyCollection())).thenReturn(List.of());
-        when(chatParticipantRepository.existsByChatIdAndUserId(any(UUID.class), any(UUID.class))).thenReturn(false);
+        when(chatParticipantRepository.existsByChatIdAndUserIdAndLeftAtIsNull(any(UUID.class), any(UUID.class))).thenReturn(false);
         when(clusterJobLockService.runIfLockAcquired(anyLong(), any(Runnable.class))).thenAnswer(invocation -> {
             Runnable task = invocation.getArgument(1);
             task.run();
@@ -200,7 +200,7 @@ class VideoConferenceServiceTest {
 
         when(authService.requireAuthenticatedUser("north")).thenReturn(organizer);
         when(chatService.requireChatMembership(chatId, organizer)).thenReturn(room);
-        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId)).thenReturn(chatMemberships);
+        when(chatParticipantRepository.findAllByChatIdAndLeftAtIsNullOrderByJoinedAtAsc(chatId)).thenReturn(chatMemberships);
         when(videoConferenceRepository.findAllByChatIdAndEndedAtIsNullOrderByScheduledAtAscCreatedAtAsc(chatId))
                 .thenReturn(List.of());
         when(videoConferenceParticipantRepository.save(any(VideoConferenceParticipant.class))).thenAnswer(invocation -> {
@@ -232,6 +232,64 @@ class VideoConferenceServiceTest {
                 .extracting(ParticipantResponse::username)
                 .containsExactly("north", "south");
         verify(videoConferenceParticipantRepository, times(2)).save(any(VideoConferenceParticipant.class));
+    }
+
+    @Test
+    void startGroupConferenceCallShouldTrimGeneratedConferenceTitleToDatabaseLimit() {
+        UserAccount organizer = testUserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UserAccount teammate = testUserAccount(
+                UUID.randomUUID(),
+                "south",
+                "South",
+                "password-hash",
+                Instant.parse("2026-03-20T12:10:00Z")
+        );
+        UUID chatId = UUID.randomUUID();
+        String longGroupTitle = "A".repeat(120);
+        ChatRoom room = new ChatRoom(chatId, longGroupTitle, false, Instant.parse("2026-03-25T11:30:00Z"));
+        List<ChatParticipant> chatMemberships = List.of(
+                new ChatParticipant(UUID.randomUUID(), chatId, organizer.getId(), Instant.parse("2026-03-25T11:30:00Z")),
+                new ChatParticipant(UUID.randomUUID(), chatId, teammate.getId(), Instant.parse("2026-03-25T11:31:00Z"))
+        );
+        List<VideoConferenceParticipant> savedMemberships = new ArrayList<>();
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(organizer);
+        when(chatService.requireChatMembership(chatId, organizer)).thenReturn(room);
+        when(chatParticipantRepository.findAllByChatIdAndLeftAtIsNullOrderByJoinedAtAsc(chatId)).thenReturn(chatMemberships);
+        when(videoConferenceRepository.findAllByChatIdAndEndedAtIsNullOrderByScheduledAtAscCreatedAtAsc(chatId))
+                .thenReturn(List.of());
+        when(videoConferenceParticipantRepository.save(any(VideoConferenceParticipant.class))).thenAnswer(invocation -> {
+            VideoConferenceParticipant membership = invocation.getArgument(0);
+            savedMemberships.add(membership);
+            return membership;
+        });
+        when(videoConferenceParticipantRepository.findAllByConferenceIdOrderByInvitedAtAsc(any(UUID.class)))
+                .thenAnswer(invocation -> List.copyOf(savedMemberships));
+        when(userAccountRepository.findAllByIdIn(anyCollection())).thenReturn(List.of(organizer, teammate));
+        when(authService.resolveOnlineByUserIds(anyCollection())).thenReturn(Map.of(
+                organizer.getId(), true,
+                teammate.getId(), true
+        ));
+        when(authService.toParticipant(organizer, true)).thenReturn(new ParticipantResponse(
+                organizer.getId(), organizer.getUsername(), organizer.getDisplayName(), organizer.getAvatarUrl(), true
+        ));
+        when(authService.toParticipant(teammate, true)).thenReturn(new ParticipantResponse(
+                teammate.getId(), teammate.getUsername(), teammate.getDisplayName(), teammate.getAvatarUrl(), true
+        ));
+
+        videoConferenceService.startGroupConferenceCall("north", chatId);
+
+        ArgumentCaptor<VideoConference> savedConference = ArgumentCaptor.forClass(VideoConference.class);
+        verify(videoConferenceRepository).save(savedConference.capture());
+        assertThat(savedConference.getValue().getTitle())
+                .startsWith("Созвон ")
+                .hasSize(120);
     }
 
     @Test
@@ -1069,7 +1127,7 @@ class VideoConferenceServiceTest {
         when(authService.requireAuthenticatedUser("guest")).thenReturn(member);
         when(videoConferenceRepository.findById(conference.getId())).thenReturn(Optional.of(conference));
         when(chatService.requireChatMembership(chatId, member)).thenReturn(room);
-        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId)).thenReturn(chatMemberships);
+        when(chatParticipantRepository.findAllByChatIdAndLeftAtIsNullOrderByJoinedAtAsc(chatId)).thenReturn(chatMemberships);
         when(userAccountRepository.findAllByIdIn(anyCollection())).thenReturn(List.of(organizer, member));
         when(authService.resolveOnlineByUserIds(anyCollection())).thenReturn(Map.of(
                 organizer.getId(), true,

@@ -152,4 +152,22 @@ describe("ChatListPanel", () => {
       "\u041d\u0430 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0435\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435 \u0435\u0441\u0442\u044c \u0440\u0435\u0430\u043a\u0446\u0438\u0438"
     );
   });
+
+  it("shows a stronger reaction indicator when reaction attention is pending on an older message", async () => {
+    await renderPanel(
+      root!,
+      {
+        ...directChat(),
+        reactionAttention: true,
+        lastMessageHasReactions: false,
+      },
+      new Set()
+    );
+
+    const reactionIndicator = container.querySelector(".chat-preview-reaction");
+    expect(reactionIndicator?.textContent).toBe("\u263A");
+    expect(reactionIndicator?.getAttribute("aria-label")).toBe(
+      "\u0415\u0441\u0442\u044c \u043d\u043e\u0432\u0430\u044f \u0440\u0435\u0430\u043a\u0446\u0438\u044f \u043d\u0430 \u0432\u0430\u0448\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435"
+    );
+  });
 });

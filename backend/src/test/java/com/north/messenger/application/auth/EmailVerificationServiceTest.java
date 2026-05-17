@@ -23,6 +23,7 @@ import static com.north.messenger.support.TestUserAccounts.testUserAccount;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -33,6 +34,7 @@ class EmailVerificationServiceTest {
     private UserAccountRepository userAccountRepository;
     private EmailVerificationTokenRepository emailVerificationTokenRepository;
     private ApplicationEventPublisher eventPublisher;
+    private EmailVerificationEmailSender emailVerificationEmailSender;
     private EmailVerificationService emailVerificationService;
 
     @BeforeEach
@@ -40,6 +42,7 @@ class EmailVerificationServiceTest {
         userAccountRepository = mock(UserAccountRepository.class);
         emailVerificationTokenRepository = mock(EmailVerificationTokenRepository.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
+        emailVerificationEmailSender = mock(EmailVerificationEmailSender.class);
         emailVerificationService = new EmailVerificationService(
                 userAccountRepository,
                 emailVerificationTokenRepository,
@@ -49,7 +52,8 @@ class EmailVerificationServiceTest {
                         "https://app.example/",
                         "no-reply@example.com"
                 ),
-                eventPublisher
+                eventPublisher,
+                emailVerificationEmailSender
         );
 
         when(userAccountRepository.save(any(UserAccount.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -80,7 +84,8 @@ class EmailVerificationServiceTest {
                         "",
                         ""
                 ),
-                eventPublisher
+                eventPublisher,
+                emailVerificationEmailSender
         );
 
         disabledEmailVerificationService.issueVerificationForRegisteredUser(user);
@@ -168,6 +173,7 @@ class EmailVerificationServiceTest {
 
         verify(emailVerificationTokenRepository, never()).save(any(EmailVerificationToken.class));
         verify(eventPublisher, never()).publishEvent(any());
+        verify(emailVerificationEmailSender, never()).sendVerificationEmail(any(), any());
 
         UserAccount verifiedUser = verifiedUser("north", "north@example.com");
         when(userAccountRepository.findByEmailIgnoreCase("north@example.com")).thenReturn(Optional.of(verifiedUser));
@@ -175,6 +181,7 @@ class EmailVerificationServiceTest {
         emailVerificationService.resendVerificationEmail("north@example.com");
 
         verify(emailVerificationTokenRepository, never()).save(any(EmailVerificationToken.class));
+        verify(emailVerificationEmailSender, never()).sendVerificationEmail(any(), any());
     }
 
     @Test
@@ -188,7 +195,8 @@ class EmailVerificationServiceTest {
 
         assertThat(previousToken.getUsedAt()).isNotNull();
         verify(emailVerificationTokenRepository).save(any(EmailVerificationToken.class));
-        verify(eventPublisher).publishEvent(any(EmailVerificationRequestedEvent.class));
+        verify(emailVerificationEmailSender).sendVerificationEmail(eq("north@example.com"), any());
+        verify(eventPublisher, never()).publishEvent(any(EmailVerificationRequestedEvent.class));
     }
 
     @Test
@@ -202,7 +210,8 @@ class EmailVerificationServiceTest {
 
         assertThat(previousToken.getUsedAt()).isNotNull();
         verify(emailVerificationTokenRepository).save(any(EmailVerificationToken.class));
-        verify(eventPublisher).publishEvent(any(EmailVerificationRequestedEvent.class));
+        verify(emailVerificationEmailSender).sendVerificationEmail(eq("north@example.com"), any());
+        verify(eventPublisher, never()).publishEvent(any(EmailVerificationRequestedEvent.class));
     }
 
     private UserAccount verifiedUser(String username, String email) {

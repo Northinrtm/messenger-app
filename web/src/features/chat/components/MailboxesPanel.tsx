@@ -1,5 +1,8 @@
 import type { UserMailbox } from "../../../lib/types";
 
+const MAILBOX_EMAIL_PATTERN =
+  /^[a-z0-9._%+-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i;
+
 type Props = {
   addMailboxPending: boolean;
   mailboxError: string | null;
@@ -23,12 +26,21 @@ export function MailboxesPanel({
   onMailboxInputChange,
   onRemoveMailbox,
 }: Props) {
+  const normalizedMailboxInput = mailboxInput.trim();
+  const mailboxFormatError =
+    normalizedMailboxInput.length > 0 && !MAILBOX_EMAIL_PATTERN.test(normalizedMailboxInput)
+      ? "Email должен быть в корректном формате."
+      : null;
+
   return (
     <section className="mailbox-panel">
       <form
         className="mailbox-form"
         onSubmit={(event) => {
           event.preventDefault();
+          if (mailboxFormatError) {
+            return;
+          }
           onAddMailbox();
         }}
       >
@@ -50,13 +62,18 @@ export function MailboxesPanel({
           <button
             type="submit"
             className="secondary-button"
-            disabled={addMailboxPending || mailboxInput.trim().length === 0}
+            disabled={
+              addMailboxPending ||
+              normalizedMailboxInput.length === 0 ||
+              mailboxFormatError !== null
+            }
           >
             {addMailboxPending ? "Добавляем..." : "Добавить"}
           </button>
         </div>
       </form>
 
+      {mailboxFormatError ? <div className="form-error">{mailboxFormatError}</div> : null}
       {mailboxError ? <div className="form-error">{mailboxError}</div> : null}
 
       <div className="mailbox-summary">

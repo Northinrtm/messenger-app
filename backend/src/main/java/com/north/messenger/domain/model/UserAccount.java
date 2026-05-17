@@ -12,6 +12,8 @@ import java.util.UUID;
 @Table(name = "app_users")
 public class UserAccount {
 
+    public static final String DELETED_USERNAME_PREFIX = "deleted:";
+
     @Id
     private UUID id;
 
@@ -195,6 +197,26 @@ public class UserAccount {
 
     public void markEmailVerified(Instant emailVerifiedAt) {
         this.emailVerifiedAt = emailVerifiedAt;
+    }
+
+    public void markDeleted(
+            String username,
+            String email,
+            String displayName,
+            String passwordHash
+    ) {
+        this.username = username;
+        this.email = normalizeRequiredEmail(email);
+        this.displayName = displayName;
+        this.profession = null;
+        this.avatarUrl = null;
+        this.passwordHash = passwordHash;
+        this.mailEnabled = false;
+        this.emailVerifiedAt = null;
+    }
+
+    public boolean isDeletedAccount() {
+        return username != null && username.startsWith(DELETED_USERNAME_PREFIX);
     }
 
     private static String normalizeRequiredEmail(String email) {

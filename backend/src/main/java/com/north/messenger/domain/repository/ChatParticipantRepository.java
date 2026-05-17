@@ -16,11 +16,17 @@ public interface ChatParticipantRepository extends JpaRepository<ChatParticipant
 
     List<ChatParticipant> findAllByChatIdOrderByJoinedAtAsc(UUID chatId);
 
+    List<ChatParticipant> findAllByChatIdAndLeftAtIsNullOrderByJoinedAtAsc(UUID chatId);
+
     List<ChatParticipant> findAllByChatIdInOrderByJoinedAtAsc(Collection<UUID> chatIds);
 
     Optional<ChatParticipant> findByChatIdAndUserId(UUID chatId, UUID userId);
 
+    Optional<ChatParticipant> findByChatIdAndUserIdAndLeftAtIsNull(UUID chatId, UUID userId);
+
     boolean existsByChatIdAndUserId(UUID chatId, UUID userId);
+
+    boolean existsByChatIdAndUserIdAndLeftAtIsNull(UUID chatId, UUID userId);
 
     @Query("""
             select (count(sharedMembership) > 0)

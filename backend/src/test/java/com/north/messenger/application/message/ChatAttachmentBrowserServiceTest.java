@@ -8,6 +8,7 @@ import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.repository.ChatAttachmentRepository;
 import com.north.messenger.domain.repository.ChatParticipantRepository;
+import com.north.messenger.domain.repository.ChatRoomBanRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import java.time.Instant;
 import java.util.List;
@@ -35,6 +36,7 @@ class ChatAttachmentBrowserServiceTest {
     private ChatService chatService;
     private ChatParticipantRepository chatParticipantRepository;
     private ChatAttachmentRepository chatAttachmentRepository;
+    private ChatRoomBanRepository chatRoomBanRepository;
     private UserAccountRepository userAccountRepository;
     private ChatAttachmentBrowserService chatAttachmentBrowserService;
 
@@ -44,14 +46,17 @@ class ChatAttachmentBrowserServiceTest {
         chatService = mock(ChatService.class);
         chatParticipantRepository = mock(ChatParticipantRepository.class);
         chatAttachmentRepository = mock(ChatAttachmentRepository.class);
+        chatRoomBanRepository = mock(ChatRoomBanRepository.class);
         userAccountRepository = mock(UserAccountRepository.class);
         chatAttachmentBrowserService = new ChatAttachmentBrowserService(
                 authService,
                 chatService,
                 chatParticipantRepository,
                 chatAttachmentRepository,
+                chatRoomBanRepository,
                 userAccountRepository
         );
+        when(chatRoomBanRepository.findByChatIdAndUserId(any(), any())).thenReturn(Optional.empty());
     }
 
     @Test
@@ -110,6 +115,8 @@ class ChatAttachmentBrowserServiceTest {
                 eq(currentUser.getId()),
                 eq(true),
                 eq(membership.getJoinedAt()),
+                eq(false),
+                any(Instant.class),
                 eq(true),
                 eq(false),
                 eq(false),
@@ -142,6 +149,8 @@ class ChatAttachmentBrowserServiceTest {
                 eq(currentUser.getId()),
                 eq(true),
                 eq(membership.getJoinedAt()),
+                eq(false),
+                any(Instant.class),
                 eq(true),
                 eq(false),
                 eq(false),
@@ -186,6 +195,8 @@ class ChatAttachmentBrowserServiceTest {
                 eq(true),
                 eq(joinedAt),
                 eq(false),
+                any(Instant.class),
+                eq(false),
                 eq(false),
                 eq(false),
                 any(Long.class),
@@ -203,6 +214,8 @@ class ChatAttachmentBrowserServiceTest {
                 eq(currentUser.getId()),
                 eq(true),
                 eq(joinedAt),
+                eq(false),
+                any(Instant.class),
                 eq(false),
                 eq(false),
                 eq(false),
@@ -242,6 +255,8 @@ class ChatAttachmentBrowserServiceTest {
                 eq(true),
                 eq(reopenedAt),
                 eq(false),
+                any(Instant.class),
+                eq(false),
                 eq(false),
                 eq(false),
                 any(Long.class),
@@ -259,6 +274,8 @@ class ChatAttachmentBrowserServiceTest {
                 eq(currentUser.getId()),
                 eq(true),
                 eq(reopenedAt),
+                eq(false),
+                any(Instant.class),
                 eq(false),
                 eq(false),
                 eq(false),

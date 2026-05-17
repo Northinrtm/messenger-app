@@ -22,6 +22,7 @@ import {
   revokeSession,
   resendOwnEmailVerification,
   startGroupConferenceCall as startGroupConferenceCallRequest,
+  transferGroupOwnership as transferGroupOwnershipRequest,
   unbanGroupParticipant as unbanGroupParticipantRequest,
   unblockUser as unblockUserRequest,
   updateArchivedChat,
@@ -316,6 +317,15 @@ export function useWorkspaceMutations({
     },
   });
 
+  const transferGroupOwnershipMutation = useMutation({
+    mutationFn: (participant: Participant) =>
+      transferGroupOwnershipRequest(token, activeChat!.id, participant.username),
+    onSuccess: (chat) => {
+      queryClient.setQueryData<ChatSummary[]>(["chats", token], (current) => upsertChat(current, chat));
+      void queryClient.invalidateQueries({ queryKey: ["chats", token] });
+    },
+  });
+
   const updateGroupMutation = useMutation({
     mutationFn: (input: {
       chatId: string;
@@ -479,8 +489,8 @@ export function useWorkspaceMutations({
 
   const leaveGroupMutation = useMutation({
     mutationFn: (chatId: string) => leaveGroupRequest(token, chatId),
-    onSuccess: (_result, chatId) => {
-      removeChatLocally(chatId);
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["chats", token] });
       setSidebarSheet(null);
     },
   });
@@ -737,5 +747,6 @@ export function useWorkspaceMutations({
     updateGroupHistoryPolicyMutation,
     updateProfileMutation,
     unblockUserMutation,
+    transferGroupOwnershipMutation,
   };
 }

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { ApiError } from "../../../lib/api";
 import type { ChatSummary } from "../../../lib/types";
@@ -8,6 +8,7 @@ type UseWorkspaceStatusOptions = {
   activeListTab: ConversationListTab;
   contactSearch: string;
   draftActivityByChatId: Record<string, string>;
+  errorContextKey: string;
   errors: unknown[];
   normalizedSearch: string;
   onUnauthorized: () => void;
@@ -86,12 +87,14 @@ export function useWorkspaceStatus({
   activeListTab,
   contactSearch,
   draftActivityByChatId,
+  errorContextKey,
   errors,
   normalizedSearch,
   onUnauthorized,
   visibleChats,
 }: UseWorkspaceStatusOptions) {
   const requestError = errors.find(Boolean) ?? null;
+  const [visibleRequestError, setVisibleRequestError] = useState<unknown>(null);
 
   useEffect(() => {
     if (requestError instanceof ApiError && requestError.status === 401) {
@@ -99,9 +102,29 @@ export function useWorkspaceStatus({
     }
   }, [onUnauthorized, requestError]);
 
+  useEffect(() => {
+    setVisibleRequestError(null);
+  }, [errorContextKey]);
+
+  useEffect(() => {
+    if (!requestError) {
+      setVisibleRequestError(null);
+      return;
+    }
+
+    setVisibleRequestError(requestError);
+    const timeoutId = window.setTimeout(() => {
+      setVisibleRequestError((current: unknown) => (current === requestError ? null : current));
+    }, 4500);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [requestError]);
+
   const errorText =
-    requestError instanceof ApiError
-      ? [requestError.message, ...requestError.details].filter(Boolean).join(". ")
+    visibleRequestError instanceof ApiError
+      ? [visibleRequestError.message, ...visibleRequestError.details].filter(Boolean).join(". ")
       : null;
 
   const showContactSearchResults = contactSearch.trim().length > 0;

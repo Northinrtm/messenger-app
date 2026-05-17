@@ -74,6 +74,7 @@ describe("ProfileSettingsCard email verification section", () => {
           deleteAccountRequiresMatch={false}
           updateProfilePending={false}
           changePasswordPending={false}
+          changePasswordError={null}
           avatarPending={false}
           deleteAccountPending={false}
           emailVerificationPending={false}
@@ -127,6 +128,7 @@ describe("ProfileSettingsCard email verification section", () => {
           deleteAccountRequiresMatch={false}
           updateProfilePending={false}
           changePasswordPending={false}
+          changePasswordError={null}
           avatarPending={false}
           deleteAccountPending={false}
           emailVerificationPending={false}
@@ -166,6 +168,7 @@ describe("ProfileSettingsCard email verification section", () => {
           deleteAccountRequiresMatch={false}
           updateProfilePending={false}
           changePasswordPending={false}
+          changePasswordError={null}
           avatarPending={false}
           deleteAccountPending={false}
           emailVerificationPending={false}
@@ -190,5 +193,90 @@ describe("ProfileSettingsCard email verification section", () => {
 
     expect(container.textContent).toContain("5/40");
     expect(container.textContent).toContain("7/160");
+  });
+
+  it("shows an inline name validation message when the edited name is too short", async () => {
+    await act(async () => {
+      root!.render(
+        <ProfileSettingsCard
+          profile={profile()}
+          profileDisplayName="N"
+          profileProfession=""
+          passwordChangeCurrent=""
+          passwordChangeNext=""
+          passwordChangeConfirm=""
+          deleteAccountConfirmation=""
+          deleteAccountRequiresMatch={false}
+          updateProfilePending={false}
+          changePasswordPending={false}
+          changePasswordError={null}
+          avatarPending={false}
+          deleteAccountPending={false}
+          emailVerificationPending={false}
+          emailVerificationInfo={null}
+          emailVerificationError={null}
+          {...defaultPushNotificationProps}
+          onClose={() => {}}
+          onProfileDisplayNameChange={() => {}}
+          onProfileProfessionChange={() => {}}
+          onSubmitProfileDisplayName={() => {}}
+          onPasswordChangeCurrentChange={() => {}}
+          onPasswordChangeNextChange={() => {}}
+          onPasswordChangeConfirmChange={() => {}}
+          onSubmitPasswordChange={() => {}}
+          onDeleteAccountConfirmationChange={() => {}}
+          onDeleteAccount={() => {}}
+          onAvatarSelected={() => {}}
+          onResendEmailVerification={() => {}}
+        />
+      );
+    });
+
+    expect(container.textContent).toContain("Имя должно содержать от 2 до 40 символов.");
+  });
+
+  it("keeps the push enable action visible even when browser permission was denied", async () => {
+    await act(async () => {
+      root!.render(
+        <ProfileSettingsCard
+          profile={profile()}
+          profileDisplayName="North"
+          profileProfession=""
+          passwordChangeCurrent=""
+          passwordChangeNext=""
+          passwordChangeConfirm=""
+          deleteAccountConfirmation=""
+          deleteAccountRequiresMatch={false}
+          updateProfilePending={false}
+          changePasswordPending={false}
+          changePasswordError={null}
+          avatarPending={false}
+          deleteAccountPending={false}
+          emailVerificationPending={false}
+          emailVerificationInfo={null}
+          emailVerificationError={null}
+          {...defaultPushNotificationProps}
+          pushNotificationsPermission="denied"
+          onClose={() => {}}
+          onProfileDisplayNameChange={() => {}}
+          onProfileProfessionChange={() => {}}
+          onSubmitProfileDisplayName={() => {}}
+          onPasswordChangeCurrentChange={() => {}}
+          onPasswordChangeNextChange={() => {}}
+          onPasswordChangeConfirmChange={() => {}}
+          onSubmitPasswordChange={() => {}}
+          onDeleteAccountConfirmationChange={() => {}}
+          onDeleteAccount={() => {}}
+          onAvatarSelected={() => {}}
+          onResendEmailVerification={() => {}}
+        />
+      );
+    });
+
+    expect(
+      Array.from(container.querySelectorAll("button")).some((button) =>
+        button.textContent?.includes("Включить")
+      )
+    ).toBe(true);
   });
 });

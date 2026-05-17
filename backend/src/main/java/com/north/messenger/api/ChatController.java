@@ -80,6 +80,12 @@ public class ChatController {
         return chatOpenService.openChat(authentication.getName(), chatId, limit, acknowledgeDelivered);
     }
 
+    @DeleteMapping("/{chatId}/reaction-attention")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void clearReactionAttention(Authentication authentication, @PathVariable UUID chatId) {
+        chatService.clearReactionAttention(authentication.getName(), chatId);
+    }
+
     @PostMapping("/direct")
     public ChatSummaryResponse createDirectChat(
             Authentication authentication,
@@ -171,6 +177,15 @@ public class ChatController {
             @Valid @RequestBody GroupParticipantActionRequest request
     ) {
         chatService.assignGroupModerator(authentication.getName(), chatId, request.username());
+    }
+
+    @PutMapping("/{chatId}/owner")
+    public ChatSummaryResponse transferGroupOwnership(
+            Authentication authentication,
+            @PathVariable UUID chatId,
+            @Valid @RequestBody GroupParticipantActionRequest request
+    ) {
+        return chatService.transferGroupOwnership(authentication.getName(), chatId, request.username());
     }
 
     @DeleteMapping("/{chatId}/moderators/{username}")

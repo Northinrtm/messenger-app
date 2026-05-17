@@ -407,6 +407,7 @@ export function NorthMessengerWorkspace({
     activeChatId,
     browserNotificationsEnabled: pushNotificationState.subscribed,
     currentUserId: session.user.id,
+    currentUsername: session.user.username,
     formatPreview: (message) => formatToastPreview(buildChatListPreviewText(message)),
     queryClient,
     token: session.token,
@@ -1005,7 +1006,14 @@ export function NorthMessengerWorkspace({
     : "";
   const showTypingIndicator = activeTypingParticipants.length > 0;
   const timelineItems = useMemo(() => buildTimeline(messages), [messages]);
-  const activeChatHistoryAccessNotice = null;
+  const activeChatHistoryAccessNotice =
+    activeChat && !activeChat.direct && !activeChat.members.some((member) => member.id === session.user.id)
+      ? {
+          title: "Группа доступна только для чтения",
+          description:
+            "Вы больше не участвуете в этой группе. История сохранена, но новые сообщения, файлы и реакции недоступны.",
+        }
+      : null;
   const readableIncomingMessageIdsKey = useMemo(
     () => buildReadableIncomingMessageIdsKey(messages, session.user.id),
     [messages, session.user.id]
@@ -1050,7 +1058,9 @@ export function NorthMessengerWorkspace({
       selectedMessages.every(
         (message) =>
           message.id !== message.clientMessageId &&
-          (activeChat?.direct || isOwnMessage(message, session.user))
+          (activeChat?.direct ||
+            isOwnMessage(message, session.user) ||
+            Boolean(activeChat?.capabilities.canModerateMembers))
       )
   );
 
@@ -1126,13 +1136,14 @@ export function NorthMessengerWorkspace({
     contextMenuMessage &&
       activeChat &&
       (activeChat.direct ||
-        (isOwnMessage(contextMenuMessage, session.user) &&
-          contextMenuMessage.id !== contextMenuMessage.clientMessageId))
+        contextMenuMessage.id !== contextMenuMessage.clientMessageId)
   );
   const canDeleteContextMenuMessageForEveryone = Boolean(
     contextMenuMessage &&
       contextMenuMessage.id !== contextMenuMessage.clientMessageId &&
-      (activeChat?.direct || isOwnMessage(contextMenuMessage, session.user))
+      (activeChat?.direct ||
+        isOwnMessage(contextMenuMessage, session.user) ||
+        Boolean(activeChat?.capabilities.canModerateMembers))
   );
   const canReactContextMenuMessage = Boolean(
     contextMenuMessage && contextMenuMessage.id !== contextMenuMessage.clientMessageId
@@ -1605,6 +1616,7 @@ export function NorthMessengerWorkspace({
     resendOwnEmailVerificationMutation,
     signOutMutation,
     startGroupConferenceCallMutation,
+    transferGroupOwnershipMutation,
     submitAddConferenceParticipants,
     submitAddGroupParticipants,
     submitCreateConference,
@@ -1682,6 +1694,21 @@ export function NorthMessengerWorkspace({
     : null;
   const mailboxMutationError = addMailboxMutation.error ?? removeMailboxMutation.error;
   const mailboxError = mailboxMutationError ? describeError(mailboxMutationError) : null;
+  const resolvedEmailVerificationInfo =
+    resendOwnEmailVerificationMutation.isSuccess && !resendOwnEmailVerificationMutation.error
+      ? profile.email
+        ? `Письмо для подтверждения отправлено на ${profile.email}.`
+        : "Письмо для подтверждения отправлено."
+      : null;
+  const resolvedActiveChatHistoryAccessNotice = activeChatHistoryAccessNotice
+    ? {
+        ...activeChatHistoryAccessNotice,
+        isPending: leaveGroupMutation.isPending,
+      }
+    : null;
+  const changePasswordError = changePasswordMutation.error
+    ? describeError(changePasswordMutation.error)
+    : null;
 
   useEffect(() => {
     if (sidebarSheet === "profile") {
@@ -1922,6 +1949,22 @@ export function NorthMessengerWorkspace({
     revokeGroupModeratorMutation.mutate(participant);
   });
 
+  const handleTransferGroupOwnershipAction = useEffectEvent((participant: Participant) => {
+    if (!activeChat || activeChat.direct || !activeChatCanManageRoles || participant.id === session.user.id) {
+      return;
+    }
+
+    if (
+      !window.confirm(
+        `Передать права владельца группы ${participant.displayName}? После передачи вы останетесь модератором.`
+      )
+    ) {
+      return;
+    }
+
+    transferGroupOwnershipMutation.mutate(participant);
+  });
+
   const handleToggleDirectBlock = useEffectEvent(() => {
     if (!activeDirectParticipant) {
       return;
@@ -2154,6 +2197,12 @@ export function NorthMessengerWorkspace({
     activeListTab,
     contactSearch,
     draftActivityByChatId,
+    errorContextKey: [
+      activeListTab,
+      activeChat?.id ?? "-",
+      activeConference?.id ?? "-",
+      sidebarSheet ?? "-",
+    ].join("|"),
     errors: [
       acceptInviteMutation.error,
       createChatMutation.error,
@@ -2447,10 +2496,11 @@ export function NorthMessengerWorkspace({
     createChatPending: createChatMutation.isPending,
     updateProfilePending: updateProfileMutation.isPending,
     changePasswordPending: changePasswordMutation.isPending,
+    changePasswordError,
     avatarPending: avatarMutation.isPending,
     deleteAccountPending: deleteAccountMutation.isPending,
     emailVerificationPending: resendOwnEmailVerificationMutation.isPending,
-    emailVerificationInfo,
+    emailVerificationInfo: resolvedEmailVerificationInfo,
     emailVerificationError,
     pushNotificationsSupported: pushNotificationState.supported,
     pushNotificationsServerEnabled: pushNotificationState.serverEnabled,
@@ -2585,7 +2635,7 @@ export function NorthMessengerWorkspace({
           activeDraft,
           isChatMenuOpen,
           isDirectChatBlocked: activeDirectBlockedByMe,
-          historyAccessNotice: activeChatHistoryAccessNotice,
+          historyAccessNotice: resolvedActiveChatHistoryAccessNotice,
           chatMenuButtonRef,
           messageStreamRef,
           composerTextareaRef,
@@ -2734,6 +2784,7 @@ export function NorthMessengerWorkspace({
           removeGroupParticipantPending: removeGroupParticipantMutation.isPending,
           assignModeratorPending: assignGroupModeratorMutation.isPending,
           revokeModeratorPending: revokeGroupModeratorMutation.isPending,
+          transferOwnershipPending: transferGroupOwnershipMutation.isPending,
           unbanGroupParticipantPending: unbanGroupParticipantMutation.isPending,
           canAddMembers: activeChatCanAddMembers,
           canManageRoles: activeChatCanManageRoles,
@@ -2752,6 +2803,7 @@ export function NorthMessengerWorkspace({
           onRemoveParticipant: handleRemoveParticipantAction,
           onAssignModerator: handleAssignModeratorAction,
           onRevokeModerator: handleRevokeModeratorAction,
+          onTransferOwnership: handleTransferGroupOwnershipAction,
         }
       : null;
   const messageContextMenuProps: ComponentProps<typeof MessageContextMenu> | null = contextMenu

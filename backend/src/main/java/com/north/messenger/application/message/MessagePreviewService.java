@@ -10,6 +10,8 @@ import org.springframework.stereotype.Service;
 public class MessagePreviewService {
 
     private static final String MESSAGE_PLACEHOLDER = "Message unavailable";
+    private static final String FORWARDED_PREFIX = "\u041F\u0435\u0440\u0435\u0441\u043B\u0430\u043D\u043E: ";
+    private static final String FORWARDED_PLACEHOLDER = "\u041F\u0435\u0440\u0435\u0441\u043B\u0430\u043D\u043D\u043E\u0435 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435";
     private static final int PREVIEW_MAX_LENGTH = 88;
 
     private final ChatAttachmentRepository chatAttachmentRepository;
@@ -40,16 +42,19 @@ public class MessagePreviewService {
         }
 
         String normalized = normalizePreviewText(messageContentCryptoService.requirePlainContent(message));
+        boolean forwardedCopy = message.getForwardedFromSenderId() != null;
         if (!normalized.isBlank()) {
-            return normalized;
+            return forwardedCopy ? truncatePreview(FORWARDED_PREFIX + normalized) : normalized;
         }
         if (attachments.isEmpty()) {
-            return MESSAGE_PLACEHOLDER;
+            return forwardedCopy ? FORWARDED_PLACEHOLDER : MESSAGE_PLACEHOLDER;
         }
         if (attachments.size() == 1) {
-            return truncatePreview("File: " + attachments.get(0).getFileName());
+            String preview = "File: " + attachments.get(0).getFileName();
+            return forwardedCopy ? truncatePreview(FORWARDED_PREFIX + preview) : truncatePreview(preview);
         }
-        return truncatePreview("Files: " + attachments.size());
+        String preview = "Files: " + attachments.size();
+        return forwardedCopy ? truncatePreview(FORWARDED_PREFIX + preview) : truncatePreview(preview);
     }
 
     private String normalizePreviewText(String content) {

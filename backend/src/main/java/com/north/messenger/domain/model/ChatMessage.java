@@ -46,6 +46,12 @@ public class ChatMessage {
     @Column(name = "reply_to_message_id")
     private UUID replyToMessageId;
 
+    @Column(name = "forwarded_at")
+    private Instant forwardedAt;
+
+    @Column(name = "forwarded_from_sender_id")
+    private UUID forwardedFromSenderId;
+
     @Column(name = "edited_at")
     private Instant editedAt;
 
@@ -59,7 +65,7 @@ public class ChatMessage {
     }
 
     public ChatMessage(UUID id, UUID chatId, UUID senderId, String content, Instant createdAt) {
-        this(id, chatId, senderId, content, null, null, createdAt);
+        this(id, chatId, senderId, content, null, null, null, null, createdAt);
     }
 
     public ChatMessage(
@@ -71,12 +77,28 @@ public class ChatMessage {
             UUID replyToMessageId,
             Instant createdAt
     ) {
+        this(id, chatId, senderId, content, clientMessageId, replyToMessageId, null, null, createdAt);
+    }
+
+    public ChatMessage(
+            UUID id,
+            UUID chatId,
+            UUID senderId,
+            String content,
+            String clientMessageId,
+            UUID replyToMessageId,
+            Instant forwardedAt,
+            UUID forwardedFromSenderId,
+            Instant createdAt
+    ) {
         this.id = id;
         this.chatId = chatId;
         this.senderId = senderId;
         this.content = content;
         this.clientMessageId = clientMessageId;
         this.replyToMessageId = replyToMessageId;
+        this.forwardedAt = forwardedAt;
+        this.forwardedFromSenderId = forwardedFromSenderId;
         this.createdAt = createdAt;
     }
 
@@ -92,6 +114,36 @@ public class ChatMessage {
             UUID replyToMessageId,
             Instant createdAt
     ) {
+        this(
+                id,
+                chatId,
+                senderId,
+                contentCiphertext,
+                contentIv,
+                contentKeyVersion,
+                contentAlgorithm,
+                clientMessageId,
+                replyToMessageId,
+                null,
+                null,
+                createdAt
+        );
+    }
+
+    public ChatMessage(
+            UUID id,
+            UUID chatId,
+            UUID senderId,
+            byte[] contentCiphertext,
+            byte[] contentIv,
+            int contentKeyVersion,
+            String contentAlgorithm,
+            String clientMessageId,
+            UUID replyToMessageId,
+            Instant forwardedAt,
+            UUID forwardedFromSenderId,
+            Instant createdAt
+    ) {
         this.id = id;
         this.chatId = chatId;
         this.senderId = senderId;
@@ -101,6 +153,8 @@ public class ChatMessage {
         this.contentAlgorithm = contentAlgorithm;
         this.clientMessageId = clientMessageId;
         this.replyToMessageId = replyToMessageId;
+        this.forwardedAt = forwardedAt;
+        this.forwardedFromSenderId = forwardedFromSenderId;
         this.createdAt = createdAt;
     }
 
@@ -152,8 +206,24 @@ public class ChatMessage {
         return editedAt;
     }
 
+    public Instant getForwardedAt() {
+        return forwardedAt;
+    }
+
+    public UUID getForwardedFromSenderId() {
+        return forwardedFromSenderId;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public boolean isForwarded() {
+        return forwardedAt != null || forwardedFromSenderId != null;
+    }
+
+    public void markForwarded(Instant forwardedAt) {
+        this.forwardedAt = forwardedAt;
     }
 
     public void cacheDecryptedContent(String content) {

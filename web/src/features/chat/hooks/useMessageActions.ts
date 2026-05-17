@@ -634,17 +634,28 @@ export function useMessageActions({
           message.content,
           targetChat.members,
           crypto.randomUUID(),
-          null
+          null,
+          {
+            forwardedFromMessageId: message.id,
+          }
         );
         sentMessages.push(sentMessage);
       }
 
       return { sentMessages, targetChat };
     },
-    onSuccess: ({ sentMessages, targetChat }) => {
+    onSuccess: ({ sentMessages, targetChat }, variables) => {
       queryClient.setQueryData<ChatSummary[]>(["chats", sessionToken], (current) =>
         upsertChat(current, targetChat),
       );
+      variables.messages.forEach((message) => {
+        queryClient.setQueryData<InfiniteData<ChatMessage[]>>(getMessagesKey(message.chatId), (current) =>
+          updateMessageById(current, message.id, (currentMessage) => ({
+            ...currentMessage,
+            forwarded: true,
+          })),
+        );
+      });
       queryClient.setQueryData<InfiniteData<ChatMessage[]>>(getMessagesKey(targetChat.id), (current) =>
         sentMessages.reduce(
           (pages, sentMessage) =>

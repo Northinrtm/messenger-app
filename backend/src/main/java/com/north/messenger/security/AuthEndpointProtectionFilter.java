@@ -35,7 +35,11 @@ public class AuthEndpointProtectionFilter extends OncePerRequestFilter {
             "/api/auth/password-reset/request",
             "/api/auth/password-reset/confirm",
             "/api/auth/refresh",
-            "/api/auth/logout"
+            "/api/auth/logout",
+            "/api/mobile/auth/login",
+            "/api/mobile/auth/register",
+            "/api/mobile/auth/refresh",
+            "/api/mobile/auth/logout"
     );
     private static final Set<String> COOKIE_AUTH_PATHS = Set.of(
             "/api/auth/refresh",
@@ -46,15 +50,19 @@ public class AuthEndpointProtectionFilter extends OncePerRequestFilter {
     private final ObjectMapper objectMapper;
     private final AuthRateLimiter rateLimiter;
     private final CorsConfiguration corsConfiguration = new CorsConfiguration();
-    private final Map<String, AuthRateLimitPolicy> policiesByPath = Map.of(
-            "/api/auth/login", new AuthRateLimitPolicy(20, Duration.ofMinutes(1)),
-            "/api/auth/register", new AuthRateLimitPolicy(10, Duration.ofMinutes(10)),
-            "/api/auth/email-verification/confirm", new AuthRateLimitPolicy(20, Duration.ofMinutes(10)),
-            "/api/auth/email-verification/resend", new AuthRateLimitPolicy(5, Duration.ofMinutes(30)),
-            "/api/auth/password-reset/request", new AuthRateLimitPolicy(5, Duration.ofMinutes(30)),
-            "/api/auth/password-reset/confirm", new AuthRateLimitPolicy(10, Duration.ofMinutes(10)),
-            "/api/auth/refresh", new AuthRateLimitPolicy(60, Duration.ofMinutes(1)),
-            "/api/auth/logout", new AuthRateLimitPolicy(30, Duration.ofMinutes(1))
+    private final Map<String, AuthRateLimitPolicy> policiesByPath = Map.ofEntries(
+            Map.entry("/api/auth/login", new AuthRateLimitPolicy(20, Duration.ofMinutes(1))),
+            Map.entry("/api/auth/register", new AuthRateLimitPolicy(10, Duration.ofMinutes(10))),
+            Map.entry("/api/auth/email-verification/confirm", new AuthRateLimitPolicy(20, Duration.ofMinutes(10))),
+            Map.entry("/api/auth/email-verification/resend", new AuthRateLimitPolicy(5, Duration.ofMinutes(30))),
+            Map.entry("/api/auth/password-reset/request", new AuthRateLimitPolicy(5, Duration.ofMinutes(30))),
+            Map.entry("/api/auth/password-reset/confirm", new AuthRateLimitPolicy(10, Duration.ofMinutes(10))),
+            Map.entry("/api/auth/refresh", new AuthRateLimitPolicy(60, Duration.ofMinutes(1))),
+            Map.entry("/api/auth/logout", new AuthRateLimitPolicy(30, Duration.ofMinutes(1))),
+            Map.entry("/api/mobile/auth/login", new AuthRateLimitPolicy(20, Duration.ofMinutes(1))),
+            Map.entry("/api/mobile/auth/register", new AuthRateLimitPolicy(10, Duration.ofMinutes(10))),
+            Map.entry("/api/mobile/auth/refresh", new AuthRateLimitPolicy(60, Duration.ofMinutes(1))),
+            Map.entry("/api/mobile/auth/logout", new AuthRateLimitPolicy(30, Duration.ofMinutes(1)))
     );
 
     public AuthEndpointProtectionFilter(

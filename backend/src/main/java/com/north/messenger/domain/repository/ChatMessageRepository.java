@@ -49,6 +49,44 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> 
             select message
             from ChatMessage message
             where message.chatId = :chatId
+              and message.createdAt <= :visibleTo
+              and not exists (
+                select 1 from UserDeletedMessage deleted
+                where deleted.userId = :userId and deleted.messageId = message.id
+              )
+            order by message.serverOrder desc
+            """)
+    List<ChatMessage> findVisibleByChatIdAndCreatedAtBeforeOrderByServerOrderDesc(
+            @Param("chatId") UUID chatId,
+            @Param("userId") UUID userId,
+            @Param("visibleTo") java.time.Instant visibleTo,
+            Pageable pageable
+    );
+
+    @Query("""
+            select message
+            from ChatMessage message
+            where message.chatId = :chatId
+              and message.createdAt >= :visibleFrom
+              and message.createdAt <= :visibleTo
+              and not exists (
+                select 1 from UserDeletedMessage deleted
+                where deleted.userId = :userId and deleted.messageId = message.id
+              )
+            order by message.serverOrder desc
+            """)
+    List<ChatMessage> findVisibleByChatIdAndCreatedAtBetweenOrderByServerOrderDesc(
+            @Param("chatId") UUID chatId,
+            @Param("userId") UUID userId,
+            @Param("visibleFrom") java.time.Instant visibleFrom,
+            @Param("visibleTo") java.time.Instant visibleTo,
+            Pageable pageable
+    );
+
+    @Query("""
+            select message
+            from ChatMessage message
+            where message.chatId = :chatId
               and message.serverOrder < :beforeServerOrder
               and not exists (
                 select 1 from UserDeletedMessage deleted
@@ -80,6 +118,48 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> 
             @Param("beforeServerOrder") long beforeServerOrder,
             @Param("userId") UUID userId,
             @Param("visibleFrom") java.time.Instant visibleFrom,
+            Pageable pageable
+    );
+
+    @Query("""
+            select message
+            from ChatMessage message
+            where message.chatId = :chatId
+              and message.serverOrder < :beforeServerOrder
+              and message.createdAt <= :visibleTo
+              and not exists (
+                select 1 from UserDeletedMessage deleted
+                where deleted.userId = :userId and deleted.messageId = message.id
+              )
+            order by message.serverOrder desc
+            """)
+    List<ChatMessage> findVisibleByChatIdAndServerOrderBeforeAndCreatedAtBeforeOrderByServerOrderDesc(
+            @Param("chatId") UUID chatId,
+            @Param("beforeServerOrder") long beforeServerOrder,
+            @Param("userId") UUID userId,
+            @Param("visibleTo") java.time.Instant visibleTo,
+            Pageable pageable
+    );
+
+    @Query("""
+            select message
+            from ChatMessage message
+            where message.chatId = :chatId
+              and message.serverOrder < :beforeServerOrder
+              and message.createdAt >= :visibleFrom
+              and message.createdAt <= :visibleTo
+              and not exists (
+                select 1 from UserDeletedMessage deleted
+                where deleted.userId = :userId and deleted.messageId = message.id
+              )
+            order by message.serverOrder desc
+            """)
+    List<ChatMessage> findVisibleByChatIdAndServerOrderBeforeAndCreatedAtBetweenOrderByServerOrderDesc(
+            @Param("chatId") UUID chatId,
+            @Param("beforeServerOrder") long beforeServerOrder,
+            @Param("userId") UUID userId,
+            @Param("visibleFrom") java.time.Instant visibleFrom,
+            @Param("visibleTo") java.time.Instant visibleTo,
             Pageable pageable
     );
 
@@ -127,6 +207,44 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> 
             @Param("chatId") UUID chatId,
             @Param("userId") UUID userId,
             @Param("visibleFrom") java.time.Instant visibleFrom,
+            Pageable pageable
+    );
+
+    @Query("""
+            select message
+            from ChatMessage message
+            where message.chatId = :chatId
+              and message.createdAt <= :visibleTo
+              and not exists (
+                select 1 from UserDeletedMessage deleted
+                where deleted.userId = :userId and deleted.messageId = message.id
+              )
+            order by message.serverOrder desc
+            """)
+    List<ChatMessage> findLatestVisibleByChatIdAndUserIdCreatedBefore(
+            @Param("chatId") UUID chatId,
+            @Param("userId") UUID userId,
+            @Param("visibleTo") java.time.Instant visibleTo,
+            Pageable pageable
+    );
+
+    @Query("""
+            select message
+            from ChatMessage message
+            where message.chatId = :chatId
+              and message.createdAt >= :visibleFrom
+              and message.createdAt <= :visibleTo
+              and not exists (
+                select 1 from UserDeletedMessage deleted
+                where deleted.userId = :userId and deleted.messageId = message.id
+              )
+            order by message.serverOrder desc
+            """)
+    List<ChatMessage> findLatestVisibleByChatIdAndUserIdCreatedBetween(
+            @Param("chatId") UUID chatId,
+            @Param("userId") UUID userId,
+            @Param("visibleFrom") java.time.Instant visibleFrom,
+            @Param("visibleTo") java.time.Instant visibleTo,
             Pageable pageable
     );
 }

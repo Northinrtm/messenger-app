@@ -91,6 +91,7 @@ class AuthServiceTest {
         when(jwtService.refreshTokenExpiresAt(any(Instant.class))).thenAnswer(invocation ->
                 ((Instant) invocation.getArgument(0)).plus(Duration.ofDays(30))
         );
+        when(passwordEncoder.encode(anyString())).thenReturn("deleted-password-hash");
     }
 
     @Test
@@ -435,7 +436,7 @@ class AuthServiceTest {
     }
 
     @Test
-    void deleteAccountShouldRemoveUserCleanupChatsAndRevokeSessions() {
+    void deleteAccountShouldAnonymizeUserPreserveHistoryAndRevokeSessions() {
         UserAccount user = userAccount("north");
         UserSession firstSession = new UserSession(
                 UUID.randomUUID(),
@@ -464,9 +465,17 @@ class AuthServiceTest {
 
         authService.deleteAccount("north");
 
-        verify(userAccountRepository).delete(user);
-        verify(userAccountRepository).flush();
-        verify(chatRoomRepository).deleteRoomsWithoutParticipants();
+        verify(userAccountRepository).save(user);
+        assertThat(user.getUsername()).startsWith(UserAccount.DELETED_USERNAME_PREFIX);
+        assertThat(user.getEmail()).endsWith("@deleted.local");
+        assertThat(user.getDisplayName()).startsWith(AuthService.DELETED_USER_DISPLAY_NAME);
+        assertThat(user.getPasswordHash()).isEqualTo("deleted-password-hash");
+        assertThat(user.isMailEnabled()).isFalse();
+        assertThat(user.getEmailVerifiedAt()).isNull();
+        assertThat(user.getPasswordVersion()).isEqualTo(2L);
+        verify(userAccountRepository, never()).delete(user);
+        verify(userAccountRepository, never()).flush();
+        verify(chatRoomRepository, never()).deleteRoomsWithoutParticipants();
         verify(chatRoomRepository, never()).deleteDirectRoomsWithFewerThanTwoParticipants();
         verify(eventPublisher, times(2)).publishEvent(any(SessionRevokedEvent.class));
     }

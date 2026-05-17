@@ -1,5 +1,6 @@
 import { type InfiniteData, type QueryClient } from "@tanstack/react-query";
 import { useEffect, useEffectEvent, useRef } from "react";
+import { clearChatReactionAttention } from "../../../lib/api";
 import { replaceSubscribedChatIds, subscribeToChats } from "../../../lib/realtime";
 import type {
   ChatMessage,
@@ -17,6 +18,7 @@ import {
   buildMessagesQueryKey,
   mergeMessagePages,
   removeMessageById,
+  setChatReactionAttention,
   updateMessageReactionsPages,
   updateMessageStatusPages,
   upsertChat,
@@ -297,6 +299,12 @@ export function useRealtimeChatSubscription({
       getMessagesKey(event.chatId),
       (current) => updateMessageReactionsPages(current, event)
     );
+    if (activeChatId === event.chatId && isActiveChatOpen) {
+      queryClient.setQueryData<ChatSummary[]>(["chats", sessionToken], (current) =>
+        setChatReactionAttention(current, event.chatId, false)
+      );
+      void clearChatReactionAttention(sessionToken, event.chatId).catch(() => undefined);
+    }
   });
 
   const handleRealtimeChatRemoval = useEffectEvent((event: ChatRemovalEvent) => {

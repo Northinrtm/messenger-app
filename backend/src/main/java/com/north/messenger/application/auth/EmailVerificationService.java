@@ -30,17 +30,20 @@ public class EmailVerificationService {
     private final EmailVerificationTokenRepository emailVerificationTokenRepository;
     private final EmailVerificationProperties emailVerificationProperties;
     private final ApplicationEventPublisher eventPublisher;
+    private final EmailVerificationEmailSender emailVerificationEmailSender;
 
     public EmailVerificationService(
             UserAccountRepository userAccountRepository,
             EmailVerificationTokenRepository emailVerificationTokenRepository,
             EmailVerificationProperties emailVerificationProperties,
-            ApplicationEventPublisher eventPublisher
+            ApplicationEventPublisher eventPublisher,
+            EmailVerificationEmailSender emailVerificationEmailSender
     ) {
         this.userAccountRepository = userAccountRepository;
         this.emailVerificationTokenRepository = emailVerificationTokenRepository;
         this.emailVerificationProperties = emailVerificationProperties;
         this.eventPublisher = eventPublisher;
+        this.emailVerificationEmailSender = emailVerificationEmailSender;
     }
 
     public boolean isEnabled() {
@@ -53,7 +56,7 @@ public class EmailVerificationService {
             return;
         }
 
-        issueFreshToken(user, Instant.now());
+        issueFreshToken(user, Instant.now(), DeliveryMode.AFTER_COMMIT_EVENT);
     }
 
     @Transactional
@@ -68,7 +71,7 @@ public class EmailVerificationService {
             return;
         }
 
-        issueFreshToken(user, Instant.now());
+        issueFreshToken(user, Instant.now(), DeliveryMode.SYNCHRONOUS_SEND);
     }
 
     @Transactional
@@ -83,7 +86,7 @@ public class EmailVerificationService {
             throw alreadyVerifiedException();
         }
 
-        issueFreshToken(user, Instant.now());
+        issueFreshToken(user, Instant.now(), DeliveryMode.SYNCHRONOUS_SEND);
     }
 
     @Transactional
@@ -112,7 +115,7 @@ public class EmailVerificationService {
         invalidateActiveTokens(user.getId(), now);
     }
 
-    private void issueFreshToken(UserAccount user, Instant now) {
+    private void issueFreshToken(UserAccount user, Instant now, DeliveryMode deliveryMode) {
         invalidateActiveTokens(user.getId(), now);
 
         RawEmailVerificationToken rawToken = generateToken();
@@ -124,6 +127,10 @@ public class EmailVerificationService {
                 now.plus(emailVerificationProperties.tokenTtl()),
                 null
         ));
+        if (deliveryMode == DeliveryMode.SYNCHRONOUS_SEND) {
+            emailVerificationEmailSender.sendVerificationEmail(user.getEmail(), rawToken.rawValue());
+            return;
+        }
         eventPublisher.publishEvent(new EmailVerificationRequestedEvent(user.getEmail(), rawToken.rawValue()));
     }
 
@@ -177,5 +184,10 @@ public class EmailVerificationService {
             String rawValue,
             String hash
     ) {
+    }
+
+    private enum DeliveryMode {
+        AFTER_COMMIT_EVENT,
+        SYNCHRONOUS_SEND
     }
 }

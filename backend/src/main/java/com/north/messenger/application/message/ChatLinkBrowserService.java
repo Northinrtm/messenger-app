@@ -8,9 +8,11 @@ import com.north.messenger.application.chat.ChatService;
 import com.north.messenger.domain.model.ChatParticipant;
 import com.north.messenger.domain.model.ChatPrejoinHistoryPolicy;
 import com.north.messenger.domain.model.ChatRoom;
+import com.north.messenger.domain.model.ChatRoomBan;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.repository.ChatMessageLinkRepository;
 import com.north.messenger.domain.repository.ChatParticipantRepository;
+import com.north.messenger.domain.repository.ChatRoomBanRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import java.net.URI;
 import java.time.Instant;
@@ -41,6 +43,7 @@ public class ChatLinkBrowserService {
     private final ChatService chatService;
     private final ChatParticipantRepository chatParticipantRepository;
     private final ChatMessageLinkRepository chatMessageLinkRepository;
+    private final ChatRoomBanRepository chatRoomBanRepository;
     private final UserAccountRepository userAccountRepository;
 
     public ChatLinkBrowserService(
@@ -48,12 +51,14 @@ public class ChatLinkBrowserService {
             ChatService chatService,
             ChatParticipantRepository chatParticipantRepository,
             ChatMessageLinkRepository chatMessageLinkRepository,
+            ChatRoomBanRepository chatRoomBanRepository,
             UserAccountRepository userAccountRepository
     ) {
         this.authService = authService;
         this.chatService = chatService;
         this.chatParticipantRepository = chatParticipantRepository;
         this.chatMessageLinkRepository = chatMessageLinkRepository;
+        this.chatRoomBanRepository = chatRoomBanRepository;
         this.userAccountRepository = userAccountRepository;
     }
 
@@ -72,7 +77,9 @@ public class ChatLinkBrowserService {
         ));
         LinkBrowserCursor cursor = parseCursor(rawCursor);
         Instant visibleFrom = resolveVisibleHistoryStart(room, membership);
+        Instant visibleTo = resolveVisibleHistoryEnd(room, membership);
         boolean applyVisibleFrom = visibleFrom != null;
+        boolean applyVisibleTo = visibleTo != null;
         boolean applyCursor = cursor != null;
         int safeLimit = Math.max(1, Math.min(limit, 100));
 
@@ -81,6 +88,8 @@ public class ChatLinkBrowserService {
                 currentUser.getId(),
                 applyVisibleFrom,
                 applyVisibleFrom ? visibleFrom : DEFAULT_VISIBLE_FROM,
+                applyVisibleTo,
+                applyVisibleTo ? visibleTo : Instant.now().plusSeconds(31_536_000L),
                 applyCursor,
                 applyCursor ? cursor.serverOrder() : DEFAULT_CURSOR_SERVER_ORDER,
                 applyCursor ? cursor.positionIndex() : DEFAULT_CURSOR_POSITION_INDEX,
@@ -193,6 +202,22 @@ public class ChatLinkBrowserService {
             return null;
         }
         return membership.getJoinedAt();
+    }
+
+    private Instant resolveVisibleHistoryEnd(ChatRoom room, ChatParticipant membership) {
+        if (room.isDirect() || membership == null) {
+            return null;
+        }
+
+        Instant visibleTo = membership.getLeftAt();
+        ChatRoomBan ban = chatRoomBanRepository.findByChatIdAndUserId(room.getId(), membership.getUserId()).orElse(null);
+        if (ban == null) {
+            return visibleTo;
+        }
+        if (visibleTo == null) {
+            return ban.getCreatedAt();
+        }
+        return visibleTo.isBefore(ban.getCreatedAt()) ? visibleTo : ban.getCreatedAt();
     }
 
     private record LinkBrowserCursor(

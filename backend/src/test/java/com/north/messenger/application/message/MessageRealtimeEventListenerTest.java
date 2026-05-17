@@ -23,10 +23,11 @@ class MessageRealtimeEventListenerTest {
         );
         UUID chatId = UUID.randomUUID();
         UUID messageId = UUID.randomUUID();
+        UUID actorUserId = UUID.randomUUID();
 
-        listener.onMessageReactionChanged(new MessageReactionChangedEvent(chatId, messageId));
+        listener.onMessageReactionChanged(new MessageReactionChangedEvent(chatId, messageId, actorUserId));
 
-        verify(messageReactionService).broadcastReactionChanged(chatId, messageId);
+        verify(messageReactionService).broadcastReactionChanged(chatId, messageId, actorUserId);
         verify(chatService).notifyChatUpdated(chatId);
     }
 }

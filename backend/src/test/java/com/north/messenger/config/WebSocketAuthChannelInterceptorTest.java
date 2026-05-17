@@ -55,7 +55,7 @@ class WebSocketAuthChannelInterceptorTest {
         when(authService.requireAuthenticatedUser("north")).thenReturn(user);
         when(authService.authenticateSession("north", sessionId))
                 .thenReturn(Optional.of(new AuthService.AuthenticatedSession(user, sessionId)));
-        when(chatParticipantRepository.existsByChatIdAndUserId(chatId, userId)).thenReturn(true);
+        when(chatParticipantRepository.existsByChatIdAndUserIdAndLeftAtIsNull(chatId, userId)).thenReturn(true);
 
         StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
         accessor.setDestination("/topic/chats." + chatId + ".typing");
@@ -84,7 +84,7 @@ class WebSocketAuthChannelInterceptorTest {
         when(authService.requireAuthenticatedUser("north")).thenReturn(user);
         when(authService.authenticateSession("north", sessionId))
                 .thenReturn(Optional.of(new AuthService.AuthenticatedSession(user, sessionId)));
-        when(chatParticipantRepository.existsByChatIdAndUserId(chatId, userId)).thenReturn(false);
+        when(chatParticipantRepository.existsByChatIdAndUserIdAndLeftAtIsNull(chatId, userId)).thenReturn(false);
 
         StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
         accessor.setDestination("/topic/chats." + chatId + ".typing");

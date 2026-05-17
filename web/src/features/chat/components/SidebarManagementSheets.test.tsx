@@ -92,6 +92,7 @@ function buildProps(
     createChatPending: false,
     updateProfilePending: false,
     changePasswordPending: false,
+    changePasswordError: null,
     avatarPending: false,
     deleteAccountPending: false,
     emailVerificationPending: false,

@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import type { ChatMessage, ChatSummary } from "../../../lib/types";
+import { extractMentionUsernames } from "../messageMentions";
 
 export type IncomingToast = {
   id: string;
@@ -14,6 +15,7 @@ type UseIncomingToastsOptions = {
   activeChatId: string | null;
   browserNotificationsEnabled: boolean;
   currentUserId: string;
+  currentUsername: string;
   formatPreview: (message: ChatMessage) => string;
   queryClient: QueryClient;
   token: string;
@@ -23,6 +25,7 @@ export function useIncomingToasts({
   activeChatId,
   browserNotificationsEnabled,
   currentUserId,
+  currentUsername,
   formatPreview,
   queryClient,
   token,
@@ -60,7 +63,13 @@ export function useIncomingToasts({
   });
 
   const showIncomingToast = useEffectEvent((message: ChatMessage) => {
-    if (message.sender.id === currentUserId || message.chatId === activeChatId) {
+    const mentionedCurrentUser = extractMentionUsernames(message.content).includes(
+      currentUsername.toLowerCase()
+    );
+    if (
+      message.sender.id === currentUserId ||
+      (message.chatId === activeChatId && !mentionedCurrentUser)
+    ) {
       return;
     }
 
@@ -70,7 +79,9 @@ export function useIncomingToasts({
     const nextToast: IncomingToast = {
       id: toastId,
       chatId: message.chatId,
-      title: chat?.title ?? "Новое сообщение",
+      title: mentionedCurrentUser
+        ? "\u0412\u0430\u0441 \u0443\u043F\u043E\u043C\u044F\u043D\u0443\u043B\u0438"
+        : chat?.title ?? "\u041D\u043E\u0432\u043E\u0435 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435",
       senderName: message.sender.displayName,
       preview: formatPreview(message),
     };

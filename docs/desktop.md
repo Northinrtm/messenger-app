@@ -1,5 +1,9 @@
 # Desktop Client
 
+Legacy / unsupported target as of `2026-05-13`.
+
+This wrapper still exists in the repository, but new product work should not target desktop. The supported directions are the browser client and the planned Android app.
+
 The desktop client is a Tauri v2 wrapper around the existing React/Vite web
 application. The frontend remains shared with the browser build; platform
 differences should live behind small adapters in `web/src/lib`.
@@ -34,10 +38,7 @@ For a production desktop build, create an environment file from
 `web/.env.desktop.example` and provide the real API, websocket, and Jitsi URLs
 before running `npm run desktop:build`.
 
-## Next Desktop Milestones
+## Historical Note
 
-1. Add native notifications and route notification clicks to the active chat.
-2. Add tray behavior: open, hide, and quit.
-3. Add single-instance handling and deep links for invite URLs.
-4. Add signed auto-updates through Tauri updater.
-5. Move sensitive desktop-only secrets to a protected store.
+The section that used to track future desktop milestones is intentionally retired.
+Desktop is no longer a supported roadmap direction for this project.

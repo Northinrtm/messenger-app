@@ -121,7 +121,7 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
         }
 
         UserAccount user = authService.requireAuthenticatedUser(principal.getName());
-        if (!chatParticipantRepository.existsByChatIdAndUserId(chatId, user.getId())) {
+        if (!chatParticipantRepository.existsByChatIdAndUserIdAndLeftAtIsNull(chatId, user.getId())) {
             log.warn(
                     "Dropping unauthorized websocket subscription user={} chatId={} destination={}",
                     principal.getName(),

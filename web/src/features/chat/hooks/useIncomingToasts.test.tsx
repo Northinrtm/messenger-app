@@ -77,6 +77,7 @@ function Harness({ browserNotificationsEnabled = false, onReady, queryClient }: 
     activeChatId: "chat-1",
     browserNotificationsEnabled,
     currentUserId: "user-1",
+    currentUsername: "north",
     formatPreview: (message) => message.content,
     queryClient,
     token: "session-token",
@@ -217,6 +218,49 @@ describe("useIncomingToasts", () => {
           tag: "north-messenger-chat-chat-2",
         }),
       },
+    ]);
+  });
+
+  it("still shows a toast for an @mention from the currently open chat", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    queryClient.setQueryData<ChatSummary[]>(["chats", "session-token"], chatsSnapshot());
+
+    const latestToastStateRef: { current: ToastHarnessState | null } = { current: null };
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(
+        <QueryClientProvider client={queryClient}>
+          <Harness
+            queryClient={queryClient}
+            onReady={(value) => {
+              latestToastStateRef.current = value;
+            }}
+          />
+        </QueryClientProvider>
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      latestToastStateRef.current?.showIncomingToast({
+        ...incomingMessage(),
+        chatId: "chat-1",
+        content: "hello @north",
+      });
+      await Promise.resolve();
+    });
+
+    expect(latestToastStateRef.current?.incomingToasts).toEqual([
+      expect.objectContaining({
+        title: "Вас упомянули",
+        preview: "hello @north",
+      }),
     ]);
   });
 });

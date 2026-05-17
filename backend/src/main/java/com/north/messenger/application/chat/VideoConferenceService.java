@@ -59,6 +59,8 @@ public class VideoConferenceService {
     private static final long CONFERENCE_AUTO_END_EMPTY_MINUTES = 10;
     private static final long CONFERENCE_SCHEDULE_LOCK_ID = 7_102_001L;
     private static final long CONFERENCE_RECORDING_IMPORT_LOCK_ID = 7_102_002L;
+    private static final int MAX_CONFERENCE_TITLE_LENGTH = 120;
+    private static final String GROUP_CONFERENCE_TITLE_PREFIX = "Созвон ";
 
     private final AuthService authService;
     private final ChatService chatService;
@@ -213,7 +215,7 @@ public class VideoConferenceService {
         boolean startImmediately = shouldStartConference(request.scheduledAt(), now);
         VideoConference conference = new VideoConference(
                 conferenceId,
-                request.title().trim(),
+                normalizeConferenceTitle(request.title()),
                 activateImmediately ? createRoomName(conferenceId) : null,
                 currentUser.getId(),
                 request.scheduledAt(),
@@ -250,7 +252,7 @@ public class VideoConferenceService {
         return createConference(
                 username,
                 new CreateVideoConferenceRequest(
-                        "\u0421\u043e\u0437\u0432\u043e\u043d " + room.getTitle(),
+                        buildGroupConferenceTitle(room.getTitle()),
                         now,
                         List.of(),
                         chatId
@@ -685,7 +687,7 @@ public class VideoConferenceService {
                 videoConferenceParticipantRepository.findAllByConferenceIdOrderByInvitedAtAsc(conference.getId());
         List<ChatParticipant> chatMemberships = conference.getChatId() == null
                 ? List.of()
-                : chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(conference.getChatId());
+                : chatParticipantRepository.findAllByChatIdAndLeftAtIsNullOrderByJoinedAtAsc(conference.getChatId());
         Map<UUID, List<ChatParticipant>> membershipsByChatId = conference.getChatId() == null
                 ? Map.of()
                 : Map.of(conference.getChatId(), chatMemberships);
@@ -696,7 +698,7 @@ public class VideoConferenceService {
     }
 
     private List<UserAccount> resolveGroupConferenceParticipants(UUID chatId) {
-        List<ChatParticipant> chatMemberships = chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId);
+        List<ChatParticipant> chatMemberships = chatParticipantRepository.findAllByChatIdAndLeftAtIsNullOrderByJoinedAtAsc(chatId);
         Map<UUID, UserAccount> usersById = findUsersById(
                 chatMemberships.stream()
                         .map(ChatParticipant::getUserId)
@@ -760,7 +762,10 @@ public class VideoConferenceService {
 
     private boolean hasConferenceAccess(VideoConference conference, UserAccount currentUser) {
         if (conference.getChatId() != null) {
-            return chatParticipantRepository.existsByChatIdAndUserId(conference.getChatId(), currentUser.getId());
+            return chatParticipantRepository.existsByChatIdAndUserIdAndLeftAtIsNull(
+                    conference.getChatId(),
+                    currentUser.getId()
+            );
         }
 
         return videoConferenceParticipantRepository.existsByConferenceIdAndUserId(conference.getId(), currentUser.getId());
@@ -781,6 +786,19 @@ public class VideoConferenceService {
 
     private String normalizeUsername(String username) {
         return username.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String buildGroupConferenceTitle(String roomTitle) {
+        String normalizedRoomTitle = roomTitle == null ? "" : roomTitle.trim();
+        return normalizeConferenceTitle(GROUP_CONFERENCE_TITLE_PREFIX + normalizedRoomTitle);
+    }
+
+    private String normalizeConferenceTitle(String title) {
+        String normalizedTitle = title == null ? "" : title.trim();
+        if (normalizedTitle.length() <= MAX_CONFERENCE_TITLE_LENGTH) {
+            return normalizedTitle;
+        }
+        return normalizedTitle.substring(0, MAX_CONFERENCE_TITLE_LENGTH).trim();
     }
 
     @Transactional

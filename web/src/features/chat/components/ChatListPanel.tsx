@@ -251,7 +251,7 @@ export const ChatListPanel = memo(function ChatListPanel({
         const draftPreview = liveGroupConference ? "" : rawDraftPreview;
         const hasFailedOutgoingMessage = failedChatIds.has(chat.id);
         const hasReactionIndicator =
-          Boolean(chat.lastMessageHasReactions) && !liveGroupConference;
+          Boolean(chat.reactionAttention || chat.lastMessageHasReactions) && !liveGroupConference;
         const preview = isChatTyping
           ? formatTypingParticipants(chatTypingParticipants)
           : draftPreview ||
@@ -318,8 +318,16 @@ export const ChatListPanel = memo(function ChatListPanel({
                     {hasReactionIndicator ? (
                       <span
                         className="chat-preview-reaction"
-                        title={"\u041d\u0430 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0435\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435 \u0435\u0441\u0442\u044c \u0440\u0435\u0430\u043a\u0446\u0438\u0438"}
-                        aria-label={"\u041d\u0430 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0435\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435 \u0435\u0441\u0442\u044c \u0440\u0435\u0430\u043a\u0446\u0438\u0438"}
+                        title={
+                          chat.reactionAttention
+                            ? "\u0415\u0441\u0442\u044c \u043d\u043e\u0432\u0430\u044f \u0440\u0435\u0430\u043a\u0446\u0438\u044f \u043d\u0430 \u0432\u0430\u0448\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435"
+                            : "\u041d\u0430 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0435\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435 \u0435\u0441\u0442\u044c \u0440\u0435\u0430\u043a\u0446\u0438\u0438"
+                        }
+                        aria-label={
+                          chat.reactionAttention
+                            ? "\u0415\u0441\u0442\u044c \u043d\u043e\u0432\u0430\u044f \u0440\u0435\u0430\u043a\u0446\u0438\u044f \u043d\u0430 \u0432\u0430\u0448\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435"
+                            : "\u041d\u0430 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0435\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435 \u0435\u0441\u0442\u044c \u0440\u0435\u0430\u043a\u0446\u0438\u0438"
+                        }
                       >
                         {"\u263A"}
                       </span>

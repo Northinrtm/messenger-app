@@ -53,6 +53,7 @@ class ChatOpenServiceTest {
                 "Latest message",
                 Instant.parse("2026-05-03T10:00:00Z"),
                 false,
+                false,
                 42L,
                 Instant.parse("2026-05-03T10:00:00Z"),
                 0,
@@ -72,6 +73,8 @@ class ChatOpenServiceTest {
                 null,
                 null,
                 List.of(),
+                false,
+                null,
                 null,
                 List.of()
         );
@@ -106,6 +109,7 @@ class ChatOpenServiceTest {
                 List.of(),
                 null,
                 null,
+                false,
                 false,
                 null,
                 Instant.parse("2026-05-03T10:00:00Z"),

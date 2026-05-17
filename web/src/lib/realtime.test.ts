@@ -205,6 +205,7 @@ describe("realtime transport", () => {
         body: JSON.stringify({
           clientMessageId: "client-1",
           replyToMessageId: null,
+          forwardedFromMessageId: null,
           attachmentIds: [],
           plainPayload: {
             content: "hello",

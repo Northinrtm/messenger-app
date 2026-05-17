@@ -48,6 +48,10 @@ type LinkRowProps = {
   onJumpToSourceMessage: (chatId: string, item: SourceMessageJumpTarget) => void;
 };
 
+type CombinedBrowserItem =
+  | { kind: "attachment"; item: ChatAttachmentBrowserItem }
+  | { kind: "link"; item: ChatLinkBrowserItem };
+
 type PhotoViewerProps = {
   activeChatTitle: string;
   chatId: string;
@@ -122,7 +126,7 @@ export function ChatAttachmentBrowserSheet({
         cursor: pageParam ?? null,
         limit: PAGE_SIZE,
       }),
-    enabled: Boolean(activeChat?.id) && kind === "LINKS",
+    enabled: Boolean(activeChat?.id) && (kind === "LINKS" || kind === "ALL"),
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     staleTime: 30_000,
@@ -136,10 +140,29 @@ export function ChatAttachmentBrowserSheet({
     () => linkQuery.data?.pages.flatMap((page) => page.items) ?? [],
     [linkQuery.data]
   );
+  const allItems = useMemo<CombinedBrowserItem[]>(
+    () =>
+      [...attachmentItems.map((item) => ({ kind: "attachment" as const, item })), ...linkItems.map((item) => ({ kind: "link" as const, item }))]
+        .sort((left, right) => {
+          const leftOrder = left.item.messageServerOrder ?? Number.MIN_SAFE_INTEGER;
+          const rightOrder = right.item.messageServerOrder ?? Number.MIN_SAFE_INTEGER;
+          if (leftOrder !== rightOrder) {
+            return rightOrder - leftOrder;
+          }
+          return right.item.createdAt.localeCompare(left.item.createdAt);
+        }),
+    [attachmentItems, linkItems]
+  );
   const photoItems = useMemo(() => attachmentItems.filter(isImageAttachment), [attachmentItems]);
   const isPhotosMode = kind === "PHOTOS";
   const isLinksMode = kind === "LINKS";
+  const isAllMode = kind === "ALL";
   const activeQuery = isLinksMode ? linkQuery : attachmentQuery;
+  const allModeLoading = attachmentQuery.isLoading || linkQuery.isLoading;
+  const allModeError = attachmentQuery.isError || linkQuery.isError;
+  const allModeHasNextPage = attachmentQuery.hasNextPage || linkQuery.hasNextPage;
+  const allModeFetchingNextPage =
+    attachmentQuery.isFetchingNextPage || linkQuery.isFetchingNextPage;
 
   useEffect(() => {
     if (
@@ -187,7 +210,48 @@ export function ChatAttachmentBrowserSheet({
             ))}
           </div>
 
-          {activeQuery.isLoading ? (
+          {isAllMode ? (
+            allModeLoading ? (
+              <div className="empty-list">Loading media, files and links...</div>
+            ) : allModeError ? (
+              <div className="empty-list">Could not load media, files and links.</div>
+            ) : allItems.length === 0 ? (
+              <div className="empty-list">{buildEmptyStateLabel(kind)}</div>
+            ) : (
+              <div className="sheet-list chat-attachment-browser-list">
+                {allItems.map((entry) =>
+                  entry.kind === "link" ? (
+                    <LinkBrowserRow
+                      key={`link-${entry.item.id}`}
+                      item={entry.item}
+                      chatId={activeChat.id}
+                      onJumpToSourceMessage={onJumpToSourceMessage}
+                    />
+                  ) : isImageAttachment(entry.item) ? (
+                    <MixedImageBrowserRow
+                      key={`attachment-${entry.item.id}`}
+                      item={entry.item}
+                      chatId={activeChat.id}
+                      onDownloadAttachment={onDownloadAttachment}
+                      onLoadAttachmentPreview={onLoadAttachmentPreview}
+                      onJumpToSourceMessage={onJumpToSourceMessage}
+                      onOpenPhotoViewer={setPhotoViewerItemId}
+                    />
+                  ) : (
+                    <DocumentBrowserRow
+                      key={`attachment-${entry.item.id}`}
+                      item={entry.item}
+                      chatId={activeChat.id}
+                      onDownloadAttachment={onDownloadAttachment}
+                      onJumpToSourceMessage={onJumpToSourceMessage}
+                      onOpenPhotoViewer={setPhotoViewerItemId}
+                      onLoadAttachmentPreview={onLoadAttachmentPreview}
+                    />
+                  )
+                )}
+              </div>
+            )
+          ) : activeQuery.isLoading ? (
             <div className="empty-list">{isLinksMode ? "Загружаем ссылки..." : "Загружаем вложения..."}</div>
           ) : activeQuery.isError ? (
             <div className="empty-list">
@@ -252,12 +316,24 @@ export function ChatAttachmentBrowserSheet({
             </div>
           )}
 
-          {activeQuery.hasNextPage ? (
+          {(isAllMode ? allModeHasNextPage : activeQuery.hasNextPage) ? (
             <button
               type="button"
               className="ghost-button history-button"
-              onClick={() => void activeQuery.fetchNextPage()}
-              disabled={activeQuery.isFetchingNextPage}
+              onClick={() => {
+                if (isAllMode) {
+                  if (attachmentQuery.hasNextPage) {
+                    void attachmentQuery.fetchNextPage();
+                  }
+                  if (linkQuery.hasNextPage) {
+                    void linkQuery.fetchNextPage();
+                  }
+                  return;
+                }
+
+                void activeQuery.fetchNextPage();
+              }}
+              disabled={isAllMode ? allModeFetchingNextPage : activeQuery.isFetchingNextPage}
             >
               {activeQuery.isFetchingNextPage ? "Загружаем..." : "Показать еще"}
             </button>
@@ -741,6 +817,13 @@ function useAttachmentPreviewUrl(
   const [previewError, setPreviewError] = useState(false);
   const [previewPending, setPreviewPending] = useState(false);
   const enabled = options.enabled ?? true;
+  const previewKey = item
+    ? `${item.id}|${item.fileName}|${item.mimeType}|${item.sizeBytes}`
+    : null;
+  const previewItemId = item?.id ?? null;
+  const previewFileName = item?.fileName ?? null;
+  const previewMimeType = item?.mimeType ?? null;
+  const previewSizeBytes = item?.sizeBytes ?? null;
 
   useEffect(() => {
     let cancelled = false;
@@ -752,10 +835,16 @@ function useAttachmentPreviewUrl(
     setPreviewError(false);
     setPreviewPending(false);
 
-    if (!enabled || !item) {
+    if (!enabled || !previewItemId || !previewFileName || !previewMimeType || previewSizeBytes === null) {
       return;
     }
 
+    const attachmentToPreview = {
+      id: previewItemId,
+      fileName: previewFileName,
+      mimeType: previewMimeType,
+      sizeBytes: previewSizeBytes,
+    };
     setPreviewPending(true);
     const timeoutId = window.setTimeout(() => {
       if (!cancelled) {
@@ -764,7 +853,7 @@ function useAttachmentPreviewUrl(
       }
     }, 15_000);
 
-    onLoadAttachmentPreview(chatId, toAttachment(item))
+    onLoadAttachmentPreview(chatId, attachmentToPreview)
       .then((blob) => {
         window.clearTimeout(timeoutId);
         if (cancelled) {
@@ -789,7 +878,16 @@ function useAttachmentPreviewUrl(
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [chatId, enabled, item, onLoadAttachmentPreview]);
+  }, [
+    chatId,
+    enabled,
+    onLoadAttachmentPreview,
+    previewItemId,
+    previewFileName,
+    previewMimeType,
+    previewSizeBytes,
+    previewKey,
+  ]);
 
   useEffect(() => {
     return () => {

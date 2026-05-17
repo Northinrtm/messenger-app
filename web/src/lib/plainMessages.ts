@@ -16,6 +16,7 @@ export async function sendPlainMessage(
   replyToMessageId?: string | null,
   options?: {
     attachments?: ChatMessageAttachment[];
+    forwardedFromMessageId?: string | null;
   }
 ) {
   const resolvedClientMessageId = clientMessageId?.trim() ?? "";
@@ -32,6 +33,7 @@ export async function sendPlainMessage(
   const response = await sendMessageRaw(token, chatId, {
     clientMessageId: resolvedClientMessageId,
     replyToMessageId: replyToMessageId ?? null,
+    forwardedFromMessageId: options?.forwardedFromMessageId ?? null,
     attachmentIds: attachments.map((attachment) => attachment.id),
     plainPayload: {
       content: normalizedContent,

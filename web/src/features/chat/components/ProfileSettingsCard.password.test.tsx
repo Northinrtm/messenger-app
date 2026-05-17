@@ -30,6 +30,7 @@ const defaultProps: Parameters<typeof ProfileSettingsCard>[0] = {
   deleteAccountRequiresMatch: false,
   updateProfilePending: false,
   changePasswordPending: false,
+  changePasswordError: null,
   avatarPending: false,
   deleteAccountPending: false,
   emailVerificationPending: false,

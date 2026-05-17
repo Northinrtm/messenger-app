@@ -17,6 +17,7 @@ public record ChatSummaryResponse(
         String lastMessage,
         Instant lastMessageAt,
         boolean lastMessageHasReactions,
+        boolean reactionAttention,
         Long lastMessageServerOrder,
         Instant updatedAt,
         int unreadCount,

@@ -13,6 +13,7 @@ type Props = {
   removeGroupParticipantPending: boolean;
   assignModeratorPending: boolean;
   revokeModeratorPending: boolean;
+  transferOwnershipPending: boolean;
   unbanGroupParticipantPending: boolean;
   canAddMembers: boolean;
   canManageRoles: boolean;
@@ -31,6 +32,7 @@ type Props = {
   onRemoveParticipant: (participant: Participant) => void;
   onAssignModerator: (participant: Participant) => void;
   onRevokeModerator: (participant: Participant) => void;
+  onTransferOwnership: (participant: Participant) => void;
 };
 
 function renderMemberCount(count: number) {
@@ -55,6 +57,7 @@ export function ChatMembersPanel({
   removeGroupParticipantPending,
   assignModeratorPending,
   revokeModeratorPending,
+  transferOwnershipPending,
   unbanGroupParticipantPending,
   canAddMembers,
   canManageRoles,
@@ -73,6 +76,7 @@ export function ChatMembersPanel({
   onRemoveParticipant,
   onAssignModerator,
   onRevokeModerator,
+  onTransferOwnership,
 }: Props) {
   const ownerUserId = activeChat.ownerUserId;
   const moderatorUserIdSet = new Set(activeChat.moderatorUserIds);
@@ -222,6 +226,16 @@ export function ChatMembersPanel({
                     onClick={() => onAssignModerator(member)}
                   >
                     Модератор
+                  </button>
+                ) : null}
+                {canOwnerManageRole && isModerator ? (
+                  <button
+                    type="button"
+                    className="ghost-button compact"
+                    disabled={transferOwnershipPending}
+                    onClick={() => onTransferOwnership(member)}
+                  >
+                    Передать права
                   </button>
                 ) : null}
                 {canOwnerManageRole && isModerator ? (

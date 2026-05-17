@@ -21,6 +21,7 @@ type Props = {
   deleteAccountRequiresMatch: boolean;
   updateProfilePending: boolean;
   changePasswordPending: boolean;
+  changePasswordError: string | null;
   avatarPending: boolean;
   deleteAccountPending: boolean;
   emailVerificationPending: boolean;
@@ -63,6 +64,7 @@ export function ProfileSettingsCard({
   deleteAccountRequiresMatch,
   updateProfilePending,
   changePasswordPending,
+  changePasswordError,
   avatarPending,
   deleteAccountPending,
   emailVerificationPending,
@@ -102,6 +104,10 @@ export function ProfileSettingsCard({
 
   const normalizedProfileDisplayName = profileDisplayName.trim();
   const normalizedProfileProfession = profileProfession.trim();
+  const profileDisplayNameError =
+    normalizedProfileDisplayName.length > 0 && normalizedProfileDisplayName.length < 2
+      ? "Имя должно содержать от 2 до 40 символов."
+      : null;
   const profileChanged =
     normalizedProfileDisplayName !== profile.displayName ||
     normalizedProfileProfession !== (profile.profession ?? "");
@@ -157,7 +163,6 @@ export function ProfileSettingsCard({
   const canEnablePushNotifications =
     pushNotificationsSupported &&
     pushNotificationsServerEnabled &&
-    pushNotificationsPermission !== "denied" &&
     !pushNotificationsEnabled;
   const canDisablePushNotifications =
     pushNotificationsSupported && pushNotificationsEnabled;
@@ -252,30 +257,20 @@ export function ProfileSettingsCard({
           }}
         >
           <span className="profile-label">{"\u0418\u043c\u044f"}</span>
-          <div className="profile-inline-row">
-            <div className="profile-inline-stack">
-              <input
-                value={profileDisplayName}
-                onChange={(event) => onProfileDisplayNameChange(event.target.value)}
-                placeholder={"\u0412\u0430\u0448\u0435 \u0438\u043c\u044f"}
-                maxLength={40}
-              />
-              <span className="profile-field-meta">
-                {profileDisplayName.length}/40
-              </span>
-            </div>
-            {profileChanged ? (
-              <button
-                type="submit"
-                className="ghost-button compact profile-inline-save"
-                disabled={updateProfilePending || normalizedProfileDisplayName.length < 2}
-              >
-                {updateProfilePending
-                  ? "\u0421\u043e\u0445\u0440\u0430\u043d\u044f\u0435\u043c..."
-                  : "\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c"}
-              </button>
-            ) : null}
+          <div className="profile-inline-stack">
+            <input
+              value={profileDisplayName}
+              onChange={(event) => onProfileDisplayNameChange(event.target.value)}
+              placeholder={"\u0412\u0430\u0448\u0435 \u0438\u043c\u044f"}
+              maxLength={40}
+            />
+            <span className="profile-field-meta">
+              {profileDisplayName.length}/40
+            </span>
           </div>
+          {profileDisplayNameError ? (
+            <div className="field-error-text">{profileDisplayNameError}</div>
+          ) : null}
 
           <span className="profile-label">{"\u041e \u0441\u0435\u0431\u0435"}</span>
           <div className="profile-inline-stack">
@@ -293,6 +288,19 @@ export function ProfileSettingsCard({
               {profileProfession.length}/160
             </span>
           </div>
+          {profileChanged ? (
+            <div className="profile-inline-row profile-edit-actions">
+              <button
+                type="submit"
+                className="secondary-button"
+                disabled={updateProfilePending || normalizedProfileDisplayName.length < 2}
+              >
+                {updateProfilePending
+                  ? "\u0421\u043e\u0445\u0440\u0430\u043d\u044f\u0435\u043c..."
+                  : "\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c"}
+              </button>
+            </div>
+          ) : null}
         </form>
 
         <div className="profile-line profile-action-panel">
@@ -341,8 +349,8 @@ export function ProfileSettingsCard({
               </strong>
               <span>
                 {mailEnabled
-                  ? "\u041f\u043e\u0447\u0442\u0430 \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u0430 \u043c\u0435\u0436\u0434\u0443 \u0447\u0430\u0442\u0430\u043c\u0438 \u0438 \u043a\u043e\u043d\u0444\u0435\u0440\u0435\u043d\u0446\u0438\u044f\u043c\u0438."
-                  : "\u0415\u0441\u043b\u0438 \u043e\u0442\u043a\u043b\u044e\u0447\u0438\u0442\u044c \u043f\u043e\u0447\u0442\u0443, \u043e\u0441\u0442\u0430\u043d\u0443\u0442\u0441\u044f \u0442\u043e\u043b\u044c\u043a\u043e \u0432\u043a\u043b\u0430\u0434\u043a\u0438 \u0447\u0430\u0442\u043e\u0432 \u0438 \u043a\u043e\u043d\u0444\u0435\u0440\u0435\u043d\u0446\u0438\u0439."}
+                  ? "Раздел «Почта» виден в левой колонке и показывает ваши сохраненные почтовые ящики."
+                  : "Раздел «Почта» скрыт из левой колонки. Чаты и конференции останутся доступны как раньше."}
               </span>
             </div>
             <button
@@ -499,6 +507,7 @@ export function ProfileSettingsCard({
                   <div className="field-error-text">{passwordChangeConfirmError}</div>
                 ) : null}
               </div>
+              {changePasswordError ? <div className="form-error">{changePasswordError}</div> : null}
 
               <div className="profile-inline-row">
                 <button

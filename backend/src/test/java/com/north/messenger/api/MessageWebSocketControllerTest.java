@@ -59,6 +59,8 @@ class MessageWebSocketControllerTest {
                 request.clientMessageId(),
                 null,
                 List.of(),
+                false,
+                null,
                 new PlainMessagePayloadResponse("hello"),
                 List.of()
         );

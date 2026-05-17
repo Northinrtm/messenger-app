@@ -219,7 +219,7 @@ function ConferencePreJoinPanel({
           disabledLabel="Микрофон выключен"
           devices={mediaAccessState.audioInputDevices}
           selectedDeviceId={joinSettings.audioInputDeviceId ?? ""}
-          selectLabel="Устройство ввода"
+          selectLabel="Микрофон"
           emptyLabel="Микрофоны не найдены"
           onEnabledChange={onAudioEnabledChange}
           onDeviceChange={onAudioInputChange}

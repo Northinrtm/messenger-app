@@ -181,17 +181,24 @@ public class AuthService {
     @Transactional
     public void deleteAccount(String username) {
         UserAccount currentUser = requireAuthenticatedUser(username);
+        String deletedUsername = currentUser.getUsername();
         List<UUID> activeSessionIds = userSessionRepository
                 .findAllByUserIdAndRevokedAtIsNullOrderByLastUsedAtDesc(currentUser.getId())
                 .stream()
                 .map(UserSession::getId)
                 .toList();
 
-        userAccountRepository.delete(currentUser);
-        userAccountRepository.flush();
-        chatRoomRepository.deleteRoomsWithoutParticipants();
+        String deletedSuffix = currentUser.getId().toString().substring(0, 8);
+        currentUser.markDeleted(
+                UserAccount.DELETED_USERNAME_PREFIX + deletedSuffix,
+                "deleted+" + deletedSuffix + "@deleted.local",
+                DELETED_USER_DISPLAY_NAME + " " + deletedSuffix,
+                passwordEncoder.encode(UUID.randomUUID().toString())
+        );
+        currentUser.advancePasswordVersion();
+        userAccountRepository.save(currentUser);
 
-        activeSessionIds.forEach(sessionId -> notifySessionRevoked(currentUser.getUsername(), sessionId));
+        activeSessionIds.forEach(sessionId -> notifySessionRevoked(deletedUsername, sessionId));
     }
 
     public UserProfileResponse me(String username) {
@@ -533,6 +540,9 @@ public class AuthService {
     }
 
     public ParticipantResponse toParticipant(UserAccount user, boolean online) {
+        if (user.isDeletedAccount()) {
+            return toDeletedParticipant(user.getId(), online);
+        }
         return new ParticipantResponse(
                 user.getId(),
                 user.getUsername(),
@@ -616,6 +626,9 @@ public class AuthService {
     }
 
     private UserProfileResponse toProfile(UserAccount user) {
+        if (user.isDeletedAccount()) {
+            return deletedUserProfile(user, isUserOnline(user.getId()));
+        }
         return new UserProfileResponse(
                 user.getId(),
                 user.getUsername(),
@@ -633,6 +646,9 @@ public class AuthService {
     }
 
     private UserProfileResponse toProfile(UserAccount user, boolean online) {
+        if (user.isDeletedAccount()) {
+            return deletedUserProfile(user, online);
+        }
         return new UserProfileResponse(
                 user.getId(),
                 user.getUsername(),
@@ -645,6 +661,26 @@ public class AuthService {
                 false,
                 false,
                 user.isMailEnabled(),
+                user.getPasswordVersion()
+        );
+    }
+
+    private UserProfileResponse deletedUserProfile(UserAccount user, boolean online) {
+        String deletedUsername = user.getId() == null
+                ? DELETED_USER_USERNAME_PREFIX
+                : DELETED_USER_USERNAME_PREFIX + "-" + user.getId().toString().substring(0, 8);
+        return new UserProfileResponse(
+                user.getId(),
+                deletedUsername,
+                DELETED_USER_DISPLAY_NAME,
+                null,
+                user.getCreatedAt(),
+                null,
+                online,
+                null,
+                false,
+                false,
+                false,
                 user.getPasswordVersion()
         );
     }

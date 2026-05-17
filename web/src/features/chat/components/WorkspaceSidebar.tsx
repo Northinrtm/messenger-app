@@ -1,4 +1,12 @@
-import { useRef, useState, type ComponentProps, type FocusEvent, type ReactNode, type RefObject } from "react";
+import {
+  useRef,
+  useState,
+  type ComponentProps,
+  type FocusEvent,
+  type KeyboardEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
 
 import type { UserProfile } from "../../../lib/types";
 import type { ConversationListTab, SidebarSheet } from "../chatUi";
@@ -80,6 +88,23 @@ export function WorkspaceSidebar({
     }
 
     setIsSearchFocused(false);
+  };
+
+  const handleListPaging = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.altKey || event.ctrlKey || event.metaKey) {
+      return;
+    }
+    if (event.key !== "PageDown" && event.key !== "PageUp") {
+      return;
+    }
+
+    const container = conferenceListScrollRef.current;
+    if (!container) {
+      return;
+    }
+
+    event.preventDefault();
+    scrollSidebarListByPage(container, event.key === "PageDown" ? "down" : "up");
   };
 
   return (
@@ -207,7 +232,13 @@ export function WorkspaceSidebar({
       ) : null}
 
       {!sidebarSheet ? (
-        <div ref={conferenceListScrollRef} className="chat-list north-chat-list">
+        <div
+          ref={conferenceListScrollRef}
+          className="chat-list north-chat-list"
+          tabIndex={0}
+          aria-label="Список чатов"
+          onKeyDown={handleListPaging}
+        >
           {chatListContent}
         </div>
       ) : null}
@@ -219,4 +250,15 @@ export function WorkspaceSidebar({
       {isMenuOpen ? <SidebarMenuOverlay {...menuOverlayProps} /> : null}
     </aside>
   );
+}
+
+export function scrollSidebarListByPage(
+  container: Pick<HTMLDivElement, "clientHeight" | "scrollBy">,
+  direction: "up" | "down"
+) {
+  const pageOffset = Math.max(96, container.clientHeight - 72);
+  container.scrollBy({
+    top: direction === "down" ? pageOffset : -pageOffset,
+    behavior: "smooth",
+  });
 }

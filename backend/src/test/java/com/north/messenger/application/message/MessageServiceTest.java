@@ -19,9 +19,11 @@ import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.repository.ChatAttachmentRepository;
 import com.north.messenger.domain.repository.ChatMessageRepository;
 import com.north.messenger.domain.repository.ChatParticipantRepository;
+import com.north.messenger.domain.repository.ChatRoomBanRepository;
 import com.north.messenger.domain.repository.MessageReactionRepository;
 import com.north.messenger.domain.repository.MessageReceiptRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
+import com.north.messenger.domain.repository.UserChatReactionAttentionRepository;
 import com.north.messenger.domain.repository.UserDeletedMessageRepository;
 import com.north.messenger.observability.MessengerTelemetry;
 import jakarta.persistence.EntityManager;
@@ -53,6 +55,8 @@ class MessageServiceTest {
     private ChatService chatService;
     private ChatMessageRepository chatMessageRepository;
     private ChatParticipantRepository chatParticipantRepository;
+    private com.north.messenger.domain.repository.ChatRoomRepository chatRoomRepository;
+    private ChatRoomBanRepository chatRoomBanRepository;
     private MessageReceiptRepository messageReceiptRepository;
     private MessageReactionRepository messageReactionRepository;
     private ChatAttachmentRepository chatAttachmentRepository;
@@ -73,11 +77,15 @@ class MessageServiceTest {
         chatService = mock(ChatService.class);
         chatMessageRepository = mock(ChatMessageRepository.class);
         chatParticipantRepository = mock(ChatParticipantRepository.class);
+        chatRoomRepository = mock(com.north.messenger.domain.repository.ChatRoomRepository.class);
+        chatRoomBanRepository = mock(ChatRoomBanRepository.class);
         messageReceiptRepository = mock(MessageReceiptRepository.class);
         messageReactionRepository = mock(MessageReactionRepository.class);
         chatAttachmentRepository = mock(ChatAttachmentRepository.class);
         userAccountRepository = mock(UserAccountRepository.class);
         userDeletedMessageRepository = mock(UserDeletedMessageRepository.class);
+        UserChatReactionAttentionRepository userChatReactionAttentionRepository =
+                mock(UserChatReactionAttentionRepository.class);
         RealtimeMessagingGateway realtimeMessagingGateway = mock(RealtimeMessagingGateway.class);
         ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
         messageDispatchOutboxService = mock(MessageDispatchOutboxService.class);
@@ -93,6 +101,8 @@ class MessageServiceTest {
                 chatAttachmentRepository,
                 chatMessageRepository,
                 chatParticipantRepository,
+                chatRoomRepository,
+                chatRoomBanRepository,
                 messageReceiptRepository,
                 messageReactionRepository,
                 userAccountRepository,
@@ -115,6 +125,7 @@ class MessageServiceTest {
                 chatService,
                 chatMessageRepository,
                 messageReactionRepository,
+                userChatReactionAttentionRepository,
                 realtimeMessagingGateway,
                 messageSupport,
                 eventPublisher
@@ -135,6 +146,7 @@ class MessageServiceTest {
                 chatService,
                 chatMessageRepository,
                 chatParticipantRepository,
+                chatRoomBanRepository,
                 userAccountRepository,
                 messageReceiptService,
                 messageSupport,
@@ -177,18 +189,21 @@ class MessageServiceTest {
                 new ParticipantResponse(peerUser.getId(), peerUser.getUsername(), peerUser.getDisplayName(), peerUser.getAvatarUrl(), false)
         );
         when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(room);
+        when(chatRoomRepository.findById(chatId)).thenReturn(Optional.of(room));
         when(chatService.findParticipants(chatId)).thenReturn(List.of(currentUser, peerUser));
         when(chatMessageRepository.saveAndFlush(any(ChatMessage.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(messageReceiptRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(chatParticipantRepository.findByChatIdAndUserId(any(), any())).thenAnswer(invocation -> Optional.of(
                 new ChatParticipant(UUID.randomUUID(), invocation.getArgument(0), invocation.getArgument(1), Instant.parse("2026-04-01T00:00:00Z"))
         ));
+        when(chatRoomBanRepository.findByChatIdAndUserId(any(), any())).thenReturn(Optional.empty());
         when(messageReceiptRepository.findAllByMessageIdIn(anyList())).thenReturn(List.of());
         when(messageReactionRepository.findAllByMessageIdIn(anyList())).thenReturn(List.of());
         when(chatAttachmentRepository.findAllByMessageIdInOrderByCreatedAtAsc(anyList())).thenReturn(List.of());
         when(chatAttachmentRepository.findAllByMessageId(any())).thenReturn(List.of());
         when(userDeletedMessageRepository.existsByUserIdAndMessageId(any(), any())).thenReturn(false);
         when(userAccountRepository.findById(currentUser.getId())).thenReturn(Optional.of(currentUser));
+        when(userAccountRepository.findById(peerUser.getId())).thenReturn(Optional.of(peerUser));
         when(userAccountRepository.findAllByIdIn(anyList())).thenReturn(List.of(currentUser, peerUser));
         when(chatMessageRepository.findByChatIdAndSenderIdAndClientMessageId(any(), any(), anyString())).thenReturn(Optional.empty());
         when(messageContentCryptoService.encrypt(any(), any(), any(), anyString()))
@@ -247,10 +262,51 @@ class MessageServiceTest {
         assertThatThrownBy(() -> messageService.sendMessage(
                 chatId,
                 "north",
-                new CreateMessageRequest("client-1", null, null, null)
+                new CreateMessageRequest("client-1", null, null, null, null)
         ))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("Message payload is incomplete");
+    }
+
+    @Test
+    void sendMessageShouldPersistForwardedMetadataAndMarkSourceMessage() {
+        ChatMessage sourceMessage = new ChatMessage(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                peerUser.getId(),
+                "forward me",
+                null,
+                null,
+                Instant.parse("2026-04-02T09:00:00Z")
+        );
+        ChatRoom sourceRoom = new ChatRoom(sourceMessage.getChatId(), "Source", true, Instant.parse("2026-04-01T00:00:00Z"));
+        when(chatMessageRepository.findById(sourceMessage.getId())).thenReturn(Optional.of(sourceMessage));
+        when(chatRoomRepository.findById(sourceRoom.getId())).thenReturn(Optional.of(sourceRoom));
+        when(chatParticipantRepository.findByChatIdAndUserId(sourceRoom.getId(), currentUser.getId())).thenReturn(
+                Optional.of(new ChatParticipant(
+                        UUID.randomUUID(),
+                        sourceRoom.getId(),
+                        currentUser.getId(),
+                        Instant.parse("2026-04-01T00:00:00Z")
+                ))
+        );
+
+        MessageResponse response = messageService.sendMessage(
+                chatId,
+                "north",
+                new CreateMessageRequest(
+                        "client-forward-1",
+                        null,
+                        null,
+                        new PlainMessagePayloadRequest("forward me"),
+                        sourceMessage.getId()
+                )
+        );
+
+        assertThat(response.forwarded()).isTrue();
+        assertThat(response.forwardedFrom()).isNotNull();
+        assertThat(response.forwardedFrom().sender().id()).isEqualTo(peerUser.getId());
+        assertThat(sourceMessage.getForwardedAt()).isNotNull();
     }
 
     @Test
@@ -432,6 +488,28 @@ class MessageServiceTest {
         messageService.deleteMessage(chatId, pinnedMessage.getId(), "north", "EVERYONE");
 
         verify(chatService).removePinnedMessages(room, List.of(pinnedMessage.getId()));
+    }
+
+    @Test
+    void deleteMessageForEveryoneShouldAllowModeratorToRemoveAnotherUsersGroupMessage() {
+        room = new ChatRoom(chatId, "Group", false, Instant.parse("2026-04-01T00:00:00Z"));
+        ChatMessage foreignMessage = new ChatMessage(
+                UUID.randomUUID(),
+                chatId,
+                peerUser.getId(),
+                "foreign",
+                null,
+                null,
+                Instant.parse("2026-04-02T10:00:00Z")
+        );
+        when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(room);
+        when(chatService.hasGroupModeratorOrOwnerAccess(room, currentUser)).thenReturn(true);
+        when(chatMessageRepository.findAllById(List.of(foreignMessage.getId()))).thenReturn(List.of(foreignMessage));
+
+        messageService.deleteMessage(chatId, foreignMessage.getId(), "north", "EVERYONE");
+
+        verify(chatMessageRepository).deleteAll(List.of(foreignMessage));
+        verify(chatService).removePinnedMessages(room, List.of(foreignMessage.getId()));
     }
 
     private static ChatMessage withServerOrder(ChatMessage message, long serverOrder) {

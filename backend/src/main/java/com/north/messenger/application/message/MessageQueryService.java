@@ -12,9 +12,11 @@ import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.model.ChatParticipant;
 import com.north.messenger.domain.model.ChatPrejoinHistoryPolicy;
 import com.north.messenger.domain.model.ChatRoom;
+import com.north.messenger.domain.model.ChatRoomBan;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.repository.ChatMessageRepository;
 import com.north.messenger.domain.repository.ChatParticipantRepository;
+import com.north.messenger.domain.repository.ChatRoomBanRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -41,6 +43,7 @@ class MessageQueryService {
     private final ChatService chatService;
     private final ChatMessageRepository chatMessageRepository;
     private final ChatParticipantRepository chatParticipantRepository;
+    private final ChatRoomBanRepository chatRoomBanRepository;
     private final UserAccountRepository userAccountRepository;
     private final MessageReceiptService messageReceiptService;
     private final MessageSupport messageSupport;
@@ -51,6 +54,7 @@ class MessageQueryService {
             ChatService chatService,
             ChatMessageRepository chatMessageRepository,
             ChatParticipantRepository chatParticipantRepository,
+            ChatRoomBanRepository chatRoomBanRepository,
             UserAccountRepository userAccountRepository,
             MessageReceiptService messageReceiptService,
             MessageSupport messageSupport,
@@ -60,6 +64,7 @@ class MessageQueryService {
         this.chatService = chatService;
         this.chatMessageRepository = chatMessageRepository;
         this.chatParticipantRepository = chatParticipantRepository;
+        this.chatRoomBanRepository = chatRoomBanRepository;
         this.userAccountRepository = userAccountRepository;
         this.messageReceiptService = messageReceiptService;
         this.messageSupport = messageSupport;
@@ -109,41 +114,18 @@ class MessageQueryService {
                         "Access denied for this chat"
                 ));
         Instant visibleFrom = resolveVisibleHistoryStart(room, membership);
+        Instant visibleTo = resolveVisibleHistoryEnd(room, membership);
 
         int safeLimit = Math.max(1, Math.min(limit, 100));
         PageRequest pageRequest = PageRequest.of(0, safeLimit);
-        List<ChatMessage> recentMessages = new ArrayList<>(
-                beforeServerOrder == null
-                        ? chatMessageRepository.findVisibleByChatIdOrderByServerOrderDesc(
-                                chatId,
-                                currentUser.getId(),
-                                pageRequest
-                        )
-                        : visibleFrom == null
-                                ? chatMessageRepository.findVisibleByChatIdAndServerOrderBeforeOrderByServerOrderDesc(
-                                        chatId,
-                                        beforeServerOrder,
-                                        currentUser.getId(),
-                                        pageRequest
-                                )
-                                : chatMessageRepository.findVisibleByChatIdAndServerOrderBeforeAndCreatedAtAfterOrderByServerOrderDesc(
-                                        chatId,
-                                        beforeServerOrder,
-                                        currentUser.getId(),
-                                        visibleFrom,
-                                        pageRequest
-                                )
-        );
-        if (visibleFrom != null && beforeServerOrder == null) {
-            recentMessages = new ArrayList<>(
-                    chatMessageRepository.findVisibleByChatIdAndCreatedAtAfterOrderByServerOrderDesc(
-                            chatId,
-                            currentUser.getId(),
-                            visibleFrom,
-                            pageRequest
-                    )
-            );
-        }
+        List<ChatMessage> recentMessages = new ArrayList<>(loadVisibleMessages(
+                chatId,
+                currentUser.getId(),
+                beforeServerOrder,
+                visibleFrom,
+                visibleTo,
+                pageRequest
+        ));
         messageContentCryptoService.hydrateContents(recentMessages);
         recentMessages.sort(MessageQueryService::compareMessageOrder);
 
@@ -167,6 +149,8 @@ class MessageQueryService {
                 room,
                 currentUser.getId()
         );
+        Map<UUID, com.north.messenger.api.dto.ForwardedMessageInfoResponse> forwardedInfosByMessageId =
+                messageSupport.loadForwardedInfosByMessageId(recentMessages, usersById);
 
         List<RenderedMessage> renderedMessages = recentMessages.stream()
                 .map(message -> tryRenderMessage(
@@ -177,7 +161,8 @@ class MessageQueryService {
                         summariesByMessageId,
                         attachmentsByMessageId,
                         reactionsByMessageId,
-                        repliesByMessageId
+                        repliesByMessageId,
+                        forwardedInfosByMessageId
                 ))
                 .flatMap(Optional::stream)
                 .toList();
@@ -241,6 +226,99 @@ class MessageQueryService {
         return membership.getJoinedAt();
     }
 
+    private Instant resolveVisibleHistoryEnd(ChatRoom room, ChatParticipant membership) {
+        if (room.isDirect() || membership == null) {
+            return null;
+        }
+
+        Instant visibleTo = membership.getLeftAt();
+        ChatRoomBan ban = chatRoomBanRepository.findByChatIdAndUserId(room.getId(), membership.getUserId()).orElse(null);
+        if (ban == null) {
+            return visibleTo;
+        }
+        if (visibleTo == null) {
+            return ban.getCreatedAt();
+        }
+        return visibleTo.isBefore(ban.getCreatedAt()) ? visibleTo : ban.getCreatedAt();
+    }
+
+    private List<ChatMessage> loadVisibleMessages(
+            UUID chatId,
+            UUID currentUserId,
+            Long beforeServerOrder,
+            Instant visibleFrom,
+            Instant visibleTo,
+            PageRequest pageRequest
+    ) {
+        if (beforeServerOrder == null) {
+            if (visibleFrom != null && visibleTo != null) {
+                return chatMessageRepository.findVisibleByChatIdAndCreatedAtBetweenOrderByServerOrderDesc(
+                        chatId,
+                        currentUserId,
+                        visibleFrom,
+                        visibleTo,
+                        pageRequest
+                );
+            }
+            if (visibleFrom != null) {
+                return chatMessageRepository.findVisibleByChatIdAndCreatedAtAfterOrderByServerOrderDesc(
+                        chatId,
+                        currentUserId,
+                        visibleFrom,
+                        pageRequest
+                );
+            }
+            if (visibleTo != null) {
+                return chatMessageRepository.findVisibleByChatIdAndCreatedAtBeforeOrderByServerOrderDesc(
+                        chatId,
+                        currentUserId,
+                        visibleTo,
+                        pageRequest
+                );
+            }
+            return chatMessageRepository.findVisibleByChatIdOrderByServerOrderDesc(
+                    chatId,
+                    currentUserId,
+                    pageRequest
+            );
+        }
+
+        if (visibleFrom != null && visibleTo != null) {
+            return chatMessageRepository.findVisibleByChatIdAndServerOrderBeforeAndCreatedAtBetweenOrderByServerOrderDesc(
+                    chatId,
+                    beforeServerOrder,
+                    currentUserId,
+                    visibleFrom,
+                    visibleTo,
+                    pageRequest
+            );
+        }
+        if (visibleFrom != null) {
+            return chatMessageRepository.findVisibleByChatIdAndServerOrderBeforeAndCreatedAtAfterOrderByServerOrderDesc(
+                    chatId,
+                    beforeServerOrder,
+                    currentUserId,
+                    visibleFrom,
+                    pageRequest
+            );
+        }
+        if (visibleTo != null) {
+            return chatMessageRepository.findVisibleByChatIdAndServerOrderBeforeAndCreatedAtBeforeOrderByServerOrderDesc(
+                    chatId,
+                    beforeServerOrder,
+                    currentUserId,
+                    visibleTo,
+                    pageRequest
+            );
+        }
+        return chatMessageRepository.findVisibleByChatIdAndServerOrderBeforeOrderByServerOrderDesc(
+                chatId,
+                beforeServerOrder,
+                currentUserId,
+                pageRequest
+        );
+    }
+
     private Optional<RenderedMessage> tryRenderMessage(
             UUID chatId,
             UserAccount currentUser,
@@ -249,7 +327,8 @@ class MessageQueryService {
             Map<UUID, MessageSupport.MessageReceiptSummary> summariesByMessageId,
             Map<UUID, List<ChatAttachmentResponse>> attachmentsByMessageId,
             Map<UUID, List<MessageReactionSummaryResponse>> reactionsByMessageId,
-            Map<UUID, MessageSnippetResponse> repliesByMessageId
+            Map<UUID, MessageSnippetResponse> repliesByMessageId,
+            Map<UUID, com.north.messenger.api.dto.ForwardedMessageInfoResponse> forwardedInfosByMessageId
     ) {
         UserAccount sender = usersById.get(message.getSenderId());
         if (sender == null) {
@@ -277,7 +356,8 @@ class MessageQueryService {
                         message.getSenderId().equals(currentUser.getId()) ? message.getClientMessageId() : null,
                         repliesByMessageId.get(message.getId()),
                         messageSupport.toPlainPayload(message),
-                        attachmentsByMessageId.getOrDefault(message.getId(), List.of())
+                        attachmentsByMessageId.getOrDefault(message.getId(), List.of()),
+                        forwardedInfosByMessageId.get(message.getId())
                 )
         ));
     }

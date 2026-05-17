@@ -17,6 +17,12 @@ import {
   parseStoredSendFailure,
 } from "../../../lib/sendFailureDiagnostics";
 import {
+  findActiveMentionQuery,
+  isMentionBoundary,
+  normalizeMentionUsername,
+  replaceActiveMentionQuery,
+} from "../messageMentions";
+import {
   memo,
   useEffect,
   useLayoutEffect,
@@ -90,6 +96,14 @@ const COMPOSER_COPY = {
   removeAttachmentAria: "\u0423\u0431\u0440\u0430\u0442\u044C \u0444\u0430\u0439\u043B",
   cancelUpload: "\u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C",
   attachFile: "\u041F\u0440\u0438\u043A\u0440\u0435\u043F\u0438\u0442\u044C \u0444\u0430\u0439\u043B",
+  startVoiceRecording: "\u0417\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0433\u043E\u043B\u043E\u0441\u043E\u0432\u043E\u0435",
+  stopVoiceRecording: "\u041E\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C \u0437\u0430\u043F\u0438\u0441\u044C",
+  voiceRecordingActive: "\u0418\u0434\u0435\u0442 \u0437\u0430\u043F\u0438\u0441\u044C",
+  voiceRecordingPreparing: "\u0413\u043E\u0442\u043E\u0432\u0438\u043C \u0433\u043E\u043B\u043E\u0441\u043E\u0432\u043E\u0435...",
+  voiceRecordingUnsupported:
+    "\u0412 \u044D\u0442\u043E\u043C \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0435 \u043D\u0435\u0442 \u043F\u043E\u0434\u0434\u0435\u0440\u0436\u043A\u0438 \u0437\u0430\u043F\u0438\u0441\u0438 \u0433\u043E\u043B\u043E\u0441\u0430.",
+  voiceRecordingFailed:
+    "\u041D\u0435 \u043F\u043E\u043B\u0443\u0447\u0438\u043B\u043E\u0441\u044C \u043D\u0430\u0447\u0430\u0442\u044C \u0437\u0430\u043F\u0438\u0441\u044C \u0433\u043E\u043B\u043E\u0441\u043E\u0432\u043E\u0433\u043E \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F.",
   closeGlyph: "\u00D7",
   submitEditGlyph: "\u2713",
 } as const;
@@ -231,6 +245,7 @@ export function ActiveChatConversation({
   getReactionOption,
   buildMessagePreview,
 }: Props) {
+  const [activeMentionProfile, setActiveMentionProfile] = useState<Participant | null>(null);
   const allowDeleteSelectedMessagesForSelf = activeChat.direct;
   const activeGroupConferenceLabel = activeGroupConference
     ? `Идет созвон • ${activeGroupConference.activeParticipantCount} в эфире`
@@ -475,12 +490,14 @@ export function ActiveChatConversation({
             directChat={activeChat.direct}
             isSelectingMessages={isSelectingMessages}
             selectedMessageIdSet={selectedMessageIdSet}
+            mentionParticipants={activeChat.members}
             timelineItems={timelineItems}
             sessionUser={sessionUser}
             onOpenMessageContextMenu={onOpenMessageContextMenu}
             onJumpToMessage={onJumpToMessage}
             onToggleSelectedMessage={onToggleSelectedMessage}
             onToggleReaction={onToggleReaction}
+            onOpenMentionProfile={setActiveMentionProfile}
             onRetryMessage={onRetryMessage}
             onDownloadAttachment={onDownloadAttachment}
             onLoadAttachmentPreview={onLoadAttachmentPreview}
@@ -509,6 +526,7 @@ export function ActiveChatConversation({
         replyingToMessage={replyingToMessage}
         editingMessage={editingMessage}
         isDirectChatBlocked={isDirectChatBlocked}
+        historyAccessNotice={historyAccessNotice}
         composerTextareaRef={composerTextareaRef}
         onComposerChange={onComposerChange}
         onCommitDraft={onCommitDraft}
@@ -517,6 +535,8 @@ export function ActiveChatConversation({
         onClearReply={onClearReply}
         onClearEdit={onClearEdit}
         buildMessagePreview={buildMessagePreview}
+        mentionParticipants={activeChat.members}
+        sessionUser={sessionUser}
       />
       {isDeleteSelectedMessagesDialogOpen ? (
         <div className="message-selection-dialog-backdrop" role="presentation">
@@ -573,6 +593,12 @@ export function ActiveChatConversation({
           </div>
         </div>
       ) : null}
+      {activeMentionProfile ? (
+        <MentionProfileDialog
+          participant={activeMentionProfile}
+          onClose={() => setActiveMentionProfile(null)}
+        />
+      ) : null}
     </>
   );
 }
@@ -583,6 +609,7 @@ type ConversationComposerProps = {
   replyingToMessage: ChatMessage | null;
   editingMessage: ChatMessage | null;
   isDirectChatBlocked: boolean;
+  historyAccessNotice: HistoryAccessNotice | null;
   composerTextareaRef: RefObject<HTMLTextAreaElement | null>;
   onComposerChange: (value: string) => void;
   onCommitDraft: (chatId: string, value: string) => void;
@@ -591,6 +618,8 @@ type ConversationComposerProps = {
   onClearReply: () => void;
   onClearEdit: () => void;
   buildMessagePreview: (content: string, maxLength?: number) => string;
+  mentionParticipants: Participant[];
+  sessionUser: UserProfile;
 };
 
 const ConversationComposer = memo(function ConversationComposer({
@@ -599,6 +628,7 @@ const ConversationComposer = memo(function ConversationComposer({
   replyingToMessage,
   editingMessage,
   isDirectChatBlocked,
+  historyAccessNotice,
   composerTextareaRef,
   onComposerChange,
   onCommitDraft,
@@ -607,6 +637,8 @@ const ConversationComposer = memo(function ConversationComposer({
   onClearReply,
   onClearEdit,
   buildMessagePreview,
+  mentionParticipants,
+  sessionUser,
 }: ConversationComposerProps) {
   const [hasComposerText, setHasComposerText] = useState(activeDraft.trim().length > 0);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -614,26 +646,56 @@ const ConversationComposer = memo(function ConversationComposer({
   const [attachmentUploadProgress, setAttachmentUploadProgress] =
     useState<AttachmentUploadProgress | null>(null);
   const [shouldRestoreComposerFocus, setShouldRestoreComposerFocus] = useState(false);
+  const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
+  const [mentionQuery, setMentionQuery] = useState<{
+    start: number;
+    end: number;
+    query: string;
+  } | null>(null);
+  const [voiceRecordingState, setVoiceRecordingState] = useState<"idle" | "recording" | "stopping">("idle");
+  const [voiceRecordingDurationMs, setVoiceRecordingDurationMs] = useState(0);
   const previousActiveDraftRef = useRef(activeDraft);
   const previousChatIdRef = useRef(activeChatId);
   const latestComposerValueRef = useRef(activeDraft);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const uploadAbortControllerRef = useRef<AbortController | null>(null);
-  const composerUnavailable = isDirectChatBlocked;
+  const voiceRecorderRef = useRef<MediaRecorder | null>(null);
+  const voiceStreamRef = useRef<MediaStream | null>(null);
+  const voiceChunksRef = useRef<Blob[]>([]);
+  const voiceRecordingStartedAtRef = useRef<number | null>(null);
+  const voiceRecordingTimerRef = useRef<number | null>(null);
+  const discardVoiceRecordingRef = useRef(false);
+  const suppressVoiceStateResetRef = useRef(false);
+  const composerUnavailable = isDirectChatBlocked || historyAccessNotice !== null;
   const attachmentsDisabled =
-    composerUnavailable || Boolean(editingMessage) || isSubmittingComposer;
+    composerUnavailable ||
+    Boolean(editingMessage) ||
+    isSubmittingComposer ||
+    voiceRecordingState !== "idle";
   const selectedFileCount = editingMessage ? 0 : selectedFiles.length;
   const canSubmitComposer =
     !composerUnavailable &&
     !isSubmittingComposer &&
+    voiceRecordingState === "idle" &&
     (hasComposerText || selectedFileCount > 0);
-  const composerPlaceholder = isDirectChatBlocked
-    ? COMPOSER_COPY.blockedPlaceholder
+  const composerPlaceholder = historyAccessNotice
+    ? historyAccessNotice.title
+    : isDirectChatBlocked
+      ? COMPOSER_COPY.blockedPlaceholder
     : editingMessage
         ? COMPOSER_COPY.editPlaceholder
         : replyingToMessage
-          ? COMPOSER_COPY.replyPlaceholder
+        ? COMPOSER_COPY.replyPlaceholder
           : COMPOSER_COPY.messagePlaceholder;
+  const mentionCandidates = mentionParticipants.filter(
+    (participant) =>
+      participant.username !== sessionUser.username &&
+      participant.username.toLowerCase().includes(mentionQuery?.query ?? "")
+  );
+  const showMentionSuggestions =
+    !composerUnavailable &&
+    mentionQuery !== null &&
+    mentionCandidates.length > 0;
 
   useEffect(() => {
     const previousChatId = previousChatIdRef.current;
@@ -646,6 +708,8 @@ const ConversationComposer = memo(function ConversationComposer({
         composerTextareaRef.current.value = activeDraft;
       }
       setHasComposerText(activeDraft.trim().length > 0);
+      setMentionQuery(null);
+      setMentionActiveIndex(0);
       return;
     }
 
@@ -672,13 +736,17 @@ const ConversationComposer = memo(function ConversationComposer({
   useEffect(() => {
     uploadAbortControllerRef.current?.abort();
     uploadAbortControllerRef.current = null;
+    stopVoiceRecording(true);
     setSelectedFiles([]);
     setAttachmentUploadProgress(null);
+    setMentionQuery(null);
+    setMentionActiveIndex(0);
   }, [activeChatId, editingMessage?.id]);
 
   useEffect(() => {
     return () => {
       uploadAbortControllerRef.current?.abort();
+      stopVoiceRecording(true, false);
     };
   }, []);
 
@@ -698,6 +766,143 @@ const ConversationComposer = memo(function ConversationComposer({
     }
 
     setSelectedFiles((current) => [...current, ...nextFiles]);
+  };
+
+  const clearVoiceRecordingTimer = () => {
+    if (voiceRecordingTimerRef.current !== null) {
+      window.clearInterval(voiceRecordingTimerRef.current);
+      voiceRecordingTimerRef.current = null;
+    }
+    voiceRecordingStartedAtRef.current = null;
+  };
+
+  const releaseVoiceRecordingResources = (resetState = true) => {
+    clearVoiceRecordingTimer();
+    voiceRecorderRef.current = null;
+    suppressVoiceStateResetRef.current = false;
+    if (voiceStreamRef.current) {
+      voiceStreamRef.current.getTracks().forEach((track) => track.stop());
+      voiceStreamRef.current = null;
+    }
+    voiceChunksRef.current = [];
+    if (resetState) {
+      setVoiceRecordingDurationMs(0);
+      setVoiceRecordingState("idle");
+    }
+  };
+
+  const stopVoiceRecording = (discard = false, resetState = true) => {
+    discardVoiceRecordingRef.current = discard;
+    suppressVoiceStateResetRef.current = !resetState;
+    const recorder = voiceRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      if (resetState) {
+        setVoiceRecordingState("stopping");
+      }
+      recorder.stop();
+      return;
+    }
+    releaseVoiceRecordingResources(resetState);
+  };
+
+  const startVoiceRecording = async () => {
+    if (
+      composerUnavailable ||
+      editingMessage ||
+      isSubmittingComposer ||
+      typeof navigator === "undefined" ||
+      !navigator.mediaDevices ||
+      typeof navigator.mediaDevices.getUserMedia !== "function" ||
+      typeof MediaRecorder === "undefined"
+    ) {
+      window.alert(COMPOSER_COPY.voiceRecordingUnsupported);
+      return;
+    }
+
+    if (voiceRecordingState !== "idle") {
+      stopVoiceRecording();
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = resolveVoiceRecordingMimeType();
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      voiceStreamRef.current = stream;
+      voiceRecorderRef.current = recorder;
+      voiceChunksRef.current = [];
+      discardVoiceRecordingRef.current = false;
+      voiceRecordingStartedAtRef.current = Date.now();
+      setVoiceRecordingDurationMs(0);
+      setVoiceRecordingState("recording");
+      voiceRecordingTimerRef.current = window.setInterval(() => {
+        const startedAt = voiceRecordingStartedAtRef.current;
+        if (startedAt !== null) {
+          setVoiceRecordingDurationMs(Date.now() - startedAt);
+        }
+      }, 250);
+      recorder.addEventListener("dataavailable", (event) => {
+        if (event.data && event.data.size > 0) {
+          voiceChunksRef.current.push(event.data);
+        }
+      });
+      recorder.addEventListener(
+        "stop",
+        () => {
+          const shouldDiscard = discardVoiceRecordingRef.current;
+          const resetState = !suppressVoiceStateResetRef.current;
+          discardVoiceRecordingRef.current = false;
+          suppressVoiceStateResetRef.current = false;
+          const chunks = voiceChunksRef.current;
+          const recordingMimeType =
+            recorder.mimeType || resolveVoiceRecordingMimeType() || "audio/webm";
+          releaseVoiceRecordingResources(resetState);
+          if (shouldDiscard || chunks.length === 0) {
+            return;
+          }
+
+          const blob = new Blob(chunks, { type: recordingMimeType });
+          addSelectedFiles([buildVoiceRecordingFile(blob, recordingMimeType)]);
+        },
+        { once: true }
+      );
+      recorder.start();
+    } catch {
+      releaseVoiceRecordingResources();
+      window.alert(COMPOSER_COPY.voiceRecordingFailed);
+    }
+  };
+
+  const syncMentionQuery = (value: string, caretPosition: number) => {
+    const nextMentionQuery = findActiveMentionQuery(value, caretPosition);
+    setMentionQuery(nextMentionQuery);
+    setMentionActiveIndex(0);
+  };
+
+  const applyMentionCandidate = (participant: Participant) => {
+    if (!mentionQuery || !composerTextareaRef.current) {
+      return;
+    }
+
+    const replacement = replaceActiveMentionQuery(
+      latestComposerValueRef.current,
+      mentionQuery,
+      participant.username
+    );
+    latestComposerValueRef.current = replacement.value;
+    composerTextareaRef.current.value = replacement.value;
+    composerTextareaRef.current.focus();
+    composerTextareaRef.current.setSelectionRange(
+      replacement.caretPosition,
+      replacement.caretPosition
+    );
+    const nextHasComposerText = replacement.value.trim().length > 0;
+    setHasComposerText((current) =>
+      current === nextHasComposerText ? current : nextHasComposerText
+    );
+    setMentionQuery(null);
+    setMentionActiveIndex(0);
+    onComposerChange(replacement.value);
   };
 
   const submitComposer = async () => {
@@ -760,6 +965,8 @@ const ConversationComposer = memo(function ConversationComposer({
       setIsSubmittingComposer(false);
       composerTextareaRef.current?.focus();
       setShouldRestoreComposerFocus(true);
+      setMentionQuery(null);
+      setMentionActiveIndex(0);
     }
   };
 
@@ -869,6 +1076,16 @@ const ConversationComposer = memo(function ConversationComposer({
           </div>
         </div>
       ) : null}
+      {voiceRecordingState !== "idle" ? (
+        <div className="composer-recording-status" role="status" aria-live="polite">
+          <span className="composer-recording-dot" aria-hidden="true" />
+          <span>
+            {voiceRecordingState === "stopping"
+              ? COMPOSER_COPY.voiceRecordingPreparing
+              : `${COMPOSER_COPY.voiceRecordingActive}: ${formatVoiceRecordingDuration(voiceRecordingDurationMs)}`}
+          </span>
+        </div>
+      ) : null}
       <div className="north-composer-body">
         <input
           ref={fileInputRef}
@@ -909,36 +1126,163 @@ const ConversationComposer = memo(function ConversationComposer({
             />
           </svg>
         </button>
-        <textarea
-          ref={composerTextareaRef}
-          defaultValue={activeDraft}
-          disabled={composerUnavailable}
-          onChange={(event) => {
-            const nextValue = event.target.value;
-            latestComposerValueRef.current = nextValue;
-            const nextHasComposerText = nextValue.trim().length > 0;
-            setHasComposerText((current) =>
-              current === nextHasComposerText ? current : nextHasComposerText
-            );
-            onComposerChange(nextValue);
-          }}
-          onBlur={() => onCommitDraft(activeChatId, latestComposerValueRef.current)}
-          onPaste={(event) => {
-            if (attachmentsDisabled || event.clipboardData.files.length === 0) {
-              return;
-            }
-            addSelectedFiles(event.clipboardData.files);
-            event.preventDefault();
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
+        <button
+          type="button"
+          className={
+            voiceRecordingState === "idle"
+              ? "ghost-button compact composer-voice-button"
+              : "ghost-button compact composer-voice-button is-recording"
+          }
+          onClick={() => void startVoiceRecording()}
+          disabled={
+            composerUnavailable ||
+            Boolean(editingMessage) ||
+            isSubmittingComposer ||
+            voiceRecordingState === "stopping"
+          }
+          title={
+            voiceRecordingState === "idle"
+              ? COMPOSER_COPY.startVoiceRecording
+              : COMPOSER_COPY.stopVoiceRecording
+          }
+          aria-label={
+            voiceRecordingState === "idle"
+              ? COMPOSER_COPY.startVoiceRecording
+              : COMPOSER_COPY.stopVoiceRecording
+          }
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path
+              d="M12 4.5a2.8 2.8 0 0 1 2.8 2.8v5.2a2.8 2.8 0 1 1-5.6 0V7.3A2.8 2.8 0 0 1 12 4.5Z"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="1.8"
+            />
+            <path
+              d="M6.8 11.8a5.2 5.2 0 0 0 10.4 0"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="1.8"
+            />
+            <path
+              d="M12 17v3.2"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeWidth="1.8"
+            />
+            <path
+              d="M9.3 20.2h5.4"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeWidth="1.8"
+            />
+          </svg>
+        </button>
+        <div className="composer-textarea-shell">
+          <textarea
+            ref={composerTextareaRef}
+            defaultValue={activeDraft}
+            disabled={composerUnavailable}
+            onChange={(event) => {
+              const nextValue = event.target.value;
+              const caretPosition = event.target.selectionStart ?? nextValue.length;
+              latestComposerValueRef.current = nextValue;
+              const nextHasComposerText = nextValue.trim().length > 0;
+              setHasComposerText((current) =>
+                current === nextHasComposerText ? current : nextHasComposerText
+              );
+              syncMentionQuery(nextValue, caretPosition);
+              onComposerChange(nextValue);
+            }}
+            onBlur={() => onCommitDraft(activeChatId, latestComposerValueRef.current)}
+            onPaste={(event) => {
+              if (attachmentsDisabled || event.clipboardData.files.length === 0) {
+                return;
+              }
+              addSelectedFiles(event.clipboardData.files);
               event.preventDefault();
-              void submitComposer();
-            }
-          }}
-          placeholder={composerPlaceholder}
-          rows={1}
-        />
+            }}
+            onKeyDown={(event) => {
+              if (showMentionSuggestions) {
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  setMentionActiveIndex((current) =>
+                    mentionCandidates.length === 0 ? 0 : Math.min(current + 1, mentionCandidates.length - 1)
+                  );
+                  return;
+                }
+                if (event.key === "ArrowUp") {
+                  event.preventDefault();
+                  setMentionActiveIndex((current) => Math.max(current - 1, 0));
+                  return;
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setMentionQuery(null);
+                  setMentionActiveIndex(0);
+                  return;
+                }
+                if ((event.key === "Enter" || event.key === "Tab") && mentionCandidates[mentionActiveIndex]) {
+                  event.preventDefault();
+                  applyMentionCandidate(mentionCandidates[mentionActiveIndex]!);
+                  return;
+                }
+              }
+              if (event.key === "PageUp" || event.key === "PageDown") {
+                event.preventDefault();
+                return;
+              }
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                void submitComposer();
+              }
+            }}
+            onClick={(event) => {
+              syncMentionQuery(
+                event.currentTarget.value,
+                event.currentTarget.selectionStart ?? event.currentTarget.value.length
+              );
+            }}
+            placeholder={composerPlaceholder}
+            rows={1}
+          />
+          {showMentionSuggestions ? (
+            <div className="composer-mention-dropdown search-dropdown" role="listbox">
+              {mentionCandidates.map((participant, index) => (
+                <button
+                  type="button"
+                  key={participant.id}
+                  className={
+                    index === mentionActiveIndex
+                      ? "search-result-row composer-mention-option is-active"
+                      : "search-result-row composer-mention-option"
+                  }
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => applyMentionCandidate(participant)}
+                  role="option"
+                  aria-selected={index === mentionActiveIndex}
+                >
+                  <AvatarCircle
+                    className="avatar north-avatar"
+                    name={participant.displayName}
+                    avatarUrl={participant.avatarUrl ?? null}
+                    online={participant.online}
+                  />
+                  <span className="search-result-copy">
+                    <strong>{participant.displayName}</strong>
+                    <span>@{participant.username}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
         <button
           type="submit"
           className="primary-button north-send-button"
@@ -959,6 +1303,7 @@ type ConversationTimelineProps = {
   directChat: boolean;
   isSelectingMessages: boolean;
   selectedMessageIdSet: ReadonlySet<string>;
+  mentionParticipants: Participant[];
   timelineItems: TimelineItem[];
   sessionUser: UserProfile;
   onRender?: () => void;
@@ -974,6 +1319,7 @@ type ConversationTimelineProps = {
     messageId: string,
     key: MessageReaction["key"],
   ) => void;
+  onOpenMentionProfile: (participant: Participant) => void;
   onRetryMessage: (message: ChatMessage) => void;
   onDownloadAttachment: (chatId: string, attachment: ChatMessageAttachment) => void;
   onLoadAttachmentPreview: (chatId: string, attachment: ChatMessageAttachment) => Promise<Blob>;
@@ -989,6 +1335,7 @@ export const ConversationTimeline = memo(function ConversationTimeline({
   directChat,
   isSelectingMessages,
   selectedMessageIdSet,
+  mentionParticipants,
   timelineItems,
   sessionUser,
   onRender,
@@ -996,6 +1343,7 @@ export const ConversationTimeline = memo(function ConversationTimeline({
   onJumpToMessage,
   onToggleSelectedMessage,
   onToggleReaction,
+  onOpenMentionProfile,
   onRetryMessage,
   onDownloadAttachment,
   onLoadAttachmentPreview,
@@ -1020,12 +1368,14 @@ export const ConversationTimeline = memo(function ConversationTimeline({
             directChat={directChat}
             isSelectingMessages={isSelectingMessages}
             selected={selectedMessageIdSet.has(item.message.id)}
+            mentionParticipants={mentionParticipants}
             message={item.message}
             sessionUser={sessionUser}
             onOpenContextMenu={onOpenMessageContextMenu}
             onJumpToMessage={onJumpToMessage}
             onToggleSelectedMessage={onToggleSelectedMessage}
             onToggleReaction={onToggleReaction}
+            onOpenMentionProfile={onOpenMentionProfile}
             formatClock={formatClock}
             getMessageStatusClassName={getMessageStatusClassName}
             getMessageStatusGlyph={getMessageStatusGlyph}
@@ -1047,12 +1397,14 @@ type MessageRowProps = {
   directChat: boolean;
   isSelectingMessages: boolean;
   selected: boolean;
+  mentionParticipants: Participant[];
   message: ChatMessage;
   sessionUser: UserProfile;
   onOpenContextMenu: (event: ReactMouseEvent<HTMLElement>, chatId: string, messageId: string) => void;
   onJumpToMessage: (chatId: string, messageId: string) => void;
   onToggleSelectedMessage: (messageId: string) => void;
   onToggleReaction: (chatId: string, messageId: string, key: MessageReaction["key"]) => void;
+  onOpenMentionProfile: (participant: Participant) => void;
   onRetryMessage: (message: ChatMessage) => void;
   onDownloadAttachment: (chatId: string, attachment: ChatMessageAttachment) => void;
   onLoadAttachmentPreview: (chatId: string, attachment: ChatMessageAttachment) => Promise<Blob>;
@@ -1068,12 +1420,14 @@ const MessageRow = memo(function MessageRow({
   directChat,
   isSelectingMessages,
   selected,
+  mentionParticipants,
   message,
   sessionUser,
   onOpenContextMenu,
   onJumpToMessage,
   onToggleSelectedMessage,
   onToggleReaction,
+  onOpenMentionProfile,
   onRetryMessage,
   onDownloadAttachment,
   onLoadAttachmentPreview,
@@ -1127,6 +1481,19 @@ const MessageRow = memo(function MessageRow({
   const attachments = message.attachments ?? [];
   const shouldShowMessageText =
     message.content.trim().length > 0 && !isAttachmentOnlyFallback(message.content, attachments);
+  const forwardedLabel = message.forwardedFrom
+    ? `Переслано от ${message.forwardedFrom.sender.displayName}`
+    : message.forwarded
+      ? "Переслано"
+      : null;
+  const resolveMentionParticipant = (username: string) => {
+    const normalizedUsername = normalizeMentionUsername(username);
+    return (
+      mentionParticipants.find(
+        (participant) => participant.username.toLowerCase() === normalizedUsername
+      ) ?? null
+    );
+  };
 
   return (
     <div className={selectionRowClassName}>
@@ -1189,8 +1556,11 @@ const MessageRow = memo(function MessageRow({
             </span>
           </button>
         ) : null}
+        {forwardedLabel ? <div className="message-forwarded-label">{forwardedLabel}</div> : null}
         {shouldShowMessageText ? (
-          <div className="message-body">{renderMessageTextWithLinks(message.content)}</div>
+          <div className="message-body">
+            {renderMessageTextWithLinks(message.content, resolveMentionParticipant, onOpenMentionProfile)}
+          </div>
         ) : null}
         {attachments.length > 0 ? (
           <div className="message-attachments" aria-label="Вложения">
@@ -1292,9 +1662,16 @@ const MessageAttachmentView = memo(function MessageAttachmentView({
   const [previewError, setPreviewError] = useState(false);
   const [previewImageLoaded, setPreviewImageLoaded] = useState(false);
   const [isOpeningPreview, setIsOpeningPreview] = useState(false);
+  const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
+  const [audioPreviewError, setAudioPreviewError] = useState(false);
+  const [audioPreviewLoading, setAudioPreviewLoading] = useState(false);
   const inFlightPreviewRef = useRef<Promise<Blob> | null>(null);
   const previewObjectUrlRef = useRef<string | null>(null);
+  const audioPreviewObjectUrlRef = useRef<string | null>(null);
+  const audioElementRef = useRef<HTMLAudioElement | null>(null);
+  const autoPlayAudioRef = useRef(false);
   const imageAttachment = isImageAttachment(attachment);
+  const audioAttachment = isAudioAttachment(attachment);
   const previewIdentity = [
     chatId,
     attachment.id,
@@ -1314,6 +1691,38 @@ const MessageAttachmentView = memo(function MessageAttachmentView({
     });
     inFlightPreviewRef.current = request;
     return request;
+  };
+
+  const loadAudioPreview = (autoplay = false) => {
+    if (audioPreviewUrl && !audioPreviewError) {
+      if (autoplay) {
+        window.setTimeout(() => {
+          void audioElementRef.current?.play().catch(() => undefined);
+        }, 0);
+      }
+      return;
+    }
+    if (audioPreviewLoading) {
+      autoPlayAudioRef.current = autoPlayAudioRef.current || autoplay;
+      return;
+    }
+
+    autoPlayAudioRef.current = autoplay;
+    setAudioPreviewLoading(true);
+    setAudioPreviewError(false);
+    loadPreviewBlob()
+      .then((blob) => {
+        if (audioPreviewObjectUrlRef.current) {
+          window.URL.revokeObjectURL(audioPreviewObjectUrlRef.current);
+        }
+        const objectUrl = window.URL.createObjectURL(blob);
+        audioPreviewObjectUrlRef.current = objectUrl;
+        setAudioPreviewUrl(objectUrl);
+      })
+      .catch(() => {
+        setAudioPreviewError(true);
+      })
+      .finally(() => setAudioPreviewLoading(false));
   };
 
   useEffect(() => {
@@ -1368,13 +1777,40 @@ const MessageAttachmentView = memo(function MessageAttachmentView({
   }, [imageAttachment, previewIdentity]);
 
   useEffect(() => {
+    if (audioPreviewObjectUrlRef.current) {
+      window.URL.revokeObjectURL(audioPreviewObjectUrlRef.current);
+      audioPreviewObjectUrlRef.current = null;
+    }
+    setAudioPreviewUrl(null);
+    setAudioPreviewError(false);
+    setAudioPreviewLoading(false);
+    autoPlayAudioRef.current = false;
+    if (!audioAttachment) {
+      return;
+    }
+  }, [audioAttachment, previewIdentity]);
+
+  useEffect(() => {
     return () => {
       if (previewObjectUrlRef.current) {
         window.URL.revokeObjectURL(previewObjectUrlRef.current);
         previewObjectUrlRef.current = null;
       }
+      if (audioPreviewObjectUrlRef.current) {
+        window.URL.revokeObjectURL(audioPreviewObjectUrlRef.current);
+        audioPreviewObjectUrlRef.current = null;
+      }
     };
   }, []);
+
+  useEffect(() => {
+    if (!audioPreviewUrl || !autoPlayAudioRef.current) {
+      return;
+    }
+
+    autoPlayAudioRef.current = false;
+    void audioElementRef.current?.play().catch(() => undefined);
+  }, [audioPreviewUrl]);
 
   const openImageAttachment = () => {
     if (previewUrl && !previewError) {
@@ -1468,6 +1904,41 @@ const MessageAttachmentView = memo(function MessageAttachmentView({
     );
   }
 
+  if (audioAttachment) {
+    return (
+      <div className="message-audio-attachment">
+        <div className="message-audio-copy">
+          <strong>{attachment.fileName}</strong>
+          <span>{formatFileSize(attachment.sizeBytes)}</span>
+        </div>
+        {audioPreviewUrl ? (
+          <audio
+            ref={audioElementRef}
+            className="message-audio-player"
+            controls
+            preload="metadata"
+            src={audioPreviewUrl}
+          />
+        ) : (
+          <button
+            type="button"
+            className="ghost-button compact message-audio-play"
+            onClick={() => loadAudioPreview(true)}
+          >
+            {audioPreviewLoading ? "Загружаем..." : audioPreviewError ? "Повторить" : "Воспроизвести"}
+          </button>
+        )}
+        <button
+          type="button"
+          className="ghost-button compact"
+          onClick={() => onDownloadAttachment(chatId, attachment)}
+        >
+          Скачать
+        </button>
+      </div>
+    );
+  }
+
   return (
     <button
       type="button"
@@ -1502,21 +1973,45 @@ const MessageAttachmentView = memo(function MessageAttachmentView({
 });
 MessageAttachmentView.displayName = "MessageAttachmentView";
 
-const MESSAGE_URL_PATTERN = /(?:https?:\/\/|www\.)[^\s<>"']+/giu;
+const MESSAGE_TEXT_TOKEN_PATTERN = /(?:https?:\/\/|www\.)[^\s<>"']+|@[A-Za-z][A-Za-z0-9_]{2,23}/giu;
 
-function renderMessageTextWithLinks(content: string): ReactNode[] {
+function renderMessageTextWithLinks(
+  content: string,
+  resolveMentionParticipant: (username: string) => Participant | null,
+  onOpenMentionProfile: (participant: Participant) => void
+): ReactNode[] {
   const parts: ReactNode[] = [];
   let cursor = 0;
 
-  for (const match of content.matchAll(MESSAGE_URL_PATTERN)) {
-    const rawUrl = match[0];
+  for (const match of content.matchAll(MESSAGE_TEXT_TOKEN_PATTERN)) {
+    const rawToken = match[0];
     const index = match.index ?? 0;
-    const { url, trailingText } = splitTrailingUrlPunctuation(rawUrl);
 
     if (index > cursor) {
       parts.push(content.slice(cursor, index));
     }
 
+    if (rawToken.startsWith("@") && isMentionBoundary(content, index)) {
+      const participant = resolveMentionParticipant(rawToken);
+      if (participant) {
+        parts.push(
+          <button
+            type="button"
+            className="message-mention"
+            key={`message-mention-${index}`}
+            onClick={() => onOpenMentionProfile(participant)}
+          >
+            @{participant.username}
+          </button>,
+        );
+      } else {
+        parts.push(rawToken);
+      }
+      cursor = index + rawToken.length;
+      continue;
+    }
+
+    const { url, trailingText } = splitTrailingUrlPunctuation(rawToken);
     parts.push(
       <a
         className="message-link"
@@ -1528,12 +2023,10 @@ function renderMessageTextWithLinks(content: string): ReactNode[] {
         {url}
       </a>,
     );
-
     if (trailingText) {
       parts.push(trailingText);
     }
-
-    cursor = index + rawUrl.length;
+    cursor = index + rawToken.length;
   }
 
   if (cursor < content.length) {
@@ -1576,6 +2069,43 @@ function isImageAttachment(attachment: ChatMessageAttachment) {
   return attachment.mimeType.toLowerCase().startsWith("image/");
 }
 
+function isAudioAttachment(attachment: ChatMessageAttachment) {
+  return attachment.mimeType.toLowerCase().startsWith("audio/");
+}
+
+function resolveVoiceRecordingMimeType() {
+  if (typeof MediaRecorder === "undefined" || typeof MediaRecorder.isTypeSupported !== "function") {
+    return "";
+  }
+
+  for (const mimeType of [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4",
+    "audio/ogg;codecs=opus",
+  ]) {
+    if (MediaRecorder.isTypeSupported(mimeType)) {
+      return mimeType;
+    }
+  }
+  return "";
+}
+
+function buildVoiceRecordingFile(blob: Blob, mimeType: string) {
+  const extension = mimeType.includes("mp4") ? "m4a" : mimeType.includes("ogg") ? "ogg" : "webm";
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return new File([blob], `voice-message-${timestamp}.${extension}`, {
+    type: mimeType || blob.type || "audio/webm",
+  });
+}
+
+function formatVoiceRecordingDuration(durationMs: number) {
+  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
 function buildInitialAttachmentUploadProgress(files: File[]): AttachmentUploadProgress {
   const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
   return {
@@ -1612,6 +2142,49 @@ function formatFileSize(sizeBytes: number) {
     unitIndex += 1;
   }
   return `${size.toFixed(size >= 10 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
+type MentionProfileDialogProps = {
+  participant: Participant;
+  onClose: () => void;
+};
+
+function MentionProfileDialog({ participant, onClose }: MentionProfileDialogProps) {
+  return (
+    <div
+      className="message-selection-dialog-backdrop mention-profile-dialog-backdrop"
+      role="presentation"
+      onClick={onClose}
+    >
+      <div
+        className="mention-profile-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Профиль ${participant.displayName}`}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <button
+          type="button"
+          className="mention-profile-close"
+          onClick={onClose}
+          aria-label="Закрыть профиль"
+        >
+          ×
+        </button>
+        <AvatarCircle
+          className="avatar mention-profile-avatar north-avatar"
+          name={participant.displayName}
+          avatarUrl={participant.avatarUrl ?? null}
+          online={participant.online}
+        />
+        <div className="mention-profile-copy">
+          <strong>{participant.displayName}</strong>
+          <span>@{participant.username}</span>
+          <span>{participant.profession?.trim() ? participant.profession : "Без статуса"}</span>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 

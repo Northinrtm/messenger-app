@@ -35,6 +35,7 @@ public class ChatOpenService {
             boolean acknowledgeDelivered
     ) {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
+        chatService.clearReactionAttention(chatId, currentUser.getId());
         ChatSummaryResponse chat = chatService.getChatSummaryForUser(chatId, currentUser);
         MessagePageResponse initialMessagePage = messageService.listMessagePage(
                 chatId,

@@ -8,6 +8,7 @@ import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.repository.ChatMessageLinkRepository;
 import com.north.messenger.domain.repository.ChatParticipantRepository;
+import com.north.messenger.domain.repository.ChatRoomBanRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import java.time.Instant;
 import java.util.List;
@@ -35,6 +36,7 @@ class ChatLinkBrowserServiceTest {
     private ChatService chatService;
     private ChatParticipantRepository chatParticipantRepository;
     private ChatMessageLinkRepository chatMessageLinkRepository;
+    private ChatRoomBanRepository chatRoomBanRepository;
     private UserAccountRepository userAccountRepository;
     private ChatLinkBrowserService chatLinkBrowserService;
 
@@ -44,14 +46,17 @@ class ChatLinkBrowserServiceTest {
         chatService = mock(ChatService.class);
         chatParticipantRepository = mock(ChatParticipantRepository.class);
         chatMessageLinkRepository = mock(ChatMessageLinkRepository.class);
+        chatRoomBanRepository = mock(ChatRoomBanRepository.class);
         userAccountRepository = mock(UserAccountRepository.class);
         chatLinkBrowserService = new ChatLinkBrowserService(
                 authService,
                 chatService,
                 chatParticipantRepository,
                 chatMessageLinkRepository,
+                chatRoomBanRepository,
                 userAccountRepository
         );
+        when(chatRoomBanRepository.findByChatIdAndUserId(any(), any())).thenReturn(Optional.empty());
     }
 
     @Test
@@ -107,6 +112,8 @@ class ChatLinkBrowserServiceTest {
                 eq(true),
                 eq(membership.getJoinedAt()),
                 eq(false),
+                any(Instant.class),
+                eq(false),
                 any(Long.class),
                 any(Integer.class),
                 eq(PageRequest.of(0, 2))
@@ -133,6 +140,8 @@ class ChatLinkBrowserServiceTest {
                 eq(currentUser.getId()),
                 eq(true),
                 eq(membership.getJoinedAt()),
+                eq(false),
+                any(Instant.class),
                 eq(false),
                 any(Long.class),
                 any(Integer.class),
@@ -174,6 +183,8 @@ class ChatLinkBrowserServiceTest {
                 eq(true),
                 eq(joinedAt),
                 eq(false),
+                any(Instant.class),
+                eq(false),
                 any(Long.class),
                 any(Integer.class),
                 eq(PageRequest.of(0, 21))
@@ -188,6 +199,8 @@ class ChatLinkBrowserServiceTest {
                 eq(currentUser.getId()),
                 eq(true),
                 eq(joinedAt),
+                eq(false),
+                any(Instant.class),
                 eq(false),
                 any(Long.class),
                 any(Integer.class),
@@ -224,6 +237,8 @@ class ChatLinkBrowserServiceTest {
                 eq(true),
                 eq(reopenedAt),
                 eq(false),
+                any(Instant.class),
+                eq(false),
                 any(Long.class),
                 any(Integer.class),
                 eq(PageRequest.of(0, 21))
@@ -238,6 +253,8 @@ class ChatLinkBrowserServiceTest {
                 eq(currentUser.getId()),
                 eq(true),
                 eq(reopenedAt),
+                eq(false),
+                any(Instant.class),
                 eq(false),
                 any(Long.class),
                 any(Integer.class),

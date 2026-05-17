@@ -51,7 +51,7 @@ class WebSocketOutboundSecurityInterceptorTest {
         );
         webSocketSessionRegistry.register("ws-1", "north", userId, authSessionId);
         when(authService.isSessionAuthorized(userId, authSessionId)).thenReturn(true);
-        when(chatParticipantRepository.existsByChatIdAndUserId(chatId, userId)).thenReturn(true);
+        when(chatParticipantRepository.existsByChatIdAndUserIdAndLeftAtIsNull(chatId, userId)).thenReturn(true);
 
         Message<byte[]> message = outboundTypingMessage("ws-1", chatId);
 
@@ -90,7 +90,7 @@ class WebSocketOutboundSecurityInterceptorTest {
         );
         webSocketSessionRegistry.register("ws-1", "north", userId, authSessionId);
         when(authService.isSessionAuthorized(userId, authSessionId)).thenReturn(true);
-        when(chatParticipantRepository.existsByChatIdAndUserId(chatId, userId)).thenReturn(false);
+        when(chatParticipantRepository.existsByChatIdAndUserIdAndLeftAtIsNull(chatId, userId)).thenReturn(false);
 
         Message<byte[]> message = outboundTypingMessage("ws-1", chatId);
 

@@ -8,9 +8,11 @@ import com.north.messenger.application.chat.ChatService;
 import com.north.messenger.domain.model.ChatParticipant;
 import com.north.messenger.domain.model.ChatPrejoinHistoryPolicy;
 import com.north.messenger.domain.model.ChatRoom;
+import com.north.messenger.domain.model.ChatRoomBan;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.repository.ChatAttachmentRepository;
 import com.north.messenger.domain.repository.ChatParticipantRepository;
+import com.north.messenger.domain.repository.ChatRoomBanRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import java.time.Instant;
 import java.util.List;
@@ -42,6 +44,7 @@ public class ChatAttachmentBrowserService {
     private final ChatService chatService;
     private final ChatParticipantRepository chatParticipantRepository;
     private final ChatAttachmentRepository chatAttachmentRepository;
+    private final ChatRoomBanRepository chatRoomBanRepository;
     private final UserAccountRepository userAccountRepository;
 
     public ChatAttachmentBrowserService(
@@ -49,12 +52,14 @@ public class ChatAttachmentBrowserService {
             ChatService chatService,
             ChatParticipantRepository chatParticipantRepository,
             ChatAttachmentRepository chatAttachmentRepository,
+            ChatRoomBanRepository chatRoomBanRepository,
             UserAccountRepository userAccountRepository
     ) {
         this.authService = authService;
         this.chatService = chatService;
         this.chatParticipantRepository = chatParticipantRepository;
         this.chatAttachmentRepository = chatAttachmentRepository;
+        this.chatRoomBanRepository = chatRoomBanRepository;
         this.userAccountRepository = userAccountRepository;
     }
 
@@ -75,7 +80,9 @@ public class ChatAttachmentBrowserService {
         AttachmentBrowserKind kind = AttachmentBrowserKind.parse(rawKind);
         AttachmentBrowserCursor cursor = parseCursor(rawCursor);
         Instant visibleFrom = resolveVisibleHistoryStart(room, membership);
+        Instant visibleTo = resolveVisibleHistoryEnd(room, membership);
         boolean applyVisibleFrom = visibleFrom != null;
+        boolean applyVisibleTo = visibleTo != null;
         boolean applyCursor = cursor != null;
         int safeLimit = Math.max(1, Math.min(limit, 100));
 
@@ -84,6 +91,8 @@ public class ChatAttachmentBrowserService {
                 currentUser.getId(),
                 applyVisibleFrom,
                 applyVisibleFrom ? visibleFrom : DEFAULT_VISIBLE_FROM,
+                applyVisibleTo,
+                applyVisibleTo ? visibleTo : Instant.now().plusSeconds(31_536_000L),
                 kind == AttachmentBrowserKind.PHOTOS,
                 kind == AttachmentBrowserKind.DOCUMENTS,
                 applyCursor,
@@ -189,6 +198,22 @@ public class ChatAttachmentBrowserService {
             return null;
         }
         return membership.getJoinedAt();
+    }
+
+    private Instant resolveVisibleHistoryEnd(ChatRoom room, ChatParticipant membership) {
+        if (room.isDirect() || membership == null) {
+            return null;
+        }
+
+        Instant visibleTo = membership.getLeftAt();
+        ChatRoomBan ban = chatRoomBanRepository.findByChatIdAndUserId(room.getId(), membership.getUserId()).orElse(null);
+        if (ban == null) {
+            return visibleTo;
+        }
+        if (visibleTo == null) {
+            return ban.getCreatedAt();
+        }
+        return visibleTo.isBefore(ban.getCreatedAt()) ? visibleTo : ban.getCreatedAt();
     }
 
     private enum AttachmentBrowserKind {

@@ -275,7 +275,6 @@ export function useWorkspaceEffects({
       return;
     }
 
-    applyChatPreviewMessage(lastMessage);
     applyServerChatPreviewMessage(
       lastMessage,
       getActiveChatPreviewUnreadMode(isActiveChatOpen)

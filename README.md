@@ -4,6 +4,8 @@ Production-oriented messenger monolith with:
 
 - Spring Boot backend
 - React + TypeScript + Vite web client
+- React Native Android client scaffold
+- shared TypeScript contracts package
 - PostgreSQL primary datastore
 - WebSocket/STOMP realtime delivery
 - optional Redis fan-out for multi-instance backend delivery
@@ -39,6 +41,8 @@ This project must not be described as E2EE.
 
 - `backend` - Spring Boot application
 - `web` - React/Vite frontend
+- `android-app` - React Native Android client
+- `packages/shared` - shared TypeScript contracts
 - `deploy` - production scripts, backups, runbooks, Caddy, observability
 - `jitsi` - local and production Jitsi configuration
 - `docs` - architecture and product notes
@@ -111,6 +115,44 @@ cd web
 npm install
 npm run dev
 ```
+
+## Android app
+
+Current Android client lives in `android-app`.
+
+Requirements:
+
+- Node.js 22+
+- Android Studio with Android SDK configured
+- `ANDROID_HOME` or `local.properties` pointing at the SDK
+
+Install and verify JS-side tooling:
+
+```bash
+cd android-app
+npm install
+npm run typecheck
+npm test -- --runInBand
+npm run lint
+```
+
+Run Metro:
+
+```bash
+cd android-app
+npm start
+```
+
+Build or run Android debug:
+
+```bash
+cd android-app
+npm run android
+```
+
+Dev networking note:
+
+- in development, the Android client targets `http://10.0.2.2:8080` for the local backend when running on the Android emulator
 
 ## Environment
 

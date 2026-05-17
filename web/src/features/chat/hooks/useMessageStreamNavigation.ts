@@ -1,6 +1,9 @@
 import type { ChatMessage } from "../../../lib/types";
 import { useEffect, useEffectEvent, useRef } from "react";
 
+const MESSAGE_JUMP_HIGHLIGHT_CLASS = "is-jump-highlight";
+const MESSAGE_JUMP_HIGHLIGHT_MS = 2200;
+
 type UseMessageStreamNavigationOptions = {
   activeChatId: string | null;
   currentChatId: string | null;
@@ -58,9 +61,23 @@ export function useMessageStreamNavigation({
 }: UseMessageStreamNavigationOptions) {
   const messageStreamRef = useRef<HTMLDivElement | null>(null);
   const pendingOlderScrollOffsetRef = useRef<number | null>(null);
+  const highlightTimeoutRef = useRef<number | null>(null);
   const viewportSnapshotRef = useRef<{ chatId: string | null; lastMessageAnchorKey: string | null }>({
     chatId: null,
     lastMessageAnchorKey: null,
+  });
+
+  const highlightMessageNode = useEffectEvent((messageNode: HTMLElement) => {
+    highlightTimeoutRef.current && window.clearTimeout(highlightTimeoutRef.current);
+    const container = messageStreamRef.current;
+    container?.querySelectorAll<HTMLElement>(`.${MESSAGE_JUMP_HIGHLIGHT_CLASS}`).forEach((node) => {
+      node.classList.remove(MESSAGE_JUMP_HIGHLIGHT_CLASS);
+    });
+    messageNode.classList.add(MESSAGE_JUMP_HIGHLIGHT_CLASS);
+    highlightTimeoutRef.current = window.setTimeout(() => {
+      messageNode.classList.remove(MESSAGE_JUMP_HIGHLIGHT_CLASS);
+      highlightTimeoutRef.current = null;
+    }, MESSAGE_JUMP_HIGHLIGHT_MS);
   });
 
   const scrollMessageIntoStream = useEffectEvent((messageId: string, behavior: ScrollBehavior = "smooth") => {
@@ -81,6 +98,7 @@ export function useMessageStreamNavigation({
       top: Math.max(0, targetTop),
       behavior,
     });
+    highlightMessageNode(messageNode);
 
     return true;
   });
@@ -159,6 +177,14 @@ export function useMessageStreamNavigation({
       ? container.scrollHeight - container.scrollTop
       : 0;
   };
+
+  useEffect(() => {
+    return () => {
+      if (highlightTimeoutRef.current !== null) {
+        window.clearTimeout(highlightTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const container = messageStreamRef.current;

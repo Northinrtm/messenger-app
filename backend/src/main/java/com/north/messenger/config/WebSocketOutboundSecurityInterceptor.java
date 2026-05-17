@@ -87,7 +87,7 @@ public class WebSocketOutboundSecurityInterceptor implements ChannelInterceptor 
             return null;
         }
 
-        if (!chatParticipantRepository.existsByChatIdAndUserId(chatId, session.userId())) {
+        if (!chatParticipantRepository.existsByChatIdAndUserIdAndLeftAtIsNull(chatId, session.userId())) {
             log.warn(
                     "Dropping websocket outbound topic event for non-member user={} chatId={} destination={}",
                     session.username(),

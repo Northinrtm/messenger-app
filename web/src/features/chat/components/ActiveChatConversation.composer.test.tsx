@@ -280,6 +280,38 @@ describe("ActiveChatConversation composer", () => {
     expect(composerChangeSpy).toHaveBeenLastCalledWith("2");
   });
 
+  it("prevents PageUp and PageDown from leaking layout-scrolling behavior out of the composer", async () => {
+    await act(async () => {
+      root!.render(<ActiveChatConversation {...conversationProps()} />);
+      await Promise.resolve();
+    });
+
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement | null;
+    if (!textarea) {
+      throw new Error("Composer textarea is missing");
+    }
+
+    const pageUpEvent = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "PageUp",
+    });
+    const pageDownEvent = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "PageDown",
+    });
+
+    await act(async () => {
+      textarea.dispatchEvent(pageUpEvent);
+      textarea.dispatchEvent(pageDownEvent);
+      await Promise.resolve();
+    });
+
+    expect(pageUpEvent.defaultPrevented).toBe(true);
+    expect(pageDownEvent.defaultPrevented).toBe(true);
+  });
+
   it("does not restore stale parent draft text after the composer was cleared locally", async () => {
     const props = conversationProps({
       activeDraft: "abcdef",
@@ -524,6 +556,112 @@ describe("ActiveChatConversation composer", () => {
 
     expect(container.querySelector(".composer-upload-progress")).toBeNull();
     expect(container.querySelector(".composer-attachment-chip")?.textContent).toContain("image.png");
+  });
+
+  it("records a voice message and adds it to attachments after stopping", async () => {
+    const stopTrackSpy = vi.fn();
+    const getUserMediaSpy = vi.fn(async () => ({
+      getTracks: () => [{ stop: stopTrackSpy }],
+    }));
+    const mediaDevicesDescriptor = Object.getOwnPropertyDescriptor(navigator, "mediaDevices");
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: getUserMediaSpy,
+      },
+    });
+
+    class FakeMediaRecorder {
+      static isTypeSupported(type: string) {
+        return type.startsWith("audio/webm");
+      }
+
+      mimeType: string;
+      state: "inactive" | "recording" = "inactive";
+      #listeners = new Map<string, Array<(event?: { data?: Blob }) => void>>();
+
+      constructor(_stream: MediaStream, options?: { mimeType?: string }) {
+        this.mimeType = options?.mimeType ?? "audio/webm";
+      }
+
+      addEventListener(type: string, listener: (event?: { data?: Blob }) => void, options?: { once?: boolean }) {
+        const wrapped =
+          options?.once === true
+            ? (event?: { data?: Blob }) => {
+                listener(event);
+                this.removeEventListener(type, wrapped);
+              }
+            : listener;
+        const current = this.#listeners.get(type) ?? [];
+        current.push(wrapped);
+        this.#listeners.set(type, current);
+      }
+
+      removeEventListener(type: string, listener: (event?: { data?: Blob }) => void) {
+        const current = this.#listeners.get(type) ?? [];
+        this.#listeners.set(
+          type,
+          current.filter((candidate) => candidate !== listener)
+        );
+      }
+
+      start() {
+        this.state = "recording";
+      }
+
+      stop() {
+        this.state = "inactive";
+        this.#listeners.get("dataavailable")?.forEach((listener) =>
+          listener({ data: new Blob(["voice"], { type: this.mimeType }) })
+        );
+        this.#listeners.get("stop")?.forEach((listener) => listener());
+      }
+    }
+
+    const mediaRecorderDescriptor = Object.getOwnPropertyDescriptor(globalThis, "MediaRecorder");
+    Object.defineProperty(globalThis, "MediaRecorder", {
+      configurable: true,
+      value: FakeMediaRecorder,
+    });
+
+    try {
+      await act(async () => {
+        root!.render(<ActiveChatConversation {...conversationProps()} />);
+        await Promise.resolve();
+      });
+
+      const voiceButton = container.querySelector(".composer-voice-button") as HTMLButtonElement | null;
+      if (!voiceButton) {
+        throw new Error("Voice record button is missing");
+      }
+
+      await act(async () => {
+        voiceButton.click();
+        await Promise.resolve();
+      });
+
+      expect(getUserMediaSpy).toHaveBeenCalledTimes(1);
+      expect(container.querySelector(".composer-recording-status")?.textContent).toContain("Идет запись");
+
+      await act(async () => {
+        voiceButton.click();
+        await Promise.resolve();
+      });
+
+      expect(stopTrackSpy).toHaveBeenCalled();
+      expect(container.querySelector(".composer-attachment-chip")?.textContent).toContain("voice-message-");
+    } finally {
+      if (mediaRecorderDescriptor) {
+        Object.defineProperty(globalThis, "MediaRecorder", mediaRecorderDescriptor);
+      } else {
+        delete (globalThis as { MediaRecorder?: unknown }).MediaRecorder;
+      }
+      if (mediaDevicesDescriptor) {
+        Object.defineProperty(navigator, "mediaDevices", mediaDevicesDescriptor);
+      } else {
+        delete (navigator as { mediaDevices?: unknown }).mediaDevices;
+      }
+    }
   });
 
   it("renders a history access notice when older messages are still unavailable", async () => {
@@ -829,5 +967,63 @@ describe("ActiveChatConversation composer", () => {
     expect(onSelectNextPinned).toHaveBeenCalledTimes(1);
     expect(onJumpToPinned).toHaveBeenCalledTimes(1);
     expect(onUnpin).toHaveBeenCalledTimes(1);
+  });
+
+  it("replaces an active @mention query from the keyboard suggestions", async () => {
+    const composerChangeSpy = vi.fn();
+
+    await act(async () => {
+      root!.render(
+        <ActiveChatConversation
+          {...conversationProps({
+            activeChat: chatSummary({
+              direct: false,
+              members: [
+                participant({ id: "user-1", username: "north", displayName: "North" }),
+                participant({ id: "user-2", username: "anna", displayName: "Anna" }),
+              ],
+            }),
+            activeDirectParticipant: null,
+            onComposerChange: composerChangeSpy,
+          })}
+        />
+      );
+      await Promise.resolve();
+    });
+
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement | null;
+    if (!textarea) {
+      throw new Error("Composer textarea is missing");
+    }
+
+    await act(async () => {
+      setTextareaValue(textarea, "@an");
+      textarea.setSelectionRange(3, 3);
+      textarea.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    const mentionOption = container.querySelector(
+      ".composer-mention-option"
+    ) as HTMLButtonElement | null;
+    if (!mentionOption) {
+      throw new Error("Mention option is missing");
+    }
+
+    const enterEvent = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Enter",
+    });
+
+    await act(async () => {
+      textarea.dispatchEvent(enterEvent);
+      await Promise.resolve();
+    });
+
+    expect(enterEvent.defaultPrevented).toBe(true);
+    expect(textarea.value).toBe("@anna ");
+    expect(composerChangeSpy).toHaveBeenLastCalledWith("@anna ");
+    expect(container.querySelector(".composer-mention-option")).toBeNull();
   });
 });

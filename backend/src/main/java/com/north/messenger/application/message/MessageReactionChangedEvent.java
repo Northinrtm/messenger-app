@@ -4,6 +4,7 @@ import java.util.UUID;
 
 public record MessageReactionChangedEvent(
         UUID chatId,
-        UUID messageId
+        UUID messageId,
+        UUID actorUserId
 ) {
 }

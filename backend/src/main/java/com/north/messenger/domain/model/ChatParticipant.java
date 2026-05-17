@@ -26,11 +26,14 @@ public class ChatParticipant {
     @Column(name = "prejoin_history_access_granted_at")
     private Instant prejoinHistoryAccessGrantedAt;
 
+    @Column(name = "left_at")
+    private Instant leftAt;
+
     protected ChatParticipant() {
     }
 
     public ChatParticipant(UUID id, UUID chatId, UUID userId, Instant joinedAt) {
-        this(id, chatId, userId, joinedAt, null);
+        this(id, chatId, userId, joinedAt, null, null);
     }
 
     public ChatParticipant(
@@ -40,11 +43,23 @@ public class ChatParticipant {
             Instant joinedAt,
             Instant prejoinHistoryAccessGrantedAt
     ) {
+        this(id, chatId, userId, joinedAt, prejoinHistoryAccessGrantedAt, null);
+    }
+
+    public ChatParticipant(
+            UUID id,
+            UUID chatId,
+            UUID userId,
+            Instant joinedAt,
+            Instant prejoinHistoryAccessGrantedAt,
+            Instant leftAt
+    ) {
         this.id = id;
         this.chatId = chatId;
         this.userId = userId;
         this.joinedAt = joinedAt;
         this.prejoinHistoryAccessGrantedAt = prejoinHistoryAccessGrantedAt;
+        this.leftAt = leftAt;
     }
 
     public UUID getId() {
@@ -65,6 +80,7 @@ public class ChatParticipant {
 
     public void rejoin(Instant joinedAt) {
         this.joinedAt = joinedAt;
+        this.leftAt = null;
     }
 
     public Instant getPrejoinHistoryAccessGrantedAt() {
@@ -73,6 +89,22 @@ public class ChatParticipant {
 
     public void grantPrejoinHistoryAccess(Instant grantedAt) {
         this.prejoinHistoryAccessGrantedAt = grantedAt;
+    }
+
+    public Instant getLeftAt() {
+        return leftAt;
+    }
+
+    public boolean isActive() {
+        return leftAt == null;
+    }
+
+    public void leave(Instant leftAt) {
+        this.leftAt = leftAt;
+    }
+
+    public void restoreMembership() {
+        this.leftAt = null;
     }
 }
 

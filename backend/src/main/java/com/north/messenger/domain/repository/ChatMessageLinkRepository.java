@@ -42,6 +42,7 @@ public interface ChatMessageLinkRepository extends JpaRepository<ChatMessageLink
             where link.chatId = :chatId
               and link.messageId = message.id
               and (:applyVisibleFrom = false or message.createdAt >= :visibleFrom)
+              and (:applyVisibleTo = false or message.createdAt <= :visibleTo)
               and not exists (
                 select 1 from UserDeletedMessage deleted
                 where deleted.userId = :userId and deleted.messageId = message.id
@@ -61,6 +62,8 @@ public interface ChatMessageLinkRepository extends JpaRepository<ChatMessageLink
             @Param("userId") UUID userId,
             @Param("applyVisibleFrom") boolean applyVisibleFrom,
             @Param("visibleFrom") Instant visibleFrom,
+            @Param("applyVisibleTo") boolean applyVisibleTo,
+            @Param("visibleTo") Instant visibleTo,
             @Param("applyCursor") boolean applyCursor,
             @Param("cursorServerOrder") Long cursorServerOrder,
             @Param("cursorPositionIndex") Integer cursorPositionIndex,

@@ -148,6 +148,10 @@ class MessageDispatchService {
                             List.of(message.getId())
                     ).stream()
                     .collect(Collectors.groupingBy(MessageReaction::getReactionKey));
+            var forwardedInfo = messageSupport.loadForwardedInfosByMessageId(
+                    List.of(message),
+                    participantsById
+            ).get(message.getId());
             var plainPayload = messageSupport.toPlainPayload(message);
             var attachments = messageSupport.loadAttachmentResponses(List.of(message.getId()))
                     .getOrDefault(message.getId(), List.of());
@@ -167,7 +171,8 @@ class MessageDispatchService {
                     senderClientMessageId,
                     senderReplyTo,
                     plainPayload,
-                    attachments
+                    attachments,
+                    forwardedInfo
             );
             realtimeMessagingGateway.sendToUser(sender.getUsername(), MESSAGE_ACK_DESTINATION, senderAck);
 
@@ -183,8 +188,8 @@ class MessageDispatchService {
                         participant.getId()
                 ).get(message.getId());
                 MessageResponse response = participant.getId().equals(sender.getId())
-                        ? messageSupport.toResponse(message, senderParticipant, participant.getId(), summary, reactions, senderClientMessageId, replyTo, plainPayload, attachments)
-                        : messageSupport.toResponse(message, senderParticipant, participant.getId(), summary, reactions, null, replyTo, plainPayload, attachments);
+                        ? messageSupport.toResponse(message, senderParticipant, participant.getId(), summary, reactions, senderClientMessageId, replyTo, plainPayload, attachments, forwardedInfo)
+                        : messageSupport.toResponse(message, senderParticipant, participant.getId(), summary, reactions, null, replyTo, plainPayload, attachments, forwardedInfo);
                 realtimeMessagingGateway.sendToUser(participant.getUsername(), MESSAGE_DELIVERY_DESTINATION, response);
             });
             telemetry.recordMessageDispatch(telemetrySample, room, participantCount, source, "sent", message.getChatId(), message.getId());
@@ -253,6 +258,10 @@ class MessageDispatchService {
                             List.of(message.getId())
                     ).stream()
                     .collect(Collectors.groupingBy(MessageReaction::getReactionKey));
+            var forwardedInfo = messageSupport.loadForwardedInfosByMessageId(
+                    List.of(message),
+                    participantsById
+            ).get(message.getId());
             var attachments = messageSupport.loadAttachmentResponses(List.of(message.getId()))
                     .getOrDefault(message.getId(), List.of());
             MessageResponse response = messageSupport.toResponse(
@@ -269,7 +278,8 @@ class MessageDispatchService {
                             sender.getId()
                     ).get(message.getId()),
                     messageSupport.toPlainPayload(message),
-                    attachments
+                    attachments,
+                    forwardedInfo
             );
             realtimeMessagingGateway.sendToUser(sender.getUsername(), MESSAGE_ACK_DESTINATION, response);
             telemetry.recordMessageDispatch(telemetrySample, room, participantCount, source, "acked", message.getChatId(), message.getId());

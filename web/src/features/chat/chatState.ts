@@ -61,6 +61,7 @@ export function applyChatPreviewOverrides(
       lastMessage: override.lastMessage,
       lastMessageAt: override.lastMessageAt,
       lastMessageHasReactions: false,
+      reactionAttention: chat.reactionAttention,
       updatedAt,
     };
   });
@@ -158,6 +159,7 @@ export function applyChatMessageActivity(
         lastMessage: buildMessageContentPreview(message, 88),
         lastMessageAt: message.createdAt,
         lastMessageHasReactions: message.reactions.length > 0,
+        reactionAttention: chat.reactionAttention,
         lastMessageServerOrder: message.serverOrder ?? chat.lastMessageServerOrder,
         updatedAt: message.createdAt,
         unreadCount: unreadMode === "clear" ? 0 : chat.unreadCount,
@@ -193,6 +195,7 @@ export function clearChatMessageActivity(
       lastMessage: null,
       lastMessageAt: null,
       lastMessageHasReactions: false,
+      reactionAttention: chat.reactionAttention,
       lastMessageServerOrder: null,
     };
   });
@@ -415,6 +418,31 @@ export function removeMessageByClientMessageId(
         pages,
       }
     : current;
+}
+
+export function setChatReactionAttention(
+  current: ChatSummary[] | undefined,
+  chatId: string,
+  reactionAttention: boolean
+) {
+  if (!current) {
+    return current;
+  }
+
+  let changed = false;
+  const next = current.map((chat) => {
+    if (chat.id !== chatId || Boolean(chat.reactionAttention) === reactionAttention) {
+      return chat;
+    }
+
+    changed = true;
+    return {
+      ...chat,
+      reactionAttention,
+    };
+  });
+
+  return changed ? next : current;
 }
 
 export function removeMessageById(

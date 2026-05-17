@@ -15,6 +15,8 @@ public record MessageResponse(
         String clientMessageId,
         MessageSnippetResponse replyTo,
         List<MessageReactionSummaryResponse> reactions,
+        boolean forwarded,
+        ForwardedMessageInfoResponse forwardedFrom,
         PlainMessagePayloadResponse plainPayload,
         List<ChatAttachmentResponse> attachments
 ) {

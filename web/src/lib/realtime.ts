@@ -615,6 +615,7 @@ export function sendMessageRealtime(input: {
   chatId: string;
   clientMessageId: string;
   replyToMessageId?: string | null;
+  forwardedFromMessageId?: string | null;
   plainPayload: {
     content: string;
   };
@@ -661,6 +662,7 @@ export function sendMessageRealtime(input: {
         body: JSON.stringify({
           clientMessageId: input.clientMessageId,
           replyToMessageId: input.replyToMessageId ?? null,
+          forwardedFromMessageId: input.forwardedFromMessageId ?? null,
           attachmentIds: input.attachmentIds ?? [],
           plainPayload: input.plainPayload,
         }),
@@ -681,6 +683,7 @@ export function sendMessageRaw(
   body: {
     clientMessageId?: string;
     replyToMessageId?: string | null;
+    forwardedFromMessageId?: string | null;
     plainPayload: {
       content: string;
     };
@@ -700,6 +703,7 @@ export function sendMessageRaw(
     chatId,
     clientMessageId: body.clientMessageId ?? "",
     replyToMessageId: body.replyToMessageId ?? null,
+    forwardedFromMessageId: body.forwardedFromMessageId ?? null,
     plainPayload: body.plainPayload,
     attachmentIds: body.attachmentIds ?? [],
     timeoutMs: REALTIME_SEND_ACK_TIMEOUT_MS,

@@ -66,6 +66,8 @@ export function buildHydratedChatMessage(
     clientMessageId: message.clientMessageId ?? null,
     replyTo: message.replyTo,
     reactions: message.reactions ?? [],
+    forwarded: message.forwarded ?? false,
+    forwardedFrom: message.forwardedFrom ?? null,
     attachments,
   };
 }

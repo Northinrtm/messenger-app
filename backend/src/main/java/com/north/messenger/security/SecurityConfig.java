@@ -57,7 +57,11 @@ public class SecurityConfig {
                                 "/api/auth/password-reset/request",
                                 "/api/auth/password-reset/confirm",
                                 "/api/auth/refresh",
-                                "/api/auth/logout"
+                                "/api/auth/logout",
+                                "/api/mobile/auth/register",
+                                "/api/mobile/auth/login",
+                                "/api/mobile/auth/refresh",
+                                "/api/mobile/auth/logout"
                         ).permitAll()
                         .anyRequest().authenticated()
                 )

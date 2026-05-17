@@ -14,13 +14,23 @@ public record CreateMessageRequest(
         @Size(max = 10)
         List<UUID> attachmentIds,
         @Valid
-        PlainMessagePayloadRequest plainPayload
+        PlainMessagePayloadRequest plainPayload,
+        UUID forwardedFromMessageId
 ) {
+    public CreateMessageRequest(
+            String clientMessageId,
+            UUID replyToMessageId,
+            List<UUID> attachmentIds,
+            PlainMessagePayloadRequest plainPayload
+    ) {
+        this(clientMessageId, replyToMessageId, attachmentIds, plainPayload, null);
+    }
+
     public CreateMessageRequest(
             String clientMessageId,
             UUID replyToMessageId,
             PlainMessagePayloadRequest plainPayload
     ) {
-        this(clientMessageId, replyToMessageId, null, plainPayload);
+        this(clientMessageId, replyToMessageId, null, plainPayload, null);
     }
 }

@@ -1,6 +1,7 @@
 package com.north.messenger.application.message;
 
 import com.north.messenger.api.dto.ChatAttachmentResponse;
+import com.north.messenger.api.dto.ForwardedMessageInfoResponse;
 import com.north.messenger.api.dto.MessageDeliveryState;
 import com.north.messenger.api.dto.MessageReactionEventResponse;
 import com.north.messenger.api.dto.MessageReactionSummaryResponse;
@@ -16,12 +17,15 @@ import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.model.ChatParticipant;
 import com.north.messenger.domain.model.ChatPrejoinHistoryPolicy;
 import com.north.messenger.domain.model.ChatRoom;
+import com.north.messenger.domain.model.ChatRoomBan;
 import com.north.messenger.domain.model.MessageReceipt;
 import com.north.messenger.domain.model.MessageReaction;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.repository.ChatAttachmentRepository;
 import com.north.messenger.domain.repository.ChatMessageRepository;
 import com.north.messenger.domain.repository.ChatParticipantRepository;
+import com.north.messenger.domain.repository.ChatRoomRepository;
+import com.north.messenger.domain.repository.ChatRoomBanRepository;
 import com.north.messenger.domain.repository.MessageReceiptRepository;
 import com.north.messenger.domain.repository.MessageReactionRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
@@ -49,6 +53,8 @@ class MessageSupport {
     private final ChatAttachmentRepository chatAttachmentRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final ChatParticipantRepository chatParticipantRepository;
+    private final ChatRoomRepository chatRoomRepository;
+    private final ChatRoomBanRepository chatRoomBanRepository;
     private final MessageReceiptRepository messageReceiptRepository;
     private final MessageReactionRepository messageReactionRepository;
     private final UserAccountRepository userAccountRepository;
@@ -61,6 +67,8 @@ class MessageSupport {
             ChatAttachmentRepository chatAttachmentRepository,
             ChatMessageRepository chatMessageRepository,
             ChatParticipantRepository chatParticipantRepository,
+            ChatRoomRepository chatRoomRepository,
+            ChatRoomBanRepository chatRoomBanRepository,
             MessageReceiptRepository messageReceiptRepository,
             MessageReactionRepository messageReactionRepository,
             UserAccountRepository userAccountRepository,
@@ -72,6 +80,8 @@ class MessageSupport {
         this.chatAttachmentRepository = chatAttachmentRepository;
         this.chatMessageRepository = chatMessageRepository;
         this.chatParticipantRepository = chatParticipantRepository;
+        this.chatRoomRepository = chatRoomRepository;
+        this.chatRoomBanRepository = chatRoomBanRepository;
         this.messageReceiptRepository = messageReceiptRepository;
         this.messageReactionRepository = messageReactionRepository;
         this.userAccountRepository = userAccountRepository;
@@ -102,6 +112,7 @@ class MessageSupport {
             return Map.of();
         }
         Instant visibleFrom = resolveVisibleHistoryStart(room, membership);
+        Instant visibleTo = resolveVisibleHistoryEnd(room, membership);
 
         Map<UUID, ChatMessage> referencedMessagesById = chatMessageRepository.findAllById(
                         messagesWithReply.stream().map(ChatMessage::getReplyToMessageId).distinct().toList()
@@ -134,7 +145,7 @@ class MessageSupport {
                     if (referencedMessage == null) {
                         return null;
                     }
-                    if (!canViewMessageForReplySnippet(referencedMessage, viewerUserId, visibleFrom)) {
+                    if (!canViewMessageForReplySnippet(referencedMessage, viewerUserId, visibleFrom, visibleTo)) {
                         return null;
                     }
 
@@ -215,7 +226,8 @@ class MessageSupport {
                 clientMessageId,
                 replyTo,
                 toPlainPayload(message),
-                loadAttachmentResponses(List.of(message.getId())).getOrDefault(message.getId(), List.of())
+                loadAttachmentResponses(List.of(message.getId())).getOrDefault(message.getId(), List.of()),
+                resolveForwardedInfo(message, Map.of(sender.getId(), sender))
         );
     }
 
@@ -238,7 +250,8 @@ class MessageSupport {
                 clientMessageId,
                 replyTo,
                 toPlainPayload(message),
-                attachments
+                attachments,
+                resolveForwardedInfo(message, Map.of(sender.getId(), sender))
         );
     }
 
@@ -261,7 +274,8 @@ class MessageSupport {
                 clientMessageId,
                 replyTo,
                 plainPayload,
-                loadAttachmentResponses(List.of(message.getId())).getOrDefault(message.getId(), List.of())
+                loadAttachmentResponses(List.of(message.getId())).getOrDefault(message.getId(), List.of()),
+                resolveForwardedInfo(message, Map.of(sender.getId(), sender))
         );
     }
 
@@ -285,7 +299,8 @@ class MessageSupport {
                 clientMessageId,
                 replyTo,
                 plainPayload,
-                attachments
+                attachments,
+                resolveForwardedInfo(message, Map.of(sender.getId(), sender))
         );
     }
 
@@ -298,7 +313,8 @@ class MessageSupport {
             String clientMessageId,
             MessageSnippetResponse replyTo,
             PlainMessagePayloadResponse plainPayload,
-            List<ChatAttachmentResponse> attachments
+            List<ChatAttachmentResponse> attachments,
+            ForwardedMessageInfoResponse forwardedFrom
     ) {
         MessageStatusResponse status = message.getSenderId().equals(currentUserId)
                 ? summary.toResponse()
@@ -315,9 +331,41 @@ class MessageSupport {
                 clientMessageId,
                 replyTo,
                 reactions,
+                message.isForwarded(),
+                forwardedFrom,
                 plainPayload,
                 attachments
         );
+    }
+
+    Map<UUID, ForwardedMessageInfoResponse> loadForwardedInfosByMessageId(
+            Collection<ChatMessage> messages,
+            Map<UUID, UserAccount> knownUsersById
+    ) {
+        List<ChatMessage> forwardedMessages = messages.stream()
+                .filter(Objects::nonNull)
+                .filter(message -> message.getForwardedFromSenderId() != null)
+                .toList();
+        if (forwardedMessages.isEmpty()) {
+            return Map.of();
+        }
+
+        Set<UUID> missingSenderIds = forwardedMessages.stream()
+                .map(ChatMessage::getForwardedFromSenderId)
+                .filter(Objects::nonNull)
+                .filter(senderId -> !knownUsersById.containsKey(senderId))
+                .collect(Collectors.toSet());
+        Map<UUID, UserAccount> usersById = new HashMap<>(knownUsersById);
+        if (!missingSenderIds.isEmpty()) {
+            userAccountRepository.findAllByIdIn(missingSenderIds)
+                    .forEach(user -> usersById.put(user.getId(), user));
+        }
+
+        return forwardedMessages.stream()
+                .collect(Collectors.toMap(
+                        ChatMessage::getId,
+                        message -> buildForwardedInfo(message, usersById)
+                ));
     }
 
     String validatePlainPayload(PlainMessagePayloadRequest payload, boolean attachmentsPresent) {
@@ -482,11 +530,35 @@ class MessageSupport {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Reply target must belong to the same chat");
         }
         Instant visibleFrom = resolveVisibleHistoryStart(room, membership);
-        if (!canViewMessageForReplySnippet(replyTarget, currentUser.getId(), visibleFrom)) {
+        Instant visibleTo = resolveVisibleHistoryEnd(room, membership);
+        if (!canViewMessageForReplySnippet(replyTarget, currentUser.getId(), visibleFrom, visibleTo)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Reply target not found");
         }
 
         return replyTarget.getId();
+    }
+
+    ForwardedMessageContext validateForwardTarget(UserAccount currentUser, UUID forwardedFromMessageId) {
+        if (forwardedFromMessageId == null) {
+            return null;
+        }
+
+        ChatMessage sourceMessage = chatMessageRepository.findById(forwardedFromMessageId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Forward source not found"));
+        ChatRoom sourceRoom = chatRoomRepository.findById(sourceMessage.getChatId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Forward source not found"));
+        ChatParticipant membership = chatParticipantRepository.findByChatIdAndUserId(sourceRoom.getId(), currentUser.getId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Forward source not found"));
+        Instant visibleFrom = resolveVisibleHistoryStart(sourceRoom, membership);
+        Instant visibleTo = resolveVisibleHistoryEnd(sourceRoom, membership);
+        if (!canViewMessageForReplySnippet(sourceMessage, currentUser.getId(), visibleFrom, visibleTo)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Forward source not found");
+        }
+
+        UUID originalSenderId = sourceMessage.getForwardedFromSenderId() != null
+                ? sourceMessage.getForwardedFromSenderId()
+                : sourceMessage.getSenderId();
+        return new ForwardedMessageContext(sourceMessage, originalSenderId);
     }
 
     String normalizeReactionKey(String reactionKey) {
@@ -514,11 +586,19 @@ class MessageSupport {
         }
     }
 
-    private boolean canViewMessageForReplySnippet(ChatMessage message, UUID viewerUserId, Instant visibleFrom) {
+    private boolean canViewMessageForReplySnippet(
+            ChatMessage message,
+            UUID viewerUserId,
+            Instant visibleFrom,
+            Instant visibleTo
+    ) {
         if (userDeletedMessageRepository.existsByUserIdAndMessageId(viewerUserId, message.getId())) {
             return false;
         }
-        return visibleFrom == null || !message.getCreatedAt().isBefore(visibleFrom);
+        if (visibleFrom != null && message.getCreatedAt().isBefore(visibleFrom)) {
+            return false;
+        }
+        return visibleTo == null || !message.getCreatedAt().isAfter(visibleTo);
     }
 
     private Instant resolveVisibleHistoryStart(ChatRoom room, ChatParticipant membership) {
@@ -532,11 +612,58 @@ class MessageSupport {
         return membership.getJoinedAt();
     }
 
+    private Instant resolveVisibleHistoryEnd(ChatRoom room, ChatParticipant membership) {
+        if (room.isDirect() || membership == null) {
+            return null;
+        }
+
+        Instant visibleTo = membership.getLeftAt();
+        ChatRoomBan ban = chatRoomBanRepository.findByChatIdAndUserId(room.getId(), membership.getUserId()).orElse(null);
+        if (ban == null) {
+            return visibleTo;
+        }
+        if (visibleTo == null) {
+            return ban.getCreatedAt();
+        }
+        return visibleTo.isBefore(ban.getCreatedAt()) ? visibleTo : ban.getCreatedAt();
+    }
+
     PlainMessagePayloadResponse toPlainPayload(ChatMessage message) {
         if (message == null) {
             return null;
         }
         return new PlainMessagePayloadResponse(messageContentCryptoService.requirePlainContent(message));
+    }
+
+    private ForwardedMessageInfoResponse resolveForwardedInfo(
+            ChatMessage message,
+            Map<UUID, UserAccount> knownUsersById
+    ) {
+        if (message == null || message.getForwardedFromSenderId() == null) {
+            return null;
+        }
+        return buildForwardedInfo(message, knownUsersById);
+    }
+
+    private ForwardedMessageInfoResponse buildForwardedInfo(
+            ChatMessage message,
+            Map<UUID, UserAccount> knownUsersById
+    ) {
+        UUID forwardedFromSenderId = message.getForwardedFromSenderId();
+        if (forwardedFromSenderId == null) {
+            return null;
+        }
+
+        UserAccount sender = knownUsersById.get(forwardedFromSenderId);
+        if (sender == null) {
+            sender = userAccountRepository.findById(forwardedFromSenderId).orElse(null);
+        }
+
+        return new ForwardedMessageInfoResponse(
+                sender != null
+                        ? authService.toParticipant(sender)
+                        : authService.toDeletedParticipant(forwardedFromSenderId)
+        );
     }
 
     String summarizeMessagePreview(ChatMessage message) {
@@ -560,6 +687,12 @@ class MessageSupport {
     enum DeleteScope {
         SELF,
         EVERYONE
+    }
+
+    record ForwardedMessageContext(
+            ChatMessage sourceMessage,
+            UUID originalSenderId
+    ) {
     }
 
     record MessageReceiptSummary(

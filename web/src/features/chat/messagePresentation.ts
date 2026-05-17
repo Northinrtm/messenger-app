@@ -45,6 +45,8 @@ export function createOptimisticOutgoingMessage(
     localOrder: input.localOrder,
     replyTo: input.replyTo ?? null,
     reactions: [],
+    forwarded: false,
+    forwardedFrom: null,
     attachments: input.attachments ?? [],
     status: {
       state: "SENDING",

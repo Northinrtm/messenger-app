@@ -81,7 +81,10 @@ The product must support:
 
 ## Push requirements
 
-The product must support Web Push subscriptions.
+The product must support:
+
+- browser Web Push subscriptions
+- Android native push registration
 
 Push payloads sent by the backend must remain generic and must not contain message text previews.
 
@@ -92,7 +95,7 @@ The product must support:
 - instant conferences
 - scheduled conferences
 - participant invites
-- Jitsi embed
+- Jitsi-based in-app conference clients
 - recording import and archive download flow
 
 ## Access control requirements
