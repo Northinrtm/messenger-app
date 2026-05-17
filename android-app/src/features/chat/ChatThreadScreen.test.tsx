@@ -7,6 +7,7 @@ import type {
 } from '@north/shared';
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
+import {Linking, Share} from 'react-native';
 import {ChatThreadScreen} from './ChatThreadScreen';
 
 jest.mock('../../lib/api', () => ({
@@ -18,6 +19,8 @@ jest.mock('../../lib/api', () => ({
   getChatOpen: jest.fn(),
   getMessagesPage: jest.fn(),
   toggleMessageReaction: jest.fn(),
+  downloadChatAttachment: jest.fn(),
+  uploadChatAttachment: jest.fn(),
 }));
 
 jest.mock('../../lib/plainMessages', () => ({
@@ -29,9 +32,22 @@ jest.mock('../../lib/realtime', () => ({
   publishTypingEvent: jest.fn(() => true),
 }));
 
+jest.mock('react-native-document-picker', () => ({
+  __esModule: true,
+  default: {
+    pick: jest.fn(),
+    isCancel: jest.fn(() => false),
+    types: {
+      allFiles: '*/*',
+    },
+  },
+}));
+
 const apiModule = jest.requireMock('../../lib/api') as {
   getChatOpen: jest.Mock;
   toggleMessageReaction: jest.Mock;
+  downloadChatAttachment: jest.Mock;
+  uploadChatAttachment: jest.Mock;
 };
 const plainMessagesModule = jest.requireMock('../../lib/plainMessages') as {
   sendPlainMessage: jest.Mock;
@@ -40,7 +56,27 @@ const plainMessagesModule = jest.requireMock('../../lib/plainMessages') as {
 const realtimeModule = jest.requireMock('../../lib/realtime') as {
   publishTypingEvent: jest.Mock;
 };
+const documentPickerModule = jest.requireMock(
+  'react-native-document-picker',
+) as {
+  default: {
+    pick: jest.Mock;
+    isCancel: jest.Mock;
+    types: {
+      allFiles: string;
+    };
+  };
+};
 const mountedRenderers: ReactTestRenderer.ReactTestRenderer[] = [];
+const openUrlSpy = jest
+  .spyOn(Linking, 'openURL')
+  .mockImplementation(async () => 'opened');
+const shareSpy = jest
+  .spyOn(Share, 'share')
+  .mockImplementation(async () => ({
+    action: 'sharedAction',
+    activityType: null,
+  }));
 
 const session: AuthResponse = {
   token: 'session-token',
@@ -195,6 +231,8 @@ function renderChatThread(
 describe('ChatThreadScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    openUrlSpy.mockClear();
+    shareSpy.mockClear();
   });
 
   afterEach(async () => {
@@ -325,6 +363,257 @@ describe('ChatThreadScreen', () => {
       },
     );
     expect(plainMessagesModule.sendPlainMessage).not.toHaveBeenCalled();
+  });
+
+  it('uploads picked attachments and sends an attachment-only message', async () => {
+    apiModule.getChatOpen.mockResolvedValue({
+      chat: initialChat,
+      initialMessages: [createApiMessage()],
+      initialMessagesNextCursor: null,
+      confirmedPendingOutgoingClientMessageIds: [],
+    });
+    documentPickerModule.default.pick.mockResolvedValue([
+      {
+        uri: 'file:///report.pdf',
+        fileCopyUri: 'file:///report.pdf',
+        name: 'report.pdf',
+        size: 2048,
+        type: 'application/pdf',
+      },
+    ]);
+    apiModule.uploadChatAttachment.mockResolvedValue({
+      id: 'attachment-1',
+      fileName: 'report.pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: 2048,
+    });
+    plainMessagesModule.sendPlainMessage.mockResolvedValue(
+      createChatMessage({
+        id: 'message-attachment-1',
+        clientMessageId: 'android-attachment-1',
+        attachments: [
+          {
+            id: 'attachment-1',
+            fileName: 'report.pdf',
+            mimeType: 'application/pdf',
+            sizeBytes: 2048,
+          },
+        ],
+      }),
+    );
+
+    let renderer: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = renderChatThread();
+    });
+
+    const attachButton = renderer!.root.findByProps({testID: 'attach-button'});
+    await ReactTestRenderer.act(async () => {
+      attachButton.props.onPress();
+      await Promise.resolve();
+    });
+
+    expect(renderer!.root.findByProps({children: 'report.pdf'})).toBeTruthy();
+
+    const sendButton = renderer!.root.findByProps({testID: 'send-button'});
+    await ReactTestRenderer.act(async () => {
+      await sendButton.props.onPress();
+    });
+
+    expect(apiModule.uploadChatAttachment).toHaveBeenCalledWith(
+      'access-token',
+      initialChat.id,
+      expect.objectContaining({
+        uri: 'file:///report.pdf',
+        fileName: 'report.pdf',
+      }),
+    );
+    expect(plainMessagesModule.sendPlainMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatId: initialChat.id,
+        content: '',
+        attachments: [
+          {
+            id: 'attachment-1',
+            fileName: 'report.pdf',
+            mimeType: 'application/pdf',
+            sizeBytes: 2048,
+          },
+        ],
+      }),
+    );
+  });
+
+  it('opens a message attachment through the backend download-url contract', async () => {
+    apiModule.getChatOpen.mockResolvedValue({
+      chat: initialChat,
+      initialMessages: [
+        createApiMessage({
+          attachments: [
+            {
+              id: 'attachment-1',
+              fileName: 'report.pdf',
+              mimeType: 'application/pdf',
+              sizeBytes: 2048,
+            },
+          ],
+        }),
+      ],
+      initialMessagesNextCursor: null,
+      confirmedPendingOutgoingClientMessageIds: [],
+    });
+    apiModule.downloadChatAttachment.mockResolvedValue({
+      id: 'attachment-1',
+      fileName: 'report.pdf',
+      mimeType: 'application/pdf',
+      url: 'https://cdn.example.test/report.pdf',
+      expiresAt: '2026-05-17T12:00:00.000Z',
+    });
+
+    let renderer: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = renderChatThread();
+    });
+
+    const attachmentButton = renderer!.root.findByProps({
+      testID: 'open-attachment-message-1-attachment-1',
+    });
+    await ReactTestRenderer.act(async () => {
+      await attachmentButton.props.onPress();
+    });
+
+    expect(apiModule.downloadChatAttachment).toHaveBeenCalledWith(
+      'access-token',
+      initialChat.id,
+      'attachment-1',
+    );
+    expect(openUrlSpy).toHaveBeenCalledWith(
+      'https://cdn.example.test/report.pdf',
+    );
+  });
+
+  it('previews image attachments inside the thread before opening externally', async () => {
+    apiModule.getChatOpen.mockResolvedValue({
+      chat: initialChat,
+      initialMessages: [
+        createApiMessage({
+          attachments: [
+            {
+              id: 'attachment-image-1',
+              fileName: 'photo.png',
+              mimeType: 'image/png',
+              sizeBytes: 4096,
+            },
+          ],
+        }),
+      ],
+      initialMessagesNextCursor: null,
+      confirmedPendingOutgoingClientMessageIds: [],
+    });
+    apiModule.downloadChatAttachment.mockResolvedValue({
+      id: 'attachment-image-1',
+      fileName: 'photo.png',
+      mimeType: 'image/png',
+      url: 'https://cdn.example.test/photo.png',
+      expiresAt: '2026-05-17T12:00:00.000Z',
+    });
+
+    let renderer: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = renderChatThread();
+    });
+
+    const previewButton = renderer!.root.findByProps({
+      testID: 'open-attachment-message-1-attachment-image-1',
+    });
+    await ReactTestRenderer.act(async () => {
+      await previewButton.props.onPress();
+    });
+
+    expect(apiModule.downloadChatAttachment).toHaveBeenCalledWith(
+      'access-token',
+      initialChat.id,
+      'attachment-image-1',
+    );
+    expect(openUrlSpy).not.toHaveBeenCalled();
+    expect(
+      renderer!.root.findByProps({testID: 'image-preview-overlay'}),
+    ).toBeTruthy();
+    expect(
+      renderer!.root.findByProps({testID: 'image-preview-title'}).props.children,
+    ).toBe('photo.png');
+
+    const externalButton = renderer!.root.findByProps({
+      testID: 'image-preview-open-external',
+    });
+    await ReactTestRenderer.act(async () => {
+      await externalButton.props.onPress();
+    });
+
+    expect(openUrlSpy).toHaveBeenCalledWith(
+      'https://cdn.example.test/photo.png',
+    );
+
+    const closeButton = renderer!.root.findByProps({
+      testID: 'image-preview-close',
+    });
+    await ReactTestRenderer.act(async () => {
+      closeButton.props.onPress();
+    });
+
+    expect(
+      renderer!.root.findAllByProps({testID: 'image-preview-overlay'}),
+    ).toHaveLength(0);
+  });
+
+  it('shares a message attachment through the system share sheet', async () => {
+    apiModule.getChatOpen.mockResolvedValue({
+      chat: initialChat,
+      initialMessages: [
+        createApiMessage({
+          attachments: [
+            {
+              id: 'attachment-1',
+              fileName: 'report.pdf',
+              mimeType: 'application/pdf',
+              sizeBytes: 2048,
+            },
+          ],
+        }),
+      ],
+      initialMessagesNextCursor: null,
+      confirmedPendingOutgoingClientMessageIds: [],
+    });
+    apiModule.downloadChatAttachment.mockResolvedValue({
+      id: 'attachment-1',
+      fileName: 'report.pdf',
+      mimeType: 'application/pdf',
+      url: 'https://cdn.example.test/report.pdf',
+      expiresAt: '2026-05-17T12:00:00.000Z',
+    });
+
+    let renderer: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = renderChatThread();
+    });
+
+    const shareButton = renderer!.root.findByProps({
+      testID: 'share-attachment-message-1-attachment-1',
+    });
+    await ReactTestRenderer.act(async () => {
+      await shareButton.props.onPress();
+    });
+
+    expect(apiModule.downloadChatAttachment).toHaveBeenCalledWith(
+      'access-token',
+      initialChat.id,
+      'attachment-1',
+    );
+    expect(shareSpy).toHaveBeenCalledWith({
+      title: 'report.pdf',
+      message: 'https://cdn.example.test/report.pdf',
+      url: 'https://cdn.example.test/report.pdf',
+    });
   });
 
   it('forwards a confirmed message to another chat with forwarded metadata', async () => {

@@ -6,6 +6,7 @@ import type {
   ChatSummary,
   MobileAuthResponse,
   PendingOutgoingMessage,
+  UserProfile,
   WorkspaceBootstrap,
 } from '@north/shared';
 import {useCallback, useEffect, useRef, useState} from 'react';
@@ -25,15 +26,22 @@ import {
 } from './src/features/chat/ChatThreadScreen';
 import {WorkspaceHomeScreen} from './src/features/workspace/WorkspaceHomeScreen';
 import {
+  addContact,
   ApiError,
+  blockUser,
+  createDirectChat,
   describeError,
   deletePendingOutgoingMessage,
   getWorkspaceBootstrap,
   login,
   logout,
+  removeContact,
   refreshSession,
   register,
+  searchWorkspace,
   toAuthResponse,
+  unblockUser,
+  updateArchivedChat,
   upsertPendingOutgoingMessage,
 } from './src/lib/api';
 import {
@@ -554,6 +562,85 @@ function App() {
     setActiveChatId(chatId);
   }, []);
 
+  const handleStartDirectChat = useCallback(
+    async (username: string) => {
+      const chat = await runAuthorized(token => createDirectChat(token, username));
+      setWorkspace(currentWorkspace =>
+        currentWorkspace ? upsertWorkspaceChat(currentWorkspace, chat) : currentWorkspace,
+      );
+      setActiveChatId(chat.id);
+      return chat;
+    },
+    [runAuthorized],
+  );
+
+  const handleAddContact = useCallback(
+    async (username: string) => {
+      const profile = await runAuthorized(token => addContact(token, username));
+      setWorkspace(currentWorkspace =>
+        currentWorkspace
+          ? applyWorkspaceContact(currentWorkspace, profile)
+          : currentWorkspace,
+      );
+      return profile;
+    },
+    [runAuthorized],
+  );
+
+  const handleRemoveContact = useCallback(
+    async (username: string) => {
+      await runAuthorized(token => removeContact(token, username));
+      setWorkspace(currentWorkspace =>
+        currentWorkspace
+          ? removeWorkspaceContact(currentWorkspace, username)
+          : currentWorkspace,
+      );
+    },
+    [runAuthorized],
+  );
+
+  const handleSearchWorkspace = useCallback(
+    async (query: string) => runAuthorized(token => searchWorkspace(token, query)),
+    [runAuthorized],
+  );
+
+  const handleArchiveChat = useCallback(
+    async (chatId: string, archived: boolean) => {
+      await runAuthorized(token => updateArchivedChat(token, chatId, archived));
+      setWorkspace(currentWorkspace =>
+        currentWorkspace
+          ? updateWorkspaceArchivedChatState(currentWorkspace, chatId, archived)
+          : currentWorkspace,
+      );
+    },
+    [runAuthorized],
+  );
+
+  const handleBlockUser = useCallback(
+    async (username: string) => {
+      const blockedProfile = await runAuthorized(token => blockUser(token, username));
+      setWorkspace(currentWorkspace =>
+        currentWorkspace
+          ? applyWorkspaceBlockedUser(currentWorkspace, blockedProfile)
+          : currentWorkspace,
+      );
+      return blockedProfile;
+    },
+    [runAuthorized],
+  );
+
+  const handleUnblockUser = useCallback(
+    async (username: string) => {
+      await runAuthorized(token => unblockUser(token, username));
+      setWorkspace(currentWorkspace =>
+        currentWorkspace
+          ? removeWorkspaceBlockedUser(currentWorkspace, username)
+          : currentWorkspace,
+      );
+    },
+    [runAuthorized],
+  );
+
   const handleBackToWorkspace = useCallback(() => {
     setActiveChatId(null);
   }, []);
@@ -601,6 +688,13 @@ function App() {
           onReload={handleReloadWorkspace}
           onLogout={handleLogout}
           onOpenChat={handleOpenChat}
+          onStartDirectChat={handleStartDirectChat}
+          onAddContact={handleAddContact}
+          onRemoveContact={handleRemoveContact}
+          onSearchWorkspace={handleSearchWorkspace}
+          onArchiveChat={handleArchiveChat}
+          onBlockUser={handleBlockUser}
+          onUnblockUser={handleUnblockUser}
         />
       ) : session ? (
         <WorkspaceRecoveryScreen
@@ -691,6 +785,79 @@ function clearWorkspaceChatUnread(
     ...workspace,
     chats: workspace.chats.map(chat =>
       chat.id === chatId ? {...chat, unreadCount: 0} : chat,
+    ),
+  };
+}
+
+function applyWorkspaceContact(
+  workspace: WorkspaceBootstrap,
+  profile: UserProfile,
+): WorkspaceBootstrap {
+  return {
+    ...workspace,
+    contacts: [
+      profile,
+      ...workspace.contacts.filter(contact => contact.id !== profile.id),
+    ],
+  };
+}
+
+function removeWorkspaceContact(
+  workspace: WorkspaceBootstrap,
+  username: string,
+): WorkspaceBootstrap {
+  const normalizedUsername = username.trim().toLowerCase();
+  return {
+    ...workspace,
+    contacts: workspace.contacts.filter(
+      contact => contact.username.trim().toLowerCase() !== normalizedUsername,
+    ),
+  };
+}
+
+function updateWorkspaceArchivedChatState(
+  workspace: WorkspaceBootstrap,
+  chatId: string,
+  archived: boolean,
+): WorkspaceBootstrap {
+  const archivedChatIds = new Set(workspace.archivedChatIds);
+  if (archived) {
+    archivedChatIds.add(chatId);
+  } else {
+    archivedChatIds.delete(chatId);
+  }
+
+  return {
+    ...workspace,
+    archivedChatIds: [...archivedChatIds],
+  };
+}
+
+function applyWorkspaceBlockedUser(
+  workspace: WorkspaceBootstrap,
+  blockedProfile: UserProfile,
+): WorkspaceBootstrap {
+  const blockedUsers = [
+    blockedProfile,
+    ...workspace.blockedUsers.filter(user => user.id !== blockedProfile.id),
+  ];
+
+  return {
+    ...workspace,
+    contacts: workspace.contacts.filter(user => user.id !== blockedProfile.id),
+    blockedUsers,
+  };
+}
+
+function removeWorkspaceBlockedUser(
+  workspace: WorkspaceBootstrap,
+  username: string,
+): WorkspaceBootstrap {
+  const normalizedUsername = username.trim().toLowerCase();
+  return {
+    ...workspace,
+    blockedUsers: workspace.blockedUsers.filter(
+      user => user.username.trim().toLowerCase() !== normalizedUsername,
     ),
   };
 }

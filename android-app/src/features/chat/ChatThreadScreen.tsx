@@ -1,6 +1,7 @@
 import type {
   AuthResponse,
   ChatMessage,
+  ChatMessageAttachment,
   MessageSnippet,
   MessageReaction,
   MessageReactionEvent,
@@ -11,8 +12,12 @@ import type {
 } from '@north/shared';
 import type {Dispatch, SetStateAction} from 'react';
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import DocumentPicker from 'react-native-document-picker';
 import {
+  Image,
+  Linking,
   Pressable,
+  Share,
   ScrollView,
   StyleSheet,
   Text,
@@ -21,10 +26,12 @@ import {
 } from 'react-native';
 import {
   acknowledgeRead,
+  downloadChatAttachment,
   describeError,
   getChatOpen,
   getMessagesPage,
   toggleMessageReaction,
+  uploadChatAttachment,
 } from '../../lib/api';
 import {hydrateApiChatMessage} from '../../lib/messagePayload';
 import {toRecoveredPendingChatMessage} from '../../lib/pendingOutgoingMessages';
@@ -40,6 +47,7 @@ const MESSAGE_PAGE_SIZE = 30;
 const TYPING_HEARTBEAT_MS = 3_000;
 const TYPING_IDLE_MS = 4_000;
 const TYPING_REMOTE_TTL_MS = 10_000;
+const MAX_ATTACHMENT_SIZE_BYTES = 25 * 1024 * 1024;
 
 const REACTION_OPTIONS: Array<{
   key: MessageReaction['key'];
@@ -91,6 +99,20 @@ type Props = {
   onDeletePendingOutgoingMessages: (clientMessageIds: string[]) => Promise<void>;
 };
 
+type ComposerAttachmentDraft = {
+  localId: string;
+  uri: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number | null;
+};
+
+type ImagePreviewState = {
+  attachmentId: string;
+  fileName: string;
+  url: string;
+};
+
 export function ChatThreadScreen({
   session,
   chatId,
@@ -112,6 +134,9 @@ export function ChatThreadScreen({
   const [chat, setChat] = useState<ChatSummary | null>(initialChat);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [composerText, setComposerText] = useState('');
+  const [composerAttachments, setComposerAttachments] = useState<
+    ComposerAttachmentDraft[]
+  >([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -132,6 +157,15 @@ export function ChatThreadScreen({
   >(null);
   const [error, setError] = useState<string | null>(null);
   const [messageErrors, setMessageErrors] = useState<Record<string, string>>({});
+  const [openingAttachmentKeys, setOpeningAttachmentKeys] = useState<
+    Record<string, boolean>
+  >({});
+  const [sharingAttachmentKeys, setSharingAttachmentKeys] = useState<
+    Record<string, boolean>
+  >({});
+  const [imagePreview, setImagePreview] = useState<ImagePreviewState | null>(
+    null,
+  );
   const [pendingReactionKeys, setPendingReactionKeys] = useState<
     Record<string, boolean>
   >({});
@@ -350,9 +384,13 @@ export function ChatThreadScreen({
     setChat(initialChat);
     setMessages([]);
     setMessageErrors({});
+    setOpeningAttachmentKeys({});
+    setSharingAttachmentKeys({});
+    setImagePreview(null);
     setPendingReactionKeys({});
     setTypingParticipants([]);
     setComposerText('');
+    setComposerAttachments([]);
     setReplyingToMessageId(null);
     setEditingMessageId(null);
     setForwardingMessageId(null);
@@ -635,6 +673,10 @@ export function ChatThreadScreen({
     if (!canEditMessage(message, session.user.id)) {
       return;
     }
+    if (composerAttachments.length > 0) {
+      setError('Send or remove selected attachments before editing a message.');
+      return;
+    }
 
     setReplyingToMessageId(null);
     setForwardingMessageId(null);
@@ -678,10 +720,166 @@ export function ChatThreadScreen({
     setForwardingTargetChatId(null);
   };
 
+  const handlePickAttachments = async () => {
+    if (editingMessage || sendingCount > 0) {
+      return;
+    }
+
+    try {
+      const results = await DocumentPicker.pick({
+        allowMultiSelection: true,
+        copyTo: 'cachesDirectory',
+        presentationStyle: 'fullScreen',
+        type: [DocumentPicker.types.allFiles],
+      });
+      const nextAttachments = results
+        .filter(result => Boolean(result.uri || result.fileCopyUri))
+        .map(result => ({
+          localId: createLocalAttachmentId(),
+          uri: result.fileCopyUri ?? result.uri,
+          fileName: result.name?.trim() || 'attachment',
+          mimeType: result.type?.trim() || 'application/octet-stream',
+          sizeBytes:
+            typeof result.size === 'number' && result.size > 0 ? result.size : null,
+        }))
+        .filter(attachment => attachment.uri.trim().length > 0);
+
+      if (nextAttachments.length === 0) {
+        return;
+      }
+
+      const oversizedAttachment = nextAttachments.find(
+        attachment =>
+          typeof attachment.sizeBytes === 'number' &&
+          attachment.sizeBytes > MAX_ATTACHMENT_SIZE_BYTES,
+      );
+      if (oversizedAttachment) {
+        setError(
+          `"${oversizedAttachment.fileName}" exceeds 25 MB. Pick a smaller file.`,
+        );
+        return;
+      }
+
+      setComposerAttachments(currentAttachments => [
+        ...currentAttachments,
+        ...nextAttachments,
+      ]);
+      setError(null);
+    } catch (pickError) {
+      if (DocumentPicker.isCancel(pickError)) {
+        return;
+      }
+      setError(describeError(pickError));
+    }
+  };
+
+  const handleRemoveComposerAttachment = (localId: string) => {
+    setComposerAttachments(currentAttachments =>
+      currentAttachments.filter(attachment => attachment.localId !== localId),
+    );
+  };
+
+  const handleOpenAttachment = async (
+    message: ChatMessage,
+    attachment: ChatMessageAttachment,
+  ) => {
+    const attachmentKey = buildAttachmentKey(message.id, attachment.id);
+    if (openingAttachmentKeys[attachmentKey]) {
+      return;
+    }
+
+    setOpeningAttachmentKeys(currentKeys => ({
+      ...currentKeys,
+      [attachmentKey]: true,
+    }));
+    setError(null);
+
+    try {
+      const download = await runAuthorized(token =>
+        downloadChatAttachment(token, message.chatId, attachment.id),
+      );
+      if (isImageAttachment(attachment)) {
+        setImagePreview({
+          attachmentId: attachment.id,
+          fileName: attachment.fileName,
+          url: download.url,
+        });
+      } else {
+        await Linking.openURL(download.url);
+      }
+    } catch (downloadError) {
+      setError(describeError(downloadError));
+    } finally {
+      setOpeningAttachmentKeys(currentKeys => {
+        if (!currentKeys[attachmentKey]) {
+          return currentKeys;
+        }
+        const nextKeys = {...currentKeys};
+        delete nextKeys[attachmentKey];
+        return nextKeys;
+      });
+    }
+  };
+
+  const handleOpenPreviewExternally = async () => {
+    if (!imagePreview) {
+      return;
+    }
+
+    try {
+      await Linking.openURL(imagePreview.url);
+    } catch (nextError) {
+      setError(describeError(nextError));
+    }
+  };
+
+  const handleShareAttachment = async (
+    message: ChatMessage,
+    attachment: ChatMessageAttachment,
+  ) => {
+    const attachmentKey = buildAttachmentKey(message.id, attachment.id);
+    if (sharingAttachmentKeys[attachmentKey]) {
+      return;
+    }
+
+    setSharingAttachmentKeys(currentKeys => ({
+      ...currentKeys,
+      [attachmentKey]: true,
+    }));
+    setError(null);
+
+    try {
+      const download = await runAuthorized(token =>
+        downloadChatAttachment(token, message.chatId, attachment.id),
+      );
+      await Share.share({
+        title: attachment.fileName,
+        message: download.url,
+        url: download.url,
+      });
+    } catch (downloadError) {
+      setError(describeError(downloadError));
+    } finally {
+      setSharingAttachmentKeys(currentKeys => {
+        if (!currentKeys[attachmentKey]) {
+          return currentKeys;
+        }
+        const nextKeys = {...currentKeys};
+        delete nextKeys[attachmentKey];
+        return nextKeys;
+      });
+    }
+  };
+
   const handleSend = async () => {
     const trimmedContent = composerText.trim();
+    const selectedComposerAttachments = composerAttachments;
     const editingAttachments = editingMessage?.attachments ?? [];
-    if (!trimmedContent && !(editingMessage && editingAttachments.length > 0)) {
+    if (
+      !trimmedContent &&
+      selectedComposerAttachments.length === 0 &&
+      !(editingMessage && editingAttachments.length > 0)
+    ) {
       return;
     }
 
@@ -723,6 +921,24 @@ export function ChatThreadScreen({
       return;
     }
 
+    setError(null);
+    setSendingCount(currentCount => currentCount + 1);
+
+    let uploadedAttachments: ChatMessageAttachment[] = [];
+    if (selectedComposerAttachments.length > 0) {
+      try {
+        uploadedAttachments = await uploadComposerAttachments(
+          runAuthorized,
+          chatId,
+          selectedComposerAttachments,
+        );
+      } catch (uploadError) {
+        setError(describeError(uploadError));
+        setSendingCount(currentCount => Math.max(0, currentCount - 1));
+        return;
+      }
+    }
+
     const clientMessageId = createClientMessageId();
     const optimisticMessage = createOptimisticOutgoingMessage({
       currentUser: session.user,
@@ -732,9 +948,11 @@ export function ChatThreadScreen({
       recipientCount: Math.max(0, (chat?.members.length ?? 1) - 1),
       localOrder: ++nextLocalOrderRef.current,
       replyTo: replyingToMessage ? toMessageSnippet(replyingToMessage) : null,
+      attachments: uploadedAttachments,
     });
 
     setComposerText('');
+    setComposerAttachments([]);
     setError(null);
     clearMessageError(setMessageErrors, clientMessageId);
     setForwardingMessageId(null);
@@ -742,7 +960,6 @@ export function ChatThreadScreen({
     setMessages(currentMessages =>
       sortMessagesForDisplay([...currentMessages, optimisticMessage]),
     );
-    setSendingCount(currentCount => currentCount + 1);
     onPersistPendingOutgoingMessage(
       toPendingOutgoingMessage(optimisticMessage),
     ).catch(() => undefined);
@@ -753,6 +970,7 @@ export function ChatThreadScreen({
         clientMessageId,
         content: trimmedContent,
         replyToMessageId: replyingToMessage?.id ?? null,
+        attachments: uploadedAttachments,
       });
       onDeletePendingOutgoingMessages([clientMessageId]).catch(() => undefined);
       setMessages(currentMessages =>
@@ -995,7 +1213,7 @@ export function ChatThreadScreen({
   const canSubmitComposer = Boolean(
     editingMessage
       ? composerText.trim() || (editingMessage.attachments?.length ?? 0) > 0
-      : composerText.trim(),
+      : composerText.trim() || composerAttachments.length > 0,
   );
 
   return (
@@ -1058,6 +1276,7 @@ export function ChatThreadScreen({
             const ownMessage = message.sender.id === session.user.id;
             const canReact = canReactToMessage(message);
             const canForward = canForwardMessage(message);
+            const attachments = message.attachments ?? [];
             const clientMessageId = message.clientMessageId ?? '';
             const sendFailure =
               clientMessageId.trim().length > 0
@@ -1093,10 +1312,86 @@ export function ChatThreadScreen({
                 <Text style={styles.messageBody}>
                   {message.content || 'Attachment-only message'}
                 </Text>
-                {message.attachments && message.attachments.length > 0 ? (
-                  <Text style={styles.attachmentLabel}>
-                    {describeAttachmentLine(message.attachments.length)}
-                  </Text>
+                {attachments.length > 0 ? (
+                  <View style={styles.messageAttachmentList}>
+                    {attachments.map(attachment => {
+                      const attachmentKey = buildAttachmentKey(
+                        message.id,
+                        attachment.id,
+                      );
+                      const openingAttachment = Boolean(
+                        openingAttachmentKeys[attachmentKey],
+                      );
+                      const sharingAttachment = Boolean(
+                        sharingAttachmentKeys[attachmentKey],
+                      );
+                      const attachmentBusy =
+                        openingAttachment || sharingAttachment;
+                      return (
+                        <View
+                          key={attachment.id}
+                          style={
+                            attachmentBusy
+                              ? styles.messageAttachmentButtonDisabled
+                              : styles.messageAttachmentButton
+                          }
+                          testID={`attachment-${message.id}-${attachment.id}`}>
+                          <View style={styles.messageAttachmentCopy}>
+                            <Text
+                              numberOfLines={1}
+                              style={styles.messageAttachmentName}>
+                              {attachment.fileName}
+                            </Text>
+                            <Text style={styles.messageAttachmentMeta}>
+                              {formatFileSize(attachment.sizeBytes)}
+                            </Text>
+                          </View>
+                          <View style={styles.messageAttachmentActions}>
+                            <Pressable
+                              onPress={() => {
+                                handleOpenAttachment(message, attachment).catch(
+                                  () => undefined,
+                                );
+                              }}
+                              disabled={attachmentBusy}
+                              style={
+                                attachmentBusy
+                                  ? styles.messageAttachmentActionButtonDisabled
+                                  : styles.messageAttachmentActionButton
+                              }
+                              testID={`open-attachment-${message.id}-${attachment.id}`}>
+                              <Text style={styles.messageAttachmentAction}>
+                                {openingAttachment
+                                  ? isImageAttachment(attachment)
+                                    ? 'Previewing...'
+                                    : 'Opening...'
+                                  : isImageAttachment(attachment)
+                                    ? 'Preview'
+                                    : 'Open'}
+                              </Text>
+                            </Pressable>
+                            <Pressable
+                              onPress={() => {
+                                handleShareAttachment(message, attachment).catch(
+                                  () => undefined,
+                                );
+                              }}
+                              disabled={attachmentBusy}
+                              style={
+                                attachmentBusy
+                                  ? styles.messageAttachmentActionButtonDisabled
+                                  : styles.messageAttachmentActionButton
+                              }
+                              testID={`share-attachment-${message.id}-${attachment.id}`}>
+                              <Text style={styles.messageAttachmentAction}>
+                                {sharingAttachment ? 'Sharing...' : 'Share'}
+                              </Text>
+                            </Pressable>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
                 ) : null}
                 <Text style={styles.messageMeta}>
                   {formatTimestamp(message.editedAt ?? message.createdAt)}
@@ -1293,46 +1588,127 @@ export function ChatThreadScreen({
             </ScrollView>
           </View>
         ) : null}
-        <TextInput
-          value={composerText}
-          onChangeText={nextValue => {
-            setComposerText(nextValue);
-            signalTypingActivity(nextValue);
-          }}
-          placeholder={
-            editingMessage
-              ? 'Edit your message'
-              : replyingToMessage
-                ? 'Write a reply'
-                : realtimeConnected
-                  ? 'Write a message'
-                  : 'Write now, retry if realtime is still reconnecting'
-          }
-          placeholderTextColor="#8d7b67"
-          multiline
-          style={styles.composerInput}
-          testID="composer-input"
-        />
-        <Pressable
-          onPress={handleSend}
-          disabled={!canSubmitComposer || loading}
-          style={
-            !canSubmitComposer || loading
-              ? styles.sendButtonDisabled
-              : styles.sendButton
-          }
-          testID="send-button">
-          <Text style={styles.sendButtonLabel}>
-            {editingMessage
-              ? sendingCount > 0
-                ? 'Saving...'
-                : 'Save'
-              : sendingCount > 0
-                ? 'Sending...'
-                : 'Send'}
-          </Text>
-        </Pressable>
+        {composerAttachments.length > 0 ? (
+          <View style={styles.composerAttachmentList}>
+            {composerAttachments.map(attachment => (
+              <View
+                key={attachment.localId}
+                style={styles.composerAttachmentChip}
+                testID={`composer-attachment-${attachment.localId}`}>
+                <View style={styles.composerAttachmentCopy}>
+                  <Text
+                    numberOfLines={1}
+                    style={styles.composerAttachmentName}>
+                    {attachment.fileName}
+                  </Text>
+                  <Text style={styles.composerAttachmentMeta}>
+                    {attachment.sizeBytes != null
+                      ? formatFileSize(attachment.sizeBytes)
+                      : 'Ready to upload'}
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={() =>
+                    handleRemoveComposerAttachment(attachment.localId)
+                  }
+                  disabled={sendingCount > 0}
+                  style={styles.composerAttachmentRemove}
+                  testID={`remove-attachment-${attachment.localId}`}>
+                  <Text style={styles.composerAttachmentRemoveLabel}>×</Text>
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        ) : null}
+        <View style={styles.composerInputRow}>
+          <Pressable
+            onPress={handlePickAttachments}
+            disabled={Boolean(editingMessage) || sendingCount > 0 || loading}
+            style={
+              Boolean(editingMessage) || sendingCount > 0 || loading
+                ? styles.attachmentButtonDisabled
+                : styles.attachmentButton
+            }
+            testID="attach-button">
+            <Text style={styles.attachmentButtonLabel}>+</Text>
+          </Pressable>
+          <TextInput
+            value={composerText}
+            onChangeText={nextValue => {
+              setComposerText(nextValue);
+              signalTypingActivity(nextValue);
+            }}
+            placeholder={
+              editingMessage
+                ? 'Edit your message'
+                : replyingToMessage
+                  ? 'Write a reply'
+                  : realtimeConnected
+                    ? 'Write a message'
+                    : 'Write now, retry if realtime is still reconnecting'
+            }
+            placeholderTextColor="#8d7b67"
+            multiline
+            style={styles.composerInput}
+            testID="composer-input"
+          />
+          <Pressable
+            onPress={handleSend}
+            disabled={!canSubmitComposer || loading}
+            style={
+              !canSubmitComposer || loading
+                ? styles.sendButtonDisabled
+                : styles.sendButton
+            }
+            testID="send-button">
+            <Text style={styles.sendButtonLabel}>
+              {editingMessage
+                ? sendingCount > 0
+                  ? 'Saving...'
+                  : 'Save'
+                : sendingCount > 0
+                  ? 'Sending...'
+                  : 'Send'}
+            </Text>
+          </Pressable>
+        </View>
       </View>
+      {imagePreview ? (
+        <View style={styles.imagePreviewOverlay} testID="image-preview-overlay">
+          <View style={styles.imagePreviewCard}>
+            <Text
+              numberOfLines={1}
+              style={styles.imagePreviewTitle}
+              testID="image-preview-title">
+              {imagePreview.fileName}
+            </Text>
+            <Image
+              source={{uri: imagePreview.url}}
+              style={styles.imagePreviewImage}
+              resizeMode="contain"
+              testID="image-preview-image"
+            />
+            <View style={styles.imagePreviewActions}>
+              <Pressable
+                onPress={() => {
+                  handleOpenPreviewExternally().catch(() => undefined);
+                }}
+                style={styles.imagePreviewActionButton}
+                testID="image-preview-open-external">
+                <Text style={styles.imagePreviewActionLabel}>Open externally</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  setImagePreview(null);
+                }}
+                style={styles.imagePreviewCloseButton}
+                testID="image-preview-close">
+                <Text style={styles.imagePreviewCloseLabel}>Close</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -1374,6 +1750,7 @@ function createOptimisticOutgoingMessage(options: {
   replyTo?: MessageSnippet | null;
   forwardedFrom?: ChatMessage['forwardedFrom'];
   forwardedFromMessageId?: string | null;
+  attachments?: ChatMessageAttachment[];
 }) {
   const createdAt = new Date().toISOString();
   return {
@@ -1404,7 +1781,7 @@ function createOptimisticOutgoingMessage(options: {
     forwarded: Boolean(options.forwardedFromMessageId),
     forwardedFrom: options.forwardedFrom ?? null,
     forwardedFromMessageId: options.forwardedFromMessageId ?? null,
-    attachments: [],
+    attachments: options.attachments ?? [],
   } satisfies ChatMessage;
 }
 
@@ -1681,6 +2058,14 @@ function buildPendingReactionKey(
   return `${messageId}:${key}`;
 }
 
+function buildAttachmentKey(messageId: string, attachmentId: string) {
+  return `${messageId}:${attachmentId}`;
+}
+
+function isImageAttachment(attachment: ChatMessageAttachment) {
+  return attachment.mimeType.trim().toLowerCase().startsWith('image/');
+}
+
 function formatReactionButtonLabel(emoji: string, count: number) {
   return count > 0 ? `${emoji} ${count}` : emoji;
 }
@@ -1782,10 +2167,52 @@ function formatStatus(value: NonNullable<ChatMessage['status']>['state']) {
   }
 }
 
-function describeAttachmentLine(count: number) {
-  return count === 1
-    ? '1 attachment in this message'
-    : `${count} attachments in this message`;
+async function uploadComposerAttachments(
+  runAuthorized: RunAuthorized,
+  chatId: string,
+  attachments: ComposerAttachmentDraft[],
+) {
+  const uploadedAttachments: ChatMessageAttachment[] = [];
+  for (const attachment of attachments) {
+    if (
+      typeof attachment.sizeBytes === 'number' &&
+      attachment.sizeBytes > MAX_ATTACHMENT_SIZE_BYTES
+    ) {
+      throw new Error(
+        `"${attachment.fileName}" exceeds 25 MB. Pick a smaller file.`,
+      );
+    }
+
+    const uploadedAttachment = await runAuthorized(token =>
+      uploadChatAttachment(token, chatId, {
+        uri: attachment.uri,
+        fileName: attachment.fileName,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes,
+      }),
+    );
+    uploadedAttachments.push(uploadedAttachment);
+  }
+  return uploadedAttachments;
+}
+
+function createLocalAttachmentId() {
+  return `attachment-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function formatFileSize(sizeBytes: number) {
+  if (sizeBytes < 1024) {
+    return `${sizeBytes} B`;
+  }
+
+  const units = ['KB', 'MB', 'GB'];
+  let size = sizeBytes / 1024;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  return `${size.toFixed(size >= 10 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
 const styles = StyleSheet.create({
@@ -1942,9 +2369,121 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: '#1f1a14',
   },
-  attachmentLabel: {
-    fontSize: 13,
+  messageAttachmentList: {
+    gap: 8,
+  },
+  messageAttachmentButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#efe4d3',
+  },
+  messageAttachmentButtonDisabled: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#d3c8ba',
+  },
+  messageAttachmentCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  messageAttachmentActions: {
+    alignItems: 'flex-end',
+    gap: 6,
+  },
+  messageAttachmentActionButton: {
+    minWidth: 72,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fffaf1',
+  },
+  messageAttachmentActionButtonDisabled: {
+    minWidth: 72,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#efe8de',
+  },
+  messageAttachmentName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1f1a14',
+  },
+  messageAttachmentMeta: {
+    fontSize: 12,
+    color: '#6f6256',
+  },
+  messageAttachmentAction: {
+    fontSize: 12,
+    fontWeight: '700',
     color: '#2c5c53',
+  },
+  imagePreviewOverlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(21, 18, 15, 0.86)',
+    paddingHorizontal: 20,
+    paddingVertical: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imagePreviewCard: {
+    width: '100%',
+    maxWidth: 420,
+    maxHeight: '100%',
+    borderRadius: 24,
+    backgroundColor: '#fffaf1',
+    padding: 18,
+    gap: 14,
+  },
+  imagePreviewTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#1f1a14',
+  },
+  imagePreviewImage: {
+    width: '100%',
+    height: 320,
+    borderRadius: 18,
+    backgroundColor: '#efe4d3',
+  },
+  imagePreviewActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+  },
+  imagePreviewActionButton: {
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: '#efe4d3',
+  },
+  imagePreviewActionLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#2c5c53',
+  },
+  imagePreviewCloseButton: {
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: '#2c5c53',
+  },
+  imagePreviewCloseLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#fffaf1',
   },
   messageMeta: {
     fontSize: 12,
@@ -2141,7 +2680,72 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#d6ebe6',
   },
+  composerAttachmentList: {
+    gap: 8,
+  },
+  composerAttachmentChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: '#efe4d3',
+  },
+  composerAttachmentCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  composerAttachmentName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1f1a14',
+  },
+  composerAttachmentMeta: {
+    fontSize: 12,
+    color: '#6f6256',
+  },
+  composerAttachmentRemove: {
+    width: 28,
+    height: 28,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fffaf1',
+  },
+  composerAttachmentRemoveLabel: {
+    fontSize: 18,
+    lineHeight: 20,
+    color: '#5b4b3c',
+  },
+  composerInputRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 10,
+  },
+  attachmentButton: {
+    width: 46,
+    minHeight: 46,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#efe4d3',
+  },
+  attachmentButtonDisabled: {
+    width: 46,
+    minHeight: 46,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#d3c8ba',
+  },
+  attachmentButtonLabel: {
+    fontSize: 28,
+    lineHeight: 30,
+    color: '#5b4b3c',
+  },
   composerInput: {
+    flex: 1,
     minHeight: 52,
     maxHeight: 120,
     borderRadius: 18,
@@ -2156,6 +2760,7 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   sendButton: {
+    minWidth: 88,
     minHeight: 48,
     borderRadius: 18,
     alignItems: 'center',
@@ -2163,6 +2768,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#2c5c53',
   },
   sendButtonDisabled: {
+    minWidth: 88,
     minHeight: 48,
     borderRadius: 18,
     alignItems: 'center',

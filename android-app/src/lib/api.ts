@@ -2,14 +2,18 @@ import type {
   ApiChatMessage,
   ApiErrorResponse,
   AuthResponse,
+  ChatMessageAttachment,
   ChatOpen,
+  ChatSummary,
   MessagePage,
   MessageReactionEvent,
   MobileAuthResponse,
   MobileRefreshRequest,
   PendingOutgoingMessage,
   Participant,
+  UserProfile,
   WorkspaceBootstrap,
+  WorkspaceSearch,
 } from '@north/shared';
 import {API_URL} from '../config';
 
@@ -33,6 +37,26 @@ type RequestOptions = {
   body?: unknown;
   query?: Record<string, QueryValue>;
   timeoutMs?: number;
+};
+
+type ChatAttachmentUploadTargetResponse = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  createdAt: string;
+  uploadUrl: string;
+  uploadMethod: string;
+  uploadHeaders: Record<string, string>;
+  expiresAt: string;
+};
+
+type ChatAttachmentDownloadUrlResponse = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  url: string;
+  expiresAt: string;
 };
 
 function buildRequestUrl(path: string, query?: Record<string, QueryValue>) {
@@ -162,6 +186,123 @@ export function getWorkspaceBootstrap(token: string) {
   return request<WorkspaceBootstrap>('/api/workspace/bootstrap', {
     token,
   });
+}
+
+export function createDirectChat(token: string, participantUsername: string) {
+  return request<ChatSummary>('/api/chats/direct', {
+    method: 'POST',
+    token,
+    body: {participantUsername},
+  });
+}
+
+export function searchWorkspace(token: string, query: string) {
+  return request<WorkspaceSearch>('/api/search', {
+    token,
+    query: {query},
+  });
+}
+
+export function updateArchivedChat(token: string, chatId: string, archived: boolean) {
+  return request<void>(`/api/chats/${encodeURIComponent(chatId)}/archive`, {
+    method: 'PUT',
+    token,
+    body: {archived},
+  });
+}
+
+export function blockUser(token: string, username: string) {
+  return request<UserProfile>('/api/users/blocks', {
+    method: 'POST',
+    token,
+    body: {username},
+  });
+}
+
+export function addContact(token: string, username: string) {
+  return request<UserProfile>('/api/users/contacts', {
+    method: 'POST',
+    token,
+    body: {username},
+  });
+}
+
+export function removeContact(token: string, username: string) {
+  return request<void>(`/api/users/contacts/${encodeURIComponent(username)}`, {
+    method: 'DELETE',
+    token,
+  });
+}
+
+export function unblockUser(token: string, username: string) {
+  return request<void>(`/api/users/blocks/${encodeURIComponent(username)}`, {
+    method: 'DELETE',
+    token,
+  });
+}
+
+export async function uploadChatAttachment(
+  token: string,
+  chatId: string,
+  input: {
+    uri: string;
+    fileName: string;
+    mimeType?: string | null;
+    sizeBytes?: number | null;
+  },
+) {
+  const blob = await readLocalFileBlob(input.uri);
+  const fileName = normalizeAttachmentFileName(input.fileName);
+  const mimeType = normalizeAttachmentMimeType(input.mimeType ?? blob.type);
+  const sizeBytes =
+    typeof input.sizeBytes === 'number' && input.sizeBytes > 0
+      ? input.sizeBytes
+      : blob.size;
+
+  const uploadTarget = await request<ChatAttachmentUploadTargetResponse>(
+    `/api/chats/${encodeURIComponent(chatId)}/attachments/initiate`,
+    {
+      method: 'POST',
+      token,
+      body: {
+        fileName,
+        mimeType,
+        sizeBytes,
+      },
+    },
+  );
+
+  const response = await fetch(uploadTarget.uploadUrl, {
+    method: uploadTarget.uploadMethod,
+    headers: uploadTarget.uploadHeaders,
+    body: blob,
+  });
+
+  if (!response.ok) {
+    throw new ApiError('Attachment upload failed', response.status);
+  }
+
+  return {
+    id: uploadTarget.id,
+    fileName: uploadTarget.fileName,
+    mimeType: uploadTarget.mimeType,
+    sizeBytes: uploadTarget.sizeBytes,
+  } satisfies ChatMessageAttachment;
+}
+
+export function downloadChatAttachment(
+  token: string,
+  chatId: string,
+  attachmentId: string,
+) {
+  return request<ChatAttachmentDownloadUrlResponse>(
+    `/api/chats/${encodeURIComponent(chatId)}/attachments/${encodeURIComponent(
+      attachmentId,
+    )}/download-url`,
+    {
+      token,
+    },
+  );
 }
 
 export function getChatOpen(
@@ -333,4 +474,33 @@ export function toAuthResponse(response: MobileAuthResponse): AuthResponse {
     sessionId: response.sessionId,
     user: response.user,
   };
+}
+
+function readLocalFileBlob(uri: string) {
+  return new Promise<Blob>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.onerror = () => {
+      reject(new ApiError('Attachment file could not be read on this device.', 0));
+    };
+    xhr.onload = () => {
+      if (!xhr.response) {
+        reject(new ApiError('Attachment file is empty or unavailable.', 0));
+        return;
+      }
+      resolve(xhr.response as Blob);
+    };
+    xhr.responseType = 'blob';
+    xhr.open('GET', uri, true);
+    xhr.send();
+  });
+}
+
+function normalizeAttachmentFileName(value: string) {
+  const normalized = value.replace(/[\\/:*?"<>|]/g, '_').trim();
+  return normalized.slice(0, 180) || 'attachment';
+}
+
+function normalizeAttachmentMimeType(value: string | null | undefined) {
+  const normalized = value?.trim();
+  return normalized || 'application/octet-stream';
 }

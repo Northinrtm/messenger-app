@@ -65,6 +65,8 @@ Implemented now:
 - Android secure refresh-token storage with `react-native-keychain`
 - startup session restore through `/api/mobile/auth/refresh`
 - workspace shell with `Chats / Contacts / Conferences / Profile` sections
+- workspace search plus basic archive/block actions on Android, using the existing backend search/chat/user endpoints
+- contact add/remove plus direct-chat start/open on Android, using existing `/api/users/contacts*` and `/api/chats/direct` endpoints
 - chat thread read path with `open`, older-message paging, and read acknowledgements
 - Android STOMP realtime subscription on `/ws` for chat summaries, messages, message acks/errors, and session events
 - text composer with optimistic local sends, failed-send retry, and live incoming message merge
@@ -73,12 +75,16 @@ Implemented now:
 - message reactions on Android, using existing `PUT /api/chats/{chatId}/messages/{messageId}/reactions` plus realtime `/user/queue/message-reactions`
 - active-chat typing on Android, using STOMP `/app/chats/{chatId}/typing`, realtime `/topic/chats.{chatId}.typing`, composer heartbeats, and a local in-thread typing indicator
 - message forward on Android, including inline target selection from the workspace chat list, forwarded-label hydration, and persisted `forwardedFromMessageId` in pending-outgoing recovery/retry
+- attachment send/open/share/preview on Android, including document picking, local attachment chips, upload through `/attachments/initiate` + presigned PUT, attachment-only message send, on-demand open via backend `download-url`, system share-sheet handoff for attachment links, and in-app preview for `image/*` attachments
 - recovery screen for "session is valid but workspace bootstrap retry is still needed"
 
 Still pending before Sprint 2 can be considered fully closed:
 
 - actual Android native debug assemble on a machine with configured Android SDK
-- attachment send flows on Android
+
+Latest native build check:
+
+- `android-app/android: cmd /c gradlew.bat assembleDebug` currently fails on this workstation because Android SDK is not configured (`ANDROID_HOME` missing and `android/local.properties` not set).
 
 ## Required Backend Changes
 
