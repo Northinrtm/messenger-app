@@ -6,6 +6,7 @@ type MockFrame = {
 type MockSubscriptionCallback = (frame: MockFrame) => void;
 
 const createdClients: MockClient[] = [];
+const createdClientConfigs: Array<Record<string, unknown>> = [];
 
 class MockClient {
   active = false;
@@ -66,7 +67,8 @@ class MockClient {
 }
 
 jest.mock('@stomp/stompjs', () => ({
-  Client: jest.fn().mockImplementation(() => {
+  Client: jest.fn().mockImplementation((config: Record<string, unknown>) => {
+    createdClientConfigs.push(config);
     const client = new MockClient();
     createdClients.push(client);
     return client;
@@ -92,6 +94,7 @@ import {sendMessageRealtime, subscribeToChats} from './realtime';
 describe('realtime send queue', () => {
   beforeEach(() => {
     createdClients.length = 0;
+    createdClientConfigs.length = 0;
     jest.clearAllMocks();
   });
 
@@ -130,6 +133,11 @@ describe('realtime send queue', () => {
 
     expect(settled).toBe('pending');
     expect(client.publish).not.toHaveBeenCalled();
+    expect(createdClientConfigs[0]).toEqual(
+      expect.objectContaining({
+        forceBinaryWSFrames: true,
+      }),
+    );
 
     client.triggerConnect();
 

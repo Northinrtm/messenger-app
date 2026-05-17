@@ -117,6 +117,10 @@ export function subscribeToChats({
     heartbeatIncoming: REALTIME_HEARTBEAT_INTERVAL_MS,
     heartbeatOutgoing: REALTIME_HEARTBEAT_INTERVAL_MS,
     heartbeatStrategy: TickerStrategy.Interval,
+    // React Native Android stalls on text STOMP frames because the NULL
+    // terminator does not reliably reach Spring's decoder over this stack.
+    // Binary websocket frames preserve the terminator and let CONNECT complete.
+    forceBinaryWSFrames: true,
     reconnectDelay: REALTIME_RECONNECT_INITIAL_DELAY_MS,
     maxReconnectDelay: REALTIME_RECONNECT_MAX_DELAY_MS,
     reconnectTimeMode: ReconnectionTimeMode.EXPONENTIAL,
