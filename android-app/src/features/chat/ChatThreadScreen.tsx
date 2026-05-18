@@ -21,7 +21,11 @@ import {
 } from '@react-native-documents/picker';
 import {
   Image,
+  KeyboardAvoidingView,
   Linking,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  Platform,
   Pressable,
   Share,
   ScrollView,
@@ -49,6 +53,7 @@ import {
   formatTypingParticipants,
   removeTypingParticipant,
 } from './typingState';
+import {androidTheme} from '../../theme';
 
 const MESSAGE_PAGE_SIZE = 30;
 const TYPING_HEARTBEAT_MS = 3_000;
@@ -178,7 +183,10 @@ export function ChatThreadScreen({
   >({});
   const [typingParticipants, setTypingParticipants] = useState<Participant[]>([]);
   const messagesRef = useRef<ChatMessage[]>([]);
+  const messageScrollRef = useRef<ScrollView | null>(null);
   const acknowledgedReadIdsRef = useRef(new Set<string>());
+  const shouldStickToBottomRef = useRef(true);
+  const lastAutoScrolledMessageKeyRef = useRef<string | null>(null);
   const nextLocalOrderRef = useRef(0);
   const reactionOverridesRef = useRef<
     Map<string, MessageReactionEvent['reactions']>
@@ -254,6 +262,20 @@ export function ChatThreadScreen({
     () => formatTypingParticipants(typingParticipants),
     [typingParticipants],
   );
+  const latestMessageKey = useMemo(() => {
+    const latestMessage = messages[messages.length - 1];
+    if (!latestMessage) {
+      return null;
+    }
+
+    return [
+      latestMessage.id,
+      latestMessage.clientMessageId ?? '',
+      latestMessage.serverOrder ?? '',
+      latestMessage.createdAt,
+      latestMessage.status?.state ?? '',
+    ].join(':');
+  }, [messages]);
 
   useEffect(() => {
     recoveredPendingMessagesRef.current = recoveredPendingMessages;
@@ -279,6 +301,22 @@ export function ChatThreadScreen({
       messagesRef.current = nextMessages;
       setMessages(nextMessages);
       return nextMessages;
+    },
+    [],
+  );
+
+  const scrollMessagesToEnd = useCallback((animated: boolean) => {
+    requestAnimationFrame(() => {
+      messageScrollRef.current?.scrollToEnd({animated});
+    });
+  }, []);
+
+  const handleMessageScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
+      const distanceFromBottom =
+        contentSize.height - (contentOffset.y + layoutMeasurement.height);
+      shouldStickToBottomRef.current = distanceFromBottom < 72;
     },
     [],
   );
@@ -415,6 +453,8 @@ export function ChatThreadScreen({
     clearTypingIdleTimeout();
     typingSignalRef.current.active = false;
     typingSignalRef.current.lastSentAt = 0;
+    shouldStickToBottomRef.current = true;
+    lastAutoScrolledMessageKeyRef.current = null;
     setChat(initialChatRef.current);
     replaceMessages([]);
     setMessageErrors({});
@@ -501,6 +541,37 @@ export function ChatThreadScreen({
     session.user.id,
     stopTypingSignal,
   ]);
+
+  useEffect(() => {
+    if (loading) {
+      return;
+    }
+
+    if (!latestMessageKey) {
+      lastAutoScrolledMessageKeyRef.current = null;
+      return;
+    }
+
+    const previousMessageKey = lastAutoScrolledMessageKeyRef.current;
+    lastAutoScrolledMessageKeyRef.current = latestMessageKey;
+
+    if (previousMessageKey === null) {
+      scrollMessagesToEnd(false);
+      return;
+    }
+
+    if (previousMessageKey === latestMessageKey) {
+      return;
+    }
+
+    const latestMessage = messages[messages.length - 1];
+    if (
+      shouldStickToBottomRef.current ||
+      latestMessage?.sender.id === session.user.id
+    ) {
+      scrollMessagesToEnd(true);
+    }
+  }, [latestMessageKey, loading, messages, scrollMessagesToEnd, session.user.id]);
 
   useEffect(() => {
     return () => {
@@ -1227,7 +1298,10 @@ export function ChatThreadScreen({
   );
 
   return (
-    <View style={styles.screen}>
+    <KeyboardAvoidingView
+      behavior={Platform.select({ios: 'padding', android: 'height'})}
+      style={styles.screen}>
+      <View style={styles.screen}>
       <View style={styles.header}>
         <Pressable onPress={onBack} style={styles.headerButton}>
           <Text style={styles.headerButtonLabel}>Back</Text>
@@ -1251,8 +1325,12 @@ export function ChatThreadScreen({
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <ScrollView
+        ref={messageScrollRef}
         style={styles.messageScroll}
-        contentContainerStyle={styles.messageContent}>
+        contentContainerStyle={styles.messageContent}
+        onScroll={handleMessageScroll}
+        scrollEventThrottle={16}
+        keyboardShouldPersistTaps="handled">
         {nextCursor ? (
           <Pressable
             onPress={handleLoadOlder}
@@ -1643,6 +1721,7 @@ export function ChatThreadScreen({
               setComposerText(nextValue);
               signalTypingActivity(nextValue);
             }}
+            onFocus={() => scrollMessagesToEnd(false)}
             placeholder={
               editingMessage
                 ? 'Edit your message'
@@ -1650,7 +1729,8 @@ export function ChatThreadScreen({
                   ? 'Write a reply'
                   : 'Write a message'
             }
-            placeholderTextColor="#8d7b67"
+            placeholderTextColor={androidTheme.colors.textMuted}
+            selectionColor={androidTheme.colors.blue}
             multiline
             style={styles.composerInput}
             testID="composer-input"
@@ -1712,7 +1792,8 @@ export function ChatThreadScreen({
           </View>
         </View>
       ) : null}
-    </View>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -2221,15 +2302,15 @@ function formatFileSize(sizeBytes: number) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#f3efe7',
+    backgroundColor: androidTheme.colors.background,
   },
   header: {
     paddingHorizontal: 18,
     paddingTop: 18,
     paddingBottom: 14,
-    backgroundColor: '#fffaf1',
+    backgroundColor: androidTheme.colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#e0d3bf',
+    borderBottomColor: androidTheme.colors.border,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
@@ -2241,7 +2322,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#efe4d3',
+    backgroundColor: androidTheme.colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
   },
   headerButtonDisabled: {
     minWidth: 74,
@@ -2250,12 +2333,12 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#d3c8ba',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
   headerButtonLabel: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#5b4b3c',
+    color: androidTheme.colors.textPrimary,
   },
   headerCopy: {
     flex: 1,
@@ -2269,32 +2352,32 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 1,
-    color: '#8a5a2b',
+    color: androidTheme.colors.warm,
   },
   headerTitle: {
     fontSize: 20,
     fontWeight: '800',
-    color: '#1f1a14',
+    color: androidTheme.colors.textPrimary,
   },
   headerSubtitle: {
     fontSize: 13,
-    color: '#6f6256',
+    color: androidTheme.colors.textSecondary,
   },
   connectionLive: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#2c5c53',
+    color: androidTheme.colors.success,
   },
   connectionOffline: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#8b5a1c',
+    color: androidTheme.colors.warning,
   },
   error: {
     marginHorizontal: 18,
     marginTop: 14,
-    color: '#8b221c',
-    backgroundColor: '#f8dfdb',
+    color: androidTheme.colors.danger,
+    backgroundColor: androidTheme.colors.dangerSoft,
     borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -2307,51 +2390,54 @@ const styles = StyleSheet.create({
   messageContent: {
     padding: 18,
     gap: 12,
+    paddingBottom: 24,
   },
   loadOlderButton: {
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 18,
     paddingVertical: 12,
-    backgroundColor: '#1f5149',
+    backgroundColor: androidTheme.colors.blueStrong,
   },
   loadOlderDisabled: {
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 18,
     paddingVertical: 12,
-    backgroundColor: '#8aa19b',
+    backgroundColor: 'rgba(95, 156, 255, 0.38)',
   },
   loadOlderLabel: {
-    color: '#fffaf1',
+    color: androidTheme.colors.textInverse,
     fontSize: 14,
     fontWeight: '700',
   },
   ownBubble: {
     marginLeft: 42,
-    backgroundColor: '#dff1e5',
-    borderRadius: 22,
+    backgroundColor: androidTheme.colors.blueSoft,
+    borderRadius: androidTheme.radius.bubble,
     borderBottomRightRadius: 8,
     padding: 14,
     gap: 6,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.borderStrong,
   },
   peerBubble: {
     marginRight: 42,
-    backgroundColor: '#fffaf1',
-    borderRadius: 22,
+    backgroundColor: androidTheme.colors.surface,
+    borderRadius: androidTheme.radius.bubble,
     borderBottomLeftRadius: 8,
     borderWidth: 1,
-    borderColor: '#e0d3bf',
+    borderColor: androidTheme.colors.border,
     padding: 14,
     gap: 6,
   },
   messageSender: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#5b4b3c',
+    color: androidTheme.colors.textPrimary,
   },
   replyCard: {
-    backgroundColor: '#efe4d3',
+    backgroundColor: androidTheme.colors.surfaceMuted,
     borderRadius: 14,
     padding: 10,
     gap: 2,
@@ -2359,21 +2445,21 @@ const styles = StyleSheet.create({
   replyLabel: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#8a5a2b',
+    color: androidTheme.colors.warm,
   },
   replySnippet: {
     fontSize: 13,
-    color: '#5b4b3c',
+    color: androidTheme.colors.textSecondary,
   },
   forwardedLabel: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#8a5a2b',
+    color: androidTheme.colors.warm,
   },
   messageBody: {
     fontSize: 15,
     lineHeight: 22,
-    color: '#1f1a14',
+    color: androidTheme.colors.textPrimary,
   },
   messageAttachmentList: {
     gap: 8,
@@ -2385,7 +2471,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    backgroundColor: '#efe4d3',
+    backgroundColor: androidTheme.colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
   },
   messageAttachmentButtonDisabled: {
     flexDirection: 'row',
@@ -2394,7 +2482,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    backgroundColor: '#d3c8ba',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
   messageAttachmentCopy: {
     flex: 1,
@@ -2411,7 +2499,9 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#fffaf1',
+    backgroundColor: androidTheme.colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
   },
   messageAttachmentActionButtonDisabled: {
     minWidth: 72,
@@ -2420,25 +2510,25 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#efe8de',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
   messageAttachmentName: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#1f1a14',
+    color: androidTheme.colors.textPrimary,
   },
   messageAttachmentMeta: {
     fontSize: 12,
-    color: '#6f6256',
+    color: androidTheme.colors.textMuted,
   },
   messageAttachmentAction: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#2c5c53',
+    color: androidTheme.colors.blue,
   },
   imagePreviewOverlay: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(21, 18, 15, 0.86)',
+    backgroundColor: androidTheme.colors.overlay,
     paddingHorizontal: 20,
     paddingVertical: 28,
     alignItems: 'center',
@@ -2448,21 +2538,23 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 420,
     maxHeight: '100%',
-    borderRadius: 24,
-    backgroundColor: '#fffaf1',
+    borderRadius: androidTheme.radius.card,
+    backgroundColor: androidTheme.colors.surface,
     padding: 18,
     gap: 14,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
   },
   imagePreviewTitle: {
     fontSize: 15,
     fontWeight: '800',
-    color: '#1f1a14',
+    color: androidTheme.colors.textPrimary,
   },
   imagePreviewImage: {
     width: '100%',
     height: 320,
     borderRadius: 18,
-    backgroundColor: '#efe4d3',
+    backgroundColor: androidTheme.colors.surfaceMuted,
   },
   imagePreviewActions: {
     flexDirection: 'row',
@@ -2473,27 +2565,29 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    backgroundColor: '#efe4d3',
+    backgroundColor: androidTheme.colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
   },
   imagePreviewActionLabel: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#2c5c53',
+    color: androidTheme.colors.textPrimary,
   },
   imagePreviewCloseButton: {
     borderRadius: 999,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    backgroundColor: '#2c5c53',
+    backgroundColor: androidTheme.colors.blueStrong,
   },
   imagePreviewCloseLabel: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#fffaf1',
+    color: androidTheme.colors.textInverse,
   },
   messageMeta: {
     fontSize: 12,
-    color: '#6f6256',
+    color: androidTheme.colors.textMuted,
   },
   reactionRow: {
     flexDirection: 'row',
@@ -2504,29 +2598,31 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: '#efe4d3',
+    backgroundColor: androidTheme.colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
   },
   reactionButtonActive: {
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: '#2c5c53',
+    backgroundColor: androidTheme.colors.orangeStrong,
   },
   reactionButtonDisabled: {
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: '#d3c8ba',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
   reactionButtonLabel: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#5b4b3c',
+    color: androidTheme.colors.textPrimary,
   },
   reactionButtonLabelActive: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#fffaf1',
+    color: androidTheme.colors.textInverse,
   },
   messageActions: {
     flexDirection: 'row',
@@ -2537,16 +2633,18 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: '#efe4d3',
+    backgroundColor: androidTheme.colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
   },
   messageActionLabel: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#5b4b3c',
+    color: androidTheme.colors.textPrimary,
   },
   failureCard: {
     marginTop: 4,
-    backgroundColor: '#f8dfdb',
+    backgroundColor: androidTheme.colors.dangerSoft,
     borderRadius: 14,
     padding: 10,
     gap: 8,
@@ -2554,33 +2652,35 @@ const styles = StyleSheet.create({
   failureText: {
     fontSize: 13,
     lineHeight: 18,
-    color: '#8b221c',
+    color: androidTheme.colors.danger,
   },
   retryButton: {
     alignSelf: 'flex-start',
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: '#8b221c',
+    backgroundColor: androidTheme.colors.orangeStrong,
   },
   retryButtonLabel: {
-    color: '#fffaf1',
+    color: androidTheme.colors.textInverse,
     fontSize: 13,
     fontWeight: '700',
   },
   emptyState: {
     borderRadius: 20,
     padding: 18,
-    backgroundColor: '#efe4d3',
+    backgroundColor: androidTheme.colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
   },
   emptyLabel: {
     fontSize: 14,
-    color: '#6a5d50',
+    color: androidTheme.colors.textSecondary,
   },
   composer: {
     borderTopWidth: 1,
-    borderTopColor: '#e0d3bf',
-    backgroundColor: '#fffaf1',
+    borderTopColor: androidTheme.colors.border,
+    backgroundColor: androidTheme.colors.surface,
     paddingHorizontal: 16,
     paddingTop: 12,
     gap: 12,
@@ -2589,12 +2689,12 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    backgroundColor: '#efe4d3',
+    backgroundColor: androidTheme.colors.surfaceMuted,
   },
   typingIndicatorLabel: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#8a5a2b',
+    color: androidTheme.colors.warm,
   },
   composerContext: {
     flexDirection: 'row',
@@ -2603,7 +2703,9 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    backgroundColor: '#efe4d3',
+    backgroundColor: androidTheme.colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
   },
   composerContextCopy: {
     flex: 1,
@@ -2614,27 +2716,29 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
-    color: '#8a5a2b',
+    color: androidTheme.colors.warm,
   },
   composerContextTitle: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#1f1a14',
+    color: androidTheme.colors.textPrimary,
   },
   composerContextPreview: {
     fontSize: 13,
-    color: '#5b4b3c',
+    color: androidTheme.colors.textSecondary,
   },
   composerContextClose: {
     borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: '#fffaf1',
+    backgroundColor: androidTheme.colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
   },
   composerContextCloseLabel: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#5b4b3c',
+    color: androidTheme.colors.textPrimary,
   },
   forwardContext: {
     gap: 10,
@@ -2648,7 +2752,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    backgroundColor: '#efe4d3',
+    backgroundColor: androidTheme.colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
     gap: 4,
   },
   forwardTargetButtonActive: {
@@ -2656,7 +2762,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    backgroundColor: '#2c5c53',
+    backgroundColor: androidTheme.colors.orangeStrong,
     gap: 4,
   },
   forwardTargetButtonDisabled: {
@@ -2664,26 +2770,26 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    backgroundColor: '#d3c8ba',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     gap: 4,
   },
   forwardTargetTitle: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#1f1a14',
+    color: androidTheme.colors.textPrimary,
   },
   forwardTargetTitleActive: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#fffaf1',
+    color: androidTheme.colors.textInverse,
   },
   forwardTargetMeta: {
     fontSize: 12,
-    color: '#6f6256',
+    color: androidTheme.colors.textMuted,
   },
   forwardTargetMetaActive: {
     fontSize: 12,
-    color: '#d6ebe6',
+    color: 'rgba(8, 21, 33, 0.72)',
   },
   composerAttachmentList: {
     gap: 8,
@@ -2695,7 +2801,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    backgroundColor: '#efe4d3',
+    backgroundColor: androidTheme.colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
   },
   composerAttachmentCopy: {
     flex: 1,
@@ -2704,11 +2812,11 @@ const styles = StyleSheet.create({
   composerAttachmentName: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#1f1a14',
+    color: androidTheme.colors.textPrimary,
   },
   composerAttachmentMeta: {
     fontSize: 12,
-    color: '#6f6256',
+    color: androidTheme.colors.textMuted,
   },
   composerAttachmentRemove: {
     width: 28,
@@ -2716,12 +2824,12 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#fffaf1',
+    backgroundColor: androidTheme.colors.surfaceAlt,
   },
   composerAttachmentRemoveLabel: {
     fontSize: 18,
     lineHeight: 20,
-    color: '#5b4b3c',
+    color: androidTheme.colors.textPrimary,
   },
   composerInputRow: {
     flexDirection: 'row',
@@ -2734,7 +2842,9 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#efe4d3',
+    backgroundColor: androidTheme.colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
   },
   attachmentButtonDisabled: {
     width: 42,
@@ -2742,12 +2852,12 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#d3c8ba',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
   attachmentButtonLabel: {
     fontSize: 24,
     lineHeight: 26,
-    color: '#5b4b3c',
+    color: androidTheme.colors.textPrimary,
   },
   composerInput: {
     flex: 1,
@@ -2756,13 +2866,13 @@ const styles = StyleSheet.create({
     maxHeight: 120,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#d9ccb8',
-    backgroundColor: '#fdf7ed',
+    borderColor: androidTheme.colors.borderStrong,
+    backgroundColor: androidTheme.colors.surfaceAlt,
     paddingHorizontal: 14,
     paddingVertical: 10,
     fontSize: 15,
     lineHeight: 20,
-    color: '#1f1a14',
+    color: androidTheme.colors.textPrimary,
     textAlignVertical: 'top',
   },
   sendButton: {
@@ -2772,7 +2882,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#2c5c53',
+    backgroundColor: androidTheme.colors.blueStrong,
   },
   sendButtonDisabled: {
     minWidth: 64,
@@ -2781,10 +2891,10 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#9aa8a3',
+    backgroundColor: 'rgba(95, 156, 255, 0.38)',
   },
   sendButtonLabel: {
-    color: '#fffaf1',
+    color: androidTheme.colors.textInverse,
     fontSize: 14,
     fontWeight: '800',
   },

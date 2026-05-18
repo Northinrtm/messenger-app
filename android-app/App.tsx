@@ -63,6 +63,7 @@ import {
   saveStoredRefreshToken,
 } from './src/lib/sessionStorage';
 import {replaceSubscribedChatIds, subscribeToChats} from './src/lib/realtime';
+import {androidTheme} from './src/theme';
 
 type AuthMode = 'login' | 'register';
 
@@ -762,10 +763,10 @@ function App() {
 
   return (
     <SafeAreaProvider>
-      <StatusBar barStyle="dark-content" />
+      <StatusBar barStyle="light-content" />
       {!appReady ? (
         <View style={styles.loadingScreen}>
-          <ActivityIndicator size="large" color="#2c5c53" />
+          <ActivityIndicator size="large" color={androidTheme.colors.blue} />
           <Text style={styles.loadingLabel}>Restoring secure session...</Text>
         </View>
       ) : session && workspace && activeConferenceId && activeConference ? (
@@ -1057,18 +1058,18 @@ function removeWorkspaceBlockedUser(
 const styles = StyleSheet.create({
   loadingScreen: {
     flex: 1,
-    backgroundColor: '#f3efe7',
+    backgroundColor: androidTheme.colors.background,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 14,
   },
   loadingLabel: {
-    color: '#4f463c',
+    color: androidTheme.colors.textSecondary,
     fontSize: 15,
   },
   recoveryScreen: {
     flex: 1,
-    backgroundColor: '#f3efe7',
+    backgroundColor: androidTheme.colors.background,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 20,
@@ -1076,33 +1077,34 @@ const styles = StyleSheet.create({
   recoveryCard: {
     width: '100%',
     maxWidth: 420,
-    backgroundColor: '#fffaf1',
-    borderRadius: 28,
+    backgroundColor: androidTheme.colors.surface,
+    borderRadius: androidTheme.radius.cardLarge,
     borderWidth: 1,
-    borderColor: '#e0d3bf',
+    borderColor: androidTheme.colors.border,
     padding: 22,
     gap: 14,
+    ...androidTheme.shadow,
   },
   recoveryEyebrow: {
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: 1,
     textTransform: 'uppercase',
-    color: '#8a5a2b',
+    color: androidTheme.colors.warm,
   },
   recoveryTitle: {
     fontSize: 28,
     fontWeight: '800',
-    color: '#1f1a14',
+    color: androidTheme.colors.textPrimary,
   },
   recoveryCopy: {
     fontSize: 15,
     lineHeight: 22,
-    color: '#4f463c',
+    color: androidTheme.colors.textSecondary,
   },
   recoveryError: {
-    color: '#8b221c',
-    backgroundColor: '#f8dfdb',
+    color: androidTheme.colors.danger,
+    backgroundColor: androidTheme.colors.dangerSoft,
     borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -1114,17 +1116,17 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#2c5c53',
+    backgroundColor: androidTheme.colors.blueStrong,
   },
   recoveryPrimaryDisabled: {
     minHeight: 52,
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#9aa8a3',
+    backgroundColor: 'rgba(95, 156, 255, 0.32)',
   },
   recoveryPrimaryLabel: {
-    color: '#fffaf1',
+    color: androidTheme.colors.textPrimary,
     fontSize: 15,
     fontWeight: '800',
   },
@@ -1133,10 +1135,12 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#efe4d3',
+    backgroundColor: androidTheme.colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
   },
   recoveryGhostLabel: {
-    color: '#5b4b3c',
+    color: androidTheme.colors.textSecondary,
     fontSize: 15,
     fontWeight: '800',
   },

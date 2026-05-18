@@ -1,7 +1,9 @@
 import type {AuthResponse, VideoConference} from '@north/shared';
 import {useEffect, useMemo, useState} from 'react';
 import {
+  KeyboardAvoidingView,
   Linking,
+  Platform,
   Pressable,
   ScrollView,
   Share,
@@ -10,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import {API_URL, JITSI_BASE_URL} from '../../config';
+import {androidTheme} from '../../theme';
 
 type Props = {
   session: AuthResponse;
@@ -152,7 +155,13 @@ export function ConferenceDetailScreen({
   };
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+    <KeyboardAvoidingView
+      behavior={Platform.select({ios: 'padding', android: 'height'})}
+      style={styles.screen}>
+      <ScrollView
+        style={styles.screen}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled">
       <View style={styles.header}>
         <Pressable onPress={onBack} style={styles.headerButton}>
           <Text style={styles.headerButtonLabel}>Back</Text>
@@ -389,7 +398,8 @@ export function ConferenceDetailScreen({
           </Text>
         </View>
       ) : null}
-    </ScrollView>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -518,21 +528,23 @@ function toErrorText(error: unknown) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#f3efe7',
+    backgroundColor: androidTheme.colors.background,
   },
   content: {
     padding: 20,
     gap: 16,
+    backgroundColor: androidTheme.colors.background,
   },
   header: {
-    backgroundColor: '#fffaf1',
-    borderRadius: 28,
+    backgroundColor: androidTheme.colors.surface,
+    borderRadius: androidTheme.radius.cardLarge,
     borderWidth: 1,
-    borderColor: '#e0d3bf',
+    borderColor: androidTheme.colors.border,
     padding: 18,
     flexDirection: 'row',
     gap: 14,
     alignItems: 'center',
+    ...androidTheme.shadow,
   },
   headerButton: {
     minWidth: 72,
@@ -540,13 +552,15 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#efe4d3',
+    backgroundColor: androidTheme.colors.surfaceMuted,
     paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
   },
   headerButtonLabel: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#5b4b3c',
+    color: androidTheme.colors.textPrimary,
   },
   headerCopy: {
     flex: 1,
@@ -557,20 +571,20 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 1,
-    color: '#8a5a2b',
+    color: androidTheme.colors.warm,
   },
   headerTitle: {
     fontSize: 24,
     fontWeight: '800',
-    color: '#1f1a14',
+    color: androidTheme.colors.textPrimary,
   },
   headerSubtitle: {
     fontSize: 14,
-    color: '#6f6256',
+    color: androidTheme.colors.textSecondary,
   },
   error: {
-    color: '#8b221c',
-    backgroundColor: '#f8dfdb',
+    color: androidTheme.colors.danger,
+    backgroundColor: androidTheme.colors.dangerSoft,
     borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -578,22 +592,22 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   card: {
-    backgroundColor: '#fffaf1',
-    borderRadius: 24,
+    backgroundColor: androidTheme.colors.surface,
+    borderRadius: androidTheme.radius.card,
     borderWidth: 1,
-    borderColor: '#e0d3bf',
+    borderColor: androidTheme.colors.border,
     padding: 16,
     gap: 12,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '800',
-    color: '#1f1a14',
+    color: androidTheme.colors.textPrimary,
   },
   helper: {
     fontSize: 13,
     lineHeight: 19,
-    color: '#6f6256',
+    color: androidTheme.colors.textSecondary,
   },
   metaRow: {
     gap: 3,
@@ -602,11 +616,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textTransform: 'uppercase',
     letterSpacing: 1,
-    color: '#8d7b67',
+    color: androidTheme.colors.textMuted,
   },
   metaValue: {
     fontSize: 15,
-    color: '#2d251d',
+    color: androidTheme.colors.textPrimary,
   },
   actionStack: {
     gap: 10,
@@ -615,22 +629,24 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 14,
     gap: 10,
-    backgroundColor: '#f5ecde',
+    backgroundColor: androidTheme.colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
   },
   inviteTitle: {
     fontSize: 14,
     fontWeight: '800',
-    color: '#1f1a14',
+    color: androidTheme.colors.textPrimary,
   },
   inviteValue: {
     fontSize: 13,
     lineHeight: 18,
-    color: '#2d251d',
+    color: androidTheme.colors.textPrimary,
   },
   invitePlaceholder: {
     fontSize: 13,
     lineHeight: 18,
-    color: '#8d7b67',
+    color: androidTheme.colors.textMuted,
   },
   inviteActions: {
     gap: 10,
@@ -640,7 +656,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#2c5c53',
+    backgroundColor: androidTheme.colors.blueStrong,
     paddingHorizontal: 14,
   },
   actionMuted: {
@@ -648,15 +664,17 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#efe4d3',
+    backgroundColor: androidTheme.colors.surfaceMuted,
     paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
   },
   actionDanger: {
     minHeight: 48,
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f8dfdb',
+    backgroundColor: androidTheme.colors.dangerSoft,
     paddingHorizontal: 14,
   },
   actionDisabled: {
@@ -664,21 +682,21 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#d8d0c4',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     paddingHorizontal: 14,
   },
   actionPrimaryLabel: {
-    color: '#fffaf1',
+    color: androidTheme.colors.textInverse,
     fontSize: 15,
     fontWeight: '800',
   },
   actionMutedLabel: {
-    color: '#5b4b3c',
+    color: androidTheme.colors.textPrimary,
     fontSize: 15,
     fontWeight: '800',
   },
   actionDangerLabel: {
-    color: '#8b221c',
+    color: androidTheme.colors.danger,
     fontSize: 15,
     fontWeight: '800',
   },
@@ -689,16 +707,18 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    backgroundColor: '#efe4d3',
+    backgroundColor: androidTheme.colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
     gap: 2,
   },
   participantName: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#1f1a14',
+    color: androidTheme.colors.textPrimary,
   },
   participantMeta: {
     fontSize: 12,
-    color: '#6f6256',
+    color: androidTheme.colors.textSecondary,
   },
 });

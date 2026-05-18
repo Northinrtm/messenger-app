@@ -10,6 +10,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import {androidTheme} from '../../theme';
 
 type AuthMode = 'login' | 'register';
 
@@ -71,7 +72,7 @@ export function AuthScreen({
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.select({ios: 'padding', android: 'height'})}
       style={styles.root}>
       <ScrollView
         contentContainerStyle={styles.content}
@@ -175,8 +176,8 @@ export function AuthScreen({
                 ? styles.submitButtonDisabled
                 : styles.submitButton
             }>
-            {pending ? (
-              <ActivityIndicator color="#fffaf1" />
+          {pending ? (
+              <ActivityIndicator color={androidTheme.colors.textInverse} />
             ) : (
               <Text style={styles.submitLabel}>
                 {mode === 'login' ? 'Enter workspace' : 'Create account'}
@@ -240,8 +241,8 @@ function Field({
           secureTextEntry={resolvedSecureTextEntry}
           style={secureTextEntry ? styles.inputWithAction : styles.input}
           placeholder={placeholder}
-          placeholderTextColor="#5d7b95"
-          selectionColor="#55c2ff"
+          placeholderTextColor={androidTheme.colors.textMuted}
+          selectionColor={androidTheme.colors.blue}
         />
         {secureTextEntry ? (
           <Pressable
@@ -261,17 +262,17 @@ function Field({
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#081521',
+    backgroundColor: androidTheme.colors.background,
   },
   content: {
     flexGrow: 1,
     padding: 20,
-    backgroundColor: '#081521',
+    backgroundColor: androidTheme.colors.background,
     gap: 20,
   },
   hero: {
     gap: 8,
-    paddingTop: 24,
+    paddingTop: 28,
     paddingHorizontal: 2,
   },
   eyebrow: {
@@ -279,31 +280,27 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 1,
-    color: '#6ea8cf',
+    color: androidTheme.colors.warm,
   },
   title: {
     fontSize: 34,
     lineHeight: 40,
     fontWeight: '800',
-    color: '#f4fbff',
+    color: androidTheme.colors.textPrimary,
   },
   copy: {
     fontSize: 16,
     lineHeight: 24,
-    color: '#9ab5cb',
+    color: androidTheme.colors.textSecondary,
   },
   panel: {
-    backgroundColor: '#102131',
+    backgroundColor: androidTheme.colors.surface,
     borderWidth: 1,
-    borderColor: '#1f3b53',
-    borderRadius: 28,
+    borderColor: androidTheme.colors.border,
+    borderRadius: androidTheme.radius.cardLarge,
     padding: 20,
     gap: 18,
-    shadowColor: '#02070b',
-    shadowOpacity: 0.35,
-    shadowRadius: 20,
-    shadowOffset: {width: 0, height: 10},
-    elevation: 8,
+    ...androidTheme.shadow,
   },
   modeTabs: {
     flexDirection: 'row',
@@ -313,24 +310,29 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 12,
     borderRadius: 999,
-    backgroundColor: '#183044',
+    backgroundColor: androidTheme.colors.surfaceMuted,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#24435e',
+    borderColor: androidTheme.colors.border,
   },
   modeTabActive: {
     flex: 1,
     paddingVertical: 12,
     borderRadius: 999,
-    backgroundColor: '#3cb7ff',
+    backgroundColor: androidTheme.colors.orangeStrong,
     alignItems: 'center',
+    shadowColor: '#000000',
+    shadowOpacity: 0.22,
+    shadowRadius: 16,
+    shadowOffset: {width: 0, height: 8},
+    elevation: 6,
   },
   modeTabLabel: {
-    color: '#a7c0d4',
+    color: androidTheme.colors.textSecondary,
     fontWeight: '700',
   },
   modeTabActiveLabel: {
-    color: '#082033',
+    color: androidTheme.colors.textInverse,
     fontWeight: '800',
   },
   form: {
@@ -342,14 +344,14 @@ const styles = StyleSheet.create({
   fieldLabel: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#b8cedf',
+    color: androidTheme.colors.textSecondary,
   },
   input: {
-    borderRadius: 18,
+    borderRadius: androidTheme.radius.control,
     borderWidth: 1,
-    borderColor: '#28506d',
-    backgroundColor: '#0a1a29',
-    color: '#f4fbff',
+    borderColor: androidTheme.colors.borderStrong,
+    backgroundColor: androidTheme.colors.surfaceAlt,
+    color: androidTheme.colors.textPrimary,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 16,
@@ -359,11 +361,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   inputWithAction: {
-    borderRadius: 18,
+    borderRadius: androidTheme.radius.control,
     borderWidth: 1,
-    borderColor: '#28506d',
-    backgroundColor: '#0a1a29',
-    color: '#f4fbff',
+    borderColor: androidTheme.colors.borderStrong,
+    backgroundColor: androidTheme.colors.surfaceAlt,
+    color: androidTheme.colors.textPrimary,
     paddingLeft: 16,
     paddingRight: 72,
     paddingVertical: 14,
@@ -376,13 +378,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   inputActionLabel: {
-    color: '#7fc8ff',
+    color: androidTheme.colors.blue,
     fontSize: 13,
     fontWeight: '700',
   },
   info: {
-    color: '#9fd3b6',
-    backgroundColor: '#123126',
+    color: androidTheme.colors.success,
+    backgroundColor: androidTheme.colors.successSoft,
     borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -390,8 +392,8 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   error: {
-    color: '#ffb3aa',
-    backgroundColor: '#3a1719',
+    color: androidTheme.colors.danger,
+    backgroundColor: androidTheme.colors.dangerSoft,
     borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -399,21 +401,21 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   submitButton: {
-    backgroundColor: '#38b6ff',
+    backgroundColor: androidTheme.colors.blueStrong,
     borderRadius: 20,
     minHeight: 56,
     alignItems: 'center',
     justifyContent: 'center',
   },
   submitButtonDisabled: {
-    backgroundColor: '#35546d',
+    backgroundColor: 'rgba(95, 156, 255, 0.38)',
     borderRadius: 20,
     minHeight: 56,
     alignItems: 'center',
     justifyContent: 'center',
   },
   submitLabel: {
-    color: '#081521',
+    color: androidTheme.colors.textInverse,
     fontSize: 16,
     fontWeight: '800',
   },

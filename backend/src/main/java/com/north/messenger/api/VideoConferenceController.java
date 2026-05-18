@@ -5,6 +5,12 @@ import com.north.messenger.api.dto.CreateVideoConferenceRequest;
 import com.north.messenger.api.dto.UpdateVideoConferenceRequest;
 import com.north.messenger.api.dto.VideoConferenceResponse;
 import com.north.messenger.application.chat.VideoConferenceService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import com.north.messenger.security.JwtService;
 import jakarta.validation.Valid;
 import java.nio.charset.StandardCharsets;
@@ -33,6 +39,12 @@ import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/conferences")
+@Tag(name = "Conferences", description = "Conference scheduling, presence, participant management, and recording endpoints")
+@SecurityRequirement(name = "bearerAuth")
+@ApiResponses({
+        @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
+        @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
+})
 public class VideoConferenceController {
 
     private final VideoConferenceService videoConferenceService;
@@ -44,17 +56,25 @@ public class VideoConferenceController {
     }
 
     @GetMapping
+    @Operation(summary = "List active conferences", description = "Returns non-archived conferences visible to the authenticated user.")
     public List<VideoConferenceResponse> listConferences(Authentication authentication) {
         return videoConferenceService.listConferences(authentication.getName());
     }
 
     @GetMapping("/archive")
+    @Operation(summary = "List archived conferences", description = "Returns ended/archived conferences visible to the authenticated user.")
     public List<VideoConferenceResponse> listArchivedConferences(Authentication authentication) {
         return videoConferenceService.listArchivedConferences(authentication.getName());
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
+    @Operation(summary = "Create a conference", description = "Creates a scheduled or immediate conference. When chatId is provided, membership is derived from that group chat.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
+            @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
+            @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
+    })
     public VideoConferenceResponse createConference(
             Authentication authentication,
             @Valid @RequestBody CreateVideoConferenceRequest request
@@ -63,6 +83,13 @@ public class VideoConferenceController {
     }
 
     @PutMapping("/{conferenceId}")
+    @Operation(summary = "Update a conference", description = "Updates conference metadata before the conference has started.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
+            @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
+            @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError"),
+            @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictError")
+    })
     public VideoConferenceResponse updateConference(
             Authentication authentication,
             @PathVariable UUID conferenceId,
@@ -72,11 +99,24 @@ public class VideoConferenceController {
     }
 
     @PostMapping("/{conferenceId}/start")
+    @Operation(summary = "Start a conference", description = "Starts the conference room and returns the updated live conference state.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
+            @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError"),
+            @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictError")
+    })
     public VideoConferenceResponse startConference(Authentication authentication, @PathVariable UUID conferenceId) {
         return videoConferenceService.startConference(authentication.getName(), conferenceId);
     }
 
     @PostMapping("/{conferenceId}/participants")
+    @Operation(summary = "Add conference participants", description = "Adds one or more participants to a conference that is still accepting invites.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
+            @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
+            @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError"),
+            @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictError")
+    })
     public VideoConferenceResponse addParticipants(
             Authentication authentication,
             @PathVariable UUID conferenceId,
@@ -87,6 +127,13 @@ public class VideoConferenceController {
 
     @PostMapping("/{conferenceId}/presence")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Mark conference presence", description = "Refreshes the authenticated participant's live presence heartbeat for the selected conference.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
+            @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
+            @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError"),
+            @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictError")
+    })
     public void touchConferencePresence(
             Authentication authentication,
             @PathVariable UUID conferenceId,
@@ -101,6 +148,13 @@ public class VideoConferenceController {
 
     @DeleteMapping("/{conferenceId}/presence")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Clear conference presence", description = "Marks the authenticated participant as no longer actively present in the selected conference.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
+            @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
+            @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError"),
+            @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictError")
+    })
     public void clearConferencePresence(
             Authentication authentication,
             @PathVariable UUID conferenceId,
@@ -114,15 +168,28 @@ public class VideoConferenceController {
     }
 
     @PostMapping(path = "/{conferenceId}/recording", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "Upload conference recording", description = "Uploads the finalized conference recording file after the conference has ended.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
+            @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
+            @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError"),
+            @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictError")
+    })
     public VideoConferenceResponse uploadRecording(
             Authentication authentication,
             @PathVariable UUID conferenceId,
+            @Parameter(description = "Multipart video recording file to attach to the conference")
             @RequestParam("file") MultipartFile file
     ) {
         return videoConferenceService.uploadRecording(authentication.getName(), conferenceId, file);
     }
 
     @GetMapping("/{conferenceId}/recording")
+    @Operation(summary = "Download conference recording", description = "Downloads the previously uploaded conference recording as a binary attachment.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
+            @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
+    })
     public ResponseEntity<Resource> downloadRecording(
             Authentication authentication,
             @PathVariable UUID conferenceId
@@ -141,12 +208,24 @@ public class VideoConferenceController {
     }
 
     @DeleteMapping("/{conferenceId}")
+    @Operation(summary = "End a conference", description = "Ends an active conference for everyone and returns the archived conference state.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
+            @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError"),
+            @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictError")
+    })
     public VideoConferenceResponse endConference(Authentication authentication, @PathVariable UUID conferenceId) {
         return videoConferenceService.endConference(authentication.getName(), conferenceId);
     }
 
     @DeleteMapping("/{conferenceId}/schedule")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Cancel a scheduled conference", description = "Cancels a conference before it has started.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
+            @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError"),
+            @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictError")
+    })
     public void cancelConference(Authentication authentication, @PathVariable UUID conferenceId) {
         videoConferenceService.cancelConference(authentication.getName(), conferenceId);
     }

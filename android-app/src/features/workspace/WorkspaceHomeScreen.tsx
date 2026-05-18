@@ -11,6 +11,8 @@ import type {
 import type {ReactNode} from 'react';
 import {useMemo, useState} from 'react';
 import {
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,6 +21,7 @@ import {
   View,
 } from 'react-native';
 import {API_URL, APP_CONFIG_NOTE} from '../../config';
+import {androidTheme} from '../../theme';
 
 type WorkspaceTab = 'chats' | 'contacts' | 'conferences' | 'profile';
 
@@ -294,7 +297,13 @@ export function WorkspaceHomeScreen({
   };
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+    <KeyboardAvoidingView
+      behavior={Platform.select({ios: 'padding', android: 'height'})}
+      style={styles.screen}>
+      <ScrollView
+        style={styles.screen}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled">
       <View style={styles.hero}>
         <View style={styles.heroCopy}>
           <Text style={styles.eyebrow}>Android workspace</Text>
@@ -344,7 +353,8 @@ export function WorkspaceHomeScreen({
           value={searchQuery}
           onChangeText={setSearchQuery}
           placeholder="Search chats, users, conferences"
-          placeholderTextColor="#8d7b67"
+          placeholderTextColor={androidTheme.colors.textMuted}
+          selectionColor={androidTheme.colors.blue}
           style={styles.searchInput}
           testID="search-input"
         />
@@ -815,7 +825,8 @@ export function WorkspaceHomeScreen({
           </View>
         </View>
       ) : null}
-    </ScrollView>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -1110,19 +1121,21 @@ function EmptyState({label}: EmptyStateProps) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#f3efe7',
+    backgroundColor: androidTheme.colors.background,
   },
   content: {
     padding: 20,
     gap: 18,
+    backgroundColor: androidTheme.colors.background,
   },
   hero: {
-    backgroundColor: '#fffaf1',
-    borderRadius: 28,
+    backgroundColor: androidTheme.colors.surface,
+    borderRadius: androidTheme.radius.cardLarge,
     borderWidth: 1,
-    borderColor: '#e0d3bf',
+    borderColor: androidTheme.colors.border,
     padding: 20,
     gap: 18,
+    ...androidTheme.shadow,
   },
   heroCopy: {
     gap: 8,
@@ -1132,18 +1145,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 1,
-    color: '#8a5a2b',
+    color: androidTheme.colors.warm,
   },
   title: {
     fontSize: 30,
     lineHeight: 36,
     fontWeight: '800',
-    color: '#1f1a14',
+    color: androidTheme.colors.textPrimary,
   },
   copy: {
     fontSize: 16,
     lineHeight: 24,
-    color: '#4f463c',
+    color: androidTheme.colors.textSecondary,
   },
   heroActions: {
     gap: 12,
@@ -1153,7 +1166,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#2c5c53',
+    backgroundColor: androidTheme.colors.blueStrong,
     paddingHorizontal: 18,
   },
   actionDisabled: {
@@ -1161,7 +1174,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#9aa8a3',
+    backgroundColor: 'rgba(95, 156, 255, 0.38)',
     paddingHorizontal: 18,
   },
   actionGhost: {
@@ -1169,16 +1182,18 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#efe4d3',
+    backgroundColor: androidTheme.colors.surfaceMuted,
     paddingHorizontal: 18,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
   },
   actionPrimaryLabel: {
-    color: '#fffaf1',
+    color: androidTheme.colors.textInverse,
     fontWeight: '800',
     fontSize: 15,
   },
   actionGhostLabel: {
-    color: '#5b4b3c',
+    color: androidTheme.colors.textPrimary,
     fontWeight: '800',
     fontSize: 15,
   },
@@ -1189,25 +1204,27 @@ const styles = StyleSheet.create({
   },
   summaryCard: {
     width: '47%',
-    backgroundColor: '#1f5149',
+    backgroundColor: androidTheme.colors.surfaceAlt,
     borderRadius: 22,
     padding: 16,
     gap: 4,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
   },
   summaryValue: {
     fontSize: 26,
     fontWeight: '800',
-    color: '#fffaf1',
+    color: androidTheme.colors.textPrimary,
   },
   summaryLabel: {
     fontSize: 13,
     textTransform: 'uppercase',
     letterSpacing: 1,
-    color: '#c6ddd8',
+    color: androidTheme.colors.textMuted,
   },
   error: {
-    color: '#8b221c',
-    backgroundColor: '#f8dfdb',
+    color: androidTheme.colors.danger,
+    backgroundColor: androidTheme.colors.dangerSoft,
     borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -1215,15 +1232,15 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   inlineError: {
-    color: '#8b221c',
+    color: androidTheme.colors.danger,
     fontSize: 13,
     lineHeight: 18,
   },
   searchCard: {
-    backgroundColor: '#fffaf1',
-    borderRadius: 24,
+    backgroundColor: androidTheme.colors.surface,
+    borderRadius: androidTheme.radius.card,
     borderWidth: 1,
-    borderColor: '#e0d3bf',
+    borderColor: androidTheme.colors.border,
     padding: 16,
     gap: 12,
   },
@@ -1231,12 +1248,12 @@ const styles = StyleSheet.create({
     minHeight: 50,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#d9ccb8',
-    backgroundColor: '#fdf7ed',
+    borderColor: androidTheme.colors.borderStrong,
+    backgroundColor: androidTheme.colors.surfaceAlt,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
-    color: '#1f1a14',
+    color: androidTheme.colors.textPrimary,
   },
   searchActions: {
     flexDirection: 'row',
@@ -1245,7 +1262,7 @@ const styles = StyleSheet.create({
   searchHint: {
     fontSize: 13,
     lineHeight: 18,
-    color: '#6f6256',
+    color: androidTheme.colors.textSecondary,
   },
   tabRow: {
     flexDirection: 'row',
@@ -1256,23 +1273,25 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 16,
     paddingVertical: 10,
-    backgroundColor: '#efe4d3',
+    backgroundColor: androidTheme.colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
   },
   tabButtonActive: {
     borderRadius: 999,
     paddingHorizontal: 16,
     paddingVertical: 10,
-    backgroundColor: '#2c5c53',
+    backgroundColor: androidTheme.colors.orangeStrong,
   },
   tabButtonLabel: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#5b4b3c',
+    color: androidTheme.colors.textPrimary,
   },
   tabButtonLabelActive: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#fffaf1',
+    color: androidTheme.colors.textInverse,
   },
   section: {
     gap: 12,
@@ -1283,12 +1302,12 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 20,
     fontWeight: '800',
-    color: '#1f1a14',
+    color: androidTheme.colors.textPrimary,
   },
   sectionSubtitle: {
     fontSize: 14,
     lineHeight: 20,
-    color: '#6f6256',
+    color: androidTheme.colors.textSecondary,
   },
   searchResultGroup: {
     gap: 8,
@@ -1298,16 +1317,16 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     textTransform: 'uppercase',
     letterSpacing: 1,
-    color: '#8a5a2b',
+    color: androidTheme.colors.warm,
   },
   searchResultGroupBody: {
     gap: 10,
   },
   card: {
-    backgroundColor: '#fffaf1',
+    backgroundColor: androidTheme.colors.surface,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#e0d3bf',
+    borderColor: androidTheme.colors.border,
     padding: 16,
     gap: 6,
   },
@@ -1332,10 +1351,10 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: '#2c5c53',
+    backgroundColor: androidTheme.colors.blueStrong,
   },
   inlineActionPrimaryLabel: {
-    color: '#fffaf1',
+    color: androidTheme.colors.textInverse,
     fontSize: 12,
     fontWeight: '800',
   },
@@ -1343,27 +1362,29 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: '#efe4d3',
+    backgroundColor: androidTheme.colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
   },
   inlineActionDisabled: {
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: '#d8d0c4',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
   inlineActionDanger: {
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: '#f8dfdb',
+    backgroundColor: androidTheme.colors.dangerSoft,
   },
   inlineActionMutedLabel: {
-    color: '#5b4b3c',
+    color: androidTheme.colors.textPrimary,
     fontSize: 12,
     fontWeight: '800',
   },
   inlineActionDangerLabel: {
-    color: '#8b221c',
+    color: androidTheme.colors.danger,
     fontSize: 12,
     fontWeight: '800',
   },
@@ -1371,20 +1392,20 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     fontWeight: '700',
-    color: '#1f1a14',
+    color: androidTheme.colors.textPrimary,
   },
   cardMeta: {
     fontSize: 13,
-    color: '#6a5d50',
+    color: androidTheme.colors.textMuted,
   },
   cardSnippet: {
     fontSize: 14,
     lineHeight: 20,
-    color: '#40372f',
+    color: androidTheme.colors.textSecondary,
   },
   cardHint: {
     fontSize: 13,
-    color: '#8a5a2b',
+    color: androidTheme.colors.warm,
   },
   metaRow: {
     gap: 3,
@@ -1393,25 +1414,27 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textTransform: 'uppercase',
     letterSpacing: 1,
-    color: '#8d7b67',
+    color: androidTheme.colors.textMuted,
   },
   metaValue: {
     fontSize: 15,
-    color: '#2d251d',
+    color: androidTheme.colors.textPrimary,
   },
   metaNote: {
     marginTop: 6,
     fontSize: 13,
     lineHeight: 19,
-    color: '#6f6256',
+    color: androidTheme.colors.textSecondary,
   },
   emptyState: {
-    backgroundColor: '#efe4d3',
+    backgroundColor: androidTheme.colors.surfaceSoft,
     borderRadius: 18,
     padding: 16,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
   },
   emptyLabel: {
-    color: '#6a5d50',
+    color: androidTheme.colors.textSecondary,
     fontSize: 14,
   },
 });

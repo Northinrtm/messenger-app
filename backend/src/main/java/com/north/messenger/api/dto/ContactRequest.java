@@ -1,9 +1,12 @@
 package com.north.messenger.api.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 
+@Schema(description = "Payload that identifies a user by username")
 public record ContactRequest(
+        @Schema(description = "Target username")
         @NotBlank
         @Pattern(
                 regexp = "^[a-zA-Z0-9_.-]{3,24}$",
