@@ -74,6 +74,7 @@ public class AuthController {
             description = "Creates a new user account, returns the authenticated session payload, and writes the refresh token cookie for browser clients."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Account registered and authenticated successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictError"),
             @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
@@ -94,6 +95,7 @@ public class AuthController {
             description = "Authenticates a browser client, returns the access token payload, and writes the refresh token cookie."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Authentication succeeded and a fresh browser session payload is returned", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
             @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
@@ -115,6 +117,7 @@ public class AuthController {
             description = "Consumes the email verification token previously sent to the user and marks the account email as verified."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Email verification token consumed successfully"),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictError"),
             @ApiResponse(responseCode = "410", ref = "#/components/responses/GoneError"),
@@ -131,6 +134,7 @@ public class AuthController {
             description = "Requests a new verification email for an address that already belongs to a user account."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "202", description = "Verification email resend request accepted"),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
     })
@@ -146,6 +150,7 @@ public class AuthController {
     )
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({
+            @ApiResponse(responseCode = "202", description = "Authenticated user's verification email resend request accepted"),
             @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
             @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
     })
@@ -160,6 +165,7 @@ public class AuthController {
             description = "Requests a password-reset email for the supplied account email."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "202", description = "Password reset request accepted"),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
     })
@@ -174,6 +180,7 @@ public class AuthController {
             description = "Resets the user's password by consuming a password-reset token and clears the browser refresh cookie."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Password reset completed successfully"),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
     })
@@ -191,6 +198,7 @@ public class AuthController {
             description = "Uses the browser refresh token cookie to issue a fresh access token payload and replacement refresh cookie."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Access token refreshed successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
             @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
     })
@@ -207,6 +215,7 @@ public class AuthController {
             description = "Revokes the refresh token cookie when present and clears it from the browser."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Browser session logged out and refresh cookie cleared"),
             @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
     })
     public void logout(HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
@@ -218,6 +227,7 @@ public class AuthController {
     @Operation(summary = "Get current profile", description = "Returns the authenticated user's profile payload.")
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Current authenticated user profile", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
             @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
     })
@@ -232,6 +242,7 @@ public class AuthController {
     )
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Profile updated successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
             @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictError"),
@@ -253,6 +264,7 @@ public class AuthController {
     @Operation(summary = "List own mailboxes", description = "Returns the authenticated user's workspace mailboxes used by the Mail tab.")
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Current user's configured mailbox list", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
             @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
     })
@@ -265,6 +277,7 @@ public class AuthController {
     @Operation(summary = "Add a mailbox", description = "Adds one mailbox address to the authenticated user's Mail tab configuration.")
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "Mailbox created successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
             @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictError"),
@@ -282,6 +295,7 @@ public class AuthController {
     @Operation(summary = "Remove a mailbox", description = "Deletes one mailbox from the authenticated user's Mail tab configuration.")
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Mailbox removed successfully"),
             @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError"),
             @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
@@ -298,6 +312,7 @@ public class AuthController {
     )
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Password changed successfully and browser refresh cookie cleared"),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
             @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
@@ -315,6 +330,7 @@ public class AuthController {
     @Operation(summary = "Update current avatar", description = "Updates the authenticated user's avatar using the provided avatar URL or data source.")
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Avatar updated successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
             @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
@@ -331,6 +347,7 @@ public class AuthController {
     @Operation(summary = "Delete current account", description = "Deletes the authenticated account, anonymizes its profile record, and clears the browser refresh cookie.")
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Account deleted successfully"),
             @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
             @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
     })
@@ -343,6 +360,7 @@ public class AuthController {
     @Operation(summary = "List active sessions", description = "Returns the authenticated user's active sessions and devices.")
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Active session list for the authenticated user", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
             @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
     })
@@ -355,6 +373,7 @@ public class AuthController {
     @Operation(summary = "Revoke one session", description = "Revokes one active session belonging to the authenticated user.")
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Selected session revoked successfully"),
             @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError"),

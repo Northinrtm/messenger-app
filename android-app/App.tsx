@@ -43,6 +43,7 @@ import {
   logout,
   removeContact,
   refreshSession,
+  resendOwnEmailVerification,
   register,
   searchWorkspace,
   startVideoConference,
@@ -752,6 +753,13 @@ function App() {
     setActiveConferenceId(null);
   }, []);
 
+  const handleResendOwnEmailVerification = useCallback(
+    async () => {
+      await runAuthorized(token => resendOwnEmailVerification(token));
+    },
+    [runAuthorized],
+  );
+
   const activeChat =
     workspace?.chats.find(chat => chat.id === activeChatId) ?? null;
   const activeConference =
@@ -820,6 +828,7 @@ function App() {
           onArchiveChat={handleArchiveChat}
           onBlockUser={handleBlockUser}
           onUnblockUser={handleUnblockUser}
+          onResendEmailVerification={handleResendOwnEmailVerification}
         />
       ) : session ? (
         <WorkspaceRecoveryScreen

@@ -43,6 +43,9 @@ public class PendingOutgoingMessageController {
             summary = "List pending outgoing messages",
             description = "Returns the authenticated user's locally persisted optimistic messages that have not yet been fully confirmed by realtime delivery."
     )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Pending outgoing messages returned successfully", useReturnTypeSchema = true)
+    })
     public List<PendingOutgoingMessageResponse> listPendingOutgoingMessages(Authentication authentication) {
         return pendingOutgoingMessageService.listOwnPendingOutgoingMessages(authentication.getName());
     }
@@ -53,6 +56,7 @@ public class PendingOutgoingMessageController {
             description = "Upserts one pending message keyed by the client-generated message id. Used by mobile/web clients to restore optimistic sends across reconnects or restarts."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Pending outgoing message stored successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
     })
@@ -75,6 +79,9 @@ public class PendingOutgoingMessageController {
             summary = "Delete a pending outgoing message",
             description = "Removes one optimistic message after it is confirmed, cancelled, or discarded by the caller."
     )
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Pending outgoing message deleted successfully")
+    })
     public void deletePendingOutgoingMessage(
             Authentication authentication,
             @Parameter(description = "Client-generated id of the pending message to delete")

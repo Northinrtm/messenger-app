@@ -33,6 +33,9 @@ public class WorkspaceController {
             summary = "Load workspace bootstrap",
             description = "Returns the authenticated user's initial workspace snapshot, including chats, contacts, conferences, drafts, blocks, and pending outgoing messages."
     )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Workspace bootstrap loaded successfully", useReturnTypeSchema = true)
+    })
     public WorkspaceBootstrapResponse bootstrap(Authentication authentication) {
         return workspaceBootstrapService.load(authentication.getName());
     }

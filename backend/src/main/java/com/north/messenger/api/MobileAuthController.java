@@ -35,6 +35,7 @@ public class MobileAuthController {
             description = "Creates a user account and returns both the access token and refresh token in the JSON response for mobile clients."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Mobile account registered and tokens returned in JSON", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictError"),
             @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
@@ -54,6 +55,7 @@ public class MobileAuthController {
             description = "Authenticates a mobile client and returns both the access token and refresh token in the JSON response body."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Mobile authentication succeeded and tokens returned in JSON", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
             @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
@@ -73,6 +75,7 @@ public class MobileAuthController {
             description = "Uses the mobile refresh token payload to issue a fresh access token and replacement refresh token."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Mobile access and refresh tokens refreshed successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
             @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
@@ -88,6 +91,7 @@ public class MobileAuthController {
             description = "Revokes the supplied mobile refresh token."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Mobile refresh token revoked successfully"),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
     })

@@ -39,6 +39,7 @@ public class InviteLinkController {
             description = "Returns the current group invite code or issues a fresh one when refresh=true."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Group invite link returned successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
@@ -59,6 +60,7 @@ public class InviteLinkController {
             description = "Returns the current conference invite code or issues a fresh one when refresh=true."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Conference invite link returned successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError"),
@@ -80,6 +82,7 @@ public class InviteLinkController {
             description = "Consumes an invite code and joins the authenticated user to the linked group or conference."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Invite accepted successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError"),
             @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictError")

@@ -68,18 +68,27 @@ public class ChatController {
 
     @GetMapping
     @Operation(summary = "List chats", description = "Returns the authenticated user's visible chat summaries.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Visible chat summaries returned successfully", useReturnTypeSchema = true)
+    })
     public List<ChatSummaryResponse> listChats(Authentication authentication) {
         return chatService.listChats(authentication.getName());
     }
 
     @GetMapping("/archive")
     @Operation(summary = "List archived chat ids", description = "Returns the set of chat ids currently archived for the authenticated user.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Archived chat ids returned successfully", useReturnTypeSchema = true)
+    })
     public List<UUID> listArchivedChatIds(Authentication authentication) {
         return chatService.listArchivedChatIds(authentication.getName());
     }
 
     @GetMapping("/drafts")
     @Operation(summary = "List drafts", description = "Returns the authenticated user's saved per-chat drafts.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Draft list returned successfully", useReturnTypeSchema = true)
+    })
     public List<ChatDraftResponse> listDrafts(Authentication authentication) {
         return chatDraftService.listOwnDrafts(authentication.getName());
     }
@@ -90,6 +99,7 @@ public class ChatController {
             description = "Returns the selected chat summary plus the first page of recent messages and any confirmed pending-outgoing cleanup ids."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Chat open payload returned successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
     })
@@ -108,6 +118,9 @@ public class ChatController {
     @DeleteMapping("/{chatId}/reaction-attention")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(summary = "Clear reaction attention", description = "Marks chat-level unread reaction attention as seen for the authenticated user.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Reaction attention cleared successfully")
+    })
     public void clearReactionAttention(Authentication authentication, @PathVariable UUID chatId) {
         chatService.clearReactionAttention(authentication.getName(), chatId);
     }
@@ -115,6 +128,7 @@ public class ChatController {
     @PostMapping("/direct")
     @Operation(summary = "Create or reopen a direct chat", description = "Starts a direct chat with another user or returns the existing direct chat summary.")
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Direct chat summary returned successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
     })
@@ -128,6 +142,7 @@ public class ChatController {
     @PostMapping("/group")
     @Operation(summary = "Create a group chat", description = "Creates a new group chat and adds the requested initial participants.")
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Group chat created successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError"),
             @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictError")
@@ -145,6 +160,7 @@ public class ChatController {
             description = "Creates the active conference call for a group chat when needed, or returns the existing active conference."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Active group conference returned successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError"),
@@ -161,6 +177,7 @@ public class ChatController {
     @PostMapping("/{chatId}/participants")
     @Operation(summary = "Add group participants", description = "Adds one or more participants to an existing group chat.")
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Participants added successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
@@ -176,6 +193,7 @@ public class ChatController {
     @PutMapping("/{chatId}")
     @Operation(summary = "Update group chat", description = "Updates mutable group settings such as title, avatar, and history visibility policy.")
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Group chat updated successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
@@ -192,6 +210,7 @@ public class ChatController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(summary = "Leave a group", description = "Moves the authenticated user out of the active membership roster while preserving read-only history when applicable.")
     @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Group left successfully"),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
@@ -204,6 +223,7 @@ public class ChatController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(summary = "Delete a group", description = "Deletes the group chat for all participants when the caller has permission to do so.")
     @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Group deleted successfully"),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
@@ -216,6 +236,7 @@ public class ChatController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(summary = "Ban a group participant", description = "Moves one participant into the group's banned roster without deleting message history.")
     @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Participant banned successfully"),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
@@ -231,6 +252,7 @@ public class ChatController {
     @GetMapping("/{chatId}/bans")
     @Operation(summary = "List group bans", description = "Returns the users currently banned from the selected group chat.")
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Group ban list returned successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
     })
@@ -245,6 +267,7 @@ public class ChatController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(summary = "Unban a group participant", description = "Removes one username from the group's banned roster and restores membership eligibility.")
     @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Participant unbanned successfully"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
     })
@@ -260,6 +283,7 @@ public class ChatController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(summary = "Assign a group moderator", description = "Promotes one active group member to moderator.")
     @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Moderator assigned successfully"),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
@@ -275,6 +299,7 @@ public class ChatController {
     @PutMapping("/{chatId}/owner")
     @Operation(summary = "Transfer group ownership", description = "Transfers ownership to an active moderator and demotes the previous owner to moderator.")
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Group ownership transferred successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
@@ -291,6 +316,7 @@ public class ChatController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(summary = "Revoke moderator rights", description = "Removes moderator access from one group member.")
     @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Moderator rights revoked successfully"),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
@@ -307,6 +333,7 @@ public class ChatController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(summary = "Remove a group participant", description = "Removes one user from the active group membership roster while preserving past message history.")
     @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Participant removed successfully"),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
@@ -323,6 +350,7 @@ public class ChatController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(summary = "Update chat archive state", description = "Archives or restores one chat for the authenticated user without affecting other participants.")
     @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Archive state updated successfully"),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
     })
@@ -338,6 +366,7 @@ public class ChatController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(summary = "Delete a chat for self", description = "Removes a chat from the authenticated user's personal workspace view only.")
     @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Chat removed from the current user's workspace successfully"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
     })
     public void deleteChatForSelf(Authentication authentication, @PathVariable UUID chatId) {
@@ -347,6 +376,7 @@ public class ChatController {
     @PutMapping("/{chatId}/draft")
     @Operation(summary = "Create or update a draft", description = "Upserts the authenticated user's saved draft text for one chat.")
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Draft saved successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
     })
     public ChatDraftResponse upsertDraft(
@@ -360,6 +390,9 @@ public class ChatController {
     @DeleteMapping("/{chatId}/draft")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(summary = "Delete a draft", description = "Deletes the authenticated user's saved draft for one chat. The operation is idempotent.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Draft deleted successfully")
+    })
     public void deleteDraft(Authentication authentication, @PathVariable UUID chatId) {
         chatDraftService.deleteOwnDraft(authentication.getName(), chatId);
     }
@@ -367,6 +400,7 @@ public class ChatController {
     @PutMapping("/{chatId}/pin")
     @Operation(summary = "Update pinned message", description = "Pins one message in the chat or clears the current pin when messageId is null.")
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Pinned message updated successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")

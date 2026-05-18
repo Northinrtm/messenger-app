@@ -1296,6 +1296,14 @@ export function ChatThreadScreen({
       ? composerText.trim() || (editingMessage.attachments?.length ?? 0) > 0
       : composerText.trim() || composerAttachments.length > 0,
   );
+  const chatKindLabel = chat ? (chat.direct ? 'Direct chat' : 'Group chat') : 'Opening chat';
+  const chatPresenceLabel = realtimeConnected
+    ? 'Realtime live'
+    : 'Realtime reconnecting';
+  const activeConversationMember =
+    chat?.direct && chat.members.length > 1
+      ? chat.members.find(member => member.id !== session.user.id) ?? null
+      : null;
 
   return (
     <KeyboardAvoidingView
@@ -1306,20 +1314,39 @@ export function ChatThreadScreen({
         <Pressable onPress={onBack} style={styles.headerButton}>
           <Text style={styles.headerButtonLabel}>Back</Text>
         </Pressable>
+        <AvatarBadge
+          name={chat?.title ?? 'Chat'}
+          avatarUrl={chat?.avatarUrl ?? activeConversationMember?.avatarUrl ?? null}
+          size={44}
+        />
         <View style={styles.headerCopy}>
-          <Text style={styles.headerEyebrow}>Chat thread</Text>
           <Text style={styles.headerTitle}>{chat?.title ?? 'Loading chat'}</Text>
-          <Text style={styles.headerSubtitle}>
-            {chat ? (chat.direct ? 'Direct chat' : 'Group chat') : 'Opening chat'}
-          </Text>
-          <Text
+          <Text style={styles.headerSubtitle}>{chatKindLabel}</Text>
+          <View
             style={
-              realtimeConnected ? styles.connectionLive : styles.connectionOffline
+              realtimeConnected
+                ? styles.connectionPillSuccess
+                : styles.connectionPillWarning
             }>
-            {realtimeConnected ? 'Realtime live' : 'Realtime reconnecting'}
-          </Text>
+            <Text
+              style={
+                realtimeConnected
+                  ? styles.connectionLive
+                  : styles.connectionOffline
+              }>
+              {chatPresenceLabel}
+            </Text>
+          </View>
         </View>
-        <View style={styles.headerSpacer} />
+        <View style={styles.headerSpacer}>
+          {chat?.unreadCount ? (
+            <View style={styles.headerUnreadBadge}>
+              <Text style={styles.headerUnreadBadgeLabel}>
+                {String(chat.unreadCount)}
+              </Text>
+            </View>
+          ) : null}
+        </View>
       </View>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -1344,11 +1371,11 @@ export function ChatThreadScreen({
 
         {loading ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyLabel}>Loading messages...</Text>
+            <Text style={styles.emptyLabel}>Loading conversation...</Text>
           </View>
         ) : messages.length === 0 ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyLabel}>No messages in this chat yet.</Text>
+            <Text style={styles.emptyLabel}>No messages yet.</Text>
           </View>
         ) : (
           messages.map(message => {
@@ -1374,9 +1401,9 @@ export function ChatThreadScreen({
               <View
                 key={message.id}
                 style={ownMessage ? styles.ownBubble : styles.peerBubble}>
-                <Text style={styles.messageSender}>
-                  {ownMessage ? 'You' : message.sender.displayName}
-                </Text>
+                {!ownMessage ? (
+                  <Text style={styles.messageSender}>{message.sender.displayName}</Text>
+                ) : null}
                 {message.replyTo ? (
                   <View style={styles.replyCard}>
                     <Text style={styles.replyLabel}>
@@ -1472,11 +1499,16 @@ export function ChatThreadScreen({
                     })}
                   </View>
                 ) : null}
-                <Text style={styles.messageMeta}>
-                  {formatTimestamp(message.editedAt ?? message.createdAt)}
-                  {message.editedAt ? ' | edited' : ''}
-                  {message.status ? ` | ${formatStatus(message.status.state)}` : ''}
-                </Text>
+                <View style={styles.messageMetaRow}>
+                  {ownMessage ? (
+                    <Text style={styles.messageSenderOwn}>You</Text>
+                  ) : null}
+                  <Text style={styles.messageMeta}>
+                    {formatTimestamp(message.editedAt ?? message.createdAt)}
+                    {message.editedAt ? ' | edited' : ''}
+                    {message.status ? ` | ${formatStatus(message.status.state)}` : ''}
+                  </Text>
+                </View>
                 {canReact ? (
                   <View style={styles.reactionRow}>
                     {REACTION_OPTIONS.map(option => {
@@ -1747,10 +1779,10 @@ export function ChatThreadScreen({
             <Text style={styles.sendButtonLabel}>
               {editingMessage
                 ? sendingCount > 0
-                  ? 'Saving...'
+                  ? '...'
                   : 'Save'
                 : sendingCount > 0
-                  ? 'Sending...'
+                  ? '...'
                   : 'Send'}
             </Text>
           </Pressable>
@@ -2299,6 +2331,54 @@ function formatFileSize(sizeBytes: number) {
   return `${size.toFixed(size >= 10 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
+function AvatarBadge({
+  name,
+  avatarUrl,
+  size,
+}: {
+  name: string;
+  avatarUrl: string | null;
+  size: number;
+}) {
+  return (
+    <View
+      style={[
+        styles.headerAvatar,
+        {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+        },
+      ]}>
+      {avatarUrl ? (
+        <Image
+          source={{uri: avatarUrl}}
+          style={{
+            width: size,
+            height: size,
+            borderRadius: size / 2,
+          }}
+        />
+      ) : (
+        <Text style={styles.headerAvatarLabel}>{buildInitials(name)}</Text>
+      )}
+    </View>
+  );
+}
+
+function buildInitials(name: string) {
+  const words = name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (words.length === 0) {
+    return 'NM';
+  }
+  const first = words[0]?.slice(0, 1) ?? '';
+  const second = (words[1] ?? words[0] ?? '').slice(0, 1);
+  return `${first}${second}`.toUpperCase();
+}
+
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
@@ -2306,9 +2386,9 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 18,
-    paddingTop: 18,
-    paddingBottom: 14,
-    backgroundColor: androidTheme.colors.surface,
+    paddingTop: 16,
+    paddingBottom: 12,
+    backgroundColor: androidTheme.colors.backgroundElevated,
     borderBottomWidth: 1,
     borderBottomColor: androidTheme.colors.border,
     flexDirection: 'row',
@@ -2316,13 +2396,13 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   headerButton: {
-    minWidth: 74,
-    minHeight: 42,
+    minWidth: 68,
+    minHeight: 40,
     paddingHorizontal: 14,
-    borderRadius: 16,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: androidTheme.colors.surfaceMuted,
+    backgroundColor: androidTheme.colors.surface,
     borderWidth: 1,
     borderColor: androidTheme.colors.border,
   },
@@ -2340,22 +2420,27 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: androidTheme.colors.textPrimary,
   },
+  headerAvatar: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: androidTheme.colors.blueSoft,
+    overflow: 'hidden',
+  },
+  headerAvatarLabel: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: androidTheme.colors.blue,
+  },
   headerCopy: {
     flex: 1,
-    gap: 2,
+    gap: 3,
   },
   headerSpacer: {
-    minWidth: 74,
-  },
-  headerEyebrow: {
-    fontSize: 12,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    color: androidTheme.colors.warm,
+    minWidth: 40,
+    alignItems: 'flex-end',
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 21,
     fontWeight: '800',
     color: androidTheme.colors.textPrimary,
   },
@@ -2363,19 +2448,47 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: androidTheme.colors.textSecondary,
   },
-  connectionLive: {
+  headerUnreadBadge: {
+    minWidth: 24,
+    height: 24,
+    paddingHorizontal: 8,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: androidTheme.colors.blueStrong,
+  },
+  headerUnreadBadgeLabel: {
     fontSize: 12,
+    fontWeight: '800',
+    color: androidTheme.colors.textInverse,
+  },
+  connectionPillSuccess: {
+    alignSelf: 'flex-start',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    backgroundColor: androidTheme.colors.successSoft,
+  },
+  connectionPillWarning: {
+    alignSelf: 'flex-start',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    backgroundColor: androidTheme.colors.warningSoft,
+  },
+  connectionLive: {
+    fontSize: 11,
     fontWeight: '700',
     color: androidTheme.colors.success,
   },
   connectionOffline: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     color: androidTheme.colors.warning,
   },
   error: {
     marginHorizontal: 18,
-    marginTop: 14,
+    marginTop: 10,
     color: androidTheme.colors.danger,
     backgroundColor: androidTheme.colors.dangerSoft,
     borderRadius: 16,
@@ -2388,7 +2501,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   messageContent: {
-    padding: 18,
+    padding: 16,
     gap: 12,
     paddingBottom: 24,
   },
@@ -2412,20 +2525,20 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   ownBubble: {
-    marginLeft: 42,
-    backgroundColor: androidTheme.colors.blueSoft,
-    borderRadius: androidTheme.radius.bubble,
-    borderBottomRightRadius: 8,
+    marginLeft: 34,
+    backgroundColor: 'rgba(78, 161, 255, 0.18)',
+    borderRadius: 20,
+    borderBottomRightRadius: 10,
     padding: 14,
     gap: 6,
     borderWidth: 1,
     borderColor: androidTheme.colors.borderStrong,
   },
   peerBubble: {
-    marginRight: 42,
+    marginRight: 34,
     backgroundColor: androidTheme.colors.surface,
-    borderRadius: androidTheme.radius.bubble,
-    borderBottomLeftRadius: 8,
+    borderRadius: 20,
+    borderBottomLeftRadius: 10,
     borderWidth: 1,
     borderColor: androidTheme.colors.border,
     padding: 14,
@@ -2460,6 +2573,17 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     color: androidTheme.colors.textPrimary,
+  },
+  messageMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  messageSenderOwn: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: androidTheme.colors.blue,
   },
   messageAttachmentList: {
     gap: 8,
@@ -2680,9 +2804,9 @@ const styles = StyleSheet.create({
   composer: {
     borderTopWidth: 1,
     borderTopColor: androidTheme.colors.border,
-    backgroundColor: androidTheme.colors.surface,
+    backgroundColor: androidTheme.colors.backgroundElevated,
     paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingTop: 10,
     gap: 12,
   },
   typingIndicator: {
@@ -2837,19 +2961,19 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   attachmentButton: {
-    width: 42,
-    minHeight: 42,
-    borderRadius: 14,
+    width: 46,
+    minHeight: 46,
+    borderRadius: 23,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: androidTheme.colors.surfaceMuted,
+    backgroundColor: androidTheme.colors.surface,
     borderWidth: 1,
     borderColor: androidTheme.colors.border,
   },
   attachmentButtonDisabled: {
-    width: 42,
-    minHeight: 42,
-    borderRadius: 14,
+    width: 46,
+    minHeight: 46,
+    borderRadius: 23,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
@@ -2864,38 +2988,36 @@ const styles = StyleSheet.create({
     minWidth: 0,
     minHeight: 46,
     maxHeight: 120,
-    borderRadius: 18,
+    borderRadius: 23,
     borderWidth: 1,
-    borderColor: androidTheme.colors.borderStrong,
-    backgroundColor: androidTheme.colors.surfaceAlt,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    borderColor: androidTheme.colors.border,
+    backgroundColor: androidTheme.colors.surface,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     fontSize: 15,
     lineHeight: 20,
     color: androidTheme.colors.textPrimary,
     textAlignVertical: 'top',
   },
   sendButton: {
-    minWidth: 64,
+    width: 46,
     minHeight: 46,
-    paddingHorizontal: 14,
-    borderRadius: 16,
+    borderRadius: 23,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: androidTheme.colors.blueStrong,
   },
   sendButtonDisabled: {
-    minWidth: 64,
+    width: 46,
     minHeight: 46,
-    paddingHorizontal: 14,
-    borderRadius: 16,
+    borderRadius: 23,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(95, 156, 255, 0.38)',
   },
   sendButtonLabel: {
     color: androidTheme.colors.textInverse,
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '800',
   },
 });

@@ -6,6 +6,8 @@ import com.north.messenger.api.dto.UserProfileResponse;
 import com.north.messenger.application.auth.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -49,6 +51,7 @@ public class UserController {
     )
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Matching users returned successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
             @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
@@ -63,6 +66,14 @@ public class UserController {
             description = "Returns the raw avatar bytes for a user profile. The response is cacheable and includes ETag metadata."
     )
     @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Raw avatar bytes returned successfully",
+                    content = @Content(
+                            mediaType = "application/octet-stream",
+                            schema = @Schema(type = "string", format = "binary")
+                    )
+            ),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError"),
             @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
     })
@@ -80,6 +91,7 @@ public class UserController {
     @Operation(summary = "List contacts", description = "Returns the authenticated user's saved contact list.")
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Contact list returned successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
             @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
     })
@@ -91,6 +103,7 @@ public class UserController {
     @Operation(summary = "List blocked users", description = "Returns the authenticated user's block list.")
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Blocked user list returned successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
             @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
     })
@@ -103,6 +116,7 @@ public class UserController {
     @Operation(summary = "Add a contact", description = "Adds one user to the authenticated user's contact list.")
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "Contact created successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError"),
@@ -120,6 +134,7 @@ public class UserController {
     @Operation(summary = "Remove a contact", description = "Deletes one user from the authenticated user's contact list.")
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Contact removed successfully"),
             @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
             @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
     })
@@ -132,6 +147,7 @@ public class UserController {
     @Operation(summary = "Block a user", description = "Blocks one user for the authenticated account and removes them from contacts if needed.")
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "User blocked successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError"),
@@ -149,6 +165,7 @@ public class UserController {
     @Operation(summary = "Unblock a user", description = "Removes one user from the authenticated user's block list.")
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "User unblocked successfully"),
             @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
             @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
     })

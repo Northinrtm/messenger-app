@@ -184,6 +184,13 @@ export function logout(input: MobileRefreshRequest) {
   });
 }
 
+export function resendOwnEmailVerification(token: string) {
+  return request<void>('/api/auth/me/email-verification', {
+    method: 'POST',
+    token,
+  });
+}
+
 export function getWorkspaceBootstrap(token: string) {
   return request<WorkspaceBootstrap>('/api/workspace/bootstrap', {
     token,

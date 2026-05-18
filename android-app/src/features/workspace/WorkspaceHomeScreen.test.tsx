@@ -190,6 +190,7 @@ describe('WorkspaceHomeScreen', () => {
           onArchiveChat={onArchiveChat}
           onBlockUser={async username => ({...contact, username})}
           onUnblockUser={async () => undefined}
+          onResendEmailVerification={async () => undefined}
         />,
       );
     });
@@ -225,6 +226,7 @@ describe('WorkspaceHomeScreen', () => {
           onArchiveChat={async () => undefined}
           onBlockUser={async username => ({...contact, username})}
           onUnblockUser={onUnblockUser}
+          onResendEmailVerification={async () => undefined}
         />,
       );
     });
@@ -286,6 +288,7 @@ describe('WorkspaceHomeScreen', () => {
           onArchiveChat={async () => undefined}
           onBlockUser={onBlockUser}
           onUnblockUser={async () => undefined}
+          onResendEmailVerification={async () => undefined}
         />,
       );
     });
@@ -333,6 +336,7 @@ describe('WorkspaceHomeScreen', () => {
           onArchiveChat={async () => undefined}
           onBlockUser={async username => ({...contact, username})}
           onUnblockUser={async () => undefined}
+          onResendEmailVerification={async () => undefined}
         />,
       );
     });
@@ -394,6 +398,7 @@ describe('WorkspaceHomeScreen', () => {
           onArchiveChat={async () => undefined}
           onBlockUser={async username => ({...contact, username})}
           onUnblockUser={async () => undefined}
+          onResendEmailVerification={async () => undefined}
         />,
       );
     });
@@ -439,6 +444,7 @@ describe('WorkspaceHomeScreen', () => {
           onArchiveChat={async () => undefined}
           onBlockUser={async username => ({...contact, username})}
           onUnblockUser={async () => undefined}
+          onResendEmailVerification={async () => undefined}
         />,
       );
     });
@@ -459,5 +465,53 @@ describe('WorkspaceHomeScreen', () => {
     });
 
     expect(onOpenConference).toHaveBeenCalledWith('conference-1');
+  });
+
+  it('resends verification email from the profile tab', async () => {
+    const onResendEmailVerification = jest.fn(async () => undefined);
+    const unverifiedSession: AuthResponse = {
+      ...session,
+      user: {
+        ...session.user,
+        emailVerified: false,
+        emailVerificationEnabled: true,
+      },
+    };
+
+    let renderer: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <WorkspaceHomeScreen
+          session={unverifiedSession}
+          workspace={workspace}
+          error={null}
+          onLogout={async () => undefined}
+          onOpenChat={() => undefined}
+          onOpenConference={() => undefined}
+          onStartDirectChat={async () => directChat}
+          onAddContact={async username => ({...contact, username})}
+          onRemoveContact={async () => undefined}
+          onSearchWorkspace={async () => emptySearchResults}
+          onArchiveChat={async () => undefined}
+          onBlockUser={async username => ({...contact, username})}
+          onUnblockUser={async () => undefined}
+          onResendEmailVerification={onResendEmailVerification}
+        />,
+      );
+    });
+
+    const profileTab = renderer!.root.findByProps({testID: 'tab-profile'});
+    await ReactTestRenderer.act(async () => {
+      profileTab.props.onPress();
+    });
+
+    const resendButton = renderer!.root.findByProps({
+      testID: 'resend-email-verification-button',
+    });
+    await ReactTestRenderer.act(async () => {
+      await resendButton.props.onPress();
+    });
+
+    expect(onResendEmailVerification).toHaveBeenCalled();
   });
 });

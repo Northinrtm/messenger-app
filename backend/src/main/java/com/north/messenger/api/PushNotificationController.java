@@ -38,6 +38,7 @@ public class PushNotificationController {
             description = "Returns the public push configuration needed by browser clients to subscribe with the current VAPID key."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Public push configuration returned successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
     })
     public PushNotificationConfigResponse getConfig() {
@@ -52,6 +53,7 @@ public class PushNotificationController {
     )
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Push subscription stored successfully"),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
             @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
@@ -76,6 +78,7 @@ public class PushNotificationController {
     )
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Push subscription deleted successfully"),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
             @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")

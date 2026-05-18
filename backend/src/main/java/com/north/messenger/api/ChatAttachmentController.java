@@ -53,6 +53,7 @@ public class ChatAttachmentController {
             description = "Allocates attachment metadata and returns the upload target used by the client to upload a file before sending the message payload."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "Upload target created successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
@@ -72,6 +73,7 @@ public class ChatAttachmentController {
             description = "Returns a cursor-paged attachment browser feed for the chat. The optional kind filter narrows the result set to media categories such as photos or documents."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Attachment browser page returned successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
@@ -102,6 +104,7 @@ public class ChatAttachmentController {
             description = "Returns a short-lived authenticated download URL for one attachment already attached to the chat."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Temporary attachment download URL returned successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
     })

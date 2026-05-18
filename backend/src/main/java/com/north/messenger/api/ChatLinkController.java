@@ -38,6 +38,7 @@ public class ChatLinkController {
             description = "Returns a cursor-paged list of links extracted from messages in the selected chat."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Link browser page returned successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")

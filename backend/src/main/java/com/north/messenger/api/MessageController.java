@@ -57,6 +57,7 @@ public class MessageController {
             description = "Returns recent messages from the selected chat, optionally paged backward from a server-order anchor."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Recent messages returned successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
     })
@@ -85,6 +86,7 @@ public class MessageController {
             description = "Returns one opaque cursor-based page of chat history and the cursor for the next page."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Cursor-paged message page returned successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
     })
@@ -111,6 +113,7 @@ public class MessageController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(summary = "Acknowledge delivered receipts", description = "Marks one or more messages as delivered for the authenticated user.")
     @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Delivered receipts acknowledged successfully"),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
@@ -127,6 +130,7 @@ public class MessageController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(summary = "Acknowledge read receipts", description = "Marks one or more messages as read for the authenticated user.")
     @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Read receipts acknowledged successfully"),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
@@ -146,6 +150,7 @@ public class MessageController {
             description = "Deletes one message either for everyone or only for the current user, depending on the scope query parameter."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Message deleted successfully"),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
@@ -167,6 +172,7 @@ public class MessageController {
             description = "Deletes a batch of messages using the same deletion scope semantics as the single-message delete endpoint."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Messages deleted successfully"),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
@@ -187,6 +193,7 @@ public class MessageController {
             description = "Updates one existing message payload. The access token in the Authorization header must belong to the authenticated session."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Message updated successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
@@ -214,6 +221,7 @@ public class MessageController {
     @PutMapping("/{messageId}/reactions")
     @Operation(summary = "Toggle a reaction", description = "Adds or removes the selected reaction for the authenticated user and returns the updated aggregate reaction event.")
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Reaction toggled successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")

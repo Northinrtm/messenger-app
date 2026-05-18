@@ -78,11 +78,17 @@ export function AuthScreen({
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled">
         <View style={styles.hero}>
-          <Text style={styles.eyebrow}>North Messenger</Text>
-          <Text style={styles.title}>Android messenger</Text>
+          <View style={styles.logo}>
+            <Text style={styles.logoLabel}>NM</Text>
+          </View>
+          <Text style={styles.brand}>North Messenger</Text>
+          <Text style={styles.title}>
+            {mode === 'login' ? 'Sign in' : 'Create account'}
+          </Text>
           <Text style={styles.copy}>
-            Sign in with your email or username and open the workspace directly
-            from Android.
+            {mode === 'login'
+              ? 'Use your email or username to open the mobile workspace.'
+              : 'Registration keeps email login enabled and sends a verification email for the account address.'}
           </Text>
         </View>
 
@@ -102,9 +108,7 @@ export function AuthScreen({
             </Pressable>
             <Pressable
               onPress={() => onModeChange('register')}
-              style={
-                mode === 'register' ? styles.modeTabActive : styles.modeTab
-              }>
+              style={mode === 'register' ? styles.modeTabActive : styles.modeTab}>
               <Text
                 style={
                   mode === 'register'
@@ -161,26 +165,36 @@ export function AuthScreen({
               autoCorrect={false}
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
               secureTextEntry
-              placeholder={mode === 'login' ? 'Enter your password' : 'Create a password'}
+              placeholder={
+                mode === 'login' ? 'Enter your password' : 'Create a password'
+              }
             />
           </View>
 
-          {info ? <Text style={styles.info}>{info}</Text> : null}
-          {error ? <Text style={styles.error}>{error}</Text> : null}
+          {info ? (
+            <View style={styles.infoBanner}>
+              <Text style={styles.infoLabel}>{info}</Text>
+            </View>
+          ) : null}
+          {error ? (
+            <View style={styles.errorBanner}>
+              <Text style={styles.errorLabel}>{error}</Text>
+            </View>
+          ) : null}
 
           <Pressable
             disabled={!canSubmit || pending}
-            onPress={handleSubmit}
+            onPress={() => {
+              handleSubmit().catch(() => undefined);
+            }}
             style={
-              !canSubmit || pending
-                ? styles.submitButtonDisabled
-                : styles.submitButton
+              !canSubmit || pending ? styles.submitButtonDisabled : styles.submitButton
             }>
-          {pending ? (
+            {pending ? (
               <ActivityIndicator color={androidTheme.colors.textInverse} />
             ) : (
               <Text style={styles.submitLabel}>
-                {mode === 'login' ? 'Enter workspace' : 'Create account'}
+                {mode === 'login' ? 'Open workspace' : 'Create account'}
               </Text>
             )}
           </Pressable>
@@ -266,31 +280,47 @@ const styles = StyleSheet.create({
   },
   content: {
     flexGrow: 1,
-    padding: 20,
+    padding: 22,
+    justifyContent: 'center',
+    gap: 24,
     backgroundColor: androidTheme.colors.background,
-    gap: 20,
   },
   hero: {
-    gap: 8,
-    paddingTop: 28,
-    paddingHorizontal: 2,
+    alignItems: 'center',
+    gap: 10,
   },
-  eyebrow: {
-    fontSize: 13,
-    fontWeight: '700',
+  logo: {
+    width: 72,
+    height: 72,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: androidTheme.colors.blueSoft,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.borderStrong,
+  },
+  logoLabel: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: androidTheme.colors.blue,
+  },
+  brand: {
+    fontSize: 14,
+    letterSpacing: 1.4,
     textTransform: 'uppercase',
-    letterSpacing: 1,
     color: androidTheme.colors.warm,
+    fontWeight: '700',
   },
   title: {
-    fontSize: 34,
-    lineHeight: 40,
+    fontSize: 32,
+    lineHeight: 38,
     fontWeight: '800',
     color: androidTheme.colors.textPrimary,
   },
   copy: {
-    fontSize: 16,
-    lineHeight: 24,
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: 'center',
     color: androidTheme.colors.textSecondary,
   },
   panel: {
@@ -305,27 +335,24 @@ const styles = StyleSheet.create({
   modeTabs: {
     flexDirection: 'row',
     gap: 10,
+    backgroundColor: androidTheme.colors.surfaceMuted,
+    padding: 6,
+    borderRadius: 20,
   },
   modeTab: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 999,
-    backgroundColor: androidTheme.colors.surfaceMuted,
+    minHeight: 44,
+    borderRadius: 16,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: androidTheme.colors.border,
+    justifyContent: 'center',
   },
   modeTabActive: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 999,
-    backgroundColor: androidTheme.colors.orangeStrong,
+    minHeight: 44,
+    borderRadius: 16,
     alignItems: 'center',
-    shadowColor: '#000000',
-    shadowOpacity: 0.22,
-    shadowRadius: 16,
-    shadowOffset: {width: 0, height: 8},
-    elevation: 6,
+    justifyContent: 'center',
+    backgroundColor: androidTheme.colors.blueStrong,
   },
   modeTabLabel: {
     color: androidTheme.colors.textSecondary,
@@ -346,6 +373,10 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: androidTheme.colors.textSecondary,
   },
+  inputWrap: {
+    position: 'relative',
+    justifyContent: 'center',
+  },
   input: {
     borderRadius: androidTheme.radius.control,
     borderWidth: 1,
@@ -355,10 +386,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 16,
-  },
-  inputWrap: {
-    position: 'relative',
-    justifyContent: 'center',
   },
   inputWithAction: {
     borderRadius: androidTheme.radius.control,
@@ -382,21 +409,25 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
   },
-  info: {
-    color: androidTheme.colors.success,
-    backgroundColor: androidTheme.colors.successSoft,
+  infoBanner: {
     borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 12,
+    backgroundColor: androidTheme.colors.successSoft,
+  },
+  infoLabel: {
+    color: androidTheme.colors.success,
     fontSize: 14,
     lineHeight: 20,
   },
-  error: {
-    color: androidTheme.colors.danger,
-    backgroundColor: androidTheme.colors.dangerSoft,
+  errorBanner: {
     borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 12,
+    backgroundColor: androidTheme.colors.dangerSoft,
+  },
+  errorLabel: {
+    color: androidTheme.colors.danger,
     fontSize: 14,
     lineHeight: 20,
   },
@@ -408,7 +439,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   submitButtonDisabled: {
-    backgroundColor: 'rgba(95, 156, 255, 0.38)',
+    backgroundColor: 'rgba(78, 161, 255, 0.32)',
     borderRadius: 20,
     minHeight: 56,
     alignItems: 'center',

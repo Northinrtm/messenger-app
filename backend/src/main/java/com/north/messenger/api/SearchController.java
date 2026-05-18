@@ -36,6 +36,9 @@ public class SearchController {
             summary = "Search the workspace",
             description = "Runs a backend search for the authenticated user and returns matching chats, users, contacts, and conferences."
     )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Workspace search results returned successfully", useReturnTypeSchema = true)
+    })
     public WorkspaceSearchResponse search(
             Authentication authentication,
             @Parameter(description = "Free-text workspace query. The backend expects at least two characters for meaningful results.")

@@ -39,6 +39,9 @@ public class TypingRestController {
             summary = "List currently typing participants",
             description = "Returns the participants whose typing heartbeat is still active in the selected chat."
     )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Typing participants returned successfully", useReturnTypeSchema = true)
+    })
     public List<ParticipantResponse> listTypingParticipants(
             Authentication authentication,
             @Parameter(description = "Chat identifier whose live typing roster should be returned")

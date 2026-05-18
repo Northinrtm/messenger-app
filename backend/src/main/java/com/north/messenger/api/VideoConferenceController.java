@@ -7,6 +7,8 @@ import com.north.messenger.api.dto.VideoConferenceResponse;
 import com.north.messenger.application.chat.VideoConferenceService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -57,12 +59,18 @@ public class VideoConferenceController {
 
     @GetMapping
     @Operation(summary = "List active conferences", description = "Returns non-archived conferences visible to the authenticated user.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Active conferences returned successfully", useReturnTypeSchema = true)
+    })
     public List<VideoConferenceResponse> listConferences(Authentication authentication) {
         return videoConferenceService.listConferences(authentication.getName());
     }
 
     @GetMapping("/archive")
     @Operation(summary = "List archived conferences", description = "Returns ended/archived conferences visible to the authenticated user.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Archived conferences returned successfully", useReturnTypeSchema = true)
+    })
     public List<VideoConferenceResponse> listArchivedConferences(Authentication authentication) {
         return videoConferenceService.listArchivedConferences(authentication.getName());
     }
@@ -71,6 +79,7 @@ public class VideoConferenceController {
     @ResponseStatus(HttpStatus.CREATED)
     @Operation(summary = "Create a conference", description = "Creates a scheduled or immediate conference. When chatId is provided, membership is derived from that group chat.")
     @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "Conference created successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
@@ -85,6 +94,7 @@ public class VideoConferenceController {
     @PutMapping("/{conferenceId}")
     @Operation(summary = "Update a conference", description = "Updates conference metadata before the conference has started.")
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Conference updated successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError"),
@@ -101,6 +111,7 @@ public class VideoConferenceController {
     @PostMapping("/{conferenceId}/start")
     @Operation(summary = "Start a conference", description = "Starts the conference room and returns the updated live conference state.")
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Conference started successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError"),
             @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictError")
@@ -112,6 +123,7 @@ public class VideoConferenceController {
     @PostMapping("/{conferenceId}/participants")
     @Operation(summary = "Add conference participants", description = "Adds one or more participants to a conference that is still accepting invites.")
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Conference participants added successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError"),
@@ -129,6 +141,7 @@ public class VideoConferenceController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(summary = "Mark conference presence", description = "Refreshes the authenticated participant's live presence heartbeat for the selected conference.")
     @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Conference presence refreshed successfully"),
             @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError"),
@@ -150,6 +163,7 @@ public class VideoConferenceController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(summary = "Clear conference presence", description = "Marks the authenticated participant as no longer actively present in the selected conference.")
     @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Conference presence cleared successfully"),
             @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError"),
@@ -170,6 +184,7 @@ public class VideoConferenceController {
     @PostMapping(path = "/{conferenceId}/recording", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(summary = "Upload conference recording", description = "Uploads the finalized conference recording file after the conference has ended.")
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Conference recording uploaded successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError"),
@@ -187,6 +202,14 @@ public class VideoConferenceController {
     @GetMapping("/{conferenceId}/recording")
     @Operation(summary = "Download conference recording", description = "Downloads the previously uploaded conference recording as a binary attachment.")
     @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Conference recording binary downloaded successfully",
+                    content = @Content(
+                            mediaType = "application/octet-stream",
+                            schema = @Schema(type = "string", format = "binary")
+                    )
+            ),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
     })
@@ -210,6 +233,7 @@ public class VideoConferenceController {
     @DeleteMapping("/{conferenceId}")
     @Operation(summary = "End a conference", description = "Ends an active conference for everyone and returns the archived conference state.")
     @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Conference ended successfully", useReturnTypeSchema = true),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError"),
             @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictError")
@@ -222,6 +246,7 @@ public class VideoConferenceController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(summary = "Cancel a scheduled conference", description = "Cancels a conference before it has started.")
     @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Conference schedule cancelled successfully"),
             @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
             @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError"),
             @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictError")
