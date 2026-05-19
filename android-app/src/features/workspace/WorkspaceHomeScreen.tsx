@@ -562,7 +562,7 @@ export function WorkspaceHomeScreen({
     setEditLastName(spaceIdx === -1 ? '' : name.slice(spaceIdx + 1));
     setEditBio(session.user.profession ?? '');
     setEditError(null);
-    setEmailChangeInput('');
+    setEmailChangeInput(session.user.email ?? '');
     setEmailChangePending(false);
     setEmailChangeInfo(null);
     setEmailChangeError(null);
@@ -1484,35 +1484,7 @@ export function WorkspaceHomeScreen({
                 </View>
                 <Text style={editStyles.inputHint}>{'Имя пользователя изменить нельзя'}</Text>
 
-                {session.user.email ? (
-                  <>
-                    <Text style={editStyles.sectionLabel}>{'EMAIL'}</Text>
-                    <View style={editStyles.inputCard}>
-                      <View style={editStyles.readonlyRow}>
-                        <View style={editStyles.readonlyRowInner}>
-                          <Text style={editStyles.readonlyValue}>{session.user.email}</Text>
-                          {session.user.emailVerified ? (
-                            <Text style={editStyles.verifiedBadge}>{'✓ подтверждён'}</Text>
-                          ) : (
-                            <Text style={editStyles.unverifiedBadge}>{'не подтверждён'}</Text>
-                          )}
-                        </View>
-                        {!session.user.emailVerified ? (
-                          <Pressable
-                            onPress={() => { handleResendVerificationFromEditScreen().catch(() => undefined); }}
-                            disabled={verificationPending}
-                            style={editStyles.resendBtn}>
-                            <Text style={editStyles.resendBtnText}>
-                              {verificationPending ? 'Отправка...' : 'Отправить письмо подтверждения'}
-                            </Text>
-                          </Pressable>
-                        ) : null}
-                      </View>
-                    </View>
-                  </>
-                ) : null}
-
-                <Text style={editStyles.sectionLabel}>{'ИЗМЕНИТЬ EMAIL'}</Text>
+                <Text style={editStyles.sectionLabel}>{'EMAIL'}</Text>
                 <View style={editStyles.inputCard}>
                   <TextInput
                     style={editStyles.input}
@@ -1522,7 +1494,7 @@ export function WorkspaceHomeScreen({
                       setEmailChangeInfo(null);
                       setEmailChangeError(null);
                     }}
-                    placeholder={'Новый адрес электронной почты'}
+                    placeholder={'Email адрес'}
                     placeholderTextColor={androidTheme.colors.textSecondary}
                     keyboardType="email-address"
                     autoCapitalize="none"
@@ -1530,17 +1502,33 @@ export function WorkspaceHomeScreen({
                     editable={!emailChangePending}
                   />
                 </View>
-                <Pressable
-                  onPress={() => { handleRequestEmailChangeFromEditScreen().catch(() => undefined); }}
-                  disabled={emailChangePending || !emailChangeInput.trim()}
-                  style={[
-                    editStyles.resendBtn,
-                    (!emailChangeInput.trim() || emailChangePending) && {opacity: 0.5},
-                  ]}>
-                  <Text style={editStyles.resendBtnText}>
-                    {emailChangePending ? 'Отправляем...' : 'Отправить ссылку'}
+                {session.user.email && emailChangeInput.trim() === session.user.email ? (
+                  <Text style={session.user.emailVerified ? editStyles.verifiedHint : editStyles.unverifiedHint}>
+                    {session.user.emailVerified ? '✓ подтверждён' : 'не подтверждён'}
                   </Text>
-                </Pressable>
+                ) : null}
+                {emailChangeInput.trim() !== (session.user.email ?? '') ? (
+                  <Pressable
+                    onPress={() => { handleRequestEmailChangeFromEditScreen().catch(() => undefined); }}
+                    disabled={emailChangePending || !emailChangeInput.trim()}
+                    style={[
+                      editStyles.resendBtn,
+                      (!emailChangeInput.trim() || emailChangePending) && {opacity: 0.5},
+                    ]}>
+                    <Text style={editStyles.resendBtnText}>
+                      {emailChangePending ? 'Отправляем...' : 'Отправить ссылку'}
+                    </Text>
+                  </Pressable>
+                ) : !session.user.emailVerified && session.user.email ? (
+                  <Pressable
+                    onPress={() => { handleResendVerificationFromEditScreen().catch(() => undefined); }}
+                    disabled={verificationPending}
+                    style={editStyles.resendBtn}>
+                    <Text style={editStyles.resendBtnText}>
+                      {verificationPending ? 'Отправка...' : 'Отправить письмо подтверждения'}
+                    </Text>
+                  </Pressable>
+                ) : null}
                 {emailChangeInfo ? (
                   <Text style={editStyles.emailChangeInfo}>{emailChangeInfo}</Text>
                 ) : null}
@@ -3956,5 +3944,17 @@ const editStyles = StyleSheet.create({
     marginTop: 10,
     lineHeight: 18,
     textAlign: 'center',
+  },
+  verifiedHint: {
+    fontSize: 13,
+    color: androidTheme.colors.success,
+    marginTop: 6,
+    marginLeft: 4,
+  },
+  unverifiedHint: {
+    fontSize: 13,
+    color: androidTheme.colors.warm,
+    marginTop: 6,
+    marginLeft: 4,
   },
 });
