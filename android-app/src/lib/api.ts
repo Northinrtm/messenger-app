@@ -602,6 +602,15 @@ export function deletePendingOutgoingMessage(
   );
 }
 
+export function requestEmailChange(token: string, newEmail: string) {
+  return request<void>('/api/auth/me/email-change/request', {
+    method: 'POST',
+    token,
+    body: {newEmail},
+    timeoutMs: 10000,
+  });
+}
+
 export function updateProfile(
   token: string,
   input: {

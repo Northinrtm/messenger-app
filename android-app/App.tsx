@@ -32,6 +32,7 @@ import {
   addContact,
   ApiError,
   blockUser,
+  requestEmailChange,
   cancelVideoConference,
   clearConferencePresence,
   createConference,
@@ -831,6 +832,13 @@ function App() {
     [runAuthorized],
   );
 
+  const handleRequestEmailChange = useCallback(
+    async (newEmail: string) => {
+      await runAuthorized(token => requestEmailChange(token, newEmail));
+    },
+    [runAuthorized],
+  );
+
   const handleUpdateAvatar = useCallback(
     async (dataUri: string) => {
       const updatedProfile = await runAuthorized(token =>
@@ -933,6 +941,7 @@ function App() {
           onBlockUser={handleBlockUser}
           onUnblockUser={handleUnblockUser}
           onResendEmailVerification={handleResendOwnEmailVerification}
+          onRequestEmailChange={handleRequestEmailChange}
           onUpdateAvatar={handleUpdateAvatar}
           onUpdateProfile={handleUpdateProfile}
           onRefreshWorkspace={handleReloadWorkspace}

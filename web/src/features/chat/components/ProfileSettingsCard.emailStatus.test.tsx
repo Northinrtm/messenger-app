@@ -72,6 +72,12 @@ describe("ProfileSettingsCard email status", () => {
           emailVerificationPending={false}
           emailVerificationInfo={null}
           emailVerificationError={null}
+          emailChangePending={false}
+          emailChangeInfo={null}
+          emailChangeError={null}
+          emailChangeInput=""
+          onEmailChangeInputChange={() => undefined}
+          onRequestEmailChange={() => undefined}
           {...defaultPushNotificationProps}
           onClose={() => {}}
           onProfileDisplayNameChange={() => {}}

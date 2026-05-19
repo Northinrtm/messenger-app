@@ -53,6 +53,7 @@ type Props = {
   onBlockUser: (username: string) => Promise<UserProfile>;
   onUnblockUser: (username: string) => Promise<void>;
   onResendEmailVerification: () => Promise<void>;
+  onRequestEmailChange: (newEmail: string) => Promise<void>;
   onUpdateAvatar: (dataUri: string) => Promise<void>;
   onUpdateProfile: (input: {displayName: string; profession?: string | null}) => Promise<void>;
   onRefreshWorkspace: () => Promise<void>;
@@ -76,6 +77,7 @@ export function WorkspaceHomeScreen({
   onBlockUser,
   onUnblockUser,
   onResendEmailVerification,
+  onRequestEmailChange,
   onUpdateAvatar,
   onUpdateProfile,
   onRefreshWorkspace,
@@ -132,6 +134,10 @@ export function WorkspaceHomeScreen({
   const [editBio, setEditBio] = useState('');
   const [editPending, setEditPending] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [emailChangeInput, setEmailChangeInput] = useState('');
+  const [emailChangePending, setEmailChangePending] = useState(false);
+  const [emailChangeInfo, setEmailChangeInfo] = useState<string | null>(null);
+  const [emailChangeError, setEmailChangeError] = useState<string | null>(null);
 
   const normalizedSearchQuery = searchQuery.trim();
   const archivedChatIds = useMemo(
@@ -556,6 +562,10 @@ export function WorkspaceHomeScreen({
     setEditLastName(spaceIdx === -1 ? '' : name.slice(spaceIdx + 1));
     setEditBio(session.user.profession ?? '');
     setEditError(null);
+    setEmailChangeInput('');
+    setEmailChangePending(false);
+    setEmailChangeInfo(null);
+    setEmailChangeError(null);
     setEditProfileOpen(true);
   };
 
@@ -587,6 +597,25 @@ export function WorkspaceHomeScreen({
       // silently ignore — user can try again
     } finally {
       setVerificationPending(false);
+    }
+  };
+
+  const handleRequestEmailChangeFromEditScreen = async () => {
+    const newEmail = emailChangeInput.trim();
+    if (!newEmail) {
+      return;
+    }
+    setEmailChangePending(true);
+    setEmailChangeInfo(null);
+    setEmailChangeError(null);
+    try {
+      await onRequestEmailChange(newEmail);
+      setEmailChangeInfo(`Письмо отправлено на ${newEmail}. Перейдите по ссылке для подтверждения.`);
+      setEmailChangeInput('');
+    } catch (err) {
+      setEmailChangeError(toErrorText(err));
+    } finally {
+      setEmailChangePending(false);
     }
   };
 
@@ -1481,6 +1510,42 @@ export function WorkspaceHomeScreen({
                       </View>
                     </View>
                   </>
+                ) : null}
+
+                <Text style={editStyles.sectionLabel}>{'ИЗМЕНИТЬ EMAIL'}</Text>
+                <View style={editStyles.inputCard}>
+                  <TextInput
+                    style={editStyles.input}
+                    value={emailChangeInput}
+                    onChangeText={text => {
+                      setEmailChangeInput(text);
+                      setEmailChangeInfo(null);
+                      setEmailChangeError(null);
+                    }}
+                    placeholder={'Новый адрес электронной почты'}
+                    placeholderTextColor={androidTheme.colors.textSecondary}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    editable={!emailChangePending}
+                  />
+                </View>
+                <Pressable
+                  onPress={() => { handleRequestEmailChangeFromEditScreen().catch(() => undefined); }}
+                  disabled={emailChangePending || !emailChangeInput.trim()}
+                  style={[
+                    editStyles.resendBtn,
+                    (!emailChangeInput.trim() || emailChangePending) && {opacity: 0.5},
+                  ]}>
+                  <Text style={editStyles.resendBtnText}>
+                    {emailChangePending ? 'Отправляем...' : 'Отправить ссылку'}
+                  </Text>
+                </Pressable>
+                {emailChangeInfo ? (
+                  <Text style={editStyles.emailChangeInfo}>{emailChangeInfo}</Text>
+                ) : null}
+                {emailChangeError ? (
+                  <Text style={editStyles.errorText}>{emailChangeError}</Text>
                 ) : null}
 
                 {editError ? (
@@ -3883,6 +3948,13 @@ const editStyles = StyleSheet.create({
     fontSize: 14,
     color: androidTheme.colors.danger,
     marginTop: 12,
+    textAlign: 'center',
+  },
+  emailChangeInfo: {
+    fontSize: 13,
+    color: androidTheme.colors.textSecondary,
+    marginTop: 10,
+    lineHeight: 18,
     textAlign: 'center',
   },
 });

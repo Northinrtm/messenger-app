@@ -286,6 +286,23 @@ export function resendOwnEmailVerification(token: string) {
   });
 }
 
+export function requestEmailChange(token: string, newEmail: string) {
+  return request<void>("/api/auth/me/email-change/request", {
+    method: "POST",
+    token,
+    body: { newEmail },
+    timeoutMs: 10000,
+  });
+}
+
+export function confirmEmailChange(input: { token: string }) {
+  return request<void>("/api/auth/email-change/confirm", {
+    method: "POST",
+    body: input,
+    timeoutMs: 10000,
+  });
+}
+
 export function confirmPasswordReset(input: { token: string; newPassword: string }) {
   return request<void>("/api/auth/password-reset/confirm", {
     method: "POST",

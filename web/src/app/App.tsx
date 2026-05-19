@@ -13,6 +13,7 @@ const SESSION_RESTORE_CARD_DELAY_MS = 900;
 const INVITE_PATH_PREFIX = "/j/";
 const PASSWORD_RESET_QUERY_PARAM = "resetToken";
 const EMAIL_VERIFICATION_QUERY_PARAM = "verifyEmailToken";
+const EMAIL_CHANGE_QUERY_PARAM = "emailChangeToken";
 let initialSessionRestorePromise: Promise<AuthResponse | null> | null = null;
 const NorthMessengerWorkspace = lazy(async () => {
   const module = await import("../features/chat/NorthMessengerWorkspace");
@@ -48,6 +49,11 @@ function extractEmailVerificationTokenFromSearch(search: string) {
   return value || null;
 }
 
+function extractEmailChangeTokenFromSearch(search: string) {
+  const value = new URLSearchParams(search).get(EMAIL_CHANGE_QUERY_PARAM)?.trim() ?? "";
+  return value || null;
+}
+
 function clearQueryParamFromLocation(queryParam: string) {
   const url = new URL(window.location.href);
   url.searchParams.delete(queryParam);
@@ -69,6 +75,9 @@ export function App() {
   );
   const [emailVerificationToken, setEmailVerificationToken] = useState<string | null>(() =>
     typeof window === "undefined" ? null : extractEmailVerificationTokenFromSearch(window.location.search)
+  );
+  const [emailChangeToken, setEmailChangeToken] = useState<string | null>(() =>
+    typeof window === "undefined" ? null : extractEmailChangeTokenFromSearch(window.location.search)
   );
   const refreshInFlightRef = useRef(false);
 
@@ -106,7 +115,7 @@ export function App() {
   });
 
   useEffect(() => {
-    if (passwordResetToken || emailVerificationToken) {
+    if (passwordResetToken || emailVerificationToken || emailChangeToken) {
       setRestoringSession(false);
       return;
     }
@@ -144,7 +153,7 @@ export function App() {
   }, [restoringSession]);
 
   useEffect(() => {
-    if (passwordResetToken || emailVerificationToken) {
+    if (passwordResetToken || emailVerificationToken || emailChangeToken) {
       return;
     }
 
@@ -166,10 +175,10 @@ export function App() {
     return () => {
       window.clearTimeout(timer);
     };
-  }, [emailVerificationToken, passwordResetToken, session, requestSessionRefresh]);
+  }, [emailVerificationToken, emailChangeToken, passwordResetToken, session, requestSessionRefresh]);
 
   useEffect(() => {
-    if (passwordResetToken || emailVerificationToken) {
+    if (passwordResetToken || emailVerificationToken || emailChangeToken) {
       return;
     }
 
@@ -198,7 +207,7 @@ export function App() {
       window.removeEventListener("focus", refreshOnReturn);
       document.removeEventListener("visibilitychange", refreshOnReturn);
     };
-  }, [emailVerificationToken, passwordResetToken, session, requestSessionRefresh]);
+  }, [emailVerificationToken, emailChangeToken, passwordResetToken, session, requestSessionRefresh]);
 
   const handlePendingInviteHandled = useEffectEvent(() => {
     setPendingInviteCode(null);
@@ -248,6 +257,17 @@ export function App() {
             setEmailVerificationToken(null);
             if (typeof window !== "undefined") {
               clearQueryParamFromLocation(EMAIL_VERIFICATION_QUERY_PARAM);
+            }
+          }}
+        />
+      ) : emailChangeToken ? (
+        <AuthCard
+          onAuthenticated={setSession}
+          initialEmailChangeToken={emailChangeToken}
+          onEmailChangeHandled={() => {
+            setEmailChangeToken(null);
+            if (typeof window !== "undefined") {
+              clearQueryParamFromLocation(EMAIL_CHANGE_QUERY_PARAM);
             }
           }}
         />

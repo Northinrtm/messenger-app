@@ -2,6 +2,7 @@ import { useMutation } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import {
   ApiError,
+  confirmEmailChange,
   confirmEmailVerification,
   confirmPasswordReset,
   describeError,
@@ -28,6 +29,8 @@ type Props = {
   onPasswordResetHandled?: () => void;
   initialEmailVerificationToken?: string | null;
   onEmailVerificationHandled?: () => void;
+  initialEmailChangeToken?: string | null;
+  onEmailChangeHandled?: () => void;
 };
 
 type Mode =
@@ -36,7 +39,8 @@ type Mode =
   | "requestReset"
   | "confirmReset"
   | "resendVerification"
-  | "verifyEmail";
+  | "verifyEmail"
+  | "confirmEmailChange";
 
 type VerificationViewState =
   | { kind: "idle"; message: null }
@@ -60,9 +64,17 @@ export function AuthCard({
   onPasswordResetHandled,
   initialEmailVerificationToken = null,
   onEmailVerificationHandled,
+  initialEmailChangeToken = null,
+  onEmailChangeHandled,
 }: Props) {
   const [mode, setMode] = useState<Mode>(
-    initialPasswordResetToken ? "confirmReset" : initialEmailVerificationToken ? "verifyEmail" : "register"
+    initialPasswordResetToken
+      ? "confirmReset"
+      : initialEmailVerificationToken
+        ? "verifyEmail"
+        : initialEmailChangeToken
+          ? "confirmEmailChange"
+          : "register"
   );
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
@@ -83,7 +95,13 @@ export function AuthCard({
       ? { kind: "pending", message: "Checking your verification link." }
       : { kind: "idle", message: null }
   );
+  const [emailChangeViewState, setEmailChangeViewState] = useState<VerificationViewState>(() =>
+    initialEmailChangeToken
+      ? { kind: "pending", message: "Applying your email change." }
+      : { kind: "idle", message: null }
+  );
   const verifiedTokenRef = useRef<string | null>(null);
+  const emailChangeTokenRef = useRef<string | null>(null);
 
   const authMutation = useMutation<AuthResponse>({
     mutationFn: async () => {
@@ -157,18 +175,36 @@ export function AuthCard({
     },
   });
 
+  const confirmEmailChangeMutation = useMutation({
+    mutationFn: (token: string) => confirmEmailChange({ token }),
+    onMutate: () => {
+      setEmailChangeViewState({ kind: "pending", message: "Applying your email change." });
+      setInfoMessage(null);
+    },
+    onSuccess: () => {
+      onEmailChangeHandled?.();
+      switchMode("login", "Email address updated. Sign in to continue.");
+    },
+    onError: (error) => {
+      const nextState = resolveEmailChangeViewState(error);
+      setEmailChangeViewState(nextState);
+    },
+  });
+
   function switchMode(nextMode: Mode, nextInfoMessage: string | null = null) {
     authMutation.reset();
     requestResetMutation.reset();
     resendVerificationMutation.reset();
     confirmResetMutation.reset();
     verifyEmailMutation.reset();
+    confirmEmailChangeMutation.reset();
     setTouchedFields({});
     setSubmitAttempted(false);
     setShowPassword(false);
     setShowPasswordConfirm(false);
     setInfoMessage(nextInfoMessage);
     setVerificationViewState({ kind: "idle", message: null });
+    setEmailChangeViewState({ kind: "idle", message: null });
     setMode(nextMode);
   }
 
@@ -189,6 +225,14 @@ export function AuthCard({
 
     verifiedTokenRef.current = null;
   }, [initialEmailVerificationToken]);
+
+  useEffect(() => {
+    if (initialEmailChangeToken) {
+      return;
+    }
+
+    emailChangeTokenRef.current = null;
+  }, [initialEmailChangeToken]);
 
   useEffect(() => {
     if (!initialEmailVerificationToken) {
@@ -215,6 +259,35 @@ export function AuthCard({
     authMutation,
     confirmResetMutation,
     initialEmailVerificationToken,
+    requestResetMutation,
+    resendVerificationMutation,
+    verifyEmailMutation,
+  ]);
+
+  useEffect(() => {
+    if (!initialEmailChangeToken) {
+      return;
+    }
+    if (emailChangeTokenRef.current === initialEmailChangeToken) {
+      return;
+    }
+
+    emailChangeTokenRef.current = initialEmailChangeToken;
+    authMutation.reset();
+    requestResetMutation.reset();
+    resendVerificationMutation.reset();
+    confirmResetMutation.reset();
+    verifyEmailMutation.reset();
+    confirmEmailChangeMutation.reset();
+    setInfoMessage(null);
+    setMode("confirmEmailChange");
+    setEmailChangeViewState({ kind: "pending", message: "Applying your email change." });
+    confirmEmailChangeMutation.mutate(initialEmailChangeToken);
+  }, [
+    authMutation,
+    confirmEmailChangeMutation,
+    confirmResetMutation,
+    initialEmailChangeToken,
     requestResetMutation,
     resendVerificationMutation,
     verifyEmailMutation,
@@ -253,13 +326,14 @@ export function AuthCard({
             ? resendVerificationEmailError === null
             : mode === "confirmReset"
               ? confirmResetTokenError === null && confirmResetPasswordError === null
-              : false;
+              : false; // verifyEmail and confirmEmailChange have no user-submit action
   const isBusy =
     authMutation.isPending ||
     requestResetMutation.isPending ||
     resendVerificationMutation.isPending ||
     confirmResetMutation.isPending ||
-    verifyEmailMutation.isPending;
+    verifyEmailMutation.isPending ||
+    confirmEmailChangeMutation.isPending;
   const description =
     mode === "requestReset"
       ? "Enter the email tied to your account. If it exists, the reset link will be sent there."
@@ -269,16 +343,21 @@ export function AuthCard({
           ? "Enter the email used for registration. If it can be verified, a new link will be sent there."
           : mode === "verifyEmail"
             ? "Confirming the email verification link for your account."
-        : "Java backend, typed web client, direct dialogs and live message delivery.";
+            : mode === "confirmEmailChange"
+              ? "Applying the email address change for your account."
+              : "Java backend, typed web client, direct dialogs and live message delivery.";
   const title =
     mode === "confirmReset"
       ? "Reset your password."
       : mode === "resendVerification" || mode === "verifyEmail"
         ? "Verify your email."
-        : "Realtime chat for serious products.";
+        : mode === "confirmEmailChange"
+          ? "Change your email."
+          : "Realtime chat for serious products.";
 
   function returnToLogin(nextInfoMessage: string | null = null) {
     onEmailVerificationHandled?.();
+    onEmailChangeHandled?.();
     switchMode("login", nextInfoMessage);
   }
 
@@ -425,7 +504,8 @@ export function AuthCard({
           {mode === "requestReset" ||
           mode === "confirmReset" ||
           mode === "resendVerification" ||
-          mode === "verifyEmail" ? null : (
+          mode === "verifyEmail" ||
+          mode === "confirmEmailChange" ? null : (
             <label className={usernameFieldError ? "field is-invalid" : "field"}>
               <span>{mode === "register" ? "Username" : "Username or email"}</span>
               <input
@@ -583,9 +663,21 @@ export function AuthCard({
             </div>
           ) : null}
 
+          {mode === "confirmEmailChange" && emailChangeViewState.message ? (
+            <div
+              className={
+                emailChangeViewState.kind === "invalid" || emailChangeViewState.kind === "expired"
+                  ? "form-error"
+                  : "form-note"
+              }
+            >
+              {emailChangeViewState.message}
+            </div>
+          ) : null}
+
           {error ? <div className="form-error">{error}</div> : null}
 
-          {mode === "verifyEmail" ? null : (
+          {mode === "verifyEmail" || mode === "confirmEmailChange" ? null : (
             <button type="submit" className="primary-button" disabled={isBusy || !canSubmit}>
               {mode === "requestReset"
                 ? requestResetMutation.isPending
@@ -673,10 +765,33 @@ export function AuthCard({
               </button>
             </>
           ) : null}
+
+          {mode === "confirmEmailChange" ? (
+            <button
+              type="button"
+              className="ghost-button auth-secondary-button"
+              onClick={() => returnToLogin()}
+              disabled={isBusy}
+            >
+              Back to sign in
+            </button>
+          ) : null}
         </form>
       </section>
     </main>
   );
+}
+
+function resolveEmailChangeViewState(error: unknown): VerificationViewState {
+  if (error instanceof ApiError) {
+    if (error.status === 410) {
+      return { kind: "expired", message: "This email change link has expired. Request a new one from your profile settings." };
+    }
+    if (error.status === 409) {
+      return { kind: "invalid", message: "This email address is already in use by another account." };
+    }
+  }
+  return { kind: "invalid", message: "This email change link is invalid or has already been used." };
 }
 
 function resolveVerificationViewState(error: unknown): VerificationViewState {

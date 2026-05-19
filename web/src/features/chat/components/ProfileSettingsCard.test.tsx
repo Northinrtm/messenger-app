@@ -80,6 +80,12 @@ describe("ProfileSettingsCard email verification section", () => {
           emailVerificationPending={false}
           emailVerificationInfo={null}
           emailVerificationError={null}
+          emailChangePending={false}
+          emailChangeInfo={null}
+          emailChangeError={null}
+          emailChangeInput=""
+          onEmailChangeInputChange={() => undefined}
+          onRequestEmailChange={() => undefined}
           {...defaultPushNotificationProps}
           onClose={() => {}}
           onProfileDisplayNameChange={() => {}}
@@ -134,6 +140,12 @@ describe("ProfileSettingsCard email verification section", () => {
           emailVerificationPending={false}
           emailVerificationInfo={null}
           emailVerificationError={null}
+          emailChangePending={false}
+          emailChangeInfo={null}
+          emailChangeError={null}
+          emailChangeInput=""
+          onEmailChangeInputChange={() => undefined}
+          onRequestEmailChange={() => undefined}
           {...defaultPushNotificationProps}
           onClose={() => {}}
           onProfileDisplayNameChange={() => {}}
@@ -174,6 +186,12 @@ describe("ProfileSettingsCard email verification section", () => {
           emailVerificationPending={false}
           emailVerificationInfo={null}
           emailVerificationError={null}
+          emailChangePending={false}
+          emailChangeInfo={null}
+          emailChangeError={null}
+          emailChangeInput=""
+          onEmailChangeInputChange={() => undefined}
+          onRequestEmailChange={() => undefined}
           {...defaultPushNotificationProps}
           onClose={() => {}}
           onProfileDisplayNameChange={() => {}}
@@ -215,6 +233,12 @@ describe("ProfileSettingsCard email verification section", () => {
           emailVerificationPending={false}
           emailVerificationInfo={null}
           emailVerificationError={null}
+          emailChangePending={false}
+          emailChangeInfo={null}
+          emailChangeError={null}
+          emailChangeInput=""
+          onEmailChangeInputChange={() => undefined}
+          onRequestEmailChange={() => undefined}
           {...defaultPushNotificationProps}
           onClose={() => {}}
           onProfileDisplayNameChange={() => {}}
@@ -255,6 +279,12 @@ describe("ProfileSettingsCard email verification section", () => {
           emailVerificationPending={false}
           emailVerificationInfo={null}
           emailVerificationError={null}
+          emailChangePending={false}
+          emailChangeInfo={null}
+          emailChangeError={null}
+          emailChangeInput=""
+          onEmailChangeInputChange={() => undefined}
+          onRequestEmailChange={() => undefined}
           {...defaultPushNotificationProps}
           onClose={() => {}}
           onProfileDisplayNameChange={() => {}}
@@ -299,6 +329,12 @@ describe("ProfileSettingsCard email verification section", () => {
           emailVerificationPending={false}
           emailVerificationInfo={null}
           emailVerificationError={null}
+          emailChangePending={false}
+          emailChangeInfo={null}
+          emailChangeError={null}
+          emailChangeInput=""
+          onEmailChangeInputChange={() => undefined}
+          onRequestEmailChange={() => undefined}
           {...defaultPushNotificationProps}
           pushNotificationsPermission="denied"
           onClose={() => {}}

@@ -40,6 +40,7 @@ import {
   removeOwnMailbox as removeOwnMailboxRequest,
   revokeSession,
   updateArchivedChat,
+  requestEmailChange,
   updateProfile,
   updateProfileAvatar,
 } from "../../lib/api";
@@ -254,6 +255,7 @@ export function NorthMessengerWorkspace({
   const [profileDisplayName, setProfileDisplayName] = useState(session.user.displayName);
   const [profileProfession, setProfileProfession] = useState(session.user.profession ?? "");
   const [mailboxEmailInput, setMailboxEmailInput] = useState("");
+  const [emailChangeInput, setEmailChangeInput] = useState("");
   const [passwordChangeCurrent, setPasswordChangeCurrent] = useState("");
   const [passwordChangeNext, setPasswordChangeNext] = useState("");
   const [passwordChangeConfirm, setPasswordChangeConfirm] = useState("");
@@ -1710,11 +1712,23 @@ export function NorthMessengerWorkspace({
     ? describeError(changePasswordMutation.error)
     : null;
 
+  const requestEmailChangeMutation = useMutation({
+    mutationFn: (newEmail: string) => requestEmailChange(session.token, newEmail),
+  });
+  const emailChangeInfo = requestEmailChangeMutation.isSuccess
+    ? `Ссылка для подтверждения отправлена на ${emailChangeInput.trim()}. Перейдите по ней для смены почты.`
+    : null;
+  const emailChangeError = requestEmailChangeMutation.error
+    ? describeError(requestEmailChangeMutation.error)
+    : null;
+
   useEffect(() => {
     if (sidebarSheet === "profile") {
       return;
     }
 
+    setEmailChangeInput("");
+    requestEmailChangeMutation.reset();
     setPasswordChangeCurrent("");
     setPasswordChangeNext("");
     setPasswordChangeConfirm("");
@@ -2505,6 +2519,15 @@ export function NorthMessengerWorkspace({
     emailVerificationPending: resendOwnEmailVerificationMutation.isPending,
     emailVerificationInfo: resolvedEmailVerificationInfo,
     emailVerificationError,
+    emailChangePending: requestEmailChangeMutation.isPending,
+    emailChangeInfo,
+    emailChangeError,
+    emailChangeInput,
+    onEmailChangeInputChange: (value: string) => {
+      setEmailChangeInput(value);
+      requestEmailChangeMutation.reset();
+    },
+    onRequestEmailChange: () => requestEmailChangeMutation.mutate(emailChangeInput.trim()),
     pushNotificationsSupported: pushNotificationState.supported,
     pushNotificationsServerEnabled: pushNotificationState.serverEnabled,
     pushNotificationsEnabled: pushNotificationState.subscribed,

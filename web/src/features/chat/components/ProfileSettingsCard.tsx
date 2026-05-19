@@ -27,6 +27,12 @@ type Props = {
   emailVerificationPending: boolean;
   emailVerificationInfo: string | null;
   emailVerificationError: string | null;
+  emailChangePending: boolean;
+  emailChangeInfo: string | null;
+  emailChangeError: string | null;
+  emailChangeInput: string;
+  onEmailChangeInputChange: (value: string) => void;
+  onRequestEmailChange: () => void;
   pushNotificationsSupported: boolean;
   pushNotificationsServerEnabled: boolean;
   pushNotificationsEnabled: boolean;
@@ -70,6 +76,12 @@ export function ProfileSettingsCard({
   emailVerificationPending,
   emailVerificationInfo,
   emailVerificationError,
+  emailChangePending,
+  emailChangeInfo,
+  emailChangeError,
+  emailChangeInput,
+  onEmailChangeInputChange,
+  onRequestEmailChange,
   pushNotificationsSupported,
   pushNotificationsServerEnabled,
   pushNotificationsEnabled,
@@ -334,6 +346,36 @@ export function ProfileSettingsCard({
           </div>
           {emailVerificationInfo ? <div className="form-note">{emailVerificationInfo}</div> : null}
           {emailVerificationError ? <div className="form-error">{emailVerificationError}</div> : null}
+          <form
+            className="profile-expand-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              onRequestEmailChange();
+            }}
+          >
+            <span className="profile-label">{"\u0421\u043c\u0435\u043d\u0438\u0442\u044c \u043f\u043e\u0447\u0442\u0443"}</span>
+            <input
+              type="email"
+              value={emailChangeInput}
+              onChange={(event) => onEmailChangeInputChange(event.target.value)}
+              placeholder={"\u041d\u043e\u0432\u044b\u0439 \u0430\u0434\u0440\u0435\u0441 \u044d\u043b\u0435\u043a\u0442\u0440\u043e\u043d\u043d\u043e\u0439 \u043f\u043e\u0447\u0442\u044b"}
+              autoComplete="email"
+              disabled={emailChangePending}
+            />
+            <div className="profile-inline-row profile-edit-actions">
+              <button
+                type="submit"
+                className="secondary-button"
+                disabled={emailChangePending || !emailChangeInput.trim()}
+              >
+                {emailChangePending
+                  ? "\u041e\u0442\u043f\u0440\u0430\u0432\u043b\u044f\u0435\u043c..."
+                  : "\u041e\u0442\u043f\u0440\u0430\u0432\u0438\u0442\u044c \u0441\u0441\u044b\u043b\u043a\u0443"}
+              </button>
+            </div>
+            {emailChangeInfo ? <div className="form-note">{emailChangeInfo}</div> : null}
+            {emailChangeError ? <div className="form-error">{emailChangeError}</div> : null}
+          </form>
         </div>
 
         <div className="profile-line profile-action-panel">

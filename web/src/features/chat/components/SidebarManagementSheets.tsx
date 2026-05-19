@@ -79,6 +79,12 @@ type Props = {
   emailVerificationPending: boolean;
   emailVerificationInfo: string | null;
   emailVerificationError: string | null;
+  emailChangePending: boolean;
+  emailChangeInfo: string | null;
+  emailChangeError: string | null;
+  emailChangeInput: string;
+  onEmailChangeInputChange: (value: string) => void;
+  onRequestEmailChange: () => void;
   pushNotificationsSupported: boolean;
   pushNotificationsServerEnabled: boolean;
   pushNotificationsEnabled: boolean;
@@ -185,6 +191,12 @@ export function SidebarManagementSheets({
   emailVerificationPending,
   emailVerificationInfo,
   emailVerificationError,
+  emailChangePending,
+  emailChangeInfo,
+  emailChangeError,
+  emailChangeInput,
+  onEmailChangeInputChange,
+  onRequestEmailChange,
   pushNotificationsSupported,
   pushNotificationsServerEnabled,
   pushNotificationsEnabled,
@@ -283,6 +295,12 @@ export function SidebarManagementSheets({
         emailVerificationPending={emailVerificationPending}
         emailVerificationInfo={emailVerificationInfo}
         emailVerificationError={emailVerificationError}
+        emailChangePending={emailChangePending}
+        emailChangeInfo={emailChangeInfo}
+        emailChangeError={emailChangeError}
+        emailChangeInput={emailChangeInput}
+        onEmailChangeInputChange={onEmailChangeInputChange}
+        onRequestEmailChange={onRequestEmailChange}
         pushNotificationsSupported={pushNotificationsSupported}
         pushNotificationsServerEnabled={pushNotificationsServerEnabled}
         pushNotificationsEnabled={pushNotificationsEnabled}
