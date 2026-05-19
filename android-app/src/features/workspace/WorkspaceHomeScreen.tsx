@@ -311,7 +311,10 @@ export function WorkspaceHomeScreen({
   };
 
   const handleConfirmConferenceModal = async () => {
-    const title = confTitle.trim();
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const defaultTitle = `Встреча ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    const title = confTitle.trim() || (conferenceModal === 'start' ? defaultTitle : '');
     if (!title) {
       setConfError('Введите название конференции');
       return;
@@ -1089,10 +1092,12 @@ export function WorkspaceHomeScreen({
                       {conferenceModal === 'start' ? 'Начать конференцию' : 'Запланировать конференцию'}
                     </Text>
 
-                    <Text style={styles.confModalLabel}>Название</Text>
+                    <Text style={styles.confModalLabel}>
+                      {conferenceModal === 'start' ? 'Название (необязательно)' : 'Название'}
+                    </Text>
                     <TextInput
                       style={styles.confModalInput}
-                      placeholder="Введите название…"
+                      placeholder={conferenceModal === 'start' ? 'Встреча ЧЧ:ММ' : 'Введите название…'}
                       placeholderTextColor={androidTheme.colors.textMuted}
                       value={confTitle}
                       onChangeText={setConfTitle}
