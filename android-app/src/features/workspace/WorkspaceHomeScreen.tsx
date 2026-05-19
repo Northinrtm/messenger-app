@@ -55,8 +55,8 @@ type Props = {
   onResendEmailVerification: () => Promise<void>;
   onUpdateAvatar: (dataUri: string) => Promise<void>;
   onRefreshWorkspace: () => Promise<void>;
-  onScheduleConference: (title: string, scheduledAt: string) => Promise<VideoConference>;
-  onStartNewConference: (title: string) => Promise<VideoConference>;
+  onScheduleConference: (title: string, scheduledAt: string, participantUsernames?: string[]) => Promise<VideoConference>;
+  onStartNewConference: (title: string, participantUsernames?: string[]) => Promise<VideoConference>;
 };
 
 export function WorkspaceHomeScreen({
@@ -117,6 +117,8 @@ export function WorkspaceHomeScreen({
   const [confTime, setConfTime] = useState('');
   const [confPending, setConfPending] = useState(false);
   const [confError, setConfError] = useState<string | null>(null);
+  const [confParticipants, setConfParticipants] = useState<string[]>([]);
+  const [confShowContacts, setConfShowContacts] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [calendarYear, setCalendarYear] = useState(() => new Date().getFullYear());
   const [calendarMonth, setCalendarMonth] = useState(() => new Date().getMonth());
@@ -307,6 +309,8 @@ export function WorkspaceHomeScreen({
     setConfDate(`${pad(now.getDate())}.${pad(now.getMonth() + 1)}.${now.getFullYear()}`);
     setConfTime(`${pad(now.getHours())}:${pad(now.getMinutes())}`);
     setConfError(null);
+    setConfParticipants([]);
+    setConfShowContacts(false);
     setConferenceModal(mode);
   };
 
@@ -323,7 +327,7 @@ export function WorkspaceHomeScreen({
     setConfError(null);
     try {
       if (conferenceModal === 'start') {
-        await onStartNewConference(title);
+        await onStartNewConference(title, confParticipants);
       } else {
         const [day, month, year] = confDate.split('.');
         const [hours, minutes] = confTime.split(':');
@@ -331,7 +335,7 @@ export function WorkspaceHomeScreen({
           Number(year), Number(month) - 1, Number(day),
           Number(hours), Number(minutes),
         ).toISOString();
-        await onScheduleConference(title, scheduledAt);
+        await onScheduleConference(title, scheduledAt, confParticipants);
       }
       setConferenceModal(null);
     } catch (err) {
@@ -1103,6 +1107,53 @@ export function WorkspaceHomeScreen({
                       onChangeText={setConfTitle}
                       returnKeyType="done"
                     />
+
+                    {/* Участники */}
+                    <Pressable
+                      style={styles.confModalParticipantsBtn}
+                      onPress={() => setConfShowContacts(v => !v)}>
+                      <Text style={styles.confModalParticipantsBtnLabel}>
+                        👥 Участники{confParticipants.length > 0 ? ` (${confParticipants.length})` : ''}
+                      </Text>
+                      <Text style={styles.confModalParticipantsChevron}>
+                        {confShowContacts ? '▲' : '▼'}
+                      </Text>
+                    </Pressable>
+
+                    {confShowContacts ? (
+                      <View style={styles.confContactList}>
+                        {workspace.contacts.length === 0 ? (
+                          <Text style={styles.confContactEmpty}>Нет контактов</Text>
+                        ) : (
+                          workspace.contacts.map(contact => {
+                            const selected = confParticipants.includes(contact.username);
+                            return (
+                              <Pressable
+                                key={contact.username}
+                                style={[
+                                  styles.confContactItem,
+                                  selected && styles.confContactItemSelected,
+                                ]}
+                                onPress={() => {
+                                  setConfParticipants(prev =>
+                                    selected
+                                      ? prev.filter(u => u !== contact.username)
+                                      : [...prev, contact.username],
+                                  );
+                                }}>
+                                <View style={[styles.confContactCheck, selected && styles.confContactCheckSelected]}>
+                                  {selected ? <Text style={styles.confContactCheckMark}>✓</Text> : null}
+                                </View>
+                                <View style={styles.confContactInfo}>
+                                  <Text style={styles.confContactName}>{contact.displayName}</Text>
+                                  <Text style={styles.confContactUsername}>@{contact.username}</Text>
+                                </View>
+                              </Pressable>
+                            );
+                          })
+                        )}
+                      </View>
+                    ) : null}
 
                     {conferenceModal === 'schedule' ? (
                       <>
@@ -3464,5 +3515,82 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: androidTheme.colors.border,
     marginHorizontal: 12,
+  },
+  confModalParticipantsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    height: 46,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
+    backgroundColor: androidTheme.colors.surfaceMuted,
+    paddingHorizontal: 14,
+  },
+  confModalParticipantsBtnLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: androidTheme.colors.textPrimary,
+  },
+  confModalParticipantsChevron: {
+    fontSize: 12,
+    color: androidTheme.colors.textMuted,
+  },
+  confContactList: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
+    overflow: 'hidden',
+    maxHeight: 220,
+  },
+  confContactEmpty: {
+    padding: 14,
+    fontSize: 13,
+    color: androidTheme.colors.textMuted,
+    textAlign: 'center',
+  },
+  confContactItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 12,
+    backgroundColor: androidTheme.colors.surfaceMuted,
+    borderBottomWidth: 1,
+    borderBottomColor: androidTheme.colors.border,
+  },
+  confContactItemSelected: {
+    backgroundColor: 'rgba(80,136,255,0.1)',
+  },
+  confContactCheck: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: androidTheme.colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confContactCheckSelected: {
+    backgroundColor: androidTheme.colors.blueStrong,
+    borderColor: androidTheme.colors.blueStrong,
+  },
+  confContactCheckMark: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  confContactInfo: {
+    flex: 1,
+    gap: 1,
+  },
+  confContactName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: androidTheme.colors.textPrimary,
+  },
+  confContactUsername: {
+    fontSize: 12,
+    color: androidTheme.colors.textSecondary,
   },
 });

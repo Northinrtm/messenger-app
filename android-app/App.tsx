@@ -617,9 +617,9 @@ function App() {
   );
 
   const handleScheduleConference = useCallback(
-    async (title: string, scheduledAt: string) => {
+    async (title: string, scheduledAt: string, participantUsernames?: string[]) => {
       const conference = await runAuthorized(token =>
-        createConference(token, {title, scheduledAt}),
+        createConference(token, {title, scheduledAt, participantUsernames}),
       );
       setWorkspace(currentWorkspace =>
         currentWorkspace
@@ -632,9 +632,9 @@ function App() {
   );
 
   const handleStartNewConference = useCallback(
-    async (title: string) => {
+    async (title: string, participantUsernames?: string[]) => {
       const conference = await runAuthorized(token =>
-        createConference(token, {title, scheduledAt: new Date().toISOString()}),
+        createConference(token, {title, scheduledAt: new Date().toISOString(), participantUsernames}),
       );
       const started = await runAuthorized(token =>
         startVideoConference(token, conference.id),
