@@ -26,3 +26,6 @@ android-app/ios/build/
 *.iml
 AGENTS.md
 docs/ai/
+.claude/
+android-app/*.xml
+android-app/*.png
