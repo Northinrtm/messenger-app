@@ -602,6 +602,25 @@ export function deletePendingOutgoingMessage(
   );
 }
 
+export function updateProfile(
+  token: string,
+  input: {
+    displayName: string;
+    profession?: string | null;
+    mailEnabled?: boolean | null;
+  },
+) {
+  return request<UserProfile>('/api/auth/me', {
+    method: 'PUT',
+    token,
+    body: {
+      displayName: input.displayName,
+      profession: input.profession ?? null,
+      mailEnabled: input.mailEnabled ?? null,
+    },
+  });
+}
+
 export function updateAvatar(token: string, avatarUrl: string | null) {
   return request<UserProfile>('/api/auth/me/avatar', {
     method: 'PUT',

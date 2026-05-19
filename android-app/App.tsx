@@ -42,6 +42,7 @@ import {
   deletePendingOutgoingMessage,
   endVideoConference,
   updateAvatar,
+  updateProfile,
   getWorkspaceBootstrap,
   leaveChatGroup,
   login,
@@ -846,6 +847,22 @@ function App() {
     [runAuthorized],
   );
 
+  const handleUpdateProfile = useCallback(
+    async (input: {displayName: string; profession?: string | null}) => {
+      const updatedProfile = await runAuthorized(token =>
+        updateProfile(token, input),
+      );
+      setSession(current => {
+        if (!current) return current;
+        return {
+          ...current,
+          auth: {...current.auth, user: updatedProfile},
+        };
+      });
+    },
+    [runAuthorized],
+  );
+
   const activeChat =
     workspace?.chats.find(chat => chat.id === activeChatId) ?? null;
   const activeConference =
@@ -917,6 +934,7 @@ function App() {
           onUnblockUser={handleUnblockUser}
           onResendEmailVerification={handleResendOwnEmailVerification}
           onUpdateAvatar={handleUpdateAvatar}
+          onUpdateProfile={handleUpdateProfile}
           onRefreshWorkspace={handleReloadWorkspace}
           onScheduleConference={handleScheduleConference}
           onStartNewConference={handleStartNewConference}

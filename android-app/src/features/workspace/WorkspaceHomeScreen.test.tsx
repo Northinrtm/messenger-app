@@ -206,6 +206,7 @@ describe('WorkspaceHomeScreen', () => {
           onUnblockUser={async () => undefined}
           onResendEmailVerification={async () => undefined}
           onUpdateAvatar={async () => undefined}
+          onUpdateProfile={async () => undefined}
           onRefreshWorkspace={async () => undefined}
           onScheduleConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
           onStartNewConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
@@ -249,6 +250,7 @@ describe('WorkspaceHomeScreen', () => {
           onUnblockUser={onUnblockUser}
           onResendEmailVerification={async () => undefined}
           onUpdateAvatar={async () => undefined}
+          onUpdateProfile={async () => undefined}
           onRefreshWorkspace={async () => undefined}
           onScheduleConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
           onStartNewConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
@@ -316,6 +318,7 @@ describe('WorkspaceHomeScreen', () => {
           onUnblockUser={async () => undefined}
           onResendEmailVerification={async () => undefined}
           onUpdateAvatar={async () => undefined}
+          onUpdateProfile={async () => undefined}
           onRefreshWorkspace={async () => undefined}
           onScheduleConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
           onStartNewConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
@@ -373,6 +376,7 @@ describe('WorkspaceHomeScreen', () => {
           onUnblockUser={async () => undefined}
           onResendEmailVerification={async () => undefined}
           onUpdateAvatar={async () => undefined}
+          onUpdateProfile={async () => undefined}
           onRefreshWorkspace={async () => undefined}
           onScheduleConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
           onStartNewConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
@@ -440,6 +444,7 @@ describe('WorkspaceHomeScreen', () => {
           onUnblockUser={async () => undefined}
           onResendEmailVerification={async () => undefined}
           onUpdateAvatar={async () => undefined}
+          onUpdateProfile={async () => undefined}
           onRefreshWorkspace={async () => undefined}
           onScheduleConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
           onStartNewConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
@@ -495,6 +500,7 @@ describe('WorkspaceHomeScreen', () => {
           onUnblockUser={async () => undefined}
           onResendEmailVerification={async () => undefined}
           onUpdateAvatar={async () => undefined}
+          onUpdateProfile={async () => undefined}
           onRefreshWorkspace={async () => undefined}
           onScheduleConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
           onStartNewConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
@@ -551,6 +557,7 @@ describe('WorkspaceHomeScreen', () => {
           onUnblockUser={async () => undefined}
           onResendEmailVerification={onResendEmailVerification}
           onUpdateAvatar={async () => undefined}
+          onUpdateProfile={async () => undefined}
           onRefreshWorkspace={async () => undefined}
           onScheduleConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
           onStartNewConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}

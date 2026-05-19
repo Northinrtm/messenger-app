@@ -54,6 +54,7 @@ type Props = {
   onUnblockUser: (username: string) => Promise<void>;
   onResendEmailVerification: () => Promise<void>;
   onUpdateAvatar: (dataUri: string) => Promise<void>;
+  onUpdateProfile: (input: {displayName: string; profession?: string | null}) => Promise<void>;
   onRefreshWorkspace: () => Promise<void>;
   onScheduleConference: (title: string, scheduledAt: string, participantUsernames?: string[]) => Promise<VideoConference>;
   onStartNewConference: (title: string, participantUsernames?: string[]) => Promise<VideoConference>;
@@ -76,6 +77,7 @@ export function WorkspaceHomeScreen({
   onUnblockUser,
   onResendEmailVerification,
   onUpdateAvatar,
+  onUpdateProfile,
   onRefreshWorkspace,
   onScheduleConference,
   onStartNewConference,
@@ -124,6 +126,12 @@ export function WorkspaceHomeScreen({
   const [calendarMonth, setCalendarMonth] = useState(() => new Date().getMonth());
   const [calendarSelectedDay, setCalendarSelectedDay] = useState<string | null>(null);
   const [confMenuOpen, setConfMenuOpen] = useState(false);
+  const [editProfileOpen, setEditProfileOpen] = useState(false);
+  const [editFirstName, setEditFirstName] = useState('');
+  const [editLastName, setEditLastName] = useState('');
+  const [editBio, setEditBio] = useState('');
+  const [editPending, setEditPending] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   const normalizedSearchQuery = searchQuery.trim();
   const archivedChatIds = useMemo(
@@ -541,6 +549,46 @@ export function WorkspaceHomeScreen({
     }
   };
 
+  const openEditProfile = () => {
+    const name = session.user.displayName.trim();
+    const spaceIdx = name.indexOf(' ');
+    setEditFirstName(spaceIdx === -1 ? name : name.slice(0, spaceIdx));
+    setEditLastName(spaceIdx === -1 ? '' : name.slice(spaceIdx + 1));
+    setEditBio(session.user.profession ?? '');
+    setEditError(null);
+    setEditProfileOpen(true);
+  };
+
+  const handleSaveProfile = async () => {
+    const firstName = editFirstName.trim();
+    const lastName = editLastName.trim();
+    const displayName = lastName ? `${firstName} ${lastName}` : firstName;
+    if (!displayName) {
+      setEditError('Имя не может быть пустым');
+      return;
+    }
+    setEditPending(true);
+    setEditError(null);
+    try {
+      await onUpdateProfile({displayName, profession: editBio.trim() || null});
+      setEditProfileOpen(false);
+    } catch (err) {
+      setEditError(toErrorText(err));
+    } finally {
+      setEditPending(false);
+    }
+  };
+
+  const handleResendVerificationFromEditScreen = async () => {
+    setVerificationPending(true);
+    try {
+      await onResendEmailVerification();
+    } catch {
+      // silently ignore — user can try again
+    } finally {
+      setVerificationPending(false);
+    }
+  };
 
   return (
     <KeyboardAvoidingView
@@ -1279,7 +1327,7 @@ export function WorkspaceHomeScreen({
                     {avatarUploading ? 'Загрузка...' : 'Выбрать фото'}
                   </Text>
                 </Pressable>
-                <Pressable style={styles.profileActionItem} onPress={() => undefined}>
+                <Pressable style={styles.profileActionItem} onPress={openEditProfile}>
                   <View style={styles.profileActionIconWrap}>
                     <Text style={styles.profileActionIconText}>✏️</Text>
                   </View>
@@ -1323,6 +1371,125 @@ export function WorkspaceHomeScreen({
               </Pressable>
             </ScrollView>
           ) : null}
+
+          <Modal
+            visible={editProfileOpen}
+            animationType="slide"
+            transparent={false}
+            onRequestClose={() => setEditProfileOpen(false)}>
+            <View style={editStyles.screen}>
+              <View style={editStyles.header}>
+                <Pressable onPress={() => setEditProfileOpen(false)} style={editStyles.headerBtn}>
+                  <Text style={editStyles.headerBtnText}>{'Назад'}</Text>
+                </Pressable>
+                <Text style={editStyles.headerTitle}>{'Редактировать профиль'}</Text>
+                <Pressable
+                  onPress={() => { handleSaveProfile().catch(() => undefined); }}
+                  disabled={editPending}
+                  style={editStyles.headerBtn}>
+                  <Text style={[editStyles.headerBtnText, editStyles.headerBtnAccent]}>
+                    {editPending ? '...' : 'Готово'}
+                  </Text>
+                </Pressable>
+              </View>
+
+              <ScrollView
+                style={editStyles.scrollView}
+                contentContainerStyle={editStyles.scrollContent}
+                keyboardShouldPersistTaps="handled">
+
+                <View style={editStyles.avatarRow}>
+                  <Avatar
+                    name={editFirstName || session.user.displayName}
+                    avatarUrl={session.user.avatarUrl}
+                    size={80}
+                  />
+                </View>
+
+                <Text style={editStyles.sectionLabel}>{'ВАШЕ ИМЯ'}</Text>
+                <View style={editStyles.inputCard}>
+                  <TextInput
+                    style={editStyles.input}
+                    value={editFirstName}
+                    onChangeText={setEditFirstName}
+                    placeholder={'Имя'}
+                    placeholderTextColor={androidTheme.colors.textMuted}
+                    autoCapitalize="words"
+                    returnKeyType="next"
+                    maxLength={40}
+                  />
+                  <View style={editStyles.inputDivider} />
+                  <TextInput
+                    style={editStyles.input}
+                    value={editLastName}
+                    onChangeText={setEditLastName}
+                    placeholder={'Фамилия'}
+                    placeholderTextColor={androidTheme.colors.textMuted}
+                    autoCapitalize="words"
+                    returnKeyType="next"
+                    maxLength={40}
+                  />
+                </View>
+
+                <Text style={editStyles.sectionLabel}>{'О СЕБЕ'}</Text>
+                <View style={editStyles.inputCard}>
+                  <TextInput
+                    style={[editStyles.input, editStyles.inputMultiline]}
+                    value={editBio}
+                    onChangeText={setEditBio}
+                    placeholder={'Напишите о себе…'}
+                    placeholderTextColor={androidTheme.colors.textMuted}
+                    multiline
+                    maxLength={160}
+                    returnKeyType="done"
+                    blurOnSubmit
+                  />
+                </View>
+                <Text style={editStyles.inputHint}>{`${editBio.length}/160`}</Text>
+
+                <Text style={editStyles.sectionLabel}>{'ИМЯ ПОЛЬЗОВАТЕЛЯ'}</Text>
+                <View style={editStyles.inputCard}>
+                  <View style={editStyles.readonlyRow}>
+                    <Text style={editStyles.readonlyValue}>{`@${session.user.username}`}</Text>
+                  </View>
+                </View>
+                <Text style={editStyles.inputHint}>{'Имя пользователя изменить нельзя'}</Text>
+
+                {session.user.email ? (
+                  <>
+                    <Text style={editStyles.sectionLabel}>{'EMAIL'}</Text>
+                    <View style={editStyles.inputCard}>
+                      <View style={editStyles.readonlyRow}>
+                        <View style={editStyles.readonlyRowInner}>
+                          <Text style={editStyles.readonlyValue}>{session.user.email}</Text>
+                          {session.user.emailVerified ? (
+                            <Text style={editStyles.verifiedBadge}>{'✓ подтверждён'}</Text>
+                          ) : (
+                            <Text style={editStyles.unverifiedBadge}>{'не подтверждён'}</Text>
+                          )}
+                        </View>
+                        {!session.user.emailVerified ? (
+                          <Pressable
+                            onPress={() => { handleResendVerificationFromEditScreen().catch(() => undefined); }}
+                            disabled={verificationPending}
+                            style={editStyles.resendBtn}>
+                            <Text style={editStyles.resendBtnText}>
+                              {verificationPending ? 'Отправка...' : 'Отправить письмо подтверждения'}
+                            </Text>
+                          </Pressable>
+                        ) : null}
+                      </View>
+                    </View>
+                  </>
+                ) : null}
+
+                {editError ? (
+                  <Text style={editStyles.errorText}>{editError}</Text>
+                ) : null}
+
+              </ScrollView>
+            </View>
+          </Modal>
         </View>
 
         <View
@@ -3592,5 +3759,130 @@ const styles = StyleSheet.create({
   confContactUsername: {
     fontSize: 12,
     color: androidTheme.colors.textSecondary,
+  },
+});
+
+const editStyles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: androidTheme.colors.background,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: androidTheme.colors.border,
+    backgroundColor: androidTheme.colors.surface,
+  },
+  headerTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: androidTheme.colors.textPrimary,
+  },
+  headerBtn: {
+    minWidth: 60,
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  headerBtnText: {
+    fontSize: 16,
+    color: androidTheme.colors.blue,
+  },
+  headerBtnAccent: {
+    fontWeight: '700',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+    paddingTop: 16,
+    gap: 6,
+  },
+  avatarRow: {
+    alignItems: 'center',
+    paddingVertical: 12,
+    marginBottom: 4,
+  },
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: androidTheme.colors.textMuted,
+    letterSpacing: 0.6,
+    marginTop: 16,
+    marginBottom: 6,
+    paddingLeft: 4,
+  },
+  inputCard: {
+    borderRadius: 18,
+    backgroundColor: androidTheme.colors.surface,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
+    overflow: 'hidden',
+  },
+  input: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
+    color: androidTheme.colors.textPrimary,
+  },
+  inputMultiline: {
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  inputDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: androidTheme.colors.border,
+    marginLeft: 16,
+  },
+  inputHint: {
+    fontSize: 12,
+    color: androidTheme.colors.textMuted,
+    paddingLeft: 4,
+    marginTop: 4,
+  },
+  readonlyRow: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 8,
+  },
+  readonlyRowInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  readonlyValue: {
+    fontSize: 16,
+    color: androidTheme.colors.textSecondary,
+  },
+  verifiedBadge: {
+    fontSize: 12,
+    color: androidTheme.colors.success,
+    fontWeight: '600',
+  },
+  unverifiedBadge: {
+    fontSize: 12,
+    color: androidTheme.colors.warning,
+    fontWeight: '600',
+  },
+  resendBtn: {
+    marginTop: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 2,
+  },
+  resendBtnText: {
+    fontSize: 14,
+    color: androidTheme.colors.blue,
+  },
+  errorText: {
+    fontSize: 14,
+    color: androidTheme.colors.danger,
+    marginTop: 12,
+    textAlign: 'center',
   },
 });

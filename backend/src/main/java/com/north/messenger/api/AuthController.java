@@ -2,6 +2,7 @@ package com.north.messenger.api;
 
 import com.north.messenger.api.dto.AuthResponse;
 import com.north.messenger.api.dto.ChangePasswordRequest;
+import com.north.messenger.api.dto.ConfirmEmailChangeRequest;
 import com.north.messenger.api.dto.EmailVerificationConfirmRequest;
 import com.north.messenger.api.dto.EmailVerificationResendRequest;
 import com.north.messenger.api.dto.LoginRequest;
@@ -9,12 +10,14 @@ import com.north.messenger.api.dto.CreateUserMailboxRequest;
 import com.north.messenger.api.dto.PasswordResetConfirmRequest;
 import com.north.messenger.api.dto.PasswordResetRequest;
 import com.north.messenger.api.dto.RegisterRequest;
+import com.north.messenger.api.dto.RequestEmailChangeRequest;
 import com.north.messenger.api.dto.UpdateAvatarRequest;
 import com.north.messenger.api.dto.UpdateProfileRequest;
 import com.north.messenger.api.dto.UserMailboxResponse;
 import com.north.messenger.api.dto.UserSessionResponse;
 import com.north.messenger.api.dto.UserProfileResponse;
 import com.north.messenger.application.auth.AuthService;
+import com.north.messenger.application.auth.EmailChangeService;
 import com.north.messenger.application.auth.EmailVerificationService;
 import com.north.messenger.application.auth.PasswordResetService;
 import com.north.messenger.application.auth.UserMailboxService;
@@ -50,6 +53,7 @@ public class AuthController {
 
     private final AuthService authService;
     private final EmailVerificationService emailVerificationService;
+    private final EmailChangeService emailChangeService;
     private final PasswordResetService passwordResetService;
     private final RefreshTokenCookieService refreshTokenCookieService;
     private final UserMailboxService userMailboxService;
@@ -57,12 +61,14 @@ public class AuthController {
     public AuthController(
             AuthService authService,
             EmailVerificationService emailVerificationService,
+            EmailChangeService emailChangeService,
             PasswordResetService passwordResetService,
             RefreshTokenCookieService refreshTokenCookieService,
             UserMailboxService userMailboxService
     ) {
         this.authService = authService;
         this.emailVerificationService = emailVerificationService;
+        this.emailChangeService = emailChangeService;
         this.passwordResetService = passwordResetService;
         this.refreshTokenCookieService = refreshTokenCookieService;
         this.userMailboxService = userMailboxService;
@@ -156,6 +162,45 @@ public class AuthController {
     })
     public void resendOwnEmailVerification(Authentication authentication) {
         emailVerificationService.resendVerificationEmailForAuthenticatedUser(authentication.getName());
+    }
+
+    @PostMapping("/me/email-change/request")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    @Operation(
+            summary = "Request an email address change",
+            description = "Sends a confirmation link to the new email address. The change takes effect when the link is clicked."
+    )
+    @SecurityRequirement(name = "bearerAuth")
+    @ApiResponses({
+            @ApiResponse(responseCode = "202", description = "Email change confirmation sent to the new address"),
+            @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
+            @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
+            @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictError"),
+            @ApiResponse(responseCode = "503", ref = "#/components/responses/ServiceUnavailableError"),
+            @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
+    })
+    public void requestEmailChange(
+            Authentication authentication,
+            @Valid @RequestBody RequestEmailChangeRequest request
+    ) {
+        emailChangeService.requestEmailChange(authentication.getName(), request.newEmail());
+    }
+
+    @PostMapping("/email-change/confirm")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(
+            summary = "Confirm an email address change",
+            description = "Consumes the email change token and updates the account email to the new address."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Email changed successfully"),
+            @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
+            @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictError"),
+            @ApiResponse(responseCode = "410", ref = "#/components/responses/GoneError"),
+            @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
+    })
+    public void confirmEmailChange(@Valid @RequestBody ConfirmEmailChangeRequest request) {
+        emailChangeService.confirmEmailChange(request.token());
     }
 
     @PostMapping("/password-reset/request")
