@@ -13,6 +13,7 @@ import type {
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {
   ActivityIndicator,
+  AppState,
   Pressable,
   StatusBar,
   StyleSheet,
@@ -33,12 +34,16 @@ import {
   blockUser,
   cancelVideoConference,
   clearConferencePresence,
+  createConference,
   createConferenceInviteLink,
   createDirectChat,
+  deleteChatForSelf,
   describeError,
   deletePendingOutgoingMessage,
   endVideoConference,
+  updateAvatar,
   getWorkspaceBootstrap,
+  leaveChatGroup,
   login,
   logout,
   removeContact,
@@ -557,6 +562,20 @@ function App() {
     }
   }, [persistRecoveredPendingOutgoingFailures, runAuthorized]);
 
+  const lastWorkspaceRefreshRef = useRef(0);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', nextState => {
+      if (nextState !== 'active') return;
+      const now = Date.now();
+      if (now - lastWorkspaceRefreshRef.current < 30_000) return;
+      lastWorkspaceRefreshRef.current = now;
+      if (sessionRef.current && workspace) {
+        handleReloadWorkspace().catch(() => undefined);
+      }
+    });
+    return () => sub.remove();
+  }, [handleReloadWorkspace, workspace]);
+
   const handleLogout = useCallback(async () => {
     const refreshToken =
       sessionRef.current?.refreshToken ?? (await loadStoredRefreshToken());
@@ -593,6 +612,40 @@ function App() {
           : currentWorkspace,
       );
       return conference;
+    },
+    [runAuthorized],
+  );
+
+  const handleScheduleConference = useCallback(
+    async (title: string, scheduledAt: string) => {
+      const conference = await runAuthorized(token =>
+        createConference(token, {title, scheduledAt}),
+      );
+      setWorkspace(currentWorkspace =>
+        currentWorkspace
+          ? upsertWorkspaceConference(currentWorkspace, conference)
+          : currentWorkspace,
+      );
+      return conference;
+    },
+    [runAuthorized],
+  );
+
+  const handleStartNewConference = useCallback(
+    async (title: string) => {
+      const conference = await runAuthorized(token =>
+        createConference(token, {title, scheduledAt: new Date().toISOString()}),
+      );
+      const started = await runAuthorized(token =>
+        startVideoConference(token, conference.id),
+      );
+      setWorkspace(currentWorkspace =>
+        currentWorkspace
+          ? upsertWorkspaceConference(currentWorkspace, started)
+          : currentWorkspace,
+      );
+      setActiveConferenceId(started.id);
+      return started;
     },
     [runAuthorized],
   );
@@ -723,6 +776,23 @@ function App() {
     [runAuthorized],
   );
 
+  const handleDeleteChat = useCallback(
+    async (chatId: string, isDirect: boolean) => {
+      if (isDirect) {
+        await runAuthorized(token => deleteChatForSelf(token, chatId));
+      } else {
+        await runAuthorized(token => leaveChatGroup(token, chatId));
+      }
+      setWorkspace(currentWorkspace =>
+        currentWorkspace
+          ? removeWorkspaceChat(currentWorkspace, chatId)
+          : currentWorkspace,
+      );
+      setActiveChatId(currentId => (currentId === chatId ? null : currentId));
+    },
+    [runAuthorized],
+  );
+
   const handleBlockUser = useCallback(
     async (username: string) => {
       const blockedProfile = await runAuthorized(token => blockUser(token, username));
@@ -756,6 +826,22 @@ function App() {
   const handleResendOwnEmailVerification = useCallback(
     async () => {
       await runAuthorized(token => resendOwnEmailVerification(token));
+    },
+    [runAuthorized],
+  );
+
+  const handleUpdateAvatar = useCallback(
+    async (dataUri: string) => {
+      const updatedProfile = await runAuthorized(token =>
+        updateAvatar(token, dataUri),
+      );
+      setSession(current => {
+        if (!current) return current;
+        return {
+          ...current,
+          auth: {...current.auth, user: updatedProfile},
+        };
+      });
     },
     [runAuthorized],
   );
@@ -826,9 +912,14 @@ function App() {
           onRemoveContact={handleRemoveContact}
           onSearchWorkspace={handleSearchWorkspace}
           onArchiveChat={handleArchiveChat}
+          onDeleteChat={handleDeleteChat}
           onBlockUser={handleBlockUser}
           onUnblockUser={handleUnblockUser}
           onResendEmailVerification={handleResendOwnEmailVerification}
+          onUpdateAvatar={handleUpdateAvatar}
+          onRefreshWorkspace={handleReloadWorkspace}
+          onScheduleConference={handleScheduleConference}
+          onStartNewConference={handleStartNewConference}
         />
       ) : session ? (
         <WorkspaceRecoveryScreen
@@ -889,6 +980,17 @@ function WorkspaceRecoveryScreen({
       </View>
     </View>
   );
+}
+
+function removeWorkspaceChat(
+  workspace: WorkspaceBootstrap,
+  chatId: string,
+): WorkspaceBootstrap {
+  return {
+    ...workspace,
+    chats: workspace.chats.filter(chat => chat.id !== chatId),
+    archivedChatIds: workspace.archivedChatIds.filter(id => id !== chatId),
+  };
 }
 
 function upsertWorkspaceChat(

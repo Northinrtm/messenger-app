@@ -2271,6 +2271,8 @@ export function NorthMessengerWorkspace({
         activeListTab={activeListTab}
         conferenceViewMode={conferenceBrowserMode}
         onToggleConferenceViewMode={toggleConferenceViewMode}
+        onOpenScheduleConference={() => openConferenceComposer("scheduled")}
+        onOpenStartConferenceNow={() => openConferenceComposer("instant")}
         normalizedSearch={normalizedSearch}
         conferencesLoading={conferencesLoading}
         visibleConferences={visibleConferences}
@@ -2335,6 +2337,7 @@ export function NorthMessengerWorkspace({
       tabChats,
       tabChatsEmptyText,
       toggleConferenceViewMode,
+      openConferenceComposer,
       typingByChatId,
       visibleConferences,
     ]

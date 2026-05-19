@@ -9,21 +9,33 @@ import type {
   WorkspaceSearch,
 } from '@north/shared';
 import type {ReactNode} from 'react';
-import {useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
+import {launchImageLibrary} from 'react-native-image-picker';
 import {
+  Animated,
+  BackHandler,
   Image,
   KeyboardAvoidingView,
+  Modal,
+  PanResponder,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {androidTheme} from '../../theme';
 
-type WorkspaceTab = 'chats' | 'contacts' | 'conferences' | 'profile';
+const ARCHIVE_ROW_H = 64;
+const UNARCHIVE_BTN_W = 92;
+const UNARCHIVE_THRESHOLD = 90;
+
+type WorkspaceTab = 'chats' | 'contacts' | 'settings' | 'profile';
+type ChatFilter = 'all' | 'direct' | 'groups' | 'unread';
 
 type Props = {
   session: AuthResponse;
@@ -37,9 +49,14 @@ type Props = {
   onRemoveContact: (username: string) => Promise<void>;
   onSearchWorkspace: (query: string) => Promise<WorkspaceSearch>;
   onArchiveChat: (chatId: string, archived: boolean) => Promise<void>;
+  onDeleteChat: (chatId: string, isDirect: boolean) => Promise<void>;
   onBlockUser: (username: string) => Promise<UserProfile>;
   onUnblockUser: (username: string) => Promise<void>;
   onResendEmailVerification: () => Promise<void>;
+  onUpdateAvatar: (dataUri: string) => Promise<void>;
+  onRefreshWorkspace: () => Promise<void>;
+  onScheduleConference: (title: string, scheduledAt: string) => Promise<VideoConference>;
+  onStartNewConference: (title: string) => Promise<VideoConference>;
 };
 
 export function WorkspaceHomeScreen({
@@ -54,11 +71,18 @@ export function WorkspaceHomeScreen({
   onRemoveContact,
   onSearchWorkspace,
   onArchiveChat,
+  onDeleteChat,
   onBlockUser,
   onUnblockUser,
   onResendEmailVerification,
+  onUpdateAvatar,
+  onRefreshWorkspace,
+  onScheduleConference,
+  onStartNewConference,
 }: Props) {
+  const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('chats');
+  const [activeChatFilter, setActiveChatFilter] = useState<ChatFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchPending, setSearchPending] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -67,11 +91,37 @@ export function WorkspaceHomeScreen({
   const [pendingArchiveChatIds, setPendingArchiveChatIds] = useState<
     Record<string, boolean>
   >({});
+  const [pendingDeleteChatIds, setPendingDeleteChatIds] = useState<
+    Record<string, boolean>
+  >({});
+  const [searchMode, setSearchMode] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [selectedChatIds, setSelectedChatIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const isSelectionMode = selectedChatIds.size > 0;
   const [pendingUserActions, setPendingUserActions] = useState<
     Record<string, boolean>
   >({});
   const [verificationPending, setVerificationPending] = useState(false);
   const [profileInfo, setProfileInfo] = useState<string | null>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [workspaceRefreshing, setWorkspaceRefreshing] = useState(false);
+  const [showArchiveView, setShowArchiveView] = useState(false);
+  const [chatListScrollY, setChatListScrollY] = useState(ARCHIVE_ROW_H);
+  const chatListScrollRef = useRef<ScrollView>(null);
+  const [conferenceModal, setConferenceModal] = useState<'schedule' | 'start' | null>(null);
+  const [confTitle, setConfTitle] = useState('');
+  const [confDate, setConfDate] = useState('');
+  const [confTime, setConfTime] = useState('');
+  const [confPending, setConfPending] = useState(false);
+  const [confError, setConfError] = useState<string | null>(null);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [calendarYear, setCalendarYear] = useState(() => new Date().getFullYear());
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date().getMonth());
+  const [calendarSelectedDay, setCalendarSelectedDay] = useState<string | null>(null);
+  const [confMenuOpen, setConfMenuOpen] = useState(false);
 
   const normalizedSearchQuery = searchQuery.trim();
   const archivedChatIds = useMemo(
@@ -109,12 +159,29 @@ export function WorkspaceHomeScreen({
     () => workspace.chats.filter(chat => !archivedChatIds.has(chat.id)),
     [archivedChatIds, workspace.chats],
   );
+  const filteredActiveChats = useMemo(
+    () =>
+      activeChats.filter(chat => {
+        switch (activeChatFilter) {
+          case 'direct':
+            return chat.direct;
+          case 'groups':
+            return !chat.direct;
+          case 'unread':
+            return chat.unreadCount > 0;
+          case 'all':
+          default:
+            return true;
+        }
+      }),
+    [activeChatFilter, activeChats],
+  );
   const archivedChats = useMemo(
     () => workspace.chats.filter(chat => archivedChatIds.has(chat.id)),
     [archivedChatIds, workspace.chats],
   );
-  const activeConferences = workspace.conferences;
-  const archivedConferences = workspace.archivedConferences;
+  const activeConferences = workspace.conferences.filter(c => !c.endedAt);
+  const archivedConferences = workspace.archivedConferences.filter(c => !c.endedAt);
   const searchResultCount = countWorkspaceSearchResults(searchResults);
   const activeTabLabel = getTabLabel(activeTab);
 
@@ -174,6 +241,174 @@ export function WorkspaceHomeScreen({
         return nextState;
       });
     }
+  };
+
+  const handleDeleteChat = async (chatId: string, isDirect: boolean) => {
+    setPendingDeleteChatIds(currentState => ({...currentState, [chatId]: true}));
+    setActionError(null);
+
+    try {
+      await onDeleteChat(chatId, isDirect);
+    } catch (nextError) {
+      setActionError(toErrorText(nextError));
+    } finally {
+      setPendingDeleteChatIds(currentState => omitRecordKey(currentState, chatId));
+    }
+  };
+
+  const handleLongPressChat = (chatId: string) => {
+    setSelectedChatIds(new Set([chatId]));
+  };
+
+  const handleToggleSelectChat = (chatId: string) => {
+    setSelectedChatIds(prev => {
+      const next = new Set(prev);
+      if (next.has(chatId)) {
+        next.delete(chatId);
+      } else {
+        next.add(chatId);
+      }
+      return next;
+    });
+  };
+
+  const handleCancelSelection = () => {
+    setSelectedChatIds(new Set());
+  };
+
+  const handleBulkArchive = async () => {
+    const ids = [...selectedChatIds];
+    setSelectedChatIds(new Set());
+    await Promise.all(ids.map(id => handleArchiveToggle(id, true)));
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = [...selectedChatIds];
+    setSelectedChatIds(new Set());
+    await Promise.all(
+      ids.map(id => {
+        const chat = workspace.chats.find(c => c.id === id);
+        if (!chat) {
+          return Promise.resolve();
+        }
+        return handleDeleteChat(id, chat.direct);
+      }),
+    );
+  };
+
+  const handleBulkMute = () => {
+    setActionError('Mute notifications: coming soon.');
+  };
+
+  const openConferenceModal = (mode: 'schedule' | 'start') => {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    setConfTitle('');
+    setConfDate(`${pad(now.getDate())}.${pad(now.getMonth() + 1)}.${now.getFullYear()}`);
+    setConfTime(`${pad(now.getHours())}:${pad(now.getMinutes())}`);
+    setConfError(null);
+    setConferenceModal(mode);
+  };
+
+  const handleConfirmConferenceModal = async () => {
+    const title = confTitle.trim();
+    if (!title) {
+      setConfError('Введите название конференции');
+      return;
+    }
+    setConfPending(true);
+    setConfError(null);
+    try {
+      if (conferenceModal === 'start') {
+        await onStartNewConference(title);
+      } else {
+        const [day, month, year] = confDate.split('.');
+        const [hours, minutes] = confTime.split(':');
+        const scheduledAt = new Date(
+          Number(year), Number(month) - 1, Number(day),
+          Number(hours), Number(minutes),
+        ).toISOString();
+        await onScheduleConference(title, scheduledAt);
+      }
+      setConferenceModal(null);
+    } catch (err) {
+      setConfError(toErrorText(err));
+    } finally {
+      setConfPending(false);
+    }
+  };
+
+  const handleTabChange = (tab: WorkspaceTab) => {
+    setActiveTab(tab);
+    setSelectedChatIds(new Set());
+    setSearchMode(false);
+    setSearchQuery('');
+    setSearchResults(null);
+    setSearchError(null);
+    if (tab === 'settings') {
+      onRefreshWorkspace().catch(() => undefined);
+    }
+  };
+
+  const handleExitSearch = () => {
+    setSearchMode(false);
+    setSearchQuery('');
+    setSearchResults(null);
+    setSearchError(null);
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+    }
+  };
+
+  useEffect(() => {
+    if (!searchMode) {
+      return;
+    }
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+    }
+    const q = searchQuery.trim();
+    if (q.length < 2) {
+      setSearchResults(null);
+      setSearchError(null);
+      return;
+    }
+    searchDebounceRef.current = setTimeout(() => {
+      handleSearch().catch(() => undefined);
+    }, 400);
+    return () => {
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery, searchMode]);
+
+  useEffect(() => {
+    if (activeTab !== 'chats' || showArchiveView || archivedChats.length === 0) {
+      return;
+    }
+    const t = setTimeout(() => {
+      chatListScrollRef.current?.scrollTo({y: ARCHIVE_ROW_H + 4, animated: false});
+    }, 50);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, showArchiveView]);
+
+  useEffect(() => {
+    if (!showArchiveView) {
+      return;
+    }
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setShowArchiveView(false);
+      return true;
+    });
+    return () => sub.remove();
+  }, [showArchiveView]);
+
+  const handleCreateGroup = () => {
+    setMenuOpen(false);
+    setActionError('Create group: coming soon.');
   };
 
   const handleBlock = async (username: string) => {
@@ -261,6 +496,29 @@ export function WorkspaceHomeScreen({
     }
   };
 
+  const handlePickAvatar = async () => {
+    const result = await launchImageLibrary({
+      mediaType: 'photo',
+      includeBase64: true,
+      quality: 0.8,
+      maxWidth: 512,
+      maxHeight: 512,
+    });
+    if (result.didCancel || !result.assets?.[0]) return;
+    const asset = result.assets[0];
+    if (!asset.base64 || !asset.type) return;
+    const dataUri = `data:${asset.type};base64,${asset.base64}`;
+    setAvatarUploading(true);
+    setActionError(null);
+    try {
+      await onUpdateAvatar(dataUri);
+    } catch (err) {
+      setActionError(toErrorText(err));
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
+
   const handleResendVerification = async () => {
     setVerificationPending(true);
     setActionError(null);
@@ -276,332 +534,372 @@ export function WorkspaceHomeScreen({
     }
   };
 
-  const profileCards = [
-    {label: 'Chats', value: String(activeChats.length)},
-    {label: 'Contacts', value: String(workspace.contacts.length)},
-    {label: 'Calls', value: String(activeConferences.length)},
-    {label: 'Pending', value: String(workspace.pendingOutgoingMessages.length)},
-  ];
 
   return (
     <KeyboardAvoidingView
       behavior={Platform.select({ios: 'padding', android: 'height'})}
       style={styles.screen}>
       <View style={styles.screen}>
-        <View style={styles.topBar}>
-          <View style={styles.topBarCopy}>
-            <Text style={styles.brandTitle}>North Messenger</Text>
-            <Text style={styles.brandSubtitle}>{activeTabLabel}</Text>
-          </View>
-          <Pressable onPress={onLogout} style={styles.topBarAction}>
-            <Text style={styles.topBarActionLabel}>Logout</Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.searchShell}>
-          <View style={styles.searchField}>
+        {isSelectionMode ? (
+          <SelectionBar
+            count={selectedChatIds.size}
+            paddingTop={Math.max(insets.top, 8) + 10}
+            onCancel={handleCancelSelection}
+            onMute={handleBulkMute}
+            onArchive={() => {
+              handleBulkArchive().catch(() => undefined);
+            }}
+            onDelete={() => {
+              handleBulkDelete().catch(() => undefined);
+            }}
+          />
+        ) : searchMode ? (
+          <View
+            style={[
+              styles.appBar,
+              {paddingTop: Math.max(insets.top, 8) + 10},
+            ]}>
             <TextInput
+              autoFocus
               value={searchQuery}
               onChangeText={setSearchQuery}
-              placeholder="Search chats, people, conferences"
+              placeholder="Search…"
               placeholderTextColor={androidTheme.colors.textMuted}
               selectionColor={androidTheme.colors.blue}
-              style={styles.searchInput}
+              style={styles.appBarSearchInput}
+              returnKeyType="search"
+              onSubmitEditing={() => {
+                handleSearch().catch(() => undefined);
+              }}
               testID="search-input"
             />
-            {searchQuery.length > 0 ? (
-              <Pressable
-                onPress={handleClearSearch}
-                style={styles.searchClearButton}
-                testID="clear-search-button">
-                <Text style={styles.searchClearLabel}>Clear</Text>
-              </Pressable>
-            ) : null}
+            <Pressable
+              onPress={handleExitSearch}
+              style={styles.appBarIconBtn}
+              testID="search-back-button">
+              <Text style={styles.appBarIcon}>✕</Text>
+            </Pressable>
           </View>
+        ) : (
+          <View
+            style={[
+              styles.appBar,
+              {paddingTop: Math.max(insets.top, 8) + 10},
+            ]}>
+            <Text style={styles.appBarTitle}>{activeTabLabel}</Text>
+            <View style={styles.appBarActions}>
+              {activeTab === 'chats' ? (
+                <>
+                  <Pressable
+                    onPress={() => setSearchMode(true)}
+                    style={styles.appBarIconBtn}
+                    testID="search-icon-button">
+                    <Text style={styles.appBarIcon}>🔍</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setMenuOpen(true)}
+                    style={styles.appBarIconBtn}
+                    testID="menu-icon-button">
+                    <Text style={styles.appBarMenuDots}>⋯</Text>
+                  </Pressable>
+                </>
+              ) : null}
+              {activeTab === 'settings' ? (
+                <Pressable
+                  onPress={() => setConfMenuOpen(true)}
+                  style={styles.appBarIconBtn}
+                  testID="conf-menu-button">
+                  <Text style={styles.appBarMenuDots}>⋯</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
+        )}
+
+        <Modal
+          transparent
+          visible={menuOpen}
+          animationType="fade"
+          onRequestClose={() => setMenuOpen(false)}>
           <Pressable
-            onPress={() => {
-              handleSearch().catch(() => undefined);
-            }}
-            disabled={searchPending}
-            style={searchPending ? styles.searchButtonDisabled : styles.searchButton}
-            testID="search-button">
-            <Text style={styles.searchButtonLabel}>
-              {searchPending ? 'Searching...' : 'Search'}
-            </Text>
+            style={styles.menuBackdrop}
+            onPress={() => setMenuOpen(false)}>
+            <View style={styles.menuPopover}>
+              <Pressable
+                onPress={handleCreateGroup}
+                style={styles.menuItem}
+                testID="menu-create-group">
+                <Text style={styles.menuItemLabel}>Создать группу</Text>
+              </Pressable>
+            </View>
           </Pressable>
-        </View>
+        </Modal>
 
         {error ? <Banner tone="danger" label={error} /> : null}
         {actionError ? <Banner tone="danger" label={actionError} /> : null}
         {searchError ? <Banner tone="danger" label={searchError} /> : null}
         {profileInfo ? <Banner tone="success" label={profileInfo} /> : null}
 
-        {searchResults && normalizedSearchQuery.length > 0 ? (
-          <View style={styles.searchResultsCard}>
-            <View style={styles.sectionHeading}>
-              <Text style={styles.sectionTitle}>Search results</Text>
-              <Text style={styles.sectionSubtitle}>
-                {searchResultCount} result{searchResultCount === 1 ? '' : 's'} for "
-                {normalizedSearchQuery}"
-              </Text>
-            </View>
+        {searchMode ? (
+          <ScrollView
+            style={styles.tabScroll}
+            contentContainerStyle={styles.chatListContent}
+            keyboardShouldPersistTaps="handled">
+            {normalizedSearchQuery.length < 2 ? (
+              workspace.chats.length === 0 ? (
+                <EmptyState label="No chats yet." />
+              ) : (
+                workspace.chats.map(chat => (
+                  <ChatListItem
+                    key={chat.id}
+                    chat={chat}
+                    draft={draftsByChatId.get(chat.id) ?? null}
+                    pendingCount={pendingByChatId.get(chat.id) ?? 0}
+                    selected={false}
+                    isSelectionMode={false}
+                    onOpen={() => {
+                      handleExitSearch();
+                      onOpenChat(chat.id);
+                    }}
+                    onLongPress={() => undefined}
+                    onSelect={() => undefined}
+                  />
+                ))
+              )
+            ) : searchPending ? (
+              <EmptyState label="Searching…" />
+            ) : searchResults ? (
+              <>
+                {searchResults.chats.length > 0 ? (
+                  <SearchResultGroup title="Чаты и группы">
+                    {searchResults.chats.map(chat => (
+                      <ChatListItem
+                        key={chat.id}
+                        chat={chat}
+                        draft={draftsByChatId.get(chat.id) ?? null}
+                        pendingCount={pendingByChatId.get(chat.id) ?? 0}
+                        selected={false}
+                        isSelectionMode={false}
+                        onOpen={() => {
+                          handleExitSearch();
+                          onOpenChat(chat.id);
+                        }}
+                        onLongPress={() => undefined}
+                        onSelect={() => undefined}
+                      />
+                    ))}
+                  </SearchResultGroup>
+                ) : null}
 
-            <ScrollView
-              style={styles.searchResultsScroll}
-              contentContainerStyle={styles.searchResultsContent}
-              keyboardShouldPersistTaps="handled">
-              {searchResults.chats.length > 0 ? (
-                <SearchResultGroup title="Chats">
-                  {searchResults.chats.map(chat => (
-                    <ChatListItem
+                {searchResults.contacts.length > 0 ? (
+                  <SearchResultGroup title="Контакты">
+                    {searchResults.contacts.map(profile => (
+                      <ProfileListItem
+                        key={profile.id}
+                        profile={profile}
+                        actions={[
+                          {
+                            label: 'Написать',
+                            pending: Boolean(
+                              pendingUserActions[
+                                buildUserActionKey('message', profile.username)
+                              ],
+                            ),
+                            onPress: () => {
+                              handleStartChat(profile.username).catch(() => undefined);
+                            },
+                            testID: `message-contact-${profile.username}`,
+                            tone: 'primary',
+                          },
+                        ]}
+                      />
+                    ))}
+                  </SearchResultGroup>
+                ) : null}
+
+                {searchResults.users.length > 0 ? (
+                  <SearchResultGroup title="Пользователи">
+                    {searchResults.users.map(profile => {
+                      const normalizedUsername = profile.username.trim().toLowerCase();
+                      const blocked = blockedUsernames.has(normalizedUsername);
+                      const currentUser = normalizedUsername === currentUsername;
+                      const alreadyContact = contactUsernames.has(normalizedUsername);
+
+                      return (
+                        <ProfileListItem
+                          key={profile.id}
+                          profile={profile}
+                          actions={
+                            currentUser
+                              ? []
+                              : blocked
+                                ? [
+                                    {
+                                      label: 'Разблокировать',
+                                      pending: Boolean(
+                                        pendingUserActions[
+                                          buildUserActionKey('unblock', profile.username)
+                                        ],
+                                      ),
+                                      onPress: () => {
+                                        handleUnblock(profile.username).catch(() => undefined);
+                                      },
+                                      testID: `unblock-search-user-${profile.username}`,
+                                    },
+                                  ]
+                                : [
+                                    {
+                                      label: 'Написать',
+                                      pending: Boolean(
+                                        pendingUserActions[
+                                          buildUserActionKey('message', profile.username)
+                                        ],
+                                      ),
+                                      onPress: () => {
+                                        handleStartChat(profile.username).catch(() => undefined);
+                                      },
+                                      testID: `message-search-user-${profile.username}`,
+                                      tone: 'primary',
+                                    },
+                                    ...(!alreadyContact
+                                      ? [
+                                          {
+                                            label: 'Добавить',
+                                            pending: Boolean(
+                                              pendingUserActions[
+                                                buildUserActionKey('add-contact', profile.username)
+                                              ],
+                                            ),
+                                            onPress: () => {
+                                              handleAddContact(profile.username).catch(() => undefined);
+                                            },
+                                            testID: `add-contact-${profile.username}`,
+                                          },
+                                        ]
+                                      : []),
+                                    {
+                                      label: 'Block',
+                                      pending: Boolean(
+                                        pendingUserActions[
+                                          buildUserActionKey('block', profile.username)
+                                        ],
+                                      ),
+                                      onPress: () => {
+                                        handleBlock(profile.username).catch(() => undefined);
+                                      },
+                                      testID: `search-user-${profile.username}`,
+                                      tone: 'danger',
+                                    },
+                                  ]
+                          }
+                        />
+                      );
+                    })}
+                  </SearchResultGroup>
+                ) : null}
+
+                {searchResultCount === 0 ? (
+                  <EmptyState label="Ничего не найдено." />
+                ) : null}
+              </>
+            ) : (
+              <EmptyState label="Введите от 2 символов для поиска." />
+            )}
+          </ScrollView>
+        ) : null}
+
+        <View style={[styles.contentArea, searchMode && styles.hidden]}>
+          {activeTab === 'chats' ? (
+            showArchiveView ? (
+              <ScrollView
+                style={styles.tabScroll}
+                contentContainerStyle={styles.chatListContent}
+                keyboardShouldPersistTaps="handled">
+                {archivedChats.length === 0 ? (
+                  <EmptyState label="Архив пуст." />
+                ) : (
+                  archivedChats.map(chat => (
+                    <SwipeableChatItem
                       key={chat.id}
                       chat={chat}
                       draft={draftsByChatId.get(chat.id) ?? null}
                       pendingCount={pendingByChatId.get(chat.id) ?? 0}
-                      archived={archivedChatIds.has(chat.id)}
-                      archivePending={Boolean(pendingArchiveChatIds[chat.id])}
+                      selected={selectedChatIds.has(chat.id)}
+                      isSelectionMode={isSelectionMode}
                       onOpen={() => onOpenChat(chat.id)}
-                      onToggleArchive={() => {
-                        handleArchiveToggle(chat.id, !archivedChatIds.has(chat.id)).catch(
-                          () => undefined,
-                        );
+                      onLongPress={() => handleLongPressChat(chat.id)}
+                      onSelect={() => handleToggleSelectChat(chat.id)}
+                      swipeLabel="Вернуть"
+                      swipeIcon="⬆"
+                      swipeBgColor={androidTheme.colors.blueStrong}
+                      swipeLabelColor="#fff"
+                      onSwipeAction={() => {
+                        handleArchiveToggle(chat.id, false).catch(() => undefined);
                       }}
                     />
-                  ))}
-                </SearchResultGroup>
-              ) : null}
-
-              {searchResults.contacts.length > 0 ? (
-                <SearchResultGroup title="Contacts">
-                  {searchResults.contacts.map(profile => (
-                    <ProfileListItem
-                      key={profile.id}
-                      profile={profile}
-                      actions={[
-                        {
-                          label: 'Message',
-                          pending: Boolean(
-                            pendingUserActions[
-                              buildUserActionKey('message', profile.username)
-                            ],
-                          ),
-                          onPress: () => {
-                            handleStartChat(profile.username).catch(() => undefined);
-                          },
-                          testID: `message-contact-${profile.username}`,
-                          tone: 'primary',
-                        },
-                        {
-                          label: 'Remove',
-                          pending: Boolean(
-                            pendingUserActions[
-                              buildUserActionKey('remove-contact', profile.username)
-                            ],
-                          ),
-                          onPress: () => {
-                            handleRemoveContact(profile.username).catch(
-                              () => undefined,
-                            );
-                          },
-                          testID: `remove-contact-${profile.username}`,
-                        },
-                        {
-                          label: 'Block',
-                          pending: Boolean(
-                            pendingUserActions[
-                              buildUserActionKey('block', profile.username)
-                            ],
-                          ),
-                          onPress: () => {
-                            handleBlock(profile.username).catch(() => undefined);
-                          },
-                          testID: `block-contact-${profile.username}`,
-                          tone: 'danger',
-                        },
-                      ]}
+                  ))
+                )}
+              </ScrollView>
+            ) : (
+              <ScrollView
+                ref={chatListScrollRef}
+                style={styles.tabScroll}
+                contentContainerStyle={styles.chatListContent}
+                keyboardShouldPersistTaps="handled"
+                scrollEventThrottle={16}
+                onScroll={(e) => {
+                  setChatListScrollY(e.nativeEvent.contentOffset.y);
+                }}
+                onScrollEndDrag={(e) => {
+                  const y = e.nativeEvent.contentOffset.y;
+                  if (archivedChats.length > 0) {
+                    if (y <= 10) {
+                      setShowArchiveView(true);
+                    } else if (y < ARCHIVE_ROW_H + 4) {
+                      chatListScrollRef.current?.scrollTo({y: ARCHIVE_ROW_H + 4, animated: true});
+                    }
+                  }
+                }}>
+                {archivedChats.length > 0 ? (
+                  <Pressable
+                    style={styles.archiveRevealRow}
+                    onPress={() => setShowArchiveView(true)}>
+                    <View style={styles.archiveRevealIconWrap}>
+                      <Text style={styles.archiveRevealIconText}>📥</Text>
+                    </View>
+                    <Text style={styles.archiveRevealLabel}>
+                      {chatListScrollY <= 20
+                        ? 'Отпустите для открытия архива'
+                        : `Архив · ${archivedChats.length}`}
+                    </Text>
+                  </Pressable>
+                ) : null}
+                {filteredActiveChats.length === 0 ? (
+                  <EmptyState label="No active chats yet." />
+                ) : (
+                  filteredActiveChats.map(chat => (
+                    <SwipeableChatItem
+                      key={chat.id}
+                      chat={chat}
+                      draft={draftsByChatId.get(chat.id) ?? null}
+                      pendingCount={pendingByChatId.get(chat.id) ?? 0}
+                      selected={selectedChatIds.has(chat.id)}
+                      isSelectionMode={isSelectionMode}
+                      onOpen={() => onOpenChat(chat.id)}
+                      onLongPress={() => handleLongPressChat(chat.id)}
+                      onSelect={() => handleToggleSelectChat(chat.id)}
+                      swipeLabel="Архив"
+                      swipeIcon="📥"
+                      swipeBgColor={androidTheme.colors.surfaceMuted}
+                      swipeLabelColor={androidTheme.colors.textPrimary}
+                      onSwipeAction={() => {
+                        handleArchiveToggle(chat.id, true).catch(() => undefined);
+                      }}
                     />
-                  ))}
-                </SearchResultGroup>
-              ) : null}
-
-              {searchResults.users.length > 0 ? (
-                <SearchResultGroup title="People">
-                  {searchResults.users.map(profile => {
-                    const normalizedUsername = profile.username
-                      .trim()
-                      .toLowerCase();
-                    const blocked = blockedUsernames.has(normalizedUsername);
-                    const currentUser = normalizedUsername === currentUsername;
-                    const alreadyContact = contactUsernames.has(normalizedUsername);
-
-                    return (
-                      <ProfileListItem
-                        key={profile.id}
-                        profile={profile}
-                        actions={
-                          currentUser
-                            ? []
-                            : blocked
-                              ? [
-                                  {
-                                    label: 'Unblock',
-                                    pending: Boolean(
-                                      pendingUserActions[
-                                        buildUserActionKey(
-                                          'unblock',
-                                          profile.username,
-                                        )
-                                      ],
-                                    ),
-                                    onPress: () => {
-                                      handleUnblock(profile.username).catch(
-                                        () => undefined,
-                                      );
-                                    },
-                                    testID: `unblock-search-user-${profile.username}`,
-                                  },
-                                ]
-                              : [
-                                  {
-                                    label: 'Message',
-                                    pending: Boolean(
-                                      pendingUserActions[
-                                        buildUserActionKey(
-                                          'message',
-                                          profile.username,
-                                        )
-                                      ],
-                                    ),
-                                    onPress: () => {
-                                      handleStartChat(profile.username).catch(
-                                        () => undefined,
-                                      );
-                                    },
-                                    testID: `message-search-user-${profile.username}`,
-                                    tone: 'primary',
-                                  },
-                                  ...(!alreadyContact
-                                    ? [
-                                        {
-                                          label: 'Add contact',
-                                          pending: Boolean(
-                                            pendingUserActions[
-                                              buildUserActionKey(
-                                                'add-contact',
-                                                profile.username,
-                                              )
-                                            ],
-                                          ),
-                                          onPress: () => {
-                                            handleAddContact(profile.username).catch(
-                                              () => undefined,
-                                            );
-                                          },
-                                          testID: `add-contact-${profile.username}`,
-                                        },
-                                      ]
-                                    : []),
-                                  {
-                                    label: 'Block',
-                                    pending: Boolean(
-                                      pendingUserActions[
-                                        buildUserActionKey(
-                                          'block',
-                                          profile.username,
-                                        )
-                                      ],
-                                    ),
-                                    onPress: () => {
-                                      handleBlock(profile.username).catch(
-                                        () => undefined,
-                                      );
-                                    },
-                                    testID: `search-user-${profile.username}`,
-                                    tone: 'danger',
-                                  },
-                                ]
-                        }
-                      />
-                    );
-                  })}
-                </SearchResultGroup>
-              ) : null}
-
-              {searchResults.conferences.length > 0 ? (
-                <SearchResultGroup title="Calls">
-                  {searchResults.conferences.map(conference => (
-                    <ConferenceListItem
-                      key={conference.id}
-                      conference={conference}
-                      onOpen={() => onOpenConference(conference.id)}
-                    />
-                  ))}
-                </SearchResultGroup>
-              ) : null}
-
-              {searchResultCount === 0 ? (
-                <EmptyState label="No workspace matches for this query." />
-              ) : null}
-            </ScrollView>
-          </View>
-        ) : null}
-
-        <View style={styles.contentArea}>
-          {activeTab === 'chats' ? (
-            <ScrollView
-              style={styles.tabScroll}
-              contentContainerStyle={styles.tabContent}
-              keyboardShouldPersistTaps="handled">
-              <View style={styles.sectionHeading}>
-                <Text style={styles.sectionTitle}>Chats</Text>
-                <Text style={styles.sectionSubtitle}>
-                  Recent conversations, drafts, pending sends, and archive state.
-                </Text>
-              </View>
-              {activeChats.length === 0 ? (
-                <EmptyState label="No active chats yet." />
-              ) : (
-                activeChats.map(chat => (
-                  <ChatListItem
-                    key={chat.id}
-                    chat={chat}
-                    draft={draftsByChatId.get(chat.id) ?? null}
-                    pendingCount={pendingByChatId.get(chat.id) ?? 0}
-                    archived={false}
-                    archivePending={Boolean(pendingArchiveChatIds[chat.id])}
-                    onOpen={() => onOpenChat(chat.id)}
-                    onToggleArchive={() => {
-                      handleArchiveToggle(chat.id, true).catch(() => undefined);
-                    }}
-                  />
-                ))
-              )}
-
-              <View style={styles.sectionHeading}>
-                <Text style={styles.sectionTitle}>Archived</Text>
-                <Text style={styles.sectionSubtitle}>
-                  Hidden chats stay available here and can be restored.
-                </Text>
-              </View>
-              {archivedChats.length === 0 ? (
-                <EmptyState label="No archived chats." />
-              ) : (
-                archivedChats.map(chat => (
-                  <ChatListItem
-                    key={chat.id}
-                    chat={chat}
-                    draft={draftsByChatId.get(chat.id) ?? null}
-                    pendingCount={pendingByChatId.get(chat.id) ?? 0}
-                    archived
-                    archivePending={Boolean(pendingArchiveChatIds[chat.id])}
-                    onOpen={() => onOpenChat(chat.id)}
-                    onToggleArchive={() => {
-                      handleArchiveToggle(chat.id, false).catch(() => undefined);
-                    }}
-                  />
-                ))
-              )}
-            </ScrollView>
+                  ))
+                )}
+              </ScrollView>
+            )
           ) : null}
 
           {activeTab === 'contacts' ? (
@@ -609,12 +907,6 @@ export function WorkspaceHomeScreen({
               style={styles.tabScroll}
               contentContainerStyle={styles.tabContent}
               keyboardShouldPersistTaps="handled">
-              <View style={styles.sectionHeading}>
-                <Text style={styles.sectionTitle}>Contacts</Text>
-                <Text style={styles.sectionSubtitle}>
-                  Quick message, remove, block, and unblock actions.
-                </Text>
-              </View>
               {workspace.contacts.length === 0 ? (
                 <EmptyState label="No contacts yet." />
               ) : (
@@ -668,187 +960,354 @@ export function WorkspaceHomeScreen({
                 ))
               )}
 
-              <View style={styles.sectionHeading}>
-                <Text style={styles.sectionTitle}>Blocked</Text>
-                <Text style={styles.sectionSubtitle}>
-                  People you blocked on the workspace.
-                </Text>
-              </View>
-              {workspace.blockedUsers.length === 0 ? (
-                <EmptyState label="No blocked users." />
-              ) : (
-                workspace.blockedUsers.map(profile => (
-                  <ProfileListItem
-                    key={profile.id}
-                    profile={profile}
-                    actions={[
-                      {
-                        label: 'Unblock',
-                        pending: Boolean(
-                          pendingUserActions[
-                            buildUserActionKey('unblock', profile.username)
-                          ],
-                        ),
-                        onPress: () => {
-                          handleUnblock(profile.username).catch(() => undefined);
+              {workspace.blockedUsers.length > 0 ? (
+                <>
+                  <View style={styles.archivedDivider}>
+                    <Text style={styles.archivedDividerLabel}>
+                      Blocked · {workspace.blockedUsers.length}
+                    </Text>
+                  </View>
+                  {workspace.blockedUsers.map(profile => (
+                    <ProfileListItem
+                      key={profile.id}
+                      profile={profile}
+                      actions={[
+                        {
+                          label: 'Unblock',
+                          pending: Boolean(
+                            pendingUserActions[
+                              buildUserActionKey('unblock', profile.username)
+                            ],
+                          ),
+                          onPress: () => {
+                            handleUnblock(profile.username).catch(() => undefined);
+                          },
+                          testID: `unblock-user-${profile.username}`,
                         },
-                        testID: `unblock-user-${profile.username}`,
-                      },
-                    ]}
-                  />
-                ))
-              )}
+                      ]}
+                    />
+                  ))}
+                </>
+              ) : null}
             </ScrollView>
           ) : null}
 
-          {activeTab === 'conferences' ? (
+          {activeTab === 'settings' ? (
             <ScrollView
               style={styles.tabScroll}
               contentContainerStyle={styles.tabContent}
-              keyboardShouldPersistTaps="handled">
-              <View style={styles.sectionHeading}>
-                <Text style={styles.sectionTitle}>Calls</Text>
-                <Text style={styles.sectionSubtitle}>
-                  Scheduled and live conferences already available on mobile.
-                </Text>
+              keyboardShouldPersistTaps="handled"
+              refreshControl={
+                <RefreshControl
+                  refreshing={workspaceRefreshing}
+                  onRefresh={() => {
+                    setWorkspaceRefreshing(true);
+                    onRefreshWorkspace().finally(() => setWorkspaceRefreshing(false));
+                  }}
+                  tintColor={androidTheme.colors.blue}
+                  colors={[androidTheme.colors.blue]}
+                />
+              }>
+              <View style={styles.conferenceToolbar}>
+                <Pressable
+                  style={styles.confToolbarBtn}
+                  onPress={() => {
+                    const now = new Date();
+                    setCalendarYear(now.getFullYear());
+                    setCalendarMonth(now.getMonth());
+                    setCalendarSelectedDay(null);
+                    setCalendarOpen(true);
+                  }}>
+                  <Text style={styles.confToolbarBtnLabel}>📅 Календарь</Text>
+                </Pressable>
               </View>
-              {activeConferences.length === 0 ? (
-                <EmptyState label="No active conferences." />
+
+              {/* Dropdown menu */}
+              <Modal
+                visible={confMenuOpen}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setConfMenuOpen(false)}>
+                <Pressable
+                  style={styles.confMenuOverlay}
+                  onPress={() => setConfMenuOpen(false)}>
+                  <View style={styles.confMenuCard}>
+                    <Pressable
+                      style={styles.confMenuItem}
+                      onPress={() => {
+                        setConfMenuOpen(false);
+                        openConferenceModal('start');
+                      }}>
+                      <Text style={styles.confMenuItemIcon}>▶</Text>
+                      <Text style={styles.confMenuItemLabel}>Начать сейчас</Text>
+                    </Pressable>
+                    <View style={styles.confMenuDivider} />
+                    <Pressable
+                      style={styles.confMenuItem}
+                      onPress={() => {
+                        setConfMenuOpen(false);
+                        openConferenceModal('schedule');
+                      }}>
+                      <Text style={styles.confMenuItemIcon}>+</Text>
+                      <Text style={styles.confMenuItemLabel}>Запланировать</Text>
+                    </Pressable>
+                  </View>
+                </Pressable>
+              </Modal>
+
+              {activeConferences.length > 0 || archivedConferences.length > 0 ? (
+                <>
+                  {activeConferences.map(conference => (
+                    <ConferenceListItem
+                      key={conference.id}
+                      conference={conference}
+                      onOpen={() => onOpenConference(conference.id)}
+                    />
+                  ))}
+                  {archivedConferences.map(conference => (
+                    <ConferenceListItem
+                      key={conference.id}
+                      conference={conference}
+                      onOpen={() => onOpenConference(conference.id)}
+                    />
+                  ))}
+                </>
               ) : (
-                activeConferences.map(conference => (
-                  <ConferenceListItem
-                    key={conference.id}
-                    conference={conference}
-                    onOpen={() => onOpenConference(conference.id)}
-                  />
-                ))
+                <EmptyState label="Пока нет запланированных видеоконференций." />
               )}
 
-              <View style={styles.sectionHeading}>
-                <Text style={styles.sectionTitle}>Archive</Text>
-                <Text style={styles.sectionSubtitle}>
-                  Ended conferences remain visible for context and recordings.
-                </Text>
-              </View>
-              {archivedConferences.length === 0 ? (
-                <EmptyState label="No archived conferences." />
-              ) : (
-                archivedConferences.map(conference => (
-                  <ConferenceListItem
-                    key={conference.id}
-                    conference={conference}
-                    onOpen={() => onOpenConference(conference.id)}
-                  />
-                ))
-              )}
+              <Modal
+                visible={conferenceModal !== null}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setConferenceModal(null)}>
+                <Pressable
+                  style={styles.confModalOverlay}
+                  onPress={() => setConferenceModal(null)}>
+                  <Pressable style={styles.confModalCard} onPress={() => {}}>
+                    <Text style={styles.confModalTitle}>
+                      {conferenceModal === 'start' ? 'Начать конференцию' : 'Запланировать конференцию'}
+                    </Text>
+
+                    <Text style={styles.confModalLabel}>Название</Text>
+                    <TextInput
+                      style={styles.confModalInput}
+                      placeholder="Введите название…"
+                      placeholderTextColor={androidTheme.colors.textMuted}
+                      value={confTitle}
+                      onChangeText={setConfTitle}
+                      returnKeyType="done"
+                    />
+
+                    {conferenceModal === 'schedule' ? (
+                      <>
+                        <Text style={styles.confModalLabel}>Дата (ДД.ММ.ГГГГ)</Text>
+                        <TextInput
+                          style={styles.confModalInput}
+                          placeholder="19.05.2026"
+                          placeholderTextColor={androidTheme.colors.textMuted}
+                          value={confDate}
+                          onChangeText={setConfDate}
+                          keyboardType="numeric"
+                          returnKeyType="next"
+                        />
+                        <Text style={styles.confModalLabel}>Время (ЧЧ:ММ)</Text>
+                        <TextInput
+                          style={styles.confModalInput}
+                          placeholder="14:00"
+                          placeholderTextColor={androidTheme.colors.textMuted}
+                          value={confTime}
+                          onChangeText={setConfTime}
+                          keyboardType="numeric"
+                          returnKeyType="done"
+                        />
+                      </>
+                    ) : null}
+
+                    {confError ? (
+                      <Text style={styles.confModalError}>{confError}</Text>
+                    ) : null}
+
+                    <View style={styles.confModalActions}>
+                      <Pressable
+                        style={styles.confModalCancelBtn}
+                        onPress={() => setConferenceModal(null)}>
+                        <Text style={styles.confModalCancelLabel}>Отмена</Text>
+                      </Pressable>
+                      <Pressable
+                        style={confPending ? styles.confModalSubmitDisabled : styles.confModalSubmitBtn}
+                        disabled={confPending}
+                        onPress={() => handleConfirmConferenceModal().catch(() => undefined)}>
+                        <Text style={styles.confModalSubmitLabel}>
+                          {confPending
+                            ? 'Создаю…'
+                            : conferenceModal === 'start'
+                              ? 'Начать'
+                              : 'Запланировать'}
+                        </Text>
+                      </Pressable>
+                    </View>
+                  </Pressable>
+                </Pressable>
+              </Modal>
+
+              <Modal
+                visible={calendarOpen}
+                animationType="slide"
+                transparent={false}
+                onRequestClose={() => setCalendarOpen(false)}>
+                <ConferenceCalendar
+                  year={calendarYear}
+                  month={calendarMonth}
+                  selectedDay={calendarSelectedDay}
+                  conferences={[...activeConferences, ...archivedConferences]}
+                  onPrevMonth={() => {
+                    if (calendarMonth === 0) {
+                      setCalendarMonth(11);
+                      setCalendarYear(y => y - 1);
+                    } else {
+                      setCalendarMonth(m => m - 1);
+                    }
+                    setCalendarSelectedDay(null);
+                  }}
+                  onNextMonth={() => {
+                    if (calendarMonth === 11) {
+                      setCalendarMonth(0);
+                      setCalendarYear(y => y + 1);
+                    } else {
+                      setCalendarMonth(m => m + 1);
+                    }
+                    setCalendarSelectedDay(null);
+                  }}
+                  onSelectDay={setCalendarSelectedDay}
+                  onOpenConference={conferenceId => {
+                    setCalendarOpen(false);
+                    onOpenConference(conferenceId);
+                  }}
+                  onClose={() => setCalendarOpen(false)}
+                />
+              </Modal>
             </ScrollView>
           ) : null}
 
           {activeTab === 'profile' ? (
             <ScrollView
               style={styles.tabScroll}
-              contentContainerStyle={styles.tabContent}
+              contentContainerStyle={styles.profileTabContent}
               keyboardShouldPersistTaps="handled">
-              <View style={styles.profileHero}>
+              <View style={styles.profileHeroNew}>
                 <Avatar
                   name={session.user.displayName}
                   avatarUrl={session.user.avatarUrl}
-                  size={72}
+                  size={96}
                 />
-                <View style={styles.profileHeroCopy}>
-                  <Text style={styles.profileName}>{session.user.displayName}</Text>
-                  <Text style={styles.profileUsername}>@{session.user.username}</Text>
-                  <Text style={styles.profileEmail}>
-                    {session.user.email ?? 'Email hidden'}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.profileStatsRow}>
-                {profileCards.map(card => (
-                  <ProfileStatCard key={card.label} label={card.label} value={card.value} />
-                ))}
-              </View>
-
-              <View style={styles.profileCard}>
-                <Text style={styles.sectionTitle}>Email verification</Text>
-                <Text style={styles.sectionSubtitle}>
-                  Use your account email here for sign-in and verification
-                  status.
+                <Text style={styles.profileNameNew}>{session.user.displayName}</Text>
+                <Text style={styles.profileOnlineStatus}>
+                  {session.user.online ? 'в сети' : 'не в сети'}
                 </Text>
-                <VerificationBadge
-                  verified={Boolean(session.user.emailVerified)}
-                  emailVerificationEnabled={
-                    session.user.emailVerificationEnabled !== false
-                  }
-                />
-                {!session.user.emailVerified &&
-                session.user.emailVerificationEnabled !== false ? (
-                  <Pressable
-                    onPress={() => {
-                      handleResendVerification().catch(() => undefined);
-                    }}
-                    disabled={verificationPending}
-                    style={
-                      verificationPending
-                        ? styles.secondaryButtonDisabled
-                        : styles.secondaryButton
-                    }
-                    testID="resend-email-verification-button">
-                    <Text style={styles.secondaryButtonLabel}>
-                      {verificationPending
-                        ? 'Sending...'
-                        : 'Resend verification email'}
+              </View>
+
+              <View style={styles.profileActionsRow}>
+                <Pressable
+                  style={styles.profileActionItem}
+                  disabled={avatarUploading}
+                  onPress={() => {
+                    handlePickAvatar().catch(err => setActionError(toErrorText(err)));
+                  }}>
+                  <View style={styles.profileActionIconWrap}>
+                    <Text style={styles.profileActionIconText}>
+                      {avatarUploading ? '⏳' : '📷'}
                     </Text>
-                  </Pressable>
+                  </View>
+                  <Text style={styles.profileActionLabel}>
+                    {avatarUploading ? 'Загрузка...' : 'Выбрать фото'}
+                  </Text>
+                </Pressable>
+                <Pressable style={styles.profileActionItem} onPress={() => undefined}>
+                  <View style={styles.profileActionIconWrap}>
+                    <Text style={styles.profileActionIconText}>✏️</Text>
+                  </View>
+                  <Text style={styles.profileActionLabel}>Изменить</Text>
+                </Pressable>
+                <Pressable style={styles.profileActionItem} onPress={() => undefined}>
+                  <View style={styles.profileActionIconWrap}>
+                    <Text style={styles.profileActionIconText}>⚙️</Text>
+                  </View>
+                  <Text style={styles.profileActionLabel}>Настройки</Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.profileInfoCard}>
+                {session.user.profession ? (
+                  <>
+                    <View style={styles.profileInfoRow}>
+                      <Text style={styles.profileInfoValue}>{session.user.profession}</Text>
+                      <Text style={styles.profileInfoMeta}>О себе</Text>
+                    </View>
+                    <View style={styles.profileInfoDivider} />
+                  </>
+                ) : null}
+                <View style={styles.profileInfoRow}>
+                  <Text style={styles.profileInfoValue}>@{session.user.username}</Text>
+                  <Text style={styles.profileInfoMeta}>Имя пользователя</Text>
+                </View>
+                {session.user.email ? (
+                  <>
+                    <View style={styles.profileInfoDivider} />
+                    <View style={styles.profileInfoRow}>
+                      <Text style={styles.profileInfoValue}>{session.user.email}</Text>
+                      <Text style={styles.profileInfoMeta}>Email</Text>
+                    </View>
+                  </>
                 ) : null}
               </View>
 
-              <View style={styles.profileCard}>
-                <Text style={styles.sectionTitle}>Workspace</Text>
-                <MetaRow label="Drafts" value={String(workspace.drafts.length)} />
-                <MetaRow
-                  label="Pending outgoing"
-                  value={String(workspace.pendingOutgoingMessages.length)}
-                />
-                <MetaRow
-                  label="Blocked users"
-                  value={String(workspace.blockedUsers.length)}
-                />
-              </View>
-
-              <Pressable onPress={onLogout} style={styles.primaryButton}>
-                <Text style={styles.primaryButtonLabel}>Logout</Text>
+              <Pressable onPress={onLogout} style={styles.logoutButton}>
+                <Text style={styles.logoutButtonLabel}>Выйти</Text>
               </Pressable>
             </ScrollView>
           ) : null}
         </View>
 
-        <View style={styles.bottomNav}>
-          <BottomTabButton
-            label="Chats"
-            active={activeTab === 'chats'}
-            onPress={() => setActiveTab('chats')}
-            testID="tab-chats"
-          />
-          <BottomTabButton
-            label="Contacts"
-            active={activeTab === 'contacts'}
-            onPress={() => setActiveTab('contacts')}
-            testID="tab-contacts"
-          />
-          <BottomTabButton
-            label="Calls"
-            active={activeTab === 'conferences'}
-            onPress={() => setActiveTab('conferences')}
-            testID="tab-conferences"
-          />
-          <BottomTabButton
-            label="Profile"
-            active={activeTab === 'profile'}
-            onPress={() => setActiveTab('profile')}
-            testID="tab-profile"
-          />
+        <View
+          style={[
+            styles.bottomNavWrap,
+            {
+              paddingBottom: Math.max(insets.bottom, 8),
+            },
+          ]}>
+          <View style={styles.bottomNav}>
+            <BottomTabButton
+              icon="💬"
+              label="Чаты"
+              active={activeTab === 'chats'}
+              onPress={() => handleTabChange('chats')}
+              testID="tab-chats"
+            />
+            <BottomTabButton
+              icon="👥"
+              label="Контакты"
+              active={activeTab === 'contacts'}
+              onPress={() => handleTabChange('contacts')}
+              testID="tab-contacts"
+            />
+            <BottomTabButton
+              icon="📹"
+              label="Звонки"
+              active={activeTab === 'settings'}
+              onPress={() => handleTabChange('settings')}
+              testID="tab-settings"
+            />
+            <BottomTabButton
+              icon={null}
+              avatarName={session.user.displayName}
+              avatarUrl={session.user.avatarUrl}
+              label="Профиль"
+              active={activeTab === 'profile'}
+              onPress={() => handleTabChange('profile')}
+              testID="tab-profile"
+            />
+          </View>
         </View>
       </View>
     </KeyboardAvoidingView>
@@ -912,16 +1371,43 @@ function omitRecordKey(
 function getTabLabel(activeTab: WorkspaceTab) {
   switch (activeTab) {
     case 'chats':
-      return 'All chats';
+      return 'Чаты';
     case 'contacts':
-      return 'People';
-    case 'conferences':
-      return 'Calls';
+      return 'Контакты';
+    case 'settings':
+      return 'Звонки';
     case 'profile':
-      return 'Profile';
+      return 'Профиль';
     default:
-      return 'Workspace';
+      return 'North Messenger';
   }
+}
+
+function getTabDescription(_activeTab: WorkspaceTab) {
+  return '';
+}
+
+const CHAT_FILTERS: Array<{value: ChatFilter; label: string}> = [
+  {value: 'all', label: 'All chats'},
+  {value: 'direct', label: 'Direct'},
+  {value: 'groups', label: 'Groups'},
+  {value: 'unread', label: 'Unread'},
+];
+
+function countChatsForFilter(chats: ChatSummary[], filter: ChatFilter) {
+  return chats.filter(chat => {
+    switch (filter) {
+      case 'direct':
+        return chat.direct;
+      case 'groups':
+        return !chat.direct;
+      case 'unread':
+        return chat.unreadCount > 0;
+      case 'all':
+      default:
+        return true;
+    }
+  }).length;
 }
 
 type BannerProps = {
@@ -956,22 +1442,132 @@ function SearchResultGroup({title, children}: SearchResultGroupProps) {
   );
 }
 
+type SelectionBarProps = {
+  count: number;
+  paddingTop: number;
+  onCancel: () => void;
+  onMute: () => void;
+  onArchive: () => void;
+  onDelete: () => void;
+};
+
+function SelectionBar({
+  count,
+  paddingTop,
+  onCancel,
+  onMute,
+  onArchive,
+  onDelete,
+}: SelectionBarProps) {
+  return (
+    <View style={[styles.selectionBar, {paddingTop}]}>
+      <Pressable
+        onPress={onCancel}
+        style={styles.selectionCancelBtn}
+        testID="selection-cancel">
+        <Text style={styles.selectionCancelLabel}>✕</Text>
+        <Text style={styles.selectionCountLabel}>{count}</Text>
+      </Pressable>
+      <View style={styles.selectionActions}>
+        <Pressable
+          onPress={onMute}
+          style={styles.selectionActionBtn}
+          testID="selection-mute">
+          <Text style={styles.selectionActionIcon}>🔕</Text>
+        </Pressable>
+        <Pressable
+          onPress={onArchive}
+          style={styles.selectionActionBtn}
+          testID="selection-archive">
+          <Text style={styles.selectionActionIcon}>📥</Text>
+        </Pressable>
+        <Pressable
+          onPress={onDelete}
+          style={styles.selectionActionBtn}
+          testID="selection-delete">
+          <Text style={styles.selectionDeleteIcon}>🗑️</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 type BottomTabButtonProps = {
+  icon: string | null;
   label: string;
   active: boolean;
   onPress: () => void;
   testID: string;
+  avatarName?: string;
+  avatarUrl?: string | null;
 };
 
-function BottomTabButton({label, active, onPress, testID}: BottomTabButtonProps) {
+function BottomTabButton({
+  icon,
+  label,
+  active,
+  onPress,
+  testID,
+  avatarName,
+  avatarUrl,
+}: BottomTabButtonProps) {
   return (
     <Pressable
       onPress={onPress}
       style={active ? styles.bottomTabActive : styles.bottomTab}
       testID={testID}>
-      <Text style={active ? styles.bottomTabLabelActive : styles.bottomTabLabel}>
+      <View style={styles.bottomTabIconWrap}>
+        {avatarName != null ? (
+          <View style={styles.bottomTabAvatar}>
+            <Avatar name={avatarName} avatarUrl={avatarUrl ?? null} size={26} />
+            {active ? <View style={styles.bottomTabAvatarRing} /> : null}
+          </View>
+        ) : (
+          <Text style={active ? styles.bottomTabIconActive : styles.bottomTabIcon}>
+            {icon}
+          </Text>
+        )}
+      </View>
+      <Text
+        style={active ? styles.bottomTabLabelActive : styles.bottomTabLabel}
+        numberOfLines={1}>
         {label}
       </Text>
+    </Pressable>
+  );
+}
+
+function ChatFilterChip({
+  label,
+  count,
+  active,
+  onPress,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={active ? styles.filterChipActive : styles.filterChip}>
+      <Text style={active ? styles.filterChipLabelActive : styles.filterChipLabel}>
+        {label}
+      </Text>
+      <View
+        style={
+          active ? styles.filterChipCountActive : styles.filterChipCount
+        }>
+        <Text
+          style={
+            active
+              ? styles.filterChipCountLabelActive
+              : styles.filterChipCountLabel
+          }>
+          {String(count)}
+        </Text>
+      </View>
     </Pressable>
   );
 }
@@ -980,35 +1576,50 @@ type ChatListItemProps = {
   chat: ChatSummary;
   draft: ChatDraft | null;
   pendingCount: number;
-  archived: boolean;
-  archivePending: boolean;
+  selected: boolean;
+  isSelectionMode: boolean;
   onOpen: () => void;
-  onToggleArchive: () => void;
+  onLongPress: () => void;
+  onSelect: () => void;
 };
 
 function ChatListItem({
   chat,
   draft,
   pendingCount,
-  archived,
-  archivePending,
+  selected,
+  isSelectionMode,
   onOpen,
-  onToggleArchive,
+  onLongPress,
+  onSelect,
 }: ChatListItemProps) {
   const unreadCount = Math.max(0, chat.unreadCount);
   const snippet = draft
-    ? `Draft: ${draft.content || 'empty draft'}`
-    : chat.lastMessage || 'No messages yet';
-  const metadata = [
-    chat.direct ? 'Direct' : `${chat.members.length} members`,
-    pendingCount > 0 ? `Pending ${pendingCount}` : null,
-  ]
-    .filter(Boolean)
-    .join(' • ');
+    ? draft.content || 'Empty draft'
+    : chat.lastMessage ||
+      chat.pinnedMessage?.preview ||
+      'Open the conversation to start messaging.';
 
   return (
-    <Pressable onPress={onOpen} style={styles.chatCard}>
-      <Avatar name={chat.title} avatarUrl={chat.avatarUrl} size={54} />
+    <Pressable
+      onPress={isSelectionMode ? onSelect : onOpen}
+      onLongPress={onLongPress}
+      style={[styles.chatCard, selected && styles.chatCardSelected]}
+      testID={`chat-row-${chat.id}`}>
+      <View style={styles.chatAvatarWrap}>
+        <Avatar name={chat.title} avatarUrl={chat.avatarUrl} size={52} />
+        {isSelectionMode ? (
+          <View
+            style={[
+              styles.selectionCircle,
+              selected && styles.selectionCircleSelected,
+            ]}>
+            {selected ? (
+              <Text style={styles.selectionCheckmark}>✓</Text>
+            ) : null}
+          </View>
+        ) : null}
+      </View>
       <View style={styles.chatCardCopy}>
         <View style={styles.chatCardTopRow}>
           <Text numberOfLines={1} style={styles.chatCardTitle}>
@@ -1018,38 +1629,34 @@ function ChatListItem({
             {formatRelativeMessageTime(chat.lastMessageAt ?? chat.updatedAt)}
           </Text>
         </View>
-        <View style={styles.chatCardMiddleRow}>
-          <Text numberOfLines={2} style={styles.chatCardSnippet}>
-            {snippet}
-          </Text>
-          {unreadCount > 0 ? (
-            <View style={styles.unreadBadge}>
-              <Text style={styles.unreadBadgeLabel}>{String(unreadCount)}</Text>
-            </View>
-          ) : null}
-        </View>
         <View style={styles.chatCardBottomRow}>
-          <Text numberOfLines={1} style={styles.chatCardMeta}>
-            {metadata}
-          </Text>
-          <Pressable
-            onPress={event => {
-              event?.stopPropagation?.();
-              onToggleArchive();
-            }}
-            disabled={archivePending}
-            style={archivePending ? styles.smallActionDisabled : styles.smallAction}
-            testID={`archive-chat-${chat.id}`}>
-            <Text style={styles.smallActionLabel}>
-              {archivePending
-                ? archived
-                  ? 'Restoring...'
-                  : 'Archiving...'
-                : archived
-                  ? 'Restore'
-                  : 'Archive'}
+          <View style={styles.chatCardSnippetRow}>
+            {draft ? (
+              <Text style={styles.chatCardDraftPrefix}>Draft: </Text>
+            ) : pendingCount > 0 ? (
+              <Text style={styles.chatCardPendingPrefix}>⏳ </Text>
+            ) : chat.pinnedMessage ? (
+              <Text style={styles.chatCardPinPrefix}>📌 </Text>
+            ) : null}
+            <Text
+              numberOfLines={1}
+              style={
+                draft ? styles.chatCardSnippetDraft : styles.chatCardSnippet
+              }>
+              {snippet}
             </Text>
-          </Pressable>
+          </View>
+          <View style={styles.chatCardSide}>
+            {unreadCount > 0 ? (
+              <View style={styles.unreadBadge}>
+                <Text style={styles.unreadBadgeLabel}>
+                  {unreadCount > 99 ? '99+' : String(unreadCount)}
+                </Text>
+              </View>
+            ) : chat.reactionAttention ? (
+              <Text style={styles.chatReactionDot}>🔔</Text>
+            ) : null}
+          </View>
         </View>
       </View>
     </Pressable>
@@ -1063,6 +1670,81 @@ type ProfileRowAction = {
   testID: string;
   tone?: 'muted' | 'primary' | 'danger';
 };
+
+type SwipeableChatItemProps = ChatListItemProps & {
+  swipeLabel: string;
+  swipeIcon: string;
+  swipeBgColor: string;
+  swipeLabelColor: string;
+  onSwipeAction: () => void;
+};
+
+function SwipeableChatItem(props: SwipeableChatItemProps) {
+  const {swipeLabel, swipeIcon, swipeBgColor, swipeLabelColor, onSwipeAction, ...chatProps} = props;
+  const translateX = useRef(new Animated.Value(0)).current;
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, {dx, dy}) =>
+        Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy) * 1.8,
+      onPanResponderMove: (_, {dx}) => {
+        if (dx < 0) {
+          translateX.setValue(Math.max(dx, -(UNARCHIVE_BTN_W + 60)));
+        }
+      },
+      onPanResponderRelease: (_, {dx, vx}) => {
+        const pastThreshold =
+          dx < -UNARCHIVE_THRESHOLD || (dx < -UNARCHIVE_BTN_W && vx < -0.6);
+        if (pastThreshold) {
+          Animated.timing(translateX, {
+            toValue: -500,
+            duration: 220,
+            useNativeDriver: true,
+          }).start(() => {
+            onSwipeAction();
+            translateX.setValue(0);
+          });
+        } else {
+          Animated.spring(translateX, {toValue: 0, useNativeDriver: true}).start();
+        }
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(translateX, {toValue: 0, useNativeDriver: true}).start();
+      },
+    }),
+  ).current;
+
+  const btnOpacity = translateX.interpolate({
+    inputRange: [-(UNARCHIVE_BTN_W + 60), -10, 0],
+    outputRange: [1, 1, 0],
+    extrapolate: 'clamp',
+  });
+
+  return (
+    <View style={styles.swipeContainer}>
+      <Animated.View
+        style={[
+          styles.swipeActionBtn,
+          {backgroundColor: swipeBgColor, opacity: btnOpacity},
+        ]}>
+        <Pressable onPress={onSwipeAction} style={styles.swipeActionBtnInner}>
+          <Text style={[styles.swipeActionIcon, {color: swipeLabelColor}]}>
+            {swipeIcon}
+          </Text>
+          <Text style={[styles.swipeActionLabel, {color: swipeLabelColor}]}>
+            {swipeLabel}
+          </Text>
+        </Pressable>
+      </Animated.View>
+      <Animated.View
+        style={{transform: [{translateX}]}}
+        {...panResponder.panHandlers}>
+        <ChatListItem {...chatProps} />
+      </Animated.View>
+    </View>
+  );
+}
 
 type ProfileListItemProps = {
   profile: UserProfile;
@@ -1120,6 +1802,336 @@ function ProfileListItem({profile, actions = []}: ProfileListItemProps) {
   );
 }
 
+// ─── Conference Calendar ──────────────────────────────────────────────────────
+
+const WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+const MONTH_NAMES = [
+  'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+  'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь',
+];
+
+function toLocalDateKey(isoString: string) {
+  const d = new Date(isoString);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+type ConferenceCalendarProps = {
+  year: number;
+  month: number;
+  selectedDay: string | null;
+  conferences: VideoConference[];
+  onPrevMonth: () => void;
+  onNextMonth: () => void;
+  onSelectDay: (key: string) => void;
+  onOpenConference: (id: string) => void;
+  onClose: () => void;
+};
+
+function ConferenceCalendar({
+  year, month, selectedDay, conferences,
+  onPrevMonth, onNextMonth, onSelectDay, onOpenConference, onClose,
+}: ConferenceCalendarProps) {
+  const today = new Date();
+  const todayKey = toLocalDateKey(today.toISOString());
+
+  // Map day-key → conferences
+  const byDay = useMemo(() => {
+    const map = new Map<string, VideoConference[]>();
+    for (const c of conferences) {
+      const key = toLocalDateKey(c.scheduledAt);
+      const arr = map.get(key) ?? [];
+      arr.push(c);
+      map.set(key, arr);
+    }
+    return map;
+  }, [conferences]);
+
+  // Build grid: Monday-first weeks
+  const firstOfMonth = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  // 0=Sun…6=Sat → convert to Mon-first index (0=Mon…6=Sun)
+  const startOffset = (firstOfMonth.getDay() + 6) % 7;
+  const cells: Array<number | null> = [
+    ...Array(startOffset).fill(null),
+    ...Array.from({length: lastDay}, (_, i) => i + 1),
+  ];
+  // pad to full rows
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const dayKey = (d: number) => `${year}-${pad(month + 1)}-${pad(d)}`;
+
+  const selectedConferences = selectedDay ? (byDay.get(selectedDay) ?? []) : [];
+
+  return (
+    <View style={calStyles.screen}>
+      {/* Header */}
+      <View style={calStyles.header}>
+        <Pressable onPress={onClose} style={calStyles.closeBtn}>
+          <Text style={calStyles.closeBtnLabel}>✕</Text>
+        </Pressable>
+        <Text style={calStyles.headerTitle}>Календарь конференций</Text>
+      </View>
+
+      {/* Month navigation */}
+      <View style={calStyles.monthNav}>
+        <Pressable onPress={onPrevMonth} style={calStyles.navBtn}>
+          <Text style={calStyles.navBtnLabel}>‹</Text>
+        </Pressable>
+        <Text style={calStyles.monthLabel}>
+          {MONTH_NAMES[month]} {year}
+        </Text>
+        <Pressable onPress={onNextMonth} style={calStyles.navBtn}>
+          <Text style={calStyles.navBtnLabel}>›</Text>
+        </Pressable>
+      </View>
+
+      {/* Weekday headers */}
+      <View style={calStyles.weekRow}>
+        {WEEKDAYS.map(w => (
+          <Text key={w} style={calStyles.weekDay}>{w}</Text>
+        ))}
+      </View>
+
+      {/* Days grid */}
+      <View style={calStyles.grid}>
+        {cells.map((day, idx) => {
+          if (day === null) {
+            return <View key={`empty-${idx}`} style={calStyles.cell} />;
+          }
+          const key = dayKey(day);
+          const hasConf = byDay.has(key);
+          const isToday = key === todayKey;
+          const isSelected = key === selectedDay;
+          return (
+            <Pressable
+              key={key}
+              style={[
+                calStyles.cell,
+                isToday && calStyles.cellToday,
+                isSelected && calStyles.cellSelected,
+              ]}
+              onPress={() => onSelectDay(key)}>
+              <Text style={[
+                calStyles.cellDay,
+                isToday && calStyles.cellDayToday,
+                isSelected && calStyles.cellDaySelected,
+              ]}>
+                {day}
+              </Text>
+              {hasConf ? (
+                <View style={[
+                  calStyles.dot,
+                  isSelected && calStyles.dotSelected,
+                ]} />
+              ) : null}
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {/* Selected day conferences */}
+      <ScrollView style={calStyles.dayList} contentContainerStyle={calStyles.dayListContent}>
+        {selectedDay === null ? (
+          <Text style={calStyles.dayListHint}>Выберите день чтобы увидеть конференции</Text>
+        ) : selectedConferences.length === 0 ? (
+          <Text style={calStyles.dayListHint}>Нет конференций в этот день</Text>
+        ) : (
+          selectedConferences.map(c => (
+            <Pressable
+              key={c.id}
+              style={calStyles.confItem}
+              onPress={() => onOpenConference(c.id)}>
+              <View style={calStyles.confItemDot} />
+              <View style={calStyles.confItemCopy}>
+                <Text style={calStyles.confItemTitle}>{c.title}</Text>
+                <Text style={calStyles.confItemTime}>
+                  {new Date(c.scheduledAt).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}
+                  {c.endedAt ? ' · Завершена' : c.startedAt ? ' · Идёт сейчас' : ' · Запланирована'}
+                </Text>
+              </View>
+              <Text style={calStyles.confItemArrow}>›</Text>
+            </Pressable>
+          ))
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
+const calStyles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: androidTheme.colors.background,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
+    backgroundColor: androidTheme.colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: androidTheme.colors.border,
+  },
+  closeBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: androidTheme.colors.surfaceMuted,
+  },
+  closeBtnLabel: {
+    fontSize: 16,
+    color: androidTheme.colors.textPrimary,
+    fontWeight: '700',
+  },
+  headerTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: androidTheme.colors.textPrimary,
+    flex: 1,
+  },
+  monthNav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  navBtn: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 20,
+    backgroundColor: androidTheme.colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
+  },
+  navBtnLabel: {
+    fontSize: 22,
+    color: androidTheme.colors.textPrimary,
+    fontWeight: '700',
+    lineHeight: 26,
+  },
+  monthLabel: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: androidTheme.colors.textPrimary,
+  },
+  weekRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 12,
+    paddingBottom: 4,
+  },
+  weekDay: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 12,
+    fontWeight: '700',
+    color: androidTheme.colors.textMuted,
+    textTransform: 'uppercase',
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 12,
+  },
+  cell: {
+    width: `${100 / 7}%`,
+    aspectRatio: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+  },
+  cellToday: {
+    borderRadius: 50,
+    borderWidth: 1.5,
+    borderColor: androidTheme.colors.blue,
+  },
+  cellSelected: {
+    borderRadius: 50,
+    backgroundColor: androidTheme.colors.blueStrong,
+    borderWidth: 0,
+  },
+  cellDay: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: androidTheme.colors.textPrimary,
+  },
+  cellDayToday: {
+    color: androidTheme.colors.blue,
+    fontWeight: '800',
+  },
+  cellDaySelected: {
+    color: '#fff',
+    fontWeight: '800',
+  },
+  dot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: androidTheme.colors.blue,
+  },
+  dotSelected: {
+    backgroundColor: '#fff',
+  },
+  dayList: {
+    flex: 1,
+    marginTop: 8,
+  },
+  dayListContent: {
+    padding: 16,
+    gap: 10,
+  },
+  dayListHint: {
+    textAlign: 'center',
+    color: androidTheme.colors.textMuted,
+    fontSize: 14,
+    marginTop: 24,
+  },
+  confItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: androidTheme.colors.surface,
+    borderRadius: androidTheme.radius.card,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
+    padding: 14,
+    gap: 12,
+  },
+  confItemDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: androidTheme.colors.blueStrong,
+    flexShrink: 0,
+  },
+  confItemCopy: {
+    flex: 1,
+    gap: 3,
+  },
+  confItemTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: androidTheme.colors.textPrimary,
+  },
+  confItemTime: {
+    fontSize: 13,
+    color: androidTheme.colors.textSecondary,
+  },
+  confItemArrow: {
+    fontSize: 20,
+    color: androidTheme.colors.textMuted,
+    fontWeight: '700',
+  },
+});
+
+// ─── Conference List Item ──────────────────────────────────────────────────────
+
 type ConferenceListItemProps = {
   conference: VideoConference;
   onOpen: () => void;
@@ -1135,13 +2147,13 @@ function ConferenceListItem({conference, onOpen}: ConferenceListItemProps) {
           {formatRelativeMessageTime(conference.scheduledAt)}
         </Text>
         <Text style={styles.conferenceCardHint}>
-          {conference.startedAt
-            ? 'Live now'
-            : conference.endedAt
-              ? 'Ended'
+          {conference.endedAt
+            ? 'Завершено'
+            : conference.startedAt
+              ? 'Идёт сейчас'
               : conference.chatId
-                ? 'Linked to a group chat'
-                : 'Standalone conference'}
+                ? 'Связано с группой'
+                : 'Ожидает начала'}
         </Text>
       </View>
       <Pressable
@@ -1176,15 +2188,6 @@ function VerificationBadge({
       <Text style={verified ? styles.successPillLabel : styles.warningPillLabel}>
         {verified ? 'Email verified' : 'Email not verified'}
       </Text>
-    </View>
-  );
-}
-
-function ProfileStatCard({label, value}: {label: string; value: string}) {
-  return (
-    <View style={styles.profileStatCard}>
-      <Text style={styles.profileStatValue}>{value}</Text>
-      <Text style={styles.profileStatLabel}>{label}</Text>
     </View>
   );
 }
@@ -1285,89 +2288,160 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: androidTheme.colors.background,
   },
-  topBar: {
-    paddingHorizontal: 18,
-    paddingTop: 18,
-    paddingBottom: 12,
+  appBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    gap: 8,
   },
-  topBarCopy: {
+  appBarTitle: {
     flex: 1,
-    gap: 3,
-  },
-  brandTitle: {
     fontSize: 28,
     fontWeight: '800',
     color: androidTheme.colors.textPrimary,
   },
-  brandSubtitle: {
-    fontSize: 14,
-    color: androidTheme.colors.textSecondary,
+  appBarActions: {
+    flexDirection: 'row',
+    gap: 4,
   },
-  topBarAction: {
-    minHeight: 38,
-    paddingHorizontal: 14,
-    borderRadius: 999,
+  appBarIconBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: androidTheme.colors.surfaceAlt,
-    borderWidth: 1,
-    borderColor: androidTheme.colors.border,
-  },
-  topBarActionLabel: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: androidTheme.colors.textPrimary,
-  },
-  searchShell: {
-    paddingHorizontal: 18,
-    paddingBottom: 10,
-    gap: 10,
-  },
-  searchField: {
-    minHeight: 54,
-    borderRadius: 18,
     backgroundColor: androidTheme.colors.surface,
     borderWidth: 1,
     borderColor: androidTheme.colors.border,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingLeft: 16,
-    paddingRight: 10,
   },
-  searchInput: {
-    flex: 1,
-    minWidth: 0,
+  appBarIcon: {
+    fontSize: 18,
     color: androidTheme.colors.textPrimary,
-    fontSize: 15,
+  },
+  appBarMenuDots: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: androidTheme.colors.textPrimary,
+    letterSpacing: 2,
+  },
+  appBarSearchInput: {
+    flex: 1,
+    height: 42,
+    color: androidTheme.colors.textPrimary,
+    fontSize: 16,
+    backgroundColor: androidTheme.colors.surface,
+    borderRadius: 21,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
+  },
+  menuBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  menuPopover: {
+    position: 'absolute',
+    top: 80,
+    right: 16,
+    minWidth: 180,
+    backgroundColor: androidTheme.colors.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
+    overflow: 'hidden',
+    ...androidTheme.shadow,
+  },
+  menuItem: {
+    paddingHorizontal: 18,
     paddingVertical: 14,
   },
-  searchClearButton: {
-    minHeight: 34,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: androidTheme.colors.surfaceMuted,
+  menuItemLabel: {
+    fontSize: 15,
+    color: androidTheme.colors.textPrimary,
   },
-  searchClearLabel: {
+  searchResultsHeading: {
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 4,
+  },
+  searchResultsCount: {
     fontSize: 12,
     fontWeight: '700',
-    color: androidTheme.colors.textSecondary,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    color: androidTheme.colors.textMuted,
+  },
+  chatListContent: {
+    paddingHorizontal: 12,
+    paddingBottom: 20,
+    gap: 2,
+  },
+  filterScrollRow: {
+    marginBottom: 6,
+  },
+  filterScrollContent: {
+    paddingHorizontal: 4,
+    gap: 8,
+    flexDirection: 'row',
+  },
+  archivedDivider: {
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    marginTop: 6,
+  },
+  archivedDividerLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    color: androidTheme.colors.textMuted,
+  },
+  settingsSectionLabel: {
+    paddingHorizontal: 4,
+    paddingBottom: 8,
+  },
+  settingsSectionLabelText: {
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    color: androidTheme.colors.textMuted,
+  },
+  bottomTabIcon: {
+    fontSize: 22,
+    opacity: 0.5,
+  },
+  bottomTabIconActive: {
+    fontSize: 22,
+  },
+  bottomTabAvatar: {
+    position: 'relative',
+    width: 26,
+    height: 26,
+  },
+  bottomTabAvatarRing: {
+    position: 'absolute',
+    top: -2,
+    left: -2,
+    right: -2,
+    bottom: -2,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: androidTheme.colors.blueStrong,
   },
   searchButton: {
+    minWidth: 98,
     minHeight: 46,
-    borderRadius: 16,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: androidTheme.colors.blueStrong,
   },
   searchButtonDisabled: {
+    minWidth: 98,
     minHeight: 46,
-    borderRadius: 16,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(78, 161, 255, 0.32)',
@@ -1436,107 +2510,344 @@ const styles = StyleSheet.create({
   contentArea: {
     flex: 1,
   },
+  hidden: {
+    display: 'none',
+  },
   tabScroll: {
     flex: 1,
   },
   tabContent: {
-    paddingHorizontal: 18,
-    paddingBottom: 18,
-    gap: 14,
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+    gap: 16,
   },
   sectionHeading: {
-    gap: 4,
+    gap: 5,
     paddingTop: 4,
   },
+  sectionHeadingCompact: {
+    gap: 5,
+    paddingTop: 10,
+  },
   sectionTitle: {
-    fontSize: 20,
+    fontSize: 26,
+    fontWeight: '800',
+    color: androidTheme.colors.textPrimary,
+  },
+  sectionTitleSmall: {
+    fontSize: 17,
     fontWeight: '800',
     color: androidTheme.colors.textPrimary,
   },
   sectionSubtitle: {
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 18,
     color: androidTheme.colors.textSecondary,
   },
-  bottomNav: {
+  filterRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 10,
-    paddingHorizontal: 14,
-    paddingTop: 10,
-    paddingBottom: 16,
-    borderTopWidth: 1,
-    borderTopColor: androidTheme.colors.border,
-    backgroundColor: androidTheme.colors.backgroundElevated,
   },
-  bottomTab: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: 18,
+  filterChip: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 8,
+    paddingLeft: 14,
+    paddingRight: 10,
+    minHeight: 38,
+    borderRadius: 999,
     backgroundColor: androidTheme.colors.surface,
     borderWidth: 1,
     borderColor: androidTheme.colors.border,
   },
-  bottomTabActive: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: 18,
+  filterChipActive: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 8,
+    paddingLeft: 14,
+    paddingRight: 10,
+    minHeight: 38,
+    borderRadius: 999,
     backgroundColor: androidTheme.colors.blueSoft,
     borderWidth: 1,
     borderColor: androidTheme.colors.borderStrong,
   },
-  bottomTabLabel: {
+  filterChipLabel: {
     fontSize: 13,
     fontWeight: '700',
     color: androidTheme.colors.textMuted,
   },
-  bottomTabLabelActive: {
+  filterChipLabelActive: {
     fontSize: 13,
     fontWeight: '800',
     color: androidTheme.colors.blue,
   },
-  chatCard: {
+  filterChipCount: {
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 6,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: androidTheme.colors.surfaceMuted,
+  },
+  filterChipCountActive: {
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 6,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: androidTheme.colors.blueStrong,
+  },
+  filterChipCountLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: androidTheme.colors.textSecondary,
+  },
+  filterChipCountLabelActive: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: androidTheme.colors.textInverse,
+  },
+  bottomNavWrap: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    backgroundColor: androidTheme.colors.background,
+  },
+  bottomNav: {
     flexDirection: 'row',
-    gap: 12,
-    padding: 14,
-    borderRadius: 22,
-    backgroundColor: androidTheme.colors.surface,
+    gap: 8,
+    padding: 8,
+    borderRadius: 26,
+    backgroundColor: androidTheme.colors.backgroundElevated,
     borderWidth: 1,
     borderColor: androidTheme.colors.border,
+    ...androidTheme.shadow,
+  },
+  bottomTab: {
+    flex: 1,
+    height: 56,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    paddingBottom: 8,
+    backgroundColor: 'transparent',
+  },
+  bottomTabActive: {
+    flex: 1,
+    height: 56,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    paddingBottom: 8,
+    backgroundColor: androidTheme.colors.blueSoft,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.borderStrong,
+  },
+  bottomTabIconWrap: {
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bottomTabLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: androidTheme.colors.textMuted,
+    marginTop: 3,
+  },
+  bottomTabLabelActive: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: androidTheme.colors.blue,
+    marginTop: 3,
+  },
+  chatCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    borderRadius: 16,
   },
   chatCardCopy: {
     flex: 1,
     minWidth: 0,
-    gap: 6,
+    gap: 3,
   },
   chatCardTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
   },
   chatCardTitle: {
     flex: 1,
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '700',
     color: androidTheme.colors.textPrimary,
+  },
+  chatBadgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  chatBadgeDraft: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: androidTheme.colors.dangerSoft,
+  },
+  chatBadgeDraftLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: androidTheme.colors.danger,
+  },
+  chatBadgeMuted: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: androidTheme.colors.surfaceMuted,
+  },
+  chatBadgeMutedLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: androidTheme.colors.textSecondary,
+  },
+  chatBadgeWarning: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: androidTheme.colors.warningSoft,
+  },
+  chatBadgeWarningLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: androidTheme.colors.warning,
+  },
+  chatBadgePrimary: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: androidTheme.colors.blueSoft,
+  },
+  chatBadgePrimaryLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: androidTheme.colors.blue,
   },
   chatCardTime: {
     fontSize: 12,
     color: androidTheme.colors.textMuted,
+    flexShrink: 0,
   },
-  chatCardMiddleRow: {
+  chatCardBottomRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
+    alignItems: 'center',
+    gap: 8,
+  },
+  chatCardSnippetRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 0,
+  },
+  chatCardDraftPrefix: {
+    fontSize: 14,
+    color: androidTheme.colors.danger,
+    flexShrink: 0,
+  },
+  chatCardPendingPrefix: {
+    fontSize: 13,
+    flexShrink: 0,
+  },
+  chatCardPinPrefix: {
+    fontSize: 13,
+    flexShrink: 0,
   },
   chatCardSnippet: {
     flex: 1,
     fontSize: 14,
-    lineHeight: 20,
     color: androidTheme.colors.textSecondary,
+  },
+  chatCardSnippetDraft: {
+    flex: 1,
+    fontSize: 14,
+    color: androidTheme.colors.danger,
+  },
+  chatReactionDot: {
+    fontSize: 14,
+  },
+  chatCardSelected: {
+    backgroundColor: androidTheme.colors.blueSoft,
+  },
+  chatAvatarWrap: {
+    position: 'relative',
+  },
+  selectionCircle: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: androidTheme.colors.surface,
+    borderWidth: 2,
+    borderColor: androidTheme.colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectionCircleSelected: {
+    backgroundColor: androidTheme.colors.blueStrong,
+    borderColor: androidTheme.colors.blueStrong,
+  },
+  selectionCheckmark: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: androidTheme.colors.textInverse,
+    lineHeight: 14,
+  },
+  selectionBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+  },
+  selectionCancelBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  selectionCancelLabel: {
+    fontSize: 20,
+    color: androidTheme.colors.textPrimary,
+    fontWeight: '700',
+  },
+  selectionCountLabel: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: androidTheme.colors.textPrimary,
+  },
+  selectionActions: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  selectionActionBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: androidTheme.colors.surface,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
+  },
+  selectionActionIcon: {
+    fontSize: 20,
+  },
+  selectionDeleteIcon: {
+    fontSize: 20,
   },
   unreadBadge: {
     minWidth: 24,
@@ -1552,15 +2863,9 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: androidTheme.colors.textInverse,
   },
-  chatCardBottomRow: {
-    flexDirection: 'row',
+  chatCardSide: {
     alignItems: 'center',
-    gap: 10,
-  },
-  chatCardMeta: {
-    flex: 1,
-    fontSize: 12,
-    color: androidTheme.colors.textMuted,
+    flexShrink: 0,
   },
   smallAction: {
     minHeight: 30,
@@ -1569,6 +2874,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: androidTheme.colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
   },
   smallActionDisabled: {
     minHeight: 30,
@@ -1591,6 +2898,7 @@ const styles = StyleSheet.create({
     backgroundColor: androidTheme.colors.surface,
     borderWidth: 1,
     borderColor: androidTheme.colors.border,
+    ...androidTheme.shadow,
   },
   profileListCopy: {
     flex: 1,
@@ -1674,6 +2982,7 @@ const styles = StyleSheet.create({
     backgroundColor: androidTheme.colors.surface,
     borderWidth: 1,
     borderColor: androidTheme.colors.border,
+    ...androidTheme.shadow,
   },
   conferenceCardCopy: {
     flex: 1,
@@ -1692,65 +3001,103 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: androidTheme.colors.textSecondary,
   },
-  profileHero: {
-    flexDirection: 'row',
-    gap: 14,
+  profileTabContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 30,
+    gap: 16,
     alignItems: 'center',
-    padding: 18,
-    borderRadius: 26,
-    backgroundColor: androidTheme.colors.surface,
-    borderWidth: 1,
-    borderColor: androidTheme.colors.border,
   },
-  profileHeroCopy: {
-    flex: 1,
-    gap: 4,
+  profileHeroNew: {
+    alignItems: 'center',
+    paddingTop: 16,
+    paddingBottom: 4,
+    gap: 8,
+    width: '100%',
   },
-  profileName: {
-    fontSize: 24,
+  profileNameNew: {
+    fontSize: 22,
     fontWeight: '800',
     color: androidTheme.colors.textPrimary,
+    marginTop: 4,
   },
-  profileUsername: {
+  profileOnlineStatus: {
     fontSize: 14,
     color: androidTheme.colors.blue,
   },
-  profileEmail: {
-    fontSize: 14,
-    color: androidTheme.colors.textSecondary,
-  },
-  profileStatsRow: {
+  profileActionsRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: 10,
+    width: '100%',
   },
-  profileStatCard: {
-    width: '47%',
-    padding: 14,
+  profileActionItem: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
     borderRadius: 18,
     backgroundColor: androidTheme.colors.surface,
     borderWidth: 1,
     borderColor: androidTheme.colors.border,
-    gap: 4,
   },
-  profileStatValue: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: androidTheme.colors.textPrimary,
-  },
-  profileStatLabel: {
-    fontSize: 12,
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-    color: androidTheme.colors.textMuted,
-  },
-  profileCard: {
-    padding: 16,
+  profileActionIconWrap: {
+    width: 44,
+    height: 44,
     borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: androidTheme.colors.blueSoft,
+  },
+  profileActionIconText: {
+    fontSize: 20,
+  },
+  profileActionLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: androidTheme.colors.textSecondary,
+    textAlign: 'center',
+  },
+  profileInfoCard: {
+    width: '100%',
+    borderRadius: 18,
     backgroundColor: androidTheme.colors.surface,
     borderWidth: 1,
     borderColor: androidTheme.colors.border,
-    gap: 12,
+    overflow: 'hidden',
+  },
+  profileInfoRow: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 3,
+  },
+  profileInfoValue: {
+    fontSize: 16,
+    color: androidTheme.colors.textPrimary,
+    fontWeight: '500',
+  },
+  profileInfoMeta: {
+    fontSize: 13,
+    color: androidTheme.colors.textMuted,
+  },
+  profileInfoDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: androidTheme.colors.border,
+    marginLeft: 16,
+  },
+  logoutButton: {
+    width: '100%',
+    minHeight: 50,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: androidTheme.colors.dangerSoft,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 100, 90, 0.2)',
+  },
+  logoutButtonLabel: {
+    color: androidTheme.colors.danger,
+    fontSize: 15,
+    fontWeight: '800',
   },
   successPill: {
     alignSelf: 'flex-start',
@@ -1833,6 +3180,98 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: androidTheme.colors.textSecondary,
   },
+  swipeContainer: {
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 16,
+  },
+  swipeActionBtn: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: UNARCHIVE_BTN_W,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  swipeActionBtnInner: {
+    flex: 1,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  swipeActionIcon: {
+    fontSize: 18,
+  },
+  swipeActionLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  archiveRevealRow: {
+    height: ARCHIVE_ROW_H,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    backgroundColor: androidTheme.colors.surface,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
+    marginBottom: 4,
+  },
+  archiveRevealIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: androidTheme.colors.blueSoft,
+  },
+  archiveRevealIconText: {
+    fontSize: 20,
+  },
+  archiveRevealLabel: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '600',
+    color: androidTheme.colors.textPrimary,
+  },
+  archiveBackRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    marginBottom: 6,
+  },
+  archiveBackArrow: {
+    fontSize: 22,
+    color: androidTheme.colors.textPrimary,
+    fontWeight: '700',
+  },
+  archiveBackText: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '800',
+    color: androidTheme.colors.textPrimary,
+  },
+  archiveBackCount: {
+    minWidth: 28,
+    height: 28,
+    paddingHorizontal: 8,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: androidTheme.colors.surfaceMuted,
+  },
+  archiveBackCountLabel: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: androidTheme.colors.textMuted,
+  },
   avatar: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -1842,5 +3281,183 @@ const styles = StyleSheet.create({
   avatarLabel: {
     fontWeight: '800',
     color: androidTheme.colors.blue,
+  },
+  conferenceToolbar: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+    paddingBottom: 4,
+  },
+  confToolbarBtn: {
+    height: 38,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: androidTheme.colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
+  },
+  confToolbarBtnLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: androidTheme.colors.textPrimary,
+  },
+  confToolbarBtnPrimary: {
+    height: 38,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: androidTheme.colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.blue,
+  },
+  confToolbarBtnPrimaryLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: androidTheme.colors.blue,
+  },
+  confToolbarBtnAccent: {
+    height: 38,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: androidTheme.colors.blueStrong,
+  },
+  confToolbarBtnAccentLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: androidTheme.colors.textInverse,
+  },
+  confModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  confModalCard: {
+    width: '100%',
+    backgroundColor: androidTheme.colors.surface,
+    borderRadius: androidTheme.radius.cardLarge,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
+    padding: 20,
+    gap: 10,
+    ...androidTheme.shadow,
+  },
+  confModalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: androidTheme.colors.textPrimary,
+    marginBottom: 4,
+  },
+  confModalLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    color: androidTheme.colors.textMuted,
+    marginTop: 4,
+  },
+  confModalInput: {
+    height: 46,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
+    backgroundColor: androidTheme.colors.surfaceMuted,
+    paddingHorizontal: 14,
+    fontSize: 15,
+    color: androidTheme.colors.textPrimary,
+  },
+  confModalError: {
+    fontSize: 13,
+    color: androidTheme.colors.danger,
+    backgroundColor: androidTheme.colors.dangerSoft,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  confModalActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 6,
+  },
+  confModalCancelBtn: {
+    flex: 1,
+    height: 46,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: androidTheme.colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
+  },
+  confModalCancelLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: androidTheme.colors.textPrimary,
+  },
+  confModalSubmitBtn: {
+    flex: 1,
+    height: 46,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: androidTheme.colors.blueStrong,
+  },
+  confModalSubmitDisabled: {
+    flex: 1,
+    height: 46,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  confModalSubmitLabel: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: androidTheme.colors.textInverse,
+  },
+  confMenuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  confMenuCard: {
+    position: 'absolute',
+    top: 56,
+    right: 12,
+    minWidth: 200,
+    backgroundColor: androidTheme.colors.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
+    overflow: 'hidden',
+    ...androidTheme.shadow,
+  },
+  confMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
+  },
+  confMenuItemIcon: {
+    fontSize: 16,
+    color: androidTheme.colors.blue,
+    width: 20,
+    textAlign: 'center',
+  },
+  confMenuItemLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: androidTheme.colors.textPrimary,
+  },
+  confMenuDivider: {
+    height: 1,
+    backgroundColor: androidTheme.colors.border,
+    marginHorizontal: 12,
   },
 });

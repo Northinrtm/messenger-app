@@ -2,15 +2,18 @@ import type {AuthResponse, VideoConference} from '@north/shared';
 import {useEffect, useMemo, useState} from 'react';
 import {
   KeyboardAvoidingView,
-  Linking,
+  Modal,
   Platform,
   Pressable,
+  SafeAreaView,
   ScrollView,
   Share,
+  StatusBar,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import {WebView} from 'react-native-webview';
 import {API_URL, JITSI_BASE_URL} from '../../config';
 import {androidTheme} from '../../theme';
 
@@ -50,6 +53,7 @@ export function ConferenceDetailScreen({
     conference.activeParticipantUserIds.includes(session.user.id),
   );
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [jitsiOpen, setJitsiOpen] = useState(false);
 
   const isOrganizer = conference.createdBy.id === session.user.id;
   const canJoin = Boolean(
@@ -70,9 +74,13 @@ export function ConferenceDetailScreen({
   const joinUrl = useMemo(
     () =>
       conference.roomName
-        ? buildConferenceJoinUrl(JITSI_BASE_URL, conference.roomName)
+        ? buildConferenceJoinUrl(
+            JITSI_BASE_URL,
+            conference.roomName,
+            session.user.displayName,
+          )
         : null,
-    [conference.roomName],
+    [conference.roomName, session.user.displayName],
   );
   const statusLabel = formatConferenceStatusLabel(conference);
   const stageHint = formatConferenceStageHint(conference, isOrganizer);
@@ -101,7 +109,7 @@ export function ConferenceDetailScreen({
     }
   };
 
-  const handleJoinExternally = async () => {
+  const handleJoinInApp = async () => {
     if (!joinUrl) {
       return;
     }
@@ -111,8 +119,7 @@ export function ConferenceDetailScreen({
         await onTouchConferencePresence(conference.id);
         setPresenceMarked(true);
       }
-
-      await Linking.openURL(joinUrl);
+      setJitsiOpen(true);
       return true;
     });
   };
@@ -155,6 +162,7 @@ export function ConferenceDetailScreen({
   };
 
   return (
+    <>
     <KeyboardAvoidingView
       behavior={Platform.select({ios: 'padding', android: 'height'})}
       style={styles.screen}>
@@ -225,7 +233,7 @@ export function ConferenceDetailScreen({
           {canJoin && joinUrl ? (
             <Pressable
               onPress={() => {
-                handleJoinExternally().catch(() => undefined);
+                handleJoinInApp().catch(() => undefined);
               }}
               disabled={pendingAction !== null}
               style={
@@ -233,7 +241,7 @@ export function ConferenceDetailScreen({
               }
               testID="conference-join-button">
               <Text style={styles.actionPrimaryLabel}>
-                {pendingAction === 'join' ? 'Opening...' : 'Open in browser'}
+                {pendingAction === 'join' ? 'Открываю...' : 'Открыть'}
               </Text>
             </Pressable>
           ) : null}
@@ -400,6 +408,42 @@ export function ConferenceDetailScreen({
       ) : null}
       </ScrollView>
     </KeyboardAvoidingView>
+
+    {joinUrl ? (
+      <Modal
+        visible={jitsiOpen}
+        animationType="slide"
+        onRequestClose={() => setJitsiOpen(false)}
+        statusBarTranslucent>
+        <SafeAreaView style={styles.jitsiContainer}>
+          <StatusBar backgroundColor="#000" barStyle="light-content" />
+          <View style={styles.jitsiHeader}>
+            <Pressable
+              onPress={() => setJitsiOpen(false)}
+              style={styles.jitsiCloseButton}>
+              <Text style={styles.jitsiCloseLabel}>✕ Выйти</Text>
+            </Pressable>
+            <Text style={styles.jitsiTitle} numberOfLines={1}>
+              {conference.title}
+            </Text>
+          </View>
+          <WebView
+            source={{uri: joinUrl}}
+            style={styles.jitsiWebView}
+            mediaPlaybackRequiresUserAction={false}
+            allowsInlineMediaPlayback
+            javaScriptEnabled
+            domStorageEnabled
+            allowsFullscreenVideo
+            // Auto-grant camera/mic so the native permission dialog doesn't appear mid-call
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            onPermissionRequest={(event: any) => event.grant(event.resources)}
+            originWhitelist={['*']}
+          />
+        </SafeAreaView>
+      </Modal>
+    ) : null}
+    </>
   );
 }
 
@@ -412,9 +456,17 @@ function MetaRow({label, value}: {label: string; value: string}) {
   );
 }
 
-function buildConferenceJoinUrl(baseUrl: string, roomName: string) {
+function buildConferenceJoinUrl(
+  baseUrl: string,
+  roomName: string,
+  displayName?: string,
+) {
   const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
-  return new URL(encodeURIComponent(roomName), normalizedBaseUrl).toString();
+  const base = new URL(encodeURIComponent(roomName), normalizedBaseUrl).toString();
+  if (displayName) {
+    return `${base}#userInfo.displayName=${encodeURIComponent(displayName)}`;
+  }
+  return base;
 }
 
 function buildInviteUrl(code: string) {
@@ -720,5 +772,41 @@ const styles = StyleSheet.create({
   participantMeta: {
     fontSize: 12,
     color: androidTheme.colors.textSecondary,
+  },
+  jitsiContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  jitsiHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#111',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 12,
+  },
+  jitsiCloseButton: {
+    minHeight: 40,
+    minWidth: 80,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+  },
+  jitsiCloseLabel: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  jitsiTitle: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  jitsiWebView: {
+    flex: 1,
+    backgroundColor: '#000',
   },
 });

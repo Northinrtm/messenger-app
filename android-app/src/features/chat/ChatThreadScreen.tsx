@@ -23,6 +23,7 @@ import {
   Image,
   KeyboardAvoidingView,
   Linking,
+  Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Platform,
@@ -37,10 +38,13 @@ import {
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {
   acknowledgeRead,
+  deleteMessage,
+  deleteMessages,
   downloadChatAttachment,
   describeError,
   getChatOpen,
   getMessagesPage,
+  pinMessage,
   toggleMessageReaction,
   uploadChatAttachment,
 } from '../../lib/api';
@@ -54,6 +58,7 @@ import {
   removeTypingParticipant,
 } from './typingState';
 import {androidTheme} from '../../theme';
+import {API_URL} from '../../config';
 
 const MESSAGE_PAGE_SIZE = 30;
 const TYPING_HEARTBEAT_MS = 3_000;
@@ -178,9 +183,21 @@ export function ChatThreadScreen({
   const [imagePreview, setImagePreview] = useState<ImagePreviewState | null>(
     null,
   );
+  const [dismissedPinnedMessageId, setDismissedPinnedMessageId] = useState<
+    string | null
+  >(null);
   const [pendingReactionKeys, setPendingReactionKeys] = useState<
     Record<string, boolean>
   >({});
+  const [contextMenuMessage, setContextMenuMessage] =
+    useState<ChatMessage | null>(null);
+  const [selectedMessageIds, setSelectedMessageIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    messageIds: string[];
+    forEveryone: boolean;
+  } | null>(null);
   const [typingParticipants, setTypingParticipants] = useState<Participant[]>([]);
   const messagesRef = useRef<ChatMessage[]>([]);
   const messageScrollRef = useRef<ScrollView | null>(null);
@@ -262,6 +279,14 @@ export function ChatThreadScreen({
     () => formatTypingParticipants(typingParticipants),
     [typingParticipants],
   );
+  const visiblePinnedMessage = useMemo(() => {
+    const pinnedMessage = chat?.pinnedMessage ?? chat?.pinnedMessages?.[0] ?? null;
+    if (!pinnedMessage) {
+      return null;
+    }
+
+    return pinnedMessage.id === dismissedPinnedMessageId ? null : pinnedMessage;
+  }, [chat, dismissedPinnedMessageId]);
   const latestMessageKey = useMemo(() => {
     const latestMessage = messages[messages.length - 1];
     if (!latestMessage) {
@@ -461,6 +486,7 @@ export function ChatThreadScreen({
     setOpeningAttachmentKeys({});
     setSharingAttachmentKeys({});
     setImagePreview(null);
+    setDismissedPinnedMessageId(null);
     setPendingReactionKeys({});
     setTypingParticipants([]);
     setComposerText('');
@@ -782,6 +808,86 @@ export function ChatThreadScreen({
   const handleCancelForward = () => {
     setForwardingMessageId(null);
     setForwardingTargetChatId(null);
+  };
+
+  const handleDeleteMessage = (message: ChatMessage) => {
+    setContextMenuMessage(null);
+    setDeleteConfirm({messageIds: [message.id], forEveryone: false});
+  };
+
+  const handlePinMessage = async (message: ChatMessage) => {
+    setContextMenuMessage(null);
+    try {
+      const updated = await runAuthorized(token =>
+        pinMessage(token, chatId, message.id),
+      );
+      setChat(updated);
+      onChatSummaryChange(updated);
+    } catch (err) {
+      setError(describeError(err));
+    }
+  };
+
+  const handleCopyMessage = (message: ChatMessage) => {
+    setContextMenuMessage(null);
+    Share.share({message: message.content});
+  };
+
+  const handleToggleSelectMessage = (messageId: string) => {
+    setSelectedMessageIds(current => {
+      const next = new Set(current);
+      if (next.has(messageId)) {
+        next.delete(messageId);
+      } else {
+        next.add(messageId);
+      }
+      return next;
+    });
+  };
+
+  const handleClearSelection = () => setSelectedMessageIds(new Set());
+
+  const handleCopySelected = () => {
+    const texts = messages
+      .filter(m => selectedMessageIds.has(m.id))
+      .map(m => m.content)
+      .join('\n\n');
+    handleClearSelection();
+    Share.share({message: texts});
+  };
+
+  const handleForwardSelected = () => {
+    const first = messages.find(m => selectedMessageIds.has(m.id));
+    if (first && canForwardMessage(first)) {
+      handleForwardMessage(first);
+    }
+    handleClearSelection();
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteConfirm) {
+      return;
+    }
+    const {messageIds, forEveryone} = deleteConfirm;
+    const scope = forEveryone ? 'EVERYONE' : 'SELF';
+    setDeleteConfirm(null);
+    handleClearSelection();
+    try {
+      if (messageIds.length === 1) {
+        await runAuthorized(token =>
+          deleteMessage(token, chatId, messageIds[0], scope),
+        );
+      } else {
+        await runAuthorized(token =>
+          deleteMessages(token, chatId, messageIds, scope),
+        );
+      }
+      applyMessagesUpdate(current =>
+        current.filter(m => !messageIds.includes(m.id)),
+      );
+    } catch (err) {
+      setError(describeError(err));
+    }
   };
 
   const handlePickAttachments = async () => {
@@ -1296,60 +1402,105 @@ export function ChatThreadScreen({
       ? composerText.trim() || (editingMessage.attachments?.length ?? 0) > 0
       : composerText.trim() || composerAttachments.length > 0,
   );
-  const chatKindLabel = chat ? (chat.direct ? 'Direct chat' : 'Group chat') : 'Opening chat';
-  const chatPresenceLabel = realtimeConnected
-    ? 'Realtime live'
-    : 'Realtime reconnecting';
   const activeConversationMember =
     chat?.direct && chat.members.length > 1
       ? chat.members.find(member => member.id !== session.user.id) ?? null
       : null;
+  const headerStatusText = typingParticipants.length
+    ? typingLabel
+    : chat?.direct
+      ? null
+      : chat
+        ? `${chat.members.length} members`
+        : 'Opening chat';
+  const headerMemberOnline = activeConversationMember?.online ?? false;
+  const isSelectionMode = selectedMessageIds.size > 0;
+  const peerName =
+    activeConversationMember?.displayName ?? chat?.title ?? 'собеседника';
 
   return (
     <KeyboardAvoidingView
       behavior={Platform.select({ios: 'padding', android: 'height'})}
       style={styles.screen}>
       <View style={styles.screen}>
-      <View style={styles.header}>
-        <Pressable onPress={onBack} style={styles.headerButton}>
-          <Text style={styles.headerButtonLabel}>Back</Text>
-        </Pressable>
-        <AvatarBadge
-          name={chat?.title ?? 'Chat'}
-          avatarUrl={chat?.avatarUrl ?? activeConversationMember?.avatarUrl ?? null}
-          size={44}
-        />
-        <View style={styles.headerCopy}>
-          <Text style={styles.headerTitle}>{chat?.title ?? 'Loading chat'}</Text>
-          <Text style={styles.headerSubtitle}>{chatKindLabel}</Text>
-          <View
-            style={
-              realtimeConnected
-                ? styles.connectionPillSuccess
-                : styles.connectionPillWarning
-            }>
-            <Text
-              style={
-                realtimeConnected
-                  ? styles.connectionLive
-                  : styles.connectionOffline
-              }>
-              {chatPresenceLabel}
-            </Text>
+        <View style={styles.threadBackdrop} pointerEvents="none">
+          <View style={styles.threadGlowPrimary} />
+          <View style={styles.threadGlowSecondary} />
+        </View>
+        {isSelectionMode ? (
+          <View style={styles.header}>
+            <Pressable onPress={handleClearSelection} style={styles.headerButton}>
+              <Text style={styles.headerButtonLabel}>✕</Text>
+            </Pressable>
+            <Text style={styles.selectionCount}>{selectedMessageIds.size}</Text>
+            <View style={styles.headerSpacer} />
+            <Pressable onPress={handleCopySelected} style={styles.headerButton}>
+              <Text style={styles.headerButtonLabel}>⎘</Text>
+            </Pressable>
+            <Pressable onPress={handleForwardSelected} style={styles.headerButton}>
+              <Text style={styles.headerButtonLabel}>↪</Text>
+            </Pressable>
+            <Pressable
+              onPress={() =>
+                setDeleteConfirm({
+                  messageIds: Array.from(selectedMessageIds),
+                  forEveryone: false,
+                })
+              }
+              style={styles.headerButton}>
+              <Text style={[styles.headerButtonLabel, {color: androidTheme.colors.danger}]}>🗑</Text>
+            </Pressable>
           </View>
-        </View>
-        <View style={styles.headerSpacer}>
-          {chat?.unreadCount ? (
-            <View style={styles.headerUnreadBadge}>
-              <Text style={styles.headerUnreadBadgeLabel}>
-                {String(chat.unreadCount)}
-              </Text>
+        ) : (
+          <View style={styles.header}>
+            <Pressable onPress={onBack} style={styles.headerButton}>
+              <Text style={styles.headerButtonLabel}>{'<'}</Text>
+            </Pressable>
+            <AvatarBadge
+              name={chat?.title ?? 'Chat'}
+              avatarUrl={chat?.avatarUrl ?? activeConversationMember?.avatarUrl ?? null}
+              size={44}
+              online={headerMemberOnline}
+            />
+            <View style={styles.headerCopy}>
+              <Text style={styles.headerTitle}>{chat?.title ?? 'Loading chat'}</Text>
+              {headerStatusText ? (
+                <Text style={styles.headerSubtitle}>{headerStatusText}</Text>
+              ) : null}
             </View>
-          ) : null}
-        </View>
-      </View>
+            <View style={styles.headerSpacer}>
+              {chat?.unreadCount ? (
+                <View style={styles.headerUnreadBadge}>
+                  <Text style={styles.headerUnreadBadgeLabel}>
+                    {String(chat.unreadCount)}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+        )}
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
+      {visiblePinnedMessage ? (
+        <View style={styles.pinnedBanner} testID="pinned-banner">
+          <View style={styles.pinnedAccent} />
+          <View style={styles.pinnedCopy}>
+            <Text style={styles.pinnedLabel}>Pinned message</Text>
+            <Text numberOfLines={1} style={styles.pinnedPreview}>
+              {visiblePinnedMessage.preview || 'Open pinned message'}
+            </Text>
+          </View>
+          <Text style={styles.pinnedMeta}>
+            {formatRelativeMessageTime(visiblePinnedMessage.createdAt)}
+          </Text>
+          <Pressable
+            onPress={() => setDismissedPinnedMessageId(visiblePinnedMessage.id)}
+            style={styles.pinnedClose}
+            testID="dismiss-pinned-button">
+            <Text style={styles.pinnedCloseLabel}>x</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       <ScrollView
         ref={messageScrollRef}
@@ -1378,8 +1529,15 @@ export function ChatThreadScreen({
             <Text style={styles.emptyLabel}>No messages yet.</Text>
           </View>
         ) : (
-          messages.map(message => {
+          messages.map((message, msgIndex) => {
             const ownMessage = message.sender.id === session.user.id;
+            const prevMessage = messages[msgIndex - 1];
+            const nextMessage = messages[msgIndex + 1];
+            const isFirstInGroup =
+              !prevMessage || prevMessage.sender.id !== message.sender.id;
+            const isLastInGroup =
+              !nextMessage || nextMessage.sender.id !== message.sender.id;
+            const senderColor = getSenderColor(message.sender.id);
             const canReact = canReactToMessage(message);
             const canForward = canForwardMessage(message);
             const attachments = message.attachments ?? [];
@@ -1397,12 +1555,64 @@ export function ChatThreadScreen({
                 ? 'Forwarded'
                 : null;
 
+            const isSelected = selectedMessageIds.has(message.id);
+
             return (
               <View
                 key={message.id}
-                style={ownMessage ? styles.ownBubble : styles.peerBubble}>
-                {!ownMessage ? (
-                  <Text style={styles.messageSender}>{message.sender.displayName}</Text>
+                style={[
+                  styles.messageRow,
+                  isSelected && styles.messageRowSelected,
+                ]}>
+                {isSelectionMode ? (
+                  <Pressable
+                    style={styles.selectionCircleWrap}
+                    onPress={() => handleToggleSelectMessage(message.id)}>
+                    <View
+                      style={[
+                        styles.selectionCircle,
+                        isSelected && styles.selectionCircleActive,
+                      ]}>
+                      {isSelected ? (
+                        <Text style={styles.selectionCheck}>✓</Text>
+                      ) : null}
+                    </View>
+                  </Pressable>
+                ) : null}
+                {ownMessage ? <View style={{flex: 1}} /> : null}
+                <Pressable
+                  onPress={() => {
+                    if (isSelectionMode) {
+                      handleToggleSelectMessage(message.id);
+                    } else {
+                      setContextMenuMessage(message);
+                    }
+                  }}
+                  onLongPress={() => handleToggleSelectMessage(message.id)}
+                  style={[
+                    ownMessage ? styles.ownBubble : styles.peerBubble,
+                    {
+                      marginTop: isFirstInGroup ? 10 : 2,
+                      borderTopRightRadius:
+                        ownMessage && !isFirstInGroup ? 6 : 18,
+                      borderBottomRightRadius: ownMessage
+                        ? isLastInGroup
+                          ? 4
+                          : 18
+                        : 18,
+                      borderTopLeftRadius:
+                        !ownMessage && !isFirstInGroup ? 6 : 18,
+                      borderBottomLeftRadius: !ownMessage
+                        ? isLastInGroup
+                          ? 4
+                          : 18
+                        : 18,
+                    },
+                  ]}>
+                {!ownMessage && isFirstInGroup && !chat?.direct ? (
+                  <Text style={[styles.messageSender, {color: senderColor}]}>
+                    {message.sender.displayName}
+                  </Text>
                 ) : null}
                 {message.replyTo ? (
                   <View style={styles.replyCard}>
@@ -1500,83 +1710,24 @@ export function ChatThreadScreen({
                   </View>
                 ) : null}
                 <View style={styles.messageMetaRow}>
-                  {ownMessage ? (
-                    <Text style={styles.messageSenderOwn}>You</Text>
+                  {message.editedAt ? (
+                    <Text style={styles.messageMetaEdited}>edited</Text>
                   ) : null}
                   <Text style={styles.messageMeta}>
                     {formatTimestamp(message.editedAt ?? message.createdAt)}
-                    {message.editedAt ? ' | edited' : ''}
-                    {message.status ? ` | ${formatStatus(message.status.state)}` : ''}
                   </Text>
+                  {ownMessage && message.status ? (
+                    <Text style={styles.messageStatusTick}>
+                      {message.status.state === 'READ'
+                        ? '✓✓'
+                        : message.status.state === 'DELIVERED'
+                          ? '✓'
+                          : message.status.state === 'FAILED'
+                            ? '✗'
+                            : '○'}
+                    </Text>
+                  ) : null}
                 </View>
-                {canReact ? (
-                  <View style={styles.reactionRow}>
-                    {REACTION_OPTIONS.map(option => {
-                      const reaction = getMessageReaction(message, option.key);
-                      const pendingReactionKey = buildPendingReactionKey(
-                        message.id,
-                        option.key,
-                      );
-                      const pendingReaction = Boolean(
-                        pendingReactionKeys[pendingReactionKey],
-                      );
-                      const active = reaction?.reactedByCurrentUser ?? false;
-                      return (
-                        <Pressable
-                          key={option.key}
-                          onPress={() => handleToggleReaction(message, option.key)}
-                          disabled={pendingReaction}
-                          style={
-                            pendingReaction
-                              ? styles.reactionButtonDisabled
-                              : active
-                                ? styles.reactionButtonActive
-                                : styles.reactionButton
-                          }
-                          testID={`reaction-toggle-${message.id}-${option.key}`}>
-                          <Text
-                            style={
-                              active
-                                ? styles.reactionButtonLabelActive
-                                : styles.reactionButtonLabel
-                            }>
-                            {formatReactionButtonLabel(option.emoji, reaction?.count ?? 0)}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                ) : null}
-                {(canReplyToMessage(message) ||
-                  canEditMessage(message, session.user.id) ||
-                  canForward) && (
-                  <View style={styles.messageActions}>
-                    {canReplyToMessage(message) ? (
-                      <Pressable
-                        onPress={() => handleReplyMessage(message)}
-                        style={styles.messageActionButton}
-                        testID={`reply-action-${message.id}`}>
-                        <Text style={styles.messageActionLabel}>Reply</Text>
-                      </Pressable>
-                    ) : null}
-                    {canEditMessage(message, session.user.id) ? (
-                      <Pressable
-                        onPress={() => handleEditMessage(message)}
-                        style={styles.messageActionButton}
-                        testID={`edit-action-${message.id}`}>
-                        <Text style={styles.messageActionLabel}>Edit</Text>
-                      </Pressable>
-                    ) : null}
-                    {canForward ? (
-                      <Pressable
-                        onPress={() => handleForwardMessage(message)}
-                        style={styles.messageActionButton}
-                        testID={`forward-action-${message.id}`}>
-                        <Text style={styles.messageActionLabel}>Forward</Text>
-                      </Pressable>
-                    ) : null}
-                  </View>
-                )}
                 {sendFailure ? (
                   <View style={styles.failureCard}>
                     <Text style={styles.failureText}>{sendFailure}</Text>
@@ -1587,6 +1738,7 @@ export function ChatThreadScreen({
                     </Pressable>
                   </View>
                 ) : null}
+              </Pressable>
               </View>
             );
           })
@@ -1736,56 +1888,58 @@ export function ChatThreadScreen({
           </View>
         ) : null}
         <View style={styles.composerInputRow}>
-          <Pressable
-            onPress={handlePickAttachments}
-            disabled={Boolean(editingMessage) || sendingCount > 0 || loading}
-            style={
-              Boolean(editingMessage) || sendingCount > 0 || loading
-                ? styles.attachmentButtonDisabled
-                : styles.attachmentButton
-            }
-            testID="attach-button">
-            <Text style={styles.attachmentButtonLabel}>+</Text>
-          </Pressable>
-          <TextInput
-            value={composerText}
-            onChangeText={nextValue => {
-              setComposerText(nextValue);
-              signalTypingActivity(nextValue);
-            }}
-            onFocus={() => scrollMessagesToEnd(false)}
-            placeholder={
-              editingMessage
-                ? 'Edit your message'
-                : replyingToMessage
-                  ? 'Write a reply'
-                  : 'Write a message'
-            }
-            placeholderTextColor={androidTheme.colors.textMuted}
-            selectionColor={androidTheme.colors.blue}
-            multiline
-            style={styles.composerInput}
-            testID="composer-input"
-          />
-          <Pressable
-            onPress={handleSend}
-            disabled={!canSubmitComposer || loading}
-            style={
-              !canSubmitComposer || loading
-                ? styles.sendButtonDisabled
-                : styles.sendButton
-            }
-            testID="send-button">
-            <Text style={styles.sendButtonLabel}>
-              {editingMessage
-                ? sendingCount > 0
-                  ? '...'
-                  : 'Save'
-                : sendingCount > 0
-                  ? '...'
-                  : 'Send'}
-            </Text>
-          </Pressable>
+          <View style={styles.composerDock}>
+            <Pressable
+              onPress={handlePickAttachments}
+              disabled={Boolean(editingMessage) || sendingCount > 0 || loading}
+              style={
+                Boolean(editingMessage) || sendingCount > 0 || loading
+                  ? styles.attachmentButtonDisabled
+                  : styles.attachmentButton
+              }
+              testID="attach-button">
+              <Text style={styles.attachmentButtonLabel}>+</Text>
+            </Pressable>
+            <TextInput
+              value={composerText}
+              onChangeText={nextValue => {
+                setComposerText(nextValue);
+                signalTypingActivity(nextValue);
+              }}
+              onFocus={() => scrollMessagesToEnd(false)}
+              placeholder={
+                editingMessage
+                  ? 'Edit your message'
+                  : replyingToMessage
+                    ? 'Write a reply'
+                    : 'Write a message'
+              }
+              placeholderTextColor={androidTheme.colors.textMuted}
+              selectionColor={androidTheme.colors.blue}
+              multiline
+              style={styles.composerInput}
+              testID="composer-input"
+            />
+            <Pressable
+              onPress={handleSend}
+              disabled={!canSubmitComposer || loading}
+              style={
+                !canSubmitComposer || loading
+                  ? styles.sendButtonDisabled
+                  : styles.sendButton
+              }
+              testID="send-button">
+              <Text style={styles.sendButtonLabel}>
+                {editingMessage
+                  ? sendingCount > 0
+                    ? '...'
+                    : 'Save'
+                  : sendingCount > 0
+                    ? '...'
+                    : 'Send'}
+              </Text>
+            </Pressable>
+          </View>
         </View>
       </View>
       {imagePreview ? (
@@ -1824,6 +1978,168 @@ export function ChatThreadScreen({
           </View>
         </View>
       ) : null}
+
+      <Modal
+        visible={deleteConfirm !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDeleteConfirm(null)}>
+        <View style={styles.confirmOverlay}>
+          <View style={styles.confirmCard}>
+            <Text style={styles.confirmTitle}>Удалить сообщение</Text>
+            <Text style={styles.confirmBody}>
+              Вы точно хотите удалить{' '}
+              {deleteConfirm && deleteConfirm.messageIds.length > 1
+                ? `эти ${deleteConfirm.messageIds.length} сообщения`
+                : 'это сообщение'}
+              ?
+            </Text>
+            {chat?.direct ? (
+              <Pressable
+                style={styles.confirmCheckRow}
+                onPress={() =>
+                  setDeleteConfirm(c =>
+                    c ? {...c, forEveryone: !c.forEveryone} : c,
+                  )
+                }>
+                <View
+                  style={[
+                    styles.confirmCheckbox,
+                    deleteConfirm?.forEveryone && styles.confirmCheckboxActive,
+                  ]}>
+                  {deleteConfirm?.forEveryone ? (
+                    <Text style={styles.confirmCheckmark}>✓</Text>
+                  ) : null}
+                </View>
+                <Text style={styles.confirmCheckLabel}>
+                  Также удалить для {peerName}
+                </Text>
+              </Pressable>
+            ) : null}
+            <View style={styles.confirmActions}>
+              <Pressable
+                onPress={() => setDeleteConfirm(null)}
+                style={styles.confirmCancel}>
+                <Text style={styles.confirmCancelLabel}>Отмена</Text>
+              </Pressable>
+              <Pressable
+                onPress={handleConfirmDelete}
+                style={styles.confirmDelete}>
+                <Text style={styles.confirmDeleteLabel}>Удалить</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={contextMenuMessage !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setContextMenuMessage(null)}>
+        <Pressable
+          style={styles.menuOverlay}
+          onPress={() => setContextMenuMessage(null)}>
+          <View
+            style={styles.menuPopup}
+            onStartShouldSetResponder={() => true}>
+            {/* Emoji reactions pill */}
+            <View style={styles.menuReactionsPill}>
+              {REACTION_OPTIONS.map(option => {
+                const reaction = contextMenuMessage
+                  ? getMessageReaction(contextMenuMessage, option.key)
+                  : null;
+                const active = reaction?.reactedByCurrentUser ?? false;
+                return (
+                  <Pressable
+                    key={option.key}
+                    style={[
+                      styles.menuReactionBtn,
+                      active && styles.menuReactionBtnActive,
+                    ]}
+                    onPress={() => {
+                      if (contextMenuMessage) {
+                        handleToggleReaction(contextMenuMessage, option.key);
+                        setContextMenuMessage(null);
+                      }
+                    }}>
+                    <Text style={styles.menuReactionEmoji}>{option.emoji}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {/* Actions card */}
+            <View style={styles.menuCard}>
+              {contextMenuMessage && canReplyToMessage(contextMenuMessage) ? (
+                <>
+                  <Pressable
+                    style={styles.menuItem}
+                    onPress={() => {
+                      handleReplyMessage(contextMenuMessage);
+                      setContextMenuMessage(null);
+                    }}>
+                    <Text style={styles.menuItemIcon}>↩</Text>
+                    <Text style={styles.menuItemLabel}>Ответить</Text>
+                  </Pressable>
+                  <View style={styles.menuDivider} />
+                </>
+              ) : null}
+              <Pressable
+                style={styles.menuItem}
+                onPress={() => handleCopyMessage(contextMenuMessage!)}>
+                <Text style={styles.menuItemIcon}>⎘</Text>
+                <Text style={styles.menuItemLabel}>Копировать</Text>
+              </Pressable>
+              {contextMenuMessage && canForwardMessage(contextMenuMessage) ? (
+                <>
+                  <View style={styles.menuDivider} />
+                  <Pressable
+                    style={styles.menuItem}
+                    onPress={() => {
+                      handleForwardMessage(contextMenuMessage);
+                      setContextMenuMessage(null);
+                    }}>
+                    <Text style={styles.menuItemIcon}>↪</Text>
+                    <Text style={styles.menuItemLabel}>Переслать</Text>
+                  </Pressable>
+                </>
+              ) : null}
+              {contextMenuMessage &&
+              canEditMessage(contextMenuMessage, session.user.id) ? (
+                <>
+                  <View style={styles.menuDivider} />
+                  <Pressable
+                    style={styles.menuItem}
+                    onPress={() => {
+                      handleEditMessage(contextMenuMessage);
+                      setContextMenuMessage(null);
+                    }}>
+                    <Text style={styles.menuItemIcon}>✎</Text>
+                    <Text style={styles.menuItemLabel}>Редактировать</Text>
+                  </Pressable>
+                </>
+              ) : null}
+              <View style={styles.menuDivider} />
+              <Pressable
+                style={styles.menuItem}
+                onPress={() => handlePinMessage(contextMenuMessage!)}>
+                <Text style={styles.menuItemIcon}>📌</Text>
+                <Text style={styles.menuItemLabel}>Закрепить</Text>
+              </Pressable>
+              <View style={styles.menuDivider} />
+              <Pressable
+                style={styles.menuItem}
+                onPress={() => handleDeleteMessage(contextMenuMessage!)}>
+                <Text style={[styles.menuItemIcon, styles.menuItemIconDanger]}>🗑</Text>
+                <Text style={[styles.menuItemLabel, styles.menuItemLabelDanger]}>
+                  Удалить
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
       </View>
     </KeyboardAvoidingView>
   );
@@ -2260,11 +2576,29 @@ function formatTimestamp(value: string) {
     return value;
   }
 
-  return date.toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
+  return date.toLocaleTimeString(undefined, {
     hour: '2-digit',
     minute: '2-digit',
+  });
+}
+
+function formatRelativeMessageTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  const now = new Date();
+  if (date.toDateString() === now.toDateString()) {
+    return date.toLocaleTimeString(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+
+  return date.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
   });
 }
 
@@ -2331,37 +2665,51 @@ function formatFileSize(sizeBytes: number) {
   return `${size.toFixed(size >= 10 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
+function resolveAvatarUri(avatarUrl: string): string {
+  if (avatarUrl.startsWith('/')) {
+    return API_URL + avatarUrl;
+  }
+  return avatarUrl;
+}
+
 function AvatarBadge({
   name,
   avatarUrl,
   size,
+  online,
 }: {
   name: string;
   avatarUrl: string | null;
   size: number;
+  online?: boolean;
 }) {
   return (
-    <View
-      style={[
-        styles.headerAvatar,
-        {
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-        },
-      ]}>
-      {avatarUrl ? (
-        <Image
-          source={{uri: avatarUrl}}
-          style={{
+    <View style={{width: size, height: size}}>
+      <View
+        style={[
+          styles.headerAvatar,
+          {
             width: size,
             height: size,
             borderRadius: size / 2,
-          }}
-        />
-      ) : (
-        <Text style={styles.headerAvatarLabel}>{buildInitials(name)}</Text>
-      )}
+          },
+        ]}>
+        {avatarUrl ? (
+          <Image
+            source={{uri: resolveAvatarUri(avatarUrl)}}
+            style={{
+              width: size,
+              height: size,
+              borderRadius: size / 2,
+            }}
+          />
+        ) : (
+          <Text style={styles.headerAvatarLabel}>{buildInitials(name)}</Text>
+        )}
+      </View>
+      {online ? (
+        <View style={styles.headerAvatarOnlineDot} />
+      ) : null}
     </View>
   );
 }
@@ -2379,16 +2727,55 @@ function buildInitials(name: string) {
   return `${first}${second}`.toUpperCase();
 }
 
+const SENDER_NAME_COLORS = [
+  '#6fb6f1',
+  '#7ed4a4',
+  '#f4a456',
+  '#e88fbb',
+  '#b07ede',
+  '#5dd6d6',
+];
+
+function getSenderColor(userId: string): string {
+  let h = 0;
+  for (let i = 0; i < userId.length; i++) {
+    h = userId.charCodeAt(i) + ((h << 5) - h);
+  }
+  return SENDER_NAME_COLORS[Math.abs(h) % SENDER_NAME_COLORS.length];
+}
+
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: androidTheme.colors.background,
   },
+  threadBackdrop: {
+    ...StyleSheet.absoluteFill,
+    overflow: 'hidden',
+  },
+  threadGlowPrimary: {
+    position: 'absolute',
+    top: 96,
+    left: -84,
+    width: 220,
+    height: 220,
+    borderRadius: 999,
+    backgroundColor: 'rgba(78, 161, 255, 0.08)',
+  },
+  threadGlowSecondary: {
+    position: 'absolute',
+    right: -72,
+    bottom: 180,
+    width: 210,
+    height: 210,
+    borderRadius: 999,
+    backgroundColor: 'rgba(244, 146, 86, 0.06)',
+  },
   header: {
     paddingHorizontal: 18,
-    paddingTop: 16,
-    paddingBottom: 12,
-    backgroundColor: androidTheme.colors.backgroundElevated,
+    paddingTop: 14,
+    paddingBottom: 10,
+    backgroundColor: 'rgba(18, 29, 40, 0.92)',
     borderBottomWidth: 1,
     borderBottomColor: androidTheme.colors.border,
     flexDirection: 'row',
@@ -2396,10 +2783,9 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   headerButton: {
-    minWidth: 68,
-    minHeight: 40,
-    paddingHorizontal: 14,
-    borderRadius: 14,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: androidTheme.colors.surface,
@@ -2416,7 +2802,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
   headerButtonLabel: {
-    fontSize: 14,
+    fontSize: 20,
     fontWeight: '700',
     color: androidTheme.colors.textPrimary,
   },
@@ -2431,22 +2817,41 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: androidTheme.colors.blue,
   },
+  headerAvatarOnlineDot: {
+    position: 'absolute',
+    bottom: 1,
+    right: 1,
+    width: 11,
+    height: 11,
+    borderRadius: 6,
+    backgroundColor: '#4caf50',
+    borderWidth: 2,
+    borderColor: androidTheme.colors.background,
+  },
   headerCopy: {
     flex: 1,
-    gap: 3,
+    gap: 2,
   },
   headerSpacer: {
-    minWidth: 40,
+    minWidth: 56,
     alignItems: 'flex-end',
+    gap: 8,
   },
   headerTitle: {
-    fontSize: 21,
+    fontSize: 22,
     fontWeight: '800',
     color: androidTheme.colors.textPrimary,
   },
   headerSubtitle: {
     fontSize: 13,
     color: androidTheme.colors.textSecondary,
+  },
+  headerKindPill: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.7,
+    textTransform: 'uppercase',
+    color: androidTheme.colors.warm,
   },
   headerUnreadBadge: {
     minWidth: 24,
@@ -2497,52 +2902,111 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
+  pinnedBanner: {
+    marginHorizontal: 16,
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 18,
+    backgroundColor: androidTheme.colors.surface,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  pinnedAccent: {
+    width: 4,
+    alignSelf: 'stretch',
+    borderRadius: 999,
+    backgroundColor: androidTheme.colors.blueStrong,
+  },
+  pinnedCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  pinnedLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: androidTheme.colors.blue,
+  },
+  pinnedPreview: {
+    fontSize: 13,
+    color: androidTheme.colors.textSecondary,
+  },
+  pinnedMeta: {
+    fontSize: 11,
+    color: androidTheme.colors.textMuted,
+  },
+  pinnedClose: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: androidTheme.colors.surfaceAlt,
+  },
+  pinnedCloseLabel: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: androidTheme.colors.textPrimary,
+  },
   messageScroll: {
     flex: 1,
   },
   messageContent: {
-    padding: 16,
-    gap: 12,
+    paddingHorizontal: 14,
+    paddingTop: 16,
     paddingBottom: 24,
   },
   loadOlderButton: {
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 18,
-    paddingVertical: 12,
-    backgroundColor: androidTheme.colors.blueStrong,
+    alignSelf: 'center',
+    minHeight: 38,
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    backgroundColor: androidTheme.colors.surface,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
   },
   loadOlderDisabled: {
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 18,
-    paddingVertical: 12,
-    backgroundColor: 'rgba(95, 156, 255, 0.38)',
+    alignSelf: 'center',
+    minHeight: 38,
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
   loadOlderLabel: {
-    color: androidTheme.colors.textInverse,
-    fontSize: 14,
+    color: androidTheme.colors.textPrimary,
+    fontSize: 13,
     fontWeight: '700',
   },
   ownBubble: {
-    marginLeft: 34,
-    backgroundColor: 'rgba(78, 161, 255, 0.18)',
-    borderRadius: 20,
-    borderBottomRightRadius: 10,
-    padding: 14,
-    gap: 6,
-    borderWidth: 1,
-    borderColor: androidTheme.colors.borderStrong,
-  },
-  peerBubble: {
-    marginRight: 34,
-    backgroundColor: androidTheme.colors.surface,
-    borderRadius: 20,
-    borderBottomLeftRadius: 10,
+    alignSelf: 'flex-end',
+    maxWidth: '84%',
+    backgroundColor: 'rgba(23, 33, 43, 0.96)',
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: androidTheme.colors.border,
-    padding: 14,
-    gap: 6,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    gap: 2,
+    ...androidTheme.shadow,
+  },
+  peerBubble: {
+    alignSelf: 'flex-start',
+    maxWidth: '84%',
+    backgroundColor: 'rgba(23, 33, 43, 0.96)',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    gap: 2,
   },
   messageSender: {
     fontSize: 13,
@@ -2550,7 +3014,7 @@ const styles = StyleSheet.create({
     color: androidTheme.colors.textPrimary,
   },
   replyCard: {
-    backgroundColor: androidTheme.colors.surfaceMuted,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 14,
     padding: 10,
     gap: 2,
@@ -2577,8 +3041,19 @@ const styles = StyleSheet.create({
   messageMetaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
+    justifyContent: 'flex-end',
+    gap: 4,
+    marginTop: 2,
+  },
+  messageMetaEdited: {
+    fontSize: 11,
+    color: 'rgba(238, 244, 251, 0.5)',
+    fontStyle: 'italic',
+  },
+  messageStatusTick: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: 'rgba(238, 244, 251, 0.8)',
   },
   messageSenderOwn: {
     fontSize: 12,
@@ -2766,6 +3241,185 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: androidTheme.colors.textPrimary,
   },
+  selectionCount: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: androidTheme.colors.textPrimary,
+    marginLeft: 4,
+  },
+  messageRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+  },
+  messageRowSelected: {
+    backgroundColor: 'rgba(100, 160, 255, 0.1)',
+  },
+  selectionCircleWrap: {
+    paddingHorizontal: 8,
+    paddingBottom: 4,
+  },
+  selectionCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: androidTheme.colors.textMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectionCircleActive: {
+    borderColor: androidTheme.colors.blue,
+    backgroundColor: androidTheme.colors.blue,
+  },
+  selectionCheck: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 16,
+  },
+  confirmOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+  },
+  confirmCard: {
+    width: '100%',
+    backgroundColor: androidTheme.colors.surface,
+    borderRadius: 14,
+    padding: 20,
+    gap: 12,
+  },
+  confirmTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: androidTheme.colors.textPrimary,
+  },
+  confirmBody: {
+    fontSize: 14,
+    color: androidTheme.colors.textSecondary,
+    lineHeight: 20,
+  },
+  confirmCheckRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 4,
+  },
+  confirmCheckbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 3,
+    borderWidth: 2,
+    borderColor: androidTheme.colors.textMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmCheckboxActive: {
+    backgroundColor: androidTheme.colors.blue,
+    borderColor: androidTheme.colors.blue,
+  },
+  confirmCheckmark: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  confirmCheckLabel: {
+    fontSize: 14,
+    color: androidTheme.colors.textPrimary,
+    flex: 1,
+  },
+  confirmActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 24,
+    marginTop: 4,
+  },
+  confirmCancel: {
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  confirmCancelLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: androidTheme.colors.blue,
+  },
+  confirmDelete: {
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  confirmDeleteLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: androidTheme.colors.danger,
+  },
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  menuPopup: {
+    width: '100%',
+    gap: 6,
+  },
+  menuReactionsPill: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    backgroundColor: androidTheme.colors.surface,
+    borderRadius: 32,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  menuReactionBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  menuReactionBtnActive: {
+    backgroundColor: androidTheme.colors.orangeStrong,
+  },
+  menuReactionEmoji: {
+    fontSize: 24,
+  },
+  menuCard: {
+    backgroundColor: androidTheme.colors.surface,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  menuDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: androidTheme.colors.border,
+    marginLeft: 48,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+  },
+  menuItemIcon: {
+    fontSize: 18,
+    width: 24,
+    textAlign: 'center',
+    color: androidTheme.colors.textPrimary,
+  },
+  menuItemLabel: {
+    fontSize: 15,
+    color: androidTheme.colors.textPrimary,
+  },
+  menuItemDanger: {},
+  menuItemIconDanger: {
+    color: androidTheme.colors.danger,
+  },
+  menuItemLabelDanger: {
+    color: androidTheme.colors.danger,
+  },
   failureCard: {
     marginTop: 4,
     backgroundColor: androidTheme.colors.dangerSoft,
@@ -2802,11 +3456,9 @@ const styles = StyleSheet.create({
     color: androidTheme.colors.textSecondary,
   },
   composer: {
-    borderTopWidth: 1,
-    borderTopColor: androidTheme.colors.border,
-    backgroundColor: androidTheme.colors.backgroundElevated,
-    paddingHorizontal: 16,
-    paddingTop: 10,
+    backgroundColor: 'rgba(18, 29, 40, 0.94)',
+    paddingHorizontal: 14,
+    paddingTop: 8,
     gap: 12,
   },
   typingIndicator: {
@@ -2956,24 +3608,31 @@ const styles = StyleSheet.create({
     color: androidTheme.colors.textPrimary,
   },
   composerInputRow: {
+    width: '100%',
+  },
+  composerDock: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 10,
-  },
-  attachmentButton: {
-    width: 46,
-    minHeight: 46,
-    borderRadius: 23,
-    alignItems: 'center',
-    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 28,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
     backgroundColor: androidTheme.colors.surface,
     borderWidth: 1,
     borderColor: androidTheme.colors.border,
   },
+  attachmentButton: {
+    width: 42,
+    minHeight: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: androidTheme.colors.surfaceAlt,
+  },
   attachmentButtonDisabled: {
-    width: 46,
-    minHeight: 46,
-    borderRadius: 23,
+    width: 42,
+    minHeight: 42,
+    borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
@@ -2988,10 +3647,8 @@ const styles = StyleSheet.create({
     minWidth: 0,
     minHeight: 46,
     maxHeight: 120,
-    borderRadius: 23,
-    borderWidth: 1,
-    borderColor: androidTheme.colors.border,
-    backgroundColor: androidTheme.colors.surface,
+    borderRadius: 22,
+    backgroundColor: 'transparent',
     paddingHorizontal: 16,
     paddingVertical: 12,
     fontSize: 15,
@@ -3000,17 +3657,17 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   sendButton: {
-    width: 46,
-    minHeight: 46,
-    borderRadius: 23,
+    width: 54,
+    minHeight: 42,
+    borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: androidTheme.colors.blueStrong,
   },
   sendButtonDisabled: {
-    width: 46,
-    minHeight: 46,
-    borderRadius: 23,
+    width: 54,
+    minHeight: 42,
+    borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(95, 156, 255, 0.38)',

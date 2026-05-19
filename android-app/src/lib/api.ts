@@ -220,6 +220,39 @@ export function updateArchivedChat(token: string, chatId: string, archived: bool
   });
 }
 
+export function deleteChatForSelf(token: string, chatId: string) {
+  return request<void>(`/api/chats/${encodeURIComponent(chatId)}`, {
+    method: 'DELETE',
+    token,
+  });
+}
+
+export function leaveChatGroup(token: string, chatId: string) {
+  return request<void>(`/api/chats/${encodeURIComponent(chatId)}/leave`, {
+    method: 'POST',
+    token,
+  });
+}
+
+export function createConference(
+  token: string,
+  input: {
+    title: string;
+    scheduledAt: string;
+    participantUsernames?: string[];
+  },
+) {
+  return request<VideoConference>('/api/conferences', {
+    method: 'POST',
+    token,
+    body: {
+      title: input.title,
+      scheduledAt: input.scheduledAt,
+      participantUsernames: input.participantUsernames ?? [],
+    },
+  });
+}
+
 export function startVideoConference(token: string, conferenceId: string) {
   return request<VideoConference>(
     `/api/conferences/${encodeURIComponent(conferenceId)}/start`,
@@ -464,6 +497,37 @@ export function toggleMessageReaction(
   );
 }
 
+export function deleteMessage(
+  token: string,
+  chatId: string,
+  messageId: string,
+  scope: 'EVERYONE' | 'SELF' = 'EVERYONE',
+) {
+  return request<void>(
+    `/api/chats/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(messageId)}`,
+    {method: 'DELETE', token, query: {scope}},
+  );
+}
+
+export function deleteMessages(
+  token: string,
+  chatId: string,
+  messageIds: string[],
+  scope: 'EVERYONE' | 'SELF' = 'EVERYONE',
+) {
+  return request<void>(
+    `/api/chats/${encodeURIComponent(chatId)}/messages/delete-batch`,
+    {method: 'POST', token, body: {messageIds}, query: {scope}},
+  );
+}
+
+export function pinMessage(token: string, chatId: string, messageId: string | null) {
+  return request<ChatSummary>(
+    `/api/chats/${encodeURIComponent(chatId)}/pin`,
+    {method: 'PUT', token, body: {messageId}},
+  );
+}
+
 export function updateMessage(
   token: string,
   chatId: string,
@@ -536,6 +600,14 @@ export function deletePendingOutgoingMessage(
       token,
     },
   );
+}
+
+export function updateAvatar(token: string, avatarUrl: string | null) {
+  return request<UserProfile>('/api/auth/me/avatar', {
+    method: 'PUT',
+    token,
+    body: {avatarUrl},
+  });
 }
 
 export function toAuthResponse(response: MobileAuthResponse): AuthResponse {

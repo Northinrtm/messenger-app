@@ -16,6 +16,8 @@ type Props = {
   activeListTab: ConversationListTab;
   conferenceViewMode: "list" | "calendar";
   onToggleConferenceViewMode: () => void;
+  onOpenScheduleConference: () => void;
+  onOpenStartConferenceNow: () => void;
   normalizedSearch: string;
   conferencesLoading: boolean;
   visibleConferences: VideoConference[];
@@ -57,6 +59,8 @@ export const ChatListPanel = memo(function ChatListPanel({
   activeListTab,
   conferenceViewMode,
   onToggleConferenceViewMode,
+  onOpenScheduleConference,
+  onOpenStartConferenceNow,
   normalizedSearch,
   conferencesLoading,
   visibleConferences,
@@ -105,9 +109,21 @@ export const ChatListPanel = memo(function ChatListPanel({
           }
           onClick={onToggleConferenceViewMode}
         >
-          {conferenceViewMode === "calendar"
-            ? "\u0421\u043f\u0438\u0441\u043e\u043a"
-            : "\u041a\u0430\u043b\u0435\u043d\u0434\u0430\u0440\u044c"}
+          {conferenceViewMode === "calendar" ? "\u0421\u043f\u0438\u0441\u043e\u043a" : "\u041a\u0430\u043b\u0435\u043d\u0434\u0430\u0440\u044c"}
+        </button>
+        <button
+          type="button"
+          className="conference-list-action-btn"
+          onClick={onOpenScheduleConference}
+        >
+          + \u0417\u0430\u043f\u043b\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u0442\u044c
+        </button>
+        <button
+          type="button"
+          className="conference-list-action-btn conference-list-action-btn--accent"
+          onClick={onOpenStartConferenceNow}
+        >
+          \u25b6 \u041d\u0430\u0447\u0430\u0442\u044c \u0441\u0435\u0439\u0447\u0430\u0441
         </button>
       </div>
     );

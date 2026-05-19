@@ -66,6 +66,8 @@ function renderPanel(root: Root, chat: ChatSummary, failedChatIds: ReadonlySet<s
         activeListTab="chats"
         conferenceViewMode="list"
         onToggleConferenceViewMode={() => {}}
+        onOpenScheduleConference={() => {}}
+        onOpenStartConferenceNow={() => {}}
         normalizedSearch=""
         conferencesLoading={false}
         visibleConferences={[]}

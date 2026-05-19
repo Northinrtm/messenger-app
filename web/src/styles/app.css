@@ -1765,6 +1765,10 @@ select {
 }
 
 .conference-list-inline-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
   padding: 0.55rem 1rem 0.45rem;
 }
 
@@ -1777,12 +1781,43 @@ select {
   color: #e6f2fb;
   font-size: 0.92rem;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .conference-list-toggle.is-active {
   background: linear-gradient(135deg, rgba(80, 136, 255, 0.95), rgba(56, 108, 222, 0.92));
   border-color: rgba(116, 163, 255, 0.5);
   color: #ffffff;
+}
+
+.conference-list-action-btn {
+  min-height: 3rem;
+  padding: 0.72rem 0.95rem;
+  border: 1px solid rgba(80, 136, 255, 0.35);
+  border-radius: 1.05rem;
+  background: rgba(255, 255, 255, 0.04);
+  color: #7ab3ff;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.conference-list-action-btn:hover {
+  background: rgba(80, 136, 255, 0.12);
+  border-color: rgba(80, 136, 255, 0.6);
+}
+
+.conference-list-action-btn--accent {
+  background: linear-gradient(135deg, rgba(80, 136, 255, 0.95), rgba(56, 108, 222, 0.92));
+  border-color: rgba(116, 163, 255, 0.5);
+  color: #ffffff;
+}
+
+.conference-list-action-btn--accent:hover {
+  background: linear-gradient(135deg, rgba(100, 155, 255, 1), rgba(70, 120, 240, 1));
+  border-color: rgba(140, 180, 255, 0.7);
 }
 
 .conference-browser-panel {

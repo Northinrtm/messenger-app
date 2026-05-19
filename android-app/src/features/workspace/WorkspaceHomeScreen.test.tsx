@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   AuthResponse,
   ChatSummary,
   UserProfile,
@@ -7,6 +7,7 @@ import type {
 } from '@north/shared';
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
+import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {WorkspaceHomeScreen} from './WorkspaceHomeScreen';
 
 const session: AuthResponse = {
@@ -169,14 +170,26 @@ function findPressableByTestId(
   return matches[0];
 }
 
+function withSafeArea(children: React.ReactElement) {
+  return (
+    <SafeAreaProvider
+      initialMetrics={{
+        frame: {x: 0, y: 0, width: 360, height: 800},
+        insets: {top: 0, right: 0, bottom: 0, left: 0},
+      }}>
+      {children}
+    </SafeAreaProvider>
+  );
+}
+
 describe('WorkspaceHomeScreen', () => {
-  it('archives a chat through the archive callback', async () => {
+  it('archives a chat through the selection bar', async () => {
     const onArchiveChat = jest.fn(async () => undefined);
 
     let renderer: ReactTestRenderer.ReactTestRenderer;
     await ReactTestRenderer.act(async () => {
       renderer = ReactTestRenderer.create(
-        <WorkspaceHomeScreen
+        withSafeArea(<WorkspaceHomeScreen
           session={session}
           workspace={workspace}
           error={null}
@@ -188,19 +201,26 @@ describe('WorkspaceHomeScreen', () => {
           onRemoveContact={async () => undefined}
           onSearchWorkspace={async () => emptySearchResults}
           onArchiveChat={onArchiveChat}
+          onDeleteChat={async () => undefined}
           onBlockUser={async username => ({...contact, username})}
           onUnblockUser={async () => undefined}
           onResendEmailVerification={async () => undefined}
-        />,
+          onUpdateAvatar={async () => undefined}
+          onRefreshWorkspace={async () => undefined}
+          onScheduleConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
+          onStartNewConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
+        />),
       );
     });
 
-    const archiveButton = findPressableByTestId(
-      renderer!.root,
-      'archive-chat-chat-1',
-    );
+    const chatRow = findPressableByTestId(renderer!.root, 'chat-row-chat-1');
     await ReactTestRenderer.act(async () => {
-      await archiveButton.props.onPress();
+      chatRow.props.onLongPress();
+    });
+
+    const archiveBtn = findPressableByTestId(renderer!.root, 'selection-archive');
+    await ReactTestRenderer.act(async () => {
+      await archiveBtn.props.onPress();
     });
 
     expect(onArchiveChat).toHaveBeenCalledWith('chat-1', true);
@@ -212,7 +232,7 @@ describe('WorkspaceHomeScreen', () => {
     let renderer: ReactTestRenderer.ReactTestRenderer;
     await ReactTestRenderer.act(async () => {
       renderer = ReactTestRenderer.create(
-        <WorkspaceHomeScreen
+        withSafeArea(<WorkspaceHomeScreen
           session={session}
           workspace={workspace}
           error={null}
@@ -224,10 +244,15 @@ describe('WorkspaceHomeScreen', () => {
           onRemoveContact={async () => undefined}
           onSearchWorkspace={async () => emptySearchResults}
           onArchiveChat={async () => undefined}
+          onDeleteChat={async () => undefined}
           onBlockUser={async username => ({...contact, username})}
           onUnblockUser={onUnblockUser}
           onResendEmailVerification={async () => undefined}
-        />,
+          onUpdateAvatar={async () => undefined}
+          onRefreshWorkspace={async () => undefined}
+          onScheduleConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
+          onStartNewConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
+        />),
       );
     });
 
@@ -274,7 +299,7 @@ describe('WorkspaceHomeScreen', () => {
     let renderer: ReactTestRenderer.ReactTestRenderer;
     await ReactTestRenderer.act(async () => {
       renderer = ReactTestRenderer.create(
-        <WorkspaceHomeScreen
+        withSafeArea(<WorkspaceHomeScreen
           session={session}
           workspace={workspace}
           error={null}
@@ -286,11 +311,21 @@ describe('WorkspaceHomeScreen', () => {
           onRemoveContact={async () => undefined}
           onSearchWorkspace={onSearchWorkspace}
           onArchiveChat={async () => undefined}
+          onDeleteChat={async () => undefined}
           onBlockUser={onBlockUser}
           onUnblockUser={async () => undefined}
           onResendEmailVerification={async () => undefined}
-        />,
+          onUpdateAvatar={async () => undefined}
+          onRefreshWorkspace={async () => undefined}
+          onScheduleConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
+          onStartNewConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
+        />),
       );
+    });
+
+    const searchIconButton = renderer!.root.findByProps({testID: 'search-icon-button'});
+    await ReactTestRenderer.act(async () => {
+      searchIconButton.props.onPress();
     });
 
     const searchInput = renderer!.root.findByProps({testID: 'search-input'});
@@ -298,9 +333,8 @@ describe('WorkspaceHomeScreen', () => {
       searchInput.props.onChangeText('sof');
     });
 
-    const searchButton = renderer!.root.findByProps({testID: 'search-button'});
     await ReactTestRenderer.act(async () => {
-      await searchButton.props.onPress();
+      await searchInput.props.onSubmitEditing();
     });
 
     expect(onSearchWorkspace).toHaveBeenCalledWith('sof');
@@ -322,7 +356,7 @@ describe('WorkspaceHomeScreen', () => {
     let renderer: ReactTestRenderer.ReactTestRenderer;
     await ReactTestRenderer.act(async () => {
       renderer = ReactTestRenderer.create(
-        <WorkspaceHomeScreen
+        withSafeArea(<WorkspaceHomeScreen
           session={session}
           workspace={workspace}
           error={null}
@@ -334,10 +368,15 @@ describe('WorkspaceHomeScreen', () => {
           onRemoveContact={async () => undefined}
           onSearchWorkspace={async () => emptySearchResults}
           onArchiveChat={async () => undefined}
+          onDeleteChat={async () => undefined}
           onBlockUser={async username => ({...contact, username})}
           onUnblockUser={async () => undefined}
           onResendEmailVerification={async () => undefined}
-        />,
+          onUpdateAvatar={async () => undefined}
+          onRefreshWorkspace={async () => undefined}
+          onScheduleConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
+          onStartNewConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
+        />),
       );
     });
 
@@ -384,7 +423,7 @@ describe('WorkspaceHomeScreen', () => {
     let renderer: ReactTestRenderer.ReactTestRenderer;
     await ReactTestRenderer.act(async () => {
       renderer = ReactTestRenderer.create(
-        <WorkspaceHomeScreen
+        withSafeArea(<WorkspaceHomeScreen
           session={session}
           workspace={workspace}
           error={null}
@@ -396,11 +435,21 @@ describe('WorkspaceHomeScreen', () => {
           onRemoveContact={async () => undefined}
           onSearchWorkspace={onSearchWorkspace}
           onArchiveChat={async () => undefined}
+          onDeleteChat={async () => undefined}
           onBlockUser={async username => ({...contact, username})}
           onUnblockUser={async () => undefined}
           onResendEmailVerification={async () => undefined}
-        />,
+          onUpdateAvatar={async () => undefined}
+          onRefreshWorkspace={async () => undefined}
+          onScheduleConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
+          onStartNewConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
+        />),
       );
+    });
+
+    const searchIconButton = renderer!.root.findByProps({testID: 'search-icon-button'});
+    await ReactTestRenderer.act(async () => {
+      searchIconButton.props.onPress();
     });
 
     const searchInput = renderer!.root.findByProps({testID: 'search-input'});
@@ -408,9 +457,8 @@ describe('WorkspaceHomeScreen', () => {
       searchInput.props.onChangeText('ri');
     });
 
-    const searchButton = renderer!.root.findByProps({testID: 'search-button'});
     await ReactTestRenderer.act(async () => {
-      await searchButton.props.onPress();
+      await searchInput.props.onSubmitEditing();
     });
 
     const addContactButton = findPressableByTestId(
@@ -430,7 +478,7 @@ describe('WorkspaceHomeScreen', () => {
     let renderer: ReactTestRenderer.ReactTestRenderer;
     await ReactTestRenderer.act(async () => {
       renderer = ReactTestRenderer.create(
-        <WorkspaceHomeScreen
+        withSafeArea(<WorkspaceHomeScreen
           session={session}
           workspace={workspace}
           error={null}
@@ -442,15 +490,20 @@ describe('WorkspaceHomeScreen', () => {
           onRemoveContact={async () => undefined}
           onSearchWorkspace={async () => emptySearchResults}
           onArchiveChat={async () => undefined}
+          onDeleteChat={async () => undefined}
           onBlockUser={async username => ({...contact, username})}
           onUnblockUser={async () => undefined}
           onResendEmailVerification={async () => undefined}
-        />,
+          onUpdateAvatar={async () => undefined}
+          onRefreshWorkspace={async () => undefined}
+          onScheduleConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
+          onStartNewConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
+        />),
       );
     });
 
     const conferencesTab = renderer!.root.findByProps({
-      testID: 'tab-conferences',
+      testID: 'tab-settings',
     });
     await ReactTestRenderer.act(async () => {
       conferencesTab.props.onPress();
@@ -481,7 +534,7 @@ describe('WorkspaceHomeScreen', () => {
     let renderer: ReactTestRenderer.ReactTestRenderer;
     await ReactTestRenderer.act(async () => {
       renderer = ReactTestRenderer.create(
-        <WorkspaceHomeScreen
+        withSafeArea(<WorkspaceHomeScreen
           session={unverifiedSession}
           workspace={workspace}
           error={null}
@@ -493,10 +546,15 @@ describe('WorkspaceHomeScreen', () => {
           onRemoveContact={async () => undefined}
           onSearchWorkspace={async () => emptySearchResults}
           onArchiveChat={async () => undefined}
+          onDeleteChat={async () => undefined}
           onBlockUser={async username => ({...contact, username})}
           onUnblockUser={async () => undefined}
           onResendEmailVerification={onResendEmailVerification}
-        />,
+          onUpdateAvatar={async () => undefined}
+          onRefreshWorkspace={async () => undefined}
+          onScheduleConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
+          onStartNewConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
+        />),
       );
     });
 
@@ -515,3 +573,5 @@ describe('WorkspaceHomeScreen', () => {
     expect(onResendEmailVerification).toHaveBeenCalled();
   });
 });
+
+
