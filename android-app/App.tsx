@@ -11,6 +11,7 @@ import type {
   WorkspaceBootstrap,
 } from '@north/shared';
 import {useCallback, useEffect, useRef, useState} from 'react';
+import {SoundPlayer, type SoundPlayerHandle} from './src/lib/SoundPlayer';
 import {
   ActivityIndicator,
   AppState,
@@ -131,10 +132,19 @@ function App() {
     'Secure session restore runs through the new mobile refresh endpoint.',
   );
   const sessionRef = useRef<ActiveSession | null>(null);
+  const soundPlayerRef = useRef<SoundPlayerHandle>(null);
 
   useEffect(() => {
     sessionRef.current = session;
   }, [session]);
+
+  useEffect(() => {
+    if (!latestRealtimeMessage) return;
+    const {message} = latestRealtimeMessage;
+    if (message.sender.id !== sessionRef.current?.auth.user.id) {
+      soundPlayerRef.current?.playIcq();
+    }
+  }, [latestRealtimeMessage]);
 
   const resetToSignedOutState = useCallback(async (infoMessage: string) => {
     await clearStoredRefreshToken();
@@ -882,6 +892,7 @@ function App() {
 
   return (
     <SafeAreaProvider>
+      <SoundPlayer ref={soundPlayerRef} />
       <StatusBar barStyle="light-content" />
       {!appReady ? (
         <View style={styles.loadingScreen}>

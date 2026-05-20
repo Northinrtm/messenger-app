@@ -85,6 +85,7 @@ export function useIncomingToasts({
       senderName: message.sender.displayName,
       preview: formatPreview(message),
     };
+    playIcqSound();
     showBrowserNotification(nextToast, browserNotificationsEnabled);
 
     const existingTimeoutId = toastTimeoutsRef.current.get(toastId);
@@ -115,6 +116,32 @@ export function useIncomingToasts({
     incomingToasts,
     showIncomingToast,
   };
+}
+
+function playIcqSound() {
+  try {
+    const ctx = new AudioContext();
+    const t = ctx.currentTime;
+    const note = (freq: number, start: number, dur: number, vol: number) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.connect(g);
+      g.connect(ctx.destination);
+      o.type = "sine";
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(0, start);
+      g.gain.linearRampToValueAtTime(vol, start + 0.015);
+      g.gain.setValueAtTime(vol, start + dur - 0.04);
+      g.gain.linearRampToValueAtTime(0, start + dur);
+      o.start(start);
+      o.stop(start + dur);
+    };
+    note(880, t, 0.13, 0.35);
+    note(620, t + 0.21, 0.20, 0.30);
+    setTimeout(() => ctx.close(), 700);
+  } catch {
+    // ignore — browser may block audio before user interaction
+  }
 }
 
 function showBrowserNotification(toast: IncomingToast, enabled: boolean) {
