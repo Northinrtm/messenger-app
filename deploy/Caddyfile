@@ -118,6 +118,7 @@
 
     @pgweb path /dbviewer /dbviewer/*
     handle @pgweb {
+        uri strip_prefix /dbviewer
         reverse_proxy pgweb:8081
     }
 
