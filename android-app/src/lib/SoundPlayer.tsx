@@ -1,5 +1,5 @@
 import {forwardRef, useImperativeHandle, useRef} from 'react';
-import {StyleSheet} from 'react-native';
+import {StyleSheet, View} from 'react-native';
 import WebView from 'react-native-webview';
 
 const HTML = `<!DOCTYPE html><html><head><meta charset="utf-8"><script>
@@ -41,18 +41,21 @@ export const SoundPlayer = forwardRef<SoundPlayerHandle>(
     }));
 
     return (
-      <WebView
-        ref={webRef}
-        source={{html: HTML}}
-        style={styles.hidden}
-        javaScriptEnabled
-        mediaPlaybackRequiresUserAction={false}
-        allowsInlineMediaPlayback
-      />
+      <View style={styles.container}>
+        <WebView
+          ref={webRef}
+          source={{html: HTML}}
+          style={styles.webview}
+          javaScriptEnabled
+          mediaPlaybackRequiresUserAction={false}
+          allowsInlineMediaPlayback
+        />
+      </View>
     );
   },
 );
 
 const styles = StyleSheet.create({
-  hidden: {position: 'absolute', width: 1, height: 1, opacity: 0},
+  container: {width: 0, height: 0, overflow: 'hidden'},
+  webview: {width: 1, height: 1},
 });
