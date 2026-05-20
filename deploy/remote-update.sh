@@ -8,6 +8,7 @@ BUILD_SERVICES="${BUILD_SERVICES:-web backend edge}"
 SUPPORT_SERVICES="${SUPPORT_SERVICES:-postgres redis minio jitsi-prosody jitsi-jicofo jitsi-jvb jitsi-web}"
 RUNTIME_SERVICES="${RUNTIME_SERVICES:-web backend edge}"
 OBSERVABILITY_SERVICES="${OBSERVABILITY_SERVICES:-postgres-exporter tempo otel-collector alertmanager loki promtail prometheus grafana}"
+DBVIEWER_SERVICES="${DBVIEWER_SERVICES:-pgweb}"
 DEPLOY_LOCK_FILE="${DEPLOY_LOCK_FILE:-$APP_DIR/.deploy/remote-update.lock}"
 DEPLOY_LOCK_WAIT_SECONDS="${DEPLOY_LOCK_WAIT_SECONDS:-1800}"
 STATUS_FILE="${DEPLOY_STATUS_FILE:-}"
@@ -206,6 +207,7 @@ bash "$APP_DIR/deploy/preflight-prod.sh" "$ENV_FILE"
 BACKEND_REPLICAS="${BACKEND_REPLICAS:-$(env_file_value BACKEND_REPLICAS 1)}"
 WEB_REPLICAS="${WEB_REPLICAS:-$(env_file_value WEB_REPLICAS 1)}"
 ENABLE_OBSERVABILITY_STACK="$(normalize_boolean_flag ENABLE_OBSERVABILITY_STACK "${ENABLE_OBSERVABILITY_STACK:-$(env_file_value ENABLE_OBSERVABILITY_STACK false)}")"
+ENABLE_DBVIEWER="$(normalize_boolean_flag ENABLE_DBVIEWER "${ENABLE_DBVIEWER:-$(env_file_value ENABLE_DBVIEWER false)}")"
 FULL_RESET="$(normalize_boolean_flag FULL_RESET "$FULL_RESET")"
 validate_replica_count BACKEND_REPLICAS "$BACKEND_REPLICAS"
 validate_replica_count WEB_REPLICAS "$WEB_REPLICAS"
@@ -246,6 +248,15 @@ for service in $RUNTIME_SERVICES; do
 
   deploy_runtime_service "$service" "$(scale_for_service "$service")"
 done
+
+if [[ "$ENABLE_DBVIEWER" == "true" ]]; then
+  echo "DB viewer: enabled"
+  "${compose_cmd[@]}" --profile dbviewer -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --no-deps --force-recreate $DBVIEWER_SERVICES
+else
+  echo "DB viewer: disabled"
+  "${compose_cmd[@]}" --profile dbviewer -f "$COMPOSE_FILE" --env-file "$ENV_FILE" stop $DBVIEWER_SERVICES >/dev/null 2>&1 || true
+  "${compose_cmd[@]}" --profile dbviewer -f "$COMPOSE_FILE" --env-file "$ENV_FILE" rm -f $DBVIEWER_SERVICES >/dev/null 2>&1 || true
+fi
 
 if [[ "$ENABLE_OBSERVABILITY_STACK" == "true" ]]; then
   echo "Observability stack: enabled"

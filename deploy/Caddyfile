@@ -116,6 +116,11 @@
         }
     }
 
+    @pgweb path /dbviewer /dbviewer/*
+    handle @pgweb {
+        reverse_proxy pgweb:8081
+    }
+
     @observability_disabled {
         path /observability /observability/*
     }

@@ -1,25 +1,36 @@
 # Подключение тестировщика к базе данных
 
-## Что нужно заранее
-
-- SSH-клиент (встроен в Windows 10+, macOS, Linux)
-- [DBeaver Community](https://dbeaver.io/download/) **или** [pgAdmin 4](https://www.pgadmin.org/download/)
-- Данные для подключения (получить у разработчика):
-  - IP-адрес сервера
-  - SSH-порт (обычно 22)
-  - SSH-логин и ключ / пароль
-  - Пароль пользователя `tester`
+Два способа подключения — выбери тот, что удобнее.
 
 ---
 
-## Шаг 1 — SSH-туннель
+## Способ 1 — Браузер (рекомендуется, SSH-ключ не нужен)
 
-База данных не открыта в интернет. Нужно пробросить порт через SSH.
-
-Открой **терминал** (cmd, PowerShell, Terminal) и выполни:
+Открой в браузере:
 
 ```
-ssh -L 5432:127.0.0.1:5432 deploy@<IP_СЕРВЕРА> -p <SSH_ПОРТ> -N
+https://<домен_приложения>/dbviewer/
+```
+
+Появится окно входа. Введи логин и пароль, которые выдал разработчик.
+
+После входа сразу откроется интерфейс базы данных — можно смотреть таблицы, писать SQL-запросы, экспортировать данные.
+
+> Если страница не открывается — значит, разработчик ещё не включил
+> веб-просмотрщик. Используй Способ 2 или напиши разработчику.
+
+---
+
+## Способ 2 — DBeaver / pgAdmin (через SSH-туннель)
+
+Нужен SSH-ключ от сервера (попроси у разработчика).
+
+### Шаг 1 — открыть SSH-туннель
+
+Открой терминал (cmd, PowerShell, Terminal) и выполни:
+
+```
+ssh -L 5432:127.0.0.1:5432 deploy@<IP_сервера> -p <SSH_ПОРТ> -N
 ```
 
 Пример:
@@ -27,17 +38,14 @@ ssh -L 5432:127.0.0.1:5432 deploy@<IP_СЕРВЕРА> -p <SSH_ПОРТ> -N
 ssh -L 5432:127.0.0.1:5432 deploy@185.123.45.67 -p 22 -N
 ```
 
-- Команда не выводит ничего — это нормально, туннель работает.
-- **Не закрывай** это окно терминала, пока работаешь с базой.
-- Если SSH использует ключ: добавь `-i путь/к/ключу.pem`
+Команда ничего не выводит — туннель работает в фоне.  
+**Не закрывай** это окно, пока работаешь с базой.  
+Если SSH использует ключ-файл: добавь `-i путь/к/ключу.pem`.
 
----
+### Шаг 2 — подключиться в DBeaver
 
-## Шаг 2 — Подключение в DBeaver
-
-1. Нажми **New Database Connection** (иконка розетки или `Ctrl+Shift+N`)
-2. Выбери **PostgreSQL** → Next
-3. Заполни поля:
+1. **New Database Connection** → **PostgreSQL** → Next
+2. Заполни:
 
 | Поле | Значение |
 |---|---|
@@ -45,18 +53,13 @@ ssh -L 5432:127.0.0.1:5432 deploy@185.123.45.67 -p 22 -N
 | Port | `5432` |
 | Database | `messenger` |
 | Username | `tester` |
-| Password | *(пароль от tester)* |
+| Password | *(пароль от tester, выдаёт разработчик)* |
 
-4. Нажми **Test Connection** — должно появиться «Connected»
-5. Нажми **Finish**
+3. **Test Connection** → **Finish**
 
----
+### Шаг 2 (альтернатива) — pgAdmin 4
 
-## Шаг 2 (альтернатива) — Подключение в pgAdmin 4
-
-1. В левой панели: **Servers → Register → Server…**
-2. Вкладка **General** → Name: `Messenger Production`
-3. Вкладка **Connection**:
+Servers → **Register → Server…** → вкладка **Connection**:
 
 | Поле | Значение |
 |---|---|
@@ -66,68 +69,42 @@ ssh -L 5432:127.0.0.1:5432 deploy@185.123.45.67 -p 22 -N
 | Username | `tester` |
 | Password | *(пароль от tester)* |
 
-4. Нажми **Save** — сервер появится в дереве
-
 ---
 
 ## Что доступно
 
-Пользователь `tester` имеет **только `SELECT`** — данные можно читать, но не изменять.
-
-Доступны все таблицы базы `messenger`. Основные:
+Пользователь `tester` — только чтение (`SELECT`). Изменить данные нельзя.
 
 | Таблица | Содержимое |
 |---|---|
-| `app_users` | Пользователи (без паролей в открытом виде) |
+| `app_users` | Пользователи |
 | `user_sessions` | Активные сессии |
 | `chat_rooms` | Чаты (личные и групповые) |
 | `chat_participants` | Участники чатов |
-| `chat_messages` | Сообщения (контент зашифрован) |
+| `chat_messages` | Сообщения (контент зашифрован AES-256-GCM) |
 | `message_receipts` | Статусы доставки и прочтения |
 | `message_reactions` | Реакции на сообщения |
 | `video_conferences` | Конференции |
 | `chat_attachments` | Загруженные файлы |
 
-Полная структура всех таблиц — в файле [schema.sql](schema.sql).  
-ER-диаграмма со связями — в файле [schema-er.md](schema-er.md).
-
----
-
-## Проверка подключения через psql (опционально)
-
-```
-psql -h 127.0.0.1 -p 5432 -U tester -d messenger
-```
-
-Проверочные запросы:
-
-```sql
--- Список пользователей
-SELECT username, display_name, created_at FROM app_users;
-
--- Активные чаты
-SELECT title, is_direct, created_at FROM chat_rooms ORDER BY created_at DESC LIMIT 10;
-
--- Последние сообщения (контент зашифрован)
-SELECT m.id, u.display_name AS sender, m.created_at
-FROM chat_messages m
-JOIN app_users u ON u.id = m.sender_id
-ORDER BY m.server_order DESC
-LIMIT 20;
-```
+Полная структура — [schema.sql](schema.sql).  
+ER-диаграмма — [schema-er.md](schema-er.md).
 
 ---
 
 ## Частые вопросы
 
-**Ошибка `Connection refused` на порту 5432**  
-→ SSH-туннель не запущен или закрыт. Повтори Шаг 1.
+**Страница `/dbviewer/` не открывается**  
+→ Разработчику нужно включить `ENABLE_DBVIEWER=true` в `.env.prod` и задеплоить.
 
-**Ошибка `password authentication failed for user "tester"`**  
+**Ошибка `Connection refused` (Способ 2)**  
+→ SSH-туннель не запущен. Повтори Шаг 1.
+
+**`password authentication failed for user "tester"`**  
 → Неверный пароль. Уточни у разработчика.
 
-**Ошибка `permission denied for table ...`**  
-→ Пользователь `tester` имеет только `SELECT`. Операции записи недоступны — это ожидаемо.
+**`permission denied for table ...`**  
+→ Ожидаемо. Пользователь `tester` имеет только `SELECT`.
 
 **DBeaver просит скачать драйвер**  
-→ Нажми **Download** — DBeaver сам скачает PostgreSQL JDBC-драйвер.
+→ Нажми **Download** — скачается PostgreSQL JDBC-драйвер.

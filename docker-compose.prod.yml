@@ -376,6 +376,36 @@ services:
       - conference_recordings_archive:/app/storage/conference-recordings
       - conference_recordings_raw:/jibri-recordings:ro
 
+  pgweb:
+    image: sosedoff/pgweb:0.15.0
+    profiles:
+      - dbviewer
+    container_name: messenger-pgweb
+    init: true
+    restart: unless-stopped
+    logging: *default-logging
+    cpus: 0.10
+    mem_limit: 32m
+    pids_limit: 64
+    security_opt:
+      - no-new-privileges:true
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        exec /usr/local/bin/pgweb
+        --bind=0.0.0.0
+        --listen=8081
+        --prefix=/dbviewer
+        --auth-user=$$PGWEB_AUTH_USER
+        --auth-pass=$$PGWEB_AUTH_PASS
+    environment:
+      DATABASE_URL: "postgres://tester:${PGWEB_TESTER_DB_PASSWORD:-}@postgres:5432/messenger?sslmode=disable"
+      PGWEB_AUTH_USER: "${PGWEB_AUTH_USER:-tester}"
+      PGWEB_AUTH_PASS: "${PGWEB_AUTH_PASS:-}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   postgres-exporter:
     image: quay.io/prometheuscommunity/postgres-exporter:latest
     profiles:
