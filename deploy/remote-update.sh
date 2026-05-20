@@ -196,7 +196,7 @@ fi
 
 git fetch origin main
 git checkout main
-git pull --ff-only origin main
+git reset --hard origin/main
 WEB_APP_REVISION="$(git rev-parse HEAD)"
 export WEB_APP_REVISION
 
