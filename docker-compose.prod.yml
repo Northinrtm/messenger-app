@@ -174,13 +174,14 @@ services:
     restart: unless-stopped
     logging: *default-logging
     cpus: 1.0
-    mem_limit: 320m
+    mem_limit: 256m
     pids_limit: 384
     security_opt:
       - no-new-privileges:true
     depends_on:
       - jitsi-prosody
     environment:
+      JAVA_TOOL_OPTIONS: "-Xmx180m -XX:MaxMetaspaceSize=48m -XX:ReservedCodeCacheSize=16m -XX:+ExitOnOutOfMemoryError"
       ENABLE_AUTH: "0"
       ENABLE_COLIBRI_WEBSOCKET: "1"
       XMPP_SERVER: xmpp.meet.jitsi
