@@ -201,6 +201,7 @@ export function ChatThreadScreen({
   const [typingParticipants, setTypingParticipants] = useState<Participant[]>([]);
   const messagesRef = useRef<ChatMessage[]>([]);
   const messageScrollRef = useRef<ScrollView | null>(null);
+  const handledRealtimeMessageIdsRef = useRef(new Map<string, true>());
   const acknowledgedReadIdsRef = useRef(new Set<string>());
   const shouldStickToBottomRef = useRef(true);
   const lastAutoScrolledMessageKeyRef = useRef<string | null>(null);
@@ -329,6 +330,16 @@ export function ChatThreadScreen({
     },
     [],
   );
+
+  const rememberRealtimeMessage = useCallback((messageId: string) => {
+    handledRealtimeMessageIdsRef.current.set(messageId, true);
+    if (handledRealtimeMessageIdsRef.current.size > 300) {
+      const oldest = handledRealtimeMessageIdsRef.current.keys().next().value;
+      if (oldest) {
+        handledRealtimeMessageIdsRef.current.delete(oldest);
+      }
+    }
+  }, []);
 
   const scrollMessagesToEnd = useCallback((animated: boolean) => {
     requestAnimationFrame(() => {
@@ -473,6 +484,7 @@ export function ChatThreadScreen({
   useEffect(() => {
     let cancelled = false;
     acknowledgedReadIdsRef.current = new Set();
+    handledRealtimeMessageIdsRef.current = new Map();
     reactionOverridesRef.current = new Map();
     clearAllTypingParticipantTimeouts();
     clearTypingIdleTimeout();
@@ -617,6 +629,11 @@ export function ChatThreadScreen({
       return;
     }
 
+    if (handledRealtimeMessageIdsRef.current.has(realtimeMessage.message.id)) {
+      return;
+    }
+    rememberRealtimeMessage(realtimeMessage.message.id);
+
     applyMessagesUpdate(currentMessages =>
       applyReactionOverrides(
         mergeConfirmedMessage(currentMessages, realtimeMessage.message),
@@ -650,6 +667,7 @@ export function ChatThreadScreen({
     clearTypingParticipantTimeout,
     onChatRead,
     realtimeMessage,
+    rememberRealtimeMessage,
     runAuthorized,
     session.user.id,
   ]);
@@ -1163,6 +1181,7 @@ export function ChatThreadScreen({
         attachments: uploadedAttachments,
       });
       onDeletePendingOutgoingMessages([clientMessageId]).catch(() => undefined);
+      rememberRealtimeMessage(confirmedMessage.id);
       applyMessagesUpdate(currentMessages =>
         applyReactionOverrides(
           mergeConfirmedMessage(currentMessages, confirmedMessage),
@@ -1247,6 +1266,7 @@ export function ChatThreadScreen({
       await onDeletePendingOutgoingMessages([clientMessageId]).catch(
         () => undefined,
       );
+      rememberRealtimeMessage(confirmedMessage.id);
       if (!shouldOpenTargetChat) {
         applyMessagesUpdate(currentMessages =>
           applyReactionOverrides(
@@ -1320,6 +1340,7 @@ export function ChatThreadScreen({
         attachments: message.attachments ?? [],
       });
       onDeletePendingOutgoingMessages([clientMessageId]).catch(() => undefined);
+      rememberRealtimeMessage(confirmedMessage.id);
       applyMessagesUpdate(currentMessages =>
         applyReactionOverrides(
           mergeConfirmedMessage(currentMessages, confirmedMessage),
