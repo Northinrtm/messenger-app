@@ -151,7 +151,7 @@ app:
     generate-secret-if-missing: ${APP_JWT_GENERATE_SECRET_IF_MISSING:false}
   outbox:
     message-dispatch:
-      batch-size: ${APP_OUTBOX_MESSAGE_DISPATCH_BATCH_SIZE:128}
+      batch-size: ${APP_OUTBOX_MESSAGE_DISPATCH_BATCH_SIZE:256}
       max-batches-per-drain: ${APP_OUTBOX_MESSAGE_DISPATCH_MAX_BATCHES_PER_DRAIN:16}
       poll-fixed-delay-ms: ${APP_OUTBOX_MESSAGE_DISPATCH_POLL_FIXED_DELAY_MS:1000}
       retry-delay-ms: ${APP_OUTBOX_MESSAGE_DISPATCH_RETRY_DELAY_MS:3000}

@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -35,11 +36,11 @@ export function useContextMenu(): UseContextMenuResult {
   const [contextMenuSize, setContextMenuSize] = useState<{ width: number; height: number } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
 
-  const closeContextMenu = () => {
+  const closeContextMenu = useCallback(() => {
     setContextMenu(null);
-  };
+  }, []);
 
-  const openChatContextMenu = (event: MouseEvent | ReactMouseEvent, _chatId: string) => {
+  const openChatContextMenu = useCallback((event: MouseEvent | ReactMouseEvent, _chatId: string) => {
     const x = event.clientX;
     const y = event.clientY;
     event.preventDefault();
@@ -49,9 +50,9 @@ export function useContextMenu(): UseContextMenuResult {
       x,
       y,
     });
-  };
+  }, []);
 
-  const openMessageContextMenu = (
+  const openMessageContextMenu = useCallback((
     event: MouseEvent | ReactMouseEvent,
     chatId: string,
     messageId: string
@@ -66,7 +67,7 @@ export function useContextMenu(): UseContextMenuResult {
       x,
       y,
     });
-  };
+  }, []);
 
   useEffect(() => {
     if (!contextMenu) {

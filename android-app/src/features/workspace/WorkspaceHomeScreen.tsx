@@ -86,16 +86,16 @@ export function WorkspaceHomeScreen({
 }: Props) {
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('chats');
-  const [activeChatFilter, setActiveChatFilter] = useState<ChatFilter>('all');
+  const [activeChatFilter, _setActiveChatFilter] = useState<ChatFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchPending, setSearchPending] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [searchResults, setSearchResults] = useState<WorkspaceSearch | null>(null);
-  const [pendingArchiveChatIds, setPendingArchiveChatIds] = useState<
+  const [_pendingArchiveChatIds, setPendingArchiveChatIds] = useState<
     Record<string, boolean>
   >({});
-  const [pendingDeleteChatIds, setPendingDeleteChatIds] = useState<
+  const [_pendingDeleteChatIds, setPendingDeleteChatIds] = useState<
     Record<string, boolean>
   >({});
   const [searchMode, setSearchMode] = useState(false);
@@ -109,7 +109,6 @@ export function WorkspaceHomeScreen({
     Record<string, boolean>
   >({});
   const [verificationPending, setVerificationPending] = useState(false);
-  const [profileInfo, setProfileInfo] = useState<string | null>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [workspaceRefreshing, setWorkspaceRefreshing] = useState(false);
   const [showArchiveView, setShowArchiveView] = useState(false);
@@ -229,11 +228,6 @@ export function WorkspaceHomeScreen({
     }
   };
 
-  const handleClearSearch = () => {
-    setSearchQuery('');
-    setSearchResults(null);
-    setSearchError(null);
-  };
 
   const handleArchiveToggle = async (chatId: string, archived: boolean) => {
     setPendingArchiveChatIds(currentState => ({
@@ -540,21 +534,6 @@ export function WorkspaceHomeScreen({
     }
   };
 
-  const handleResendVerification = async () => {
-    setVerificationPending(true);
-    setActionError(null);
-    setProfileInfo(null);
-
-    try {
-      await onResendEmailVerification();
-      setProfileInfo('Verification email sent.');
-    } catch (nextError) {
-      setActionError(toErrorText(nextError));
-    } finally {
-      setVerificationPending(false);
-    }
-  };
-
   const openEditProfile = () => {
     const name = session.user.displayName.trim();
     const spaceIdx = name.indexOf(' ');
@@ -722,7 +701,6 @@ export function WorkspaceHomeScreen({
         {error ? <Banner tone="danger" label={error} /> : null}
         {actionError ? <Banner tone="danger" label={actionError} /> : null}
         {searchError ? <Banner tone="danger" label={searchError} /> : null}
-        {profileInfo ? <Banner tone="success" label={profileInfo} /> : null}
 
         {searchMode ? (
           <ScrollView
@@ -1659,33 +1637,6 @@ function getTabLabel(activeTab: WorkspaceTab) {
   }
 }
 
-function getTabDescription(_activeTab: WorkspaceTab) {
-  return '';
-}
-
-const CHAT_FILTERS: Array<{value: ChatFilter; label: string}> = [
-  {value: 'all', label: 'All chats'},
-  {value: 'direct', label: 'Direct'},
-  {value: 'groups', label: 'Groups'},
-  {value: 'unread', label: 'Unread'},
-];
-
-function countChatsForFilter(chats: ChatSummary[], filter: ChatFilter) {
-  return chats.filter(chat => {
-    switch (filter) {
-      case 'direct':
-        return chat.direct;
-      case 'groups':
-        return !chat.direct;
-      case 'unread':
-        return chat.unreadCount > 0;
-      case 'all':
-      default:
-        return true;
-    }
-  }).length;
-}
-
 type BannerProps = {
   tone: 'danger' | 'success';
   label: string;
@@ -1809,41 +1760,6 @@ function BottomTabButton({
         numberOfLines={1}>
         {label}
       </Text>
-    </Pressable>
-  );
-}
-
-function ChatFilterChip({
-  label,
-  count,
-  active,
-  onPress,
-}: {
-  label: string;
-  count: number;
-  active: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={active ? styles.filterChipActive : styles.filterChip}>
-      <Text style={active ? styles.filterChipLabelActive : styles.filterChipLabel}>
-        {label}
-      </Text>
-      <View
-        style={
-          active ? styles.filterChipCountActive : styles.filterChipCount
-        }>
-        <Text
-          style={
-            active
-              ? styles.filterChipCountLabelActive
-              : styles.filterChipCountLabel
-          }>
-          {String(count)}
-        </Text>
-      </View>
     </Pressable>
   );
 }
@@ -2438,41 +2354,6 @@ function ConferenceListItem({conference, onOpen}: ConferenceListItemProps) {
         testID={`open-conference-${conference.id}`}>
         <Text style={styles.inlineActionPrimaryLabel}>Open</Text>
       </Pressable>
-    </View>
-  );
-}
-
-type VerificationBadgeProps = {
-  verified: boolean;
-  emailVerificationEnabled: boolean;
-};
-
-function VerificationBadge({
-  verified,
-  emailVerificationEnabled,
-}: VerificationBadgeProps) {
-  if (!emailVerificationEnabled) {
-    return (
-      <View style={styles.warningPill}>
-        <Text style={styles.warningPillLabel}>Verification is disabled.</Text>
-      </View>
-    );
-  }
-
-  return (
-    <View style={verified ? styles.successPill : styles.warningPill}>
-      <Text style={verified ? styles.successPillLabel : styles.warningPillLabel}>
-        {verified ? 'Email verified' : 'Email not verified'}
-      </Text>
-    </View>
-  );
-}
-
-function MetaRow({label, value}: {label: string; value: string}) {
-  return (
-    <View style={styles.metaRow}>
-      <Text style={styles.metaLabel}>{label}</Text>
-      <Text style={styles.metaValue}>{value}</Text>
     </View>
   );
 }

@@ -136,7 +136,7 @@ export function ChatThreadScreen({
   initialChat,
   availableChats,
   pendingOutgoingMessages,
-  realtimeConnected,
+  realtimeConnected: _realtimeConnected,
   realtimeMessage,
   realtimeReaction,
   realtimeTyping,
@@ -1559,8 +1559,6 @@ export function ChatThreadScreen({
             const isLastInGroup =
               !nextMessage || nextMessage.sender.id !== message.sender.id;
             const senderColor = getSenderColor(message.sender.id);
-            const canReact = canReactToMessage(message);
-            const canForward = canForwardMessage(message);
             const attachments = message.attachments ?? [];
             const clientMessageId = message.clientMessageId ?? '';
             const sendFailure =
@@ -2519,10 +2517,6 @@ function isImageAttachment(attachment: ChatMessageAttachment) {
   return attachment.mimeType.trim().toLowerCase().startsWith('image/');
 }
 
-function formatReactionButtonLabel(emoji: string, count: number) {
-  return count > 0 ? `${emoji} ${count}` : emoji;
-}
-
 function toMessageSnippet(message: ChatMessage): MessageSnippet {
   return {
     id: message.id,
@@ -2621,21 +2615,6 @@ function formatRelativeMessageTime(value: string) {
     month: 'short',
     day: 'numeric',
   });
-}
-
-function formatStatus(value: NonNullable<ChatMessage['status']>['state']) {
-  switch (value) {
-    case 'FAILED':
-      return 'failed';
-    case 'SENDING':
-      return 'sending';
-    case 'DELIVERED':
-      return 'delivered';
-    case 'READ':
-      return 'read';
-    default:
-      return 'sent';
-  }
 }
 
 async function uploadComposerAttachments(

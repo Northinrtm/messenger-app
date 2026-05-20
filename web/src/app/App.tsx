@@ -1,4 +1,5 @@
-import { Suspense, lazy, useEffect, useEffectEvent, useRef, useState } from "react";
+import { Component, Suspense, lazy, useEffect, useEffectEvent, useRef, useState } from "react";
+import type { ErrorInfo, ReactNode } from "react";
 import { AuthCard } from "../features/auth/AuthCard";
 import { refreshSession } from "../lib/api";
 import {
@@ -8,6 +9,46 @@ import {
   shouldRefreshSessionSoon,
 } from "../lib/session";
 import type { AuthResponse } from "../lib/types";
+
+class WorkspaceErrorBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(): { hasError: boolean } {
+    return { hasError: true };
+  }
+
+  override componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("Workspace error:", error, info.componentStack);
+  }
+
+  override render() {
+    if (this.state.hasError) {
+      return (
+        <main className="auth-shell">
+          <section className="auth-card">
+            <div className="eyebrow">Ошибка</div>
+            <h1>Что-то пошло не так.</h1>
+            <p className="auth-copy">Попробуйте обновить страницу.</p>
+            <button
+              type="button"
+              className="auth-submit"
+              onClick={() => window.location.reload()}
+            >
+              Обновить
+            </button>
+          </section>
+        </main>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const SESSION_RESTORE_CARD_DELAY_MS = 900;
 const INVITE_PATH_PREFIX = "/j/";
@@ -272,18 +313,20 @@ export function App() {
           }}
         />
       ) : session ? (
-        <Suspense
-          fallback={
-            <main className="auth-shell" aria-hidden="true" />
-          }
-        >
-          <NorthMessengerWorkspace
-            session={session}
-            pendingInviteCode={pendingInviteCode}
-            onPendingInviteHandled={handlePendingInviteHandled}
-            onSessionChange={setSession}
-          />
-        </Suspense>
+        <WorkspaceErrorBoundary>
+          <Suspense
+            fallback={
+              <main className="auth-shell" aria-hidden="true" />
+            }
+          >
+            <NorthMessengerWorkspace
+              session={session}
+              pendingInviteCode={pendingInviteCode}
+              onPendingInviteHandled={handlePendingInviteHandled}
+              onSessionChange={setSession}
+            />
+          </Suspense>
+        </WorkspaceErrorBoundary>
       ) : (
         <AuthCard onAuthenticated={setSession} />
       )}

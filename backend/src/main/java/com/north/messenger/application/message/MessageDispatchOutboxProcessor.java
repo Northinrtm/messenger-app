@@ -5,6 +5,7 @@ import com.north.messenger.domain.model.MessageDispatchOutboxEntry;
 import com.north.messenger.domain.repository.MessageDispatchOutboxRepository;
 import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -127,6 +128,8 @@ class MessageDispatchOutboxProcessor {
 
     private long nextRetryDelayMs(MessageDispatchOutboxEntry entry) {
         long multiplier = Math.min(8L, Math.max(1L, (long) entry.getAttemptCount() + 1L));
-        return retryDelayMs * multiplier;
+        long base = retryDelayMs * multiplier;
+        long jitter = ThreadLocalRandom.current().nextLong(-base / 5, base / 5 + 1);
+        return base + jitter;
     }
 }

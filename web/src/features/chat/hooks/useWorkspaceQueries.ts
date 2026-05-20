@@ -63,7 +63,7 @@ const CONNECTED_CHATS_REFETCH_INTERVAL_MS = 60_000;
 const FALLBACK_CHATS_REFETCH_INTERVAL_MS = 15_000;
 const FALLBACK_TYPING_REFETCH_INTERVAL_MS = 5_000;
 const FALLBACK_MESSAGES_REFETCH_INTERVAL_MS = 10_000;
-const CHATS_QUERY_STALE_TIME_MS = 15_000;
+const CHATS_QUERY_STALE_TIME_MS = 30_000;
 
 function isDocumentVisibleNow() {
   return typeof document === "undefined" || document.visibilityState === "visible";

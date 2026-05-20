@@ -26,8 +26,10 @@ import {
   memo,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type RefObject,
@@ -1667,11 +1669,21 @@ const MessageAttachmentView = memo(function MessageAttachmentView({
   const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
   const [audioPreviewError, setAudioPreviewError] = useState(false);
   const [audioPreviewLoading, setAudioPreviewLoading] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
   const inFlightPreviewRef = useRef<Promise<Blob> | null>(null);
   const previewObjectUrlRef = useRef<string | null>(null);
   const audioPreviewObjectUrlRef = useRef<string | null>(null);
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
   const autoPlayAudioRef = useRef(false);
+  const waveformBars = useMemo(() => {
+    const BAR_COUNT = 40;
+    const seed = attachment.id.split("").reduce((acc, ch) => (acc * 31 + ch.charCodeAt(0)) & 0xffff, 0);
+    return Array.from({ length: BAR_COUNT }, (_, i) =>
+      Math.round(15 + Math.abs(Math.sin(seed + i * 2.7)) * 85)
+    );
+  }, [attachment.id]);
   const imageAttachment = isImageAttachment(attachment);
   const audioAttachment = isAudioAttachment(attachment);
   const previewIdentity = [
@@ -1786,6 +1798,9 @@ const MessageAttachmentView = memo(function MessageAttachmentView({
     setAudioPreviewUrl(null);
     setAudioPreviewError(false);
     setAudioPreviewLoading(false);
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setDuration(0);
     autoPlayAudioRef.current = false;
     if (!audioAttachment) {
       return;
@@ -1813,6 +1828,53 @@ const MessageAttachmentView = memo(function MessageAttachmentView({
     autoPlayAudioRef.current = false;
     void audioElementRef.current?.play().catch(() => undefined);
   }, [audioPreviewUrl]);
+
+  useEffect(() => {
+    const el = audioElementRef.current;
+    if (!el) return;
+    const onTimeUpdate = () => setCurrentTime(el.currentTime);
+    const onDuration = () => { if (isFinite(el.duration)) setDuration(el.duration); };
+    const onPlay = () => setIsPlaying(true);
+    const onPause = () => setIsPlaying(false);
+    const onEnded = () => { setIsPlaying(false); setCurrentTime(0); el.currentTime = 0; };
+    el.addEventListener("timeupdate", onTimeUpdate);
+    el.addEventListener("durationchange", onDuration);
+    el.addEventListener("loadedmetadata", onDuration);
+    el.addEventListener("play", onPlay);
+    el.addEventListener("pause", onPause);
+    el.addEventListener("ended", onEnded);
+    return () => {
+      el.removeEventListener("timeupdate", onTimeUpdate);
+      el.removeEventListener("durationchange", onDuration);
+      el.removeEventListener("loadedmetadata", onDuration);
+      el.removeEventListener("play", onPlay);
+      el.removeEventListener("pause", onPause);
+      el.removeEventListener("ended", onEnded);
+    };
+  }, []);
+
+  const handlePlayPause = () => {
+    if (!audioPreviewUrl) {
+      loadAudioPreview(true);
+      return;
+    }
+    const el = audioElementRef.current;
+    if (!el) return;
+    if (isPlaying) {
+      el.pause();
+    } else {
+      void el.play().catch(() => undefined);
+    }
+  };
+
+  const handleSeek = (barIndex: number) => {
+    const el = audioElementRef.current;
+    if (!el || !duration) return;
+    el.currentTime = (barIndex / waveformBars.length) * duration;
+    if (!isPlaying) {
+      void el.play().catch(() => undefined);
+    }
+  };
 
   const openImageAttachment = () => {
     if (previewUrl && !previewError) {
@@ -1907,36 +1969,57 @@ const MessageAttachmentView = memo(function MessageAttachmentView({
   }
 
   if (audioAttachment) {
+    const BAR_COUNT = waveformBars.length;
+    const progress = duration > 0 ? currentTime / duration : 0;
+    const displayTime = duration > 0
+      ? formatAudioTime(currentTime > 0 ? currentTime : duration)
+      : formatFileSize(attachment.sizeBytes);
     return (
       <div className="message-audio-attachment">
-        <div className="message-audio-copy">
-          <strong>{attachment.fileName}</strong>
-          <span>{formatFileSize(attachment.sizeBytes)}</span>
-        </div>
-        {audioPreviewUrl ? (
-          <audio
-            ref={audioElementRef}
-            className="message-audio-player"
-            controls
-            preload="metadata"
-            src={audioPreviewUrl}
-          />
-        ) : (
-          <button
-            type="button"
-            className="ghost-button compact message-audio-play"
-            onClick={() => loadAudioPreview(true)}
-          >
-            {audioPreviewLoading ? "Загружаем..." : audioPreviewError ? "Повторить" : "Воспроизвести"}
-          </button>
-        )}
         <button
           type="button"
-          className="ghost-button compact"
-          onClick={() => onDownloadAttachment(chatId, attachment)}
+          className="audio-play-btn"
+          onClick={handlePlayPause}
+          aria-label={isPlaying ? "Пауза" : audioPreviewError ? "Повторить" : "Воспроизвести"}
         >
-          Скачать
+          {audioPreviewLoading ? (
+            <span className="audio-loading-ring" aria-hidden="true" />
+          ) : isPlaying ? (
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="white">
+              <rect x="6" y="5" width="4" height="14" rx="1" />
+              <rect x="14" y="5" width="4" height="14" rx="1" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="white">
+              <polygon points="8,4 20,12 8,20" />
+            </svg>
+          )}
         </button>
+        <div className="audio-waveform-wrap">
+          <div className="audio-waveform">
+            {waveformBars.map((height, i) => (
+              <button
+                key={i}
+                type="button"
+                tabIndex={-1}
+                aria-hidden="true"
+                className={i / BAR_COUNT < progress ? "audio-waveform-bar is-played" : "audio-waveform-bar"}
+                style={{ "--bar-h": `${height}%` } as CSSProperties}
+                onClick={() => handleSeek(i)}
+              />
+            ))}
+          </div>
+          <div className="audio-meta">
+            <span>{duration > 0 ? formatAudioTime(currentTime > 0 ? currentTime : duration) : ""}</span>
+            <span>{formatFileSize(attachment.sizeBytes)}</span>
+          </div>
+        </div>
+        <audio
+          ref={audioElementRef}
+          src={audioPreviewUrl ?? undefined}
+          preload="none"
+          style={{ display: "none" }}
+        />
       </div>
     );
   }
@@ -2065,6 +2148,12 @@ function isAttachmentOnlyFallback(content: string, attachments: ChatMessageAttac
   }
 
   return false;
+}
+
+function formatAudioTime(seconds: number) {
+  const s = Math.floor(seconds);
+  const m = Math.floor(s / 60);
+  return `${String(m).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
 function isImageAttachment(attachment: ChatMessageAttachment) {
