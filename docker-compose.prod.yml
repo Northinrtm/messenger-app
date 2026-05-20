@@ -30,6 +30,8 @@ services:
       POSTGRES_DB: messenger
       POSTGRES_USER: messenger
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+    ports:
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
