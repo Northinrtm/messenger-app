@@ -63,6 +63,15 @@ const NorthMessengerWorkspace = lazy(async () => {
 
 function restoreInitialSession() {
   if (!initialSessionRestorePromise) {
+    try {
+      if (sessionStorage.getItem("north-force-logout")) {
+        sessionStorage.removeItem("north-force-logout");
+        initialSessionRestorePromise = Promise.resolve(null);
+        return initialSessionRestorePromise;
+      }
+    } catch {
+      // sessionStorage unavailable
+    }
     // Keep the first restore request single-flight so StrictMode does not rotate refresh tokens twice in dev.
     initialSessionRestorePromise = refreshSession().catch(() => null);
   }

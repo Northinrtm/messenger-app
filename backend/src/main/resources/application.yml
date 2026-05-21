@@ -98,7 +98,7 @@ app:
       redis:
         enabled: ${APP_AUTH_RATE_LIMIT_REDIS_ENABLED:${APP_REALTIME_REDIS_ENABLED:false}}
     registration:
-      allowed-email-domains: ${APP_AUTH_REGISTRATION_ALLOWED_EMAIL_DOMAINS:gmail.com,googlemail.com,outlook.com,hotmail.com,live.com,msn.com,yahoo.com,yahoo.co.uk,yahoo.co.jp,icloud.com,me.com,mac.com,yandex.ru,yandex.com,ya.ru,mail.ru,bk.ru,inbox.ru,list.ru,rambler.ru,lenta.ru,myrambler.ru,autorambler.ru,proton.me,protonmail.com,pm.me,aol.com,gmx.com,gmx.de,gmx.net,fastmail.com,zoho.com}
+      allowed-email-domains: ${APP_AUTH_REGISTRATION_ALLOWED_EMAIL_DOMAINS:gmail.com,googlemail.com,outlook.com,hotmail.com,live.com,msn.com,yahoo.com,yahoo.co.uk,yahoo.co.jp,icloud.com,me.com,mac.com,yandex.ru,yandex.com,ya.ru,mail.ru,bk.ru,inbox.ru,list.ru,rambler.ru,lenta.ru,myrambler.ru,autorambler.ru,proton.me,protonmail.com,pm.me,aol.com,gmx.com,gmx.de,gmx.net,fastmail.com,zoho.com,vk.com}
     email-verification:
       enabled: ${APP_AUTH_EMAIL_VERIFICATION_ENABLED:false}
       token-ttl: ${APP_AUTH_EMAIL_VERIFICATION_TOKEN_TTL:PT24H}

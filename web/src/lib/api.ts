@@ -363,6 +363,15 @@ export function removeOwnMailbox(token: string, mailboxId: string) {
   });
 }
 
+export function changeUsername(token: string, newUsername: string) {
+  return request<AuthResponse>("/api/auth/me/username", {
+    method: "PUT",
+    token,
+    body: { newUsername },
+    timeoutMs: 10000,
+  });
+}
+
 export function changePassword(
   token: string,
   input: {

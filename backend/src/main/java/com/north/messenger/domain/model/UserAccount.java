@@ -166,6 +166,10 @@ public class UserAccount {
         return emailVerifiedAt != null;
     }
 
+    public void updateUsername(String username) {
+        this.username = username;
+    }
+
     public void updateDisplayName(String displayName) {
         this.displayName = displayName;
     }

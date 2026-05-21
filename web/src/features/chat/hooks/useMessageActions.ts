@@ -420,6 +420,33 @@ export function useMessageActions({
     });
   }, [currentUser.id, pendingOutgoingMessages, queryClient, sessionToken]);
 
+  const wasRealtimeConnectedRef = useRef(isRealtimeConnected);
+  useEffect(() => {
+    const wasConnected = wasRealtimeConnectedRef.current;
+    wasRealtimeConnectedRef.current = isRealtimeConnected;
+    if (!isRealtimeConnected || wasConnected) {
+      return;
+    }
+    const failedMessages = pendingOutgoingMessages.filter(
+      (message) => message.status === "FAILED"
+    );
+    failedMessages.forEach((message) => {
+      const chat = chats.find((c) => c.id === message.chatId);
+      if (!chat) {
+        return;
+      }
+      sendOutgoingMessage({
+        chatId: message.chatId,
+        clientMessageId: message.clientMessageId,
+        content: message.content,
+        localOrder: message.localOrder ?? 0,
+        participants: chat.members,
+        replyTo: message.replyTo ?? null,
+        attachments: message.attachments ?? [],
+      });
+    });
+  }, [isRealtimeConnected]);
+
   const deleteChatMutation = useMutation({
     mutationFn: (chatId: string) => deleteChatRequest(sessionToken, chatId),
     onMutate: async (chatId) => {
@@ -637,6 +664,7 @@ export function useMessageActions({
           null,
           {
             forwardedFromMessageId: message.id,
+            attachments: message.attachments,
           }
         );
         sentMessages.push(sentMessage);

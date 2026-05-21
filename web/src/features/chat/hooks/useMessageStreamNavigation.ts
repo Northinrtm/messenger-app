@@ -247,7 +247,9 @@ export function useMessageStreamNavigation({
     const previous = viewportSnapshotRef.current;
     const chatChanged = previous.chatId !== currentChatId;
     const tailChanged = previous.lastMessageAnchorKey !== lastMessageAnchorKey;
-    if (chatChanged || tailChanged) {
+    if (chatChanged) {
+      scheduleInitialViewportPosition(null, null);
+    } else if (tailChanged) {
       scheduleInitialViewportPosition(null, lastMessageAnchorKey);
     }
 

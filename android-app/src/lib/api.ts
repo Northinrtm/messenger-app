@@ -602,6 +602,15 @@ export function deletePendingOutgoingMessage(
   );
 }
 
+export function changeUsername(token: string, newUsername: string) {
+  return request<MobileAuthResponse>('/api/mobile/auth/me/username', {
+    method: 'PUT',
+    token,
+    body: {newUsername},
+    timeoutMs: 10000,
+  });
+}
+
 export function requestEmailChange(token: string, newEmail: string) {
   return request<void>('/api/auth/me/email-change/request', {
     method: 'POST',

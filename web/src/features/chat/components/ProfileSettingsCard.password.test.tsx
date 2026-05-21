@@ -63,7 +63,13 @@ const defaultProps: Parameters<typeof ProfileSettingsCard>[0] = {
   onResendEmailVerification: () => {},
   onEnablePushNotifications: () => {},
   onDisablePushNotifications: () => {},
-  onSetMailEnabled: () => {},
+  changePasswordSuccess: false,
+  usernameChangePending: false,
+  usernameChangeInfo: null,
+  usernameChangeError: null,
+  usernameChangeInput: "",
+  onUsernameChangeInputChange: () => {},
+  onSubmitUsernameChange: () => {},
 };
 
 function setInputValue(input: HTMLInputElement, value: string) {
@@ -133,10 +139,15 @@ describe("ProfileSettingsCard password change form", () => {
       await Promise.resolve();
     });
 
-    const inputs = container.querySelectorAll(".profile-expand-form input");
-    const currentPasswordInput = inputs[0] as HTMLInputElement;
-    const newPasswordInput = inputs[1] as HTMLInputElement;
-    const confirmPasswordInput = inputs[2] as HTMLInputElement;
+    const currentPasswordInput = container.querySelector<HTMLInputElement>(
+      'input[autocomplete="current-password"]'
+    )!;
+    const newPasswordInput = container.querySelector<HTMLInputElement>(
+      'input[autocomplete="new-password"]:not([placeholder*="Повторите"])'
+    )!;
+    const confirmPasswordInput = container.querySelector<HTMLInputElement>(
+      'input[placeholder*="Повторите"]'
+    )!;
     const submitButton = Array.from(container.querySelectorAll("button")).find((button) =>
       button.textContent?.includes("Сменить пароль")
     ) as HTMLButtonElement | undefined;

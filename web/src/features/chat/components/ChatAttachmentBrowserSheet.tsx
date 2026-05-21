@@ -167,11 +167,12 @@ export function ChatAttachmentBrowserSheet({
   useEffect(() => {
     if (
       photoViewerItemId &&
+      !attachmentQuery.isFetching &&
       !photoItems.some((item) => item.id === photoViewerItemId)
     ) {
       setPhotoViewerItemId(null);
     }
-  }, [photoItems, photoViewerItemId]);
+  }, [photoItems, photoViewerItemId, attachmentQuery.isFetching]);
 
   return (
     <div className="sheet-card chat-attachment-browser-sheet">

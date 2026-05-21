@@ -466,6 +466,14 @@ select {
   color: #ffd8d2;
 }
 
+.form-success {
+  border-radius: 1rem;
+  padding: 0.85rem 1rem;
+  background: rgba(72, 168, 110, 0.14);
+  border: 1px solid rgba(90, 196, 130, 0.24);
+  color: #c8f5d8;
+}
+
 .form-note {
   border-radius: 1rem;
   padding: 0.85rem 1rem;
@@ -1917,6 +1925,7 @@ select {
 
 .north-sidebar-sheet {
   min-height: 0;
+  grid-row: 3;
   padding: 0 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
   background: #17212b;
   overflow: auto;
@@ -2205,7 +2214,7 @@ select {
   height: min(100%, 72dvh);
   display: grid;
   place-items: center;
-  overflow: auto;
+  overflow: hidden;
   border-radius: 1rem;
   background:
     radial-gradient(circle at top, rgba(84, 130, 220, 0.14), transparent 34%),
@@ -4056,6 +4065,17 @@ select {
 .message-history-notice.is-pending {
   border-color: rgba(125, 181, 255, 0.32);
   background: rgba(34, 63, 93, 0.92);
+}
+
+.message-history-notice.is-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  width: 100%;
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  border-top: none;
 }
 
 .message-history-notice-copy {

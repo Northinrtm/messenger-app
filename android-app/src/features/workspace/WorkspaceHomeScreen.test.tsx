@@ -206,6 +206,7 @@ describe('WorkspaceHomeScreen', () => {
           onUnblockUser={async () => undefined}
           onResendEmailVerification={async () => undefined}
           onRequestEmailChange={async () => undefined}
+          onChangeUsername={async () => undefined}
           onUpdateAvatar={async () => undefined}
           onUpdateProfile={async () => undefined}
           onRefreshWorkspace={async () => undefined}
@@ -251,6 +252,7 @@ describe('WorkspaceHomeScreen', () => {
           onUnblockUser={onUnblockUser}
           onResendEmailVerification={async () => undefined}
           onRequestEmailChange={async () => undefined}
+          onChangeUsername={async () => undefined}
           onUpdateAvatar={async () => undefined}
           onUpdateProfile={async () => undefined}
           onRefreshWorkspace={async () => undefined}
@@ -320,6 +322,7 @@ describe('WorkspaceHomeScreen', () => {
           onUnblockUser={async () => undefined}
           onResendEmailVerification={async () => undefined}
           onRequestEmailChange={async () => undefined}
+          onChangeUsername={async () => undefined}
           onUpdateAvatar={async () => undefined}
           onUpdateProfile={async () => undefined}
           onRefreshWorkspace={async () => undefined}
@@ -379,6 +382,7 @@ describe('WorkspaceHomeScreen', () => {
           onUnblockUser={async () => undefined}
           onResendEmailVerification={async () => undefined}
           onRequestEmailChange={async () => undefined}
+          onChangeUsername={async () => undefined}
           onUpdateAvatar={async () => undefined}
           onUpdateProfile={async () => undefined}
           onRefreshWorkspace={async () => undefined}
@@ -448,6 +452,7 @@ describe('WorkspaceHomeScreen', () => {
           onUnblockUser={async () => undefined}
           onResendEmailVerification={async () => undefined}
           onRequestEmailChange={async () => undefined}
+          onChangeUsername={async () => undefined}
           onUpdateAvatar={async () => undefined}
           onUpdateProfile={async () => undefined}
           onRefreshWorkspace={async () => undefined}
@@ -505,6 +510,7 @@ describe('WorkspaceHomeScreen', () => {
           onUnblockUser={async () => undefined}
           onResendEmailVerification={async () => undefined}
           onRequestEmailChange={async () => undefined}
+          onChangeUsername={async () => undefined}
           onUpdateAvatar={async () => undefined}
           onUpdateProfile={async () => undefined}
           onRefreshWorkspace={async () => undefined}
@@ -563,6 +569,7 @@ describe('WorkspaceHomeScreen', () => {
           onUnblockUser={async () => undefined}
           onResendEmailVerification={onResendEmailVerification}
           onRequestEmailChange={async () => undefined}
+          onChangeUsername={async () => undefined}
           onUpdateAvatar={async () => undefined}
           onUpdateProfile={async () => undefined}
           onRefreshWorkspace={async () => undefined}

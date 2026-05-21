@@ -8,6 +8,7 @@ import {
   blockUser as blockUserRequest,
   cancelVideoConference as cancelVideoConferenceRequest,
   changePassword as changePasswordRequest,
+  changeUsername as changeUsernameRequest,
   createVideoConference as createVideoConferenceRequest,
   deleteGroup as deleteGroupRequest,
   deleteOwnAccount as deleteOwnAccountRequest,
@@ -392,6 +393,14 @@ export function useWorkspaceMutations({
     },
   });
 
+  const changeUsernameMutation = useMutation({
+    mutationFn: (newUsername: string) => changeUsernameRequest(token, newUsername),
+    onSuccess: (authResponse) => {
+      queryClient.clear();
+      onSessionChange(authResponse);
+    },
+  });
+
   const changePasswordMutation = useMutation({
     mutationFn: async (input: { currentPassword: string; newPassword: string }) =>
       changePasswordRequest(token, {
@@ -399,9 +408,16 @@ export function useWorkspaceMutations({
         newPassword: input.newPassword,
       }),
     onSuccess: () => {
+      try {
+        sessionStorage.setItem("north-force-logout", "1");
+      } catch {
+        // sessionStorage unavailable
+      }
       onPasswordChanged?.();
-      queryClient.clear();
-      onSessionChange(null);
+      window.setTimeout(() => {
+        queryClient.clear();
+        onSessionChange(null);
+      }, 2500);
     },
   });
 
@@ -551,19 +567,20 @@ export function useWorkspaceMutations({
     }
   };
 
-  const submitProfileDisplayName = () => {
+  const submitProfileDisplayName = (overrideMailEnabled?: boolean) => {
     const nextDisplayName = profileDisplayName.trim();
     const nextProfession = profileProfession.trim();
     const normalizedProfession = nextProfession ? nextProfession : null;
     const profileProfessionChanged = normalizedProfession !== (profile.profession ?? null);
-    if (!nextDisplayName || (nextDisplayName === profile.displayName && !profileProfessionChanged)) {
+    const mailChanged = overrideMailEnabled !== undefined && overrideMailEnabled !== Boolean(profile.mailEnabled);
+    if (!nextDisplayName || nextDisplayName.length < 2 || (nextDisplayName === profile.displayName && !profileProfessionChanged && !mailChanged)) {
       return;
     }
 
     updateProfileMutation.mutate({
       displayName: nextDisplayName,
       profession: normalizedProfession,
-      mailEnabled: Boolean(profile.mailEnabled),
+      mailEnabled: overrideMailEnabled ?? Boolean(profile.mailEnabled),
     });
   };
 
@@ -714,6 +731,7 @@ export function useWorkspaceMutations({
     banGroupParticipantMutation,
     blockUserMutation,
     cancelConferenceMutation,
+    changeUsernameMutation,
     changePasswordMutation,
     createChatMutation,
     createConferenceMutation,

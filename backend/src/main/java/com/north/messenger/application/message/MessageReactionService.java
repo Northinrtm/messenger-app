@@ -70,18 +70,25 @@ class MessageReactionService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found in this chat");
         }
 
+        if (message.getSenderId() != null && message.getSenderId().equals(currentUser.getId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot react to your own message");
+        }
+
         String reactionKey = messageSupport.normalizeReactionKey(request.key());
-        messageReactionRepository.findByMessageIdAndUserIdAndReactionKey(messageId, currentUser.getId(), reactionKey)
-                .ifPresentOrElse(
-                        messageReactionRepository::delete,
-                        () -> messageReactionRepository.save(new MessageReaction(
-                                UUID.randomUUID(),
-                                messageId,
-                                currentUser.getId(),
-                                reactionKey,
-                                Instant.now()
-                        ))
-                );
+        List<MessageReaction> existingReactions = messageReactionRepository
+                .findAllByMessageIdAndUserId(messageId, currentUser.getId());
+        boolean alreadyHasThisKey = existingReactions.stream()
+                .anyMatch(r -> r.getReactionKey().equals(reactionKey));
+        messageReactionRepository.deleteAll(existingReactions);
+        if (!alreadyHasThisKey) {
+            messageReactionRepository.save(new MessageReaction(
+                    UUID.randomUUID(),
+                    messageId,
+                    currentUser.getId(),
+                    reactionKey,
+                    Instant.now()
+            ));
+        }
 
         MessageReactionEventResponse event = new MessageReactionEventResponse(
                 messageId,

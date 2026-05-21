@@ -22,6 +22,7 @@ type Props = {
   updateProfilePending: boolean;
   changePasswordPending: boolean;
   changePasswordError: string | null;
+  changePasswordSuccess: boolean;
   avatarPending: boolean;
   deleteAccountPending: boolean;
   emailVerificationPending: boolean;
@@ -33,6 +34,13 @@ type Props = {
   emailChangeInput: string;
   onEmailChangeInputChange: (value: string) => void;
   onRequestEmailChange: () => void;
+  usernameChangePending: boolean;
+  usernameChangeInfo: string | null;
+  usernameChangeError: string | null;
+  usernameChangeInput: string;
+  onUsernameChangeInputChange: (value: string) => void;
+  onSubmitUsernameChange: () => void;
+  onSubmitProfileDisplayName: (mailEnabled?: boolean) => void;
   pushNotificationsSupported: boolean;
   pushNotificationsServerEnabled: boolean;
   pushNotificationsEnabled: boolean;
@@ -43,7 +51,6 @@ type Props = {
   onClose: () => void;
   onProfileDisplayNameChange: (value: string) => void;
   onProfileProfessionChange: (value: string) => void;
-  onSubmitProfileDisplayName: () => void;
   onPasswordChangeCurrentChange: (value: string) => void;
   onPasswordChangeNextChange: (value: string) => void;
   onPasswordChangeConfirmChange: (value: string) => void;
@@ -54,7 +61,6 @@ type Props = {
   onResendEmailVerification: () => void;
   onEnablePushNotifications: () => void;
   onDisablePushNotifications: () => void;
-  onSetMailEnabled: (value: boolean) => void;
 };
 
 type PasswordField = "current" | "next" | "confirm";
@@ -71,6 +77,7 @@ export function ProfileSettingsCard({
   updateProfilePending,
   changePasswordPending,
   changePasswordError,
+  changePasswordSuccess,
   avatarPending,
   deleteAccountPending,
   emailVerificationPending,
@@ -82,6 +89,12 @@ export function ProfileSettingsCard({
   emailChangeInput,
   onEmailChangeInputChange,
   onRequestEmailChange,
+  usernameChangePending,
+  usernameChangeInfo,
+  usernameChangeError,
+  usernameChangeInput,
+  onUsernameChangeInputChange,
+  onSubmitUsernameChange,
   pushNotificationsSupported,
   pushNotificationsServerEnabled,
   pushNotificationsEnabled,
@@ -103,7 +116,6 @@ export function ProfileSettingsCard({
   onResendEmailVerification,
   onEnablePushNotifications,
   onDisablePushNotifications,
-  onSetMailEnabled,
 }: Props) {
   const [isPasswordFormOpen, setIsPasswordFormOpen] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
@@ -113,6 +125,7 @@ export function ProfileSettingsCard({
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNextPassword, setShowNextPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [pendingMailEnabled, setPendingMailEnabled] = useState<boolean | null>(null);
 
   const normalizedProfileDisplayName = profileDisplayName.trim();
   const normalizedProfileProfession = profileProfession.trim();
@@ -120,9 +133,12 @@ export function ProfileSettingsCard({
     normalizedProfileDisplayName.length > 0 && normalizedProfileDisplayName.length < 2
       ? "\u0418\u043c\u044f \u0434\u043e\u043b\u0436\u043d\u043e \u0441\u043e\u0434\u0435\u0440\u0436\u0430\u0442\u044c \u043e\u0442 2 \u0434\u043e 40 \u0441\u0438\u043c\u0432\u043e\u043b\u043e\u0432."
       : null;
+  const serverMailEnabled = Boolean(profile.mailEnabled);
+  const effectiveMailEnabled = pendingMailEnabled ?? serverMailEnabled;
   const profileChanged =
     normalizedProfileDisplayName !== profile.displayName ||
-    normalizedProfileProfession !== (profile.profession ?? "");
+    normalizedProfileProfession !== (profile.profession ?? "") ||
+    effectiveMailEnabled !== serverMailEnabled;
   const displayedProfileName =
     normalizedProfileDisplayName.length > 0 ? normalizedProfileDisplayName : profile.displayName;
   const displayedProfileProfession =
@@ -164,7 +180,6 @@ export function ProfileSettingsCard({
   const emailValue = profile.email ?? null;
   const emailVerified = Boolean(profile.emailVerified);
   const emailVerificationEnabled = Boolean(profile.emailVerificationEnabled);
-  const mailEnabled = Boolean(profile.mailEnabled);
   const showUnverifiedEmailStatus = !emailVerified && !emailVerificationEnabled;
   const pushNotificationsStatus = describePushNotificationsStatusV2({
     enabled: pushNotificationsEnabled,
@@ -182,6 +197,7 @@ export function ProfileSettingsCard({
   useEffect(() => {
     setIsPasswordFormOpen(false);
     setIsDeleteConfirmOpen(false);
+    setPendingMailEnabled(null);
     resetPasswordUiState();
   }, [profile.id]);
 
@@ -265,7 +281,8 @@ export function ProfileSettingsCard({
           className="profile-line profile-edit-form"
           onSubmit={(event) => {
             event.preventDefault();
-            onSubmitProfileDisplayName();
+            onSubmitProfileDisplayName(pendingMailEnabled ?? undefined);
+            setPendingMailEnabled(null);
           }}
         >
           <span className="profile-label">{"\u0418\u043c\u044f"}</span>
@@ -381,16 +398,59 @@ export function ProfileSettingsCard({
         <div className="profile-line profile-action-panel">
           <div className="profile-action-row">
             <div className="profile-action-copy">
+              <span className="profile-label">{"\u042e\u0437\u0435\u0440\u043d\u0435\u0439\u043c"}</span>
+              <strong>@{profile.username}</strong>
+              <span>{"\u0418\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0435\u0442\u0441\u044f \u0434\u043b\u044f \u0432\u0445\u043e\u0434\u0430 \u0438 \u043f\u043e\u0438\u0441\u043a\u0430. \u041f\u043e\u0441\u043b\u0435 \u0441\u043c\u0435\u043d\u044b \u0432\u0441\u0435 \u0441\u0435\u0441\u0441\u0438\u0438 \u0431\u0443\u0434\u0443\u0442 \u0441\u0431\u0440\u043e\u0448\u0435\u043d\u044b."}</span>
+            </div>
+          </div>
+          <form
+            className="profile-expand-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              onSubmitUsernameChange();
+            }}
+          >
+            <span className="profile-label">{"\u0421\u043c\u0435\u043d\u0438\u0442\u044c \u044e\u0437\u0435\u0440\u043d\u0435\u0439\u043c"}</span>
+            <input
+              type="text"
+              value={usernameChangeInput}
+              onChange={(event) => onUsernameChangeInputChange(event.target.value)}
+              placeholder={"\u041d\u043e\u0432\u044b\u0439 \u044e\u0437\u0435\u0440\u043d\u0435\u0439\u043c (3\u201324 \u0441\u0438\u043c\u0432\u043e\u043b\u0430)"}
+              autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              disabled={usernameChangePending}
+              maxLength={24}
+            />
+            <div className="profile-inline-row profile-edit-actions">
+              <button
+                type="submit"
+                className="secondary-button"
+                disabled={usernameChangePending || !usernameChangeInput.trim()}
+              >
+                {usernameChangePending ? "\u041c\u0435\u043d\u044f\u0435\u043c..." : "\u0421\u043c\u0435\u043d\u0438\u0442\u044c"}
+              </button>
+            </div>
+            {usernameChangeInfo ? <div className="form-note">{usernameChangeInfo}</div> : null}
+            {usernameChangeError ? <div className="form-error">{usernameChangeError}</div> : null}
+          </form>
+        </div>
+
+        <div className="profile-line profile-action-panel">
+          <div className="profile-action-row">
+            <div className="profile-action-copy">
               <span className="profile-label">
                 {"\u0420\u0430\u0437\u0434\u0435\u043b \u00ab\u041f\u043e\u0447\u0442\u0430\u00bb"}
               </span>
               <strong>
-                {mailEnabled
+                {effectiveMailEnabled
                   ? "\u041e\u0442\u043a\u0440\u044b\u0442"
                   : "\u0421\u043a\u0440\u044b\u0442"}
+                {pendingMailEnabled !== null ? " \u2022" : null}
               </strong>
               <span>
-                {mailEnabled
+                {effectiveMailEnabled
                   ? "\u0420\u0430\u0437\u0434\u0435\u043b \u00ab\u041f\u043e\u0447\u0442\u0430\u00bb \u043e\u0442\u043a\u0440\u044b\u0442 \u0432 \u043b\u0435\u0432\u043e\u0439 \u043a\u043e\u043b\u043e\u043d\u043a\u0435. \u0412 \u043d\u0435\u043c \u043e\u0442\u043e\u0431\u0440\u0430\u0436\u0430\u044e\u0442\u0441\u044f \u0432\u0430\u0448\u0438 \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u043d\u044b\u0435 \u043f\u043e\u0447\u0442\u043e\u0432\u044b\u0435 \u044f\u0449\u0438\u043a\u0438."
                   : "\u0420\u0430\u0437\u0434\u0435\u043b \u00ab\u041f\u043e\u0447\u0442\u0430\u00bb \u0441\u043a\u0440\u044b\u0442 \u0432 \u043b\u0435\u0432\u043e\u0439 \u043a\u043e\u043b\u043e\u043d\u043a\u0435. \u0427\u0430\u0442\u044b \u0438 \u043a\u043e\u043d\u0444\u0435\u0440\u0435\u043d\u0446\u0438\u0438 \u043e\u0441\u0442\u0430\u043d\u0443\u0442\u0441\u044f \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b \u043a\u0430\u043a \u0440\u0430\u043d\u044c\u0448\u0435."}
               </span>
@@ -398,14 +458,12 @@ export function ProfileSettingsCard({
             <button
               type="button"
               className="ghost-button compact"
-              onClick={() => onSetMailEnabled(!mailEnabled)}
+              onClick={() => setPendingMailEnabled(!effectiveMailEnabled)}
               disabled={updateProfilePending}
             >
-              {updateProfilePending
-                ? "\u0421\u043e\u0445\u0440\u0430\u043d\u044f\u0435\u043c..."
-                : mailEnabled
-                  ? "\u0423\u0431\u0440\u0430\u0442\u044c \u043f\u043e\u0447\u0442\u0443"
-                  : "\u0412\u043a\u043b\u044e\u0447\u0438\u0442\u044c \u043f\u043e\u0447\u0442\u0443"}
+              {effectiveMailEnabled
+                ? "\u0423\u0431\u0440\u0430\u0442\u044c \u043f\u043e\u0447\u0442\u0443"
+                : "\u0412\u043a\u043b\u044e\u0447\u0438\u0442\u044c \u043f\u043e\u0447\u0442\u0443"}
             </button>
           </div>
         </div>
@@ -550,12 +608,15 @@ export function ProfileSettingsCard({
                 ) : null}
               </div>
               {changePasswordError ? <div className="form-error">{changePasswordError}</div> : null}
+              {changePasswordSuccess ? (
+                <div className="form-success">Пароль успешно изменён. Выполняем выход...</div>
+              ) : null}
 
               <div className="profile-inline-row">
                 <button
                   type="submit"
                   className="secondary-button"
-                  disabled={changePasswordPending || !passwordChangeReady}
+                  disabled={changePasswordPending || changePasswordSuccess || !passwordChangeReady}
                 >
                   {changePasswordPending
                     ? "\u041c\u0435\u043d\u044f\u0435\u043c \u043f\u0430\u0440\u043e\u043b\u044c..."

@@ -362,6 +362,15 @@ export function useRealtimeChatSubscription({
   }, [chatIdsKey]);
 
   useEffect(() => {
+    if (!activeChatId) {
+      return;
+    }
+    queryClient.setQueryData<ChatSummary[]>(["chats", sessionToken], (current) =>
+      setChatReactionAttention(current, activeChatId, false)
+    );
+  }, [activeChatId, queryClient, sessionToken]);
+
+  useEffect(() => {
     if (isRealtimeConnected) {
       activeChatReconnectSnapshotRef.current = null;
       return;

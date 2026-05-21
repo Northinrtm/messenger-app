@@ -2,6 +2,7 @@ package com.north.messenger.api;
 
 import com.north.messenger.api.dto.AuthResponse;
 import com.north.messenger.api.dto.ChangePasswordRequest;
+import com.north.messenger.api.dto.ChangeUsernameRequest;
 import com.north.messenger.api.dto.ConfirmEmailChangeRequest;
 import com.north.messenger.api.dto.EmailVerificationConfirmRequest;
 import com.north.messenger.api.dto.EmailVerificationResendRequest;
@@ -369,6 +370,34 @@ public class AuthController {
     ) {
         authService.changePassword(authentication.getName(), request);
         refreshTokenCookieService.clear(httpResponse);
+    }
+
+    @PutMapping("/me/username")
+    @Operation(
+            summary = "Change current username",
+            description = "Changes the authenticated user's username. All existing sessions are revoked and a new session is issued — the response contains fresh tokens."
+    )
+    @SecurityRequirement(name = "bearerAuth")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Username changed successfully; new session issued", useReturnTypeSchema = true),
+            @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
+            @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
+            @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictError"),
+            @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
+    })
+    public AuthResponse changeUsername(
+            Authentication authentication,
+            @Valid @RequestBody ChangeUsernameRequest request,
+            HttpServletRequest httpRequest,
+            HttpServletResponse httpResponse
+    ) {
+        AuthService.IssuedAuthSession issued = authService.changeUsername(
+                authentication.getName(),
+                request.newUsername(),
+                httpRequest.getHeader("User-Agent")
+        );
+        refreshTokenCookieService.write(httpResponse, issued.refreshToken());
+        return issued.response();
     }
 
     @PutMapping("/me/avatar")

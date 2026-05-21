@@ -256,9 +256,11 @@ export function NorthMessengerWorkspace({
   const [profileProfession, setProfileProfession] = useState(session.user.profession ?? "");
   const [mailboxEmailInput, setMailboxEmailInput] = useState("");
   const [emailChangeInput, setEmailChangeInput] = useState("");
+  const [usernameChangeInput, setUsernameChangeInput] = useState("");
   const [passwordChangeCurrent, setPasswordChangeCurrent] = useState("");
   const [passwordChangeNext, setPasswordChangeNext] = useState("");
   const [passwordChangeConfirm, setPasswordChangeConfirm] = useState("");
+  const [changePasswordSuccess, setChangePasswordSuccess] = useState(false);
   const [deleteAccountConfirmation, setDeleteAccountConfirmation] = useState("");
   const [groupParticipantUsernames, setGroupParticipantUsernames] = useState<string[]>([]);
   const [groupInviteUsernames, setGroupInviteUsernames] = useState<string[]>([]);
@@ -1153,6 +1155,7 @@ export function NorthMessengerWorkspace({
   const canEditContextMenuMessage = Boolean(
     contextMenuMessage &&
       isOwnMessage(contextMenuMessage, session.user) &&
+      !contextMenuMessage.forwardedFrom &&
       contextMenuMessage.id !== contextMenuMessage.clientMessageId
   );
   const canForwardContextMenuMessage = Boolean(contextMenuMessage);
@@ -1602,6 +1605,7 @@ export function NorthMessengerWorkspace({
     banGroupParticipantMutation,
     blockUserMutation,
     cancelConferenceMutation,
+    changeUsernameMutation,
     changePasswordMutation,
     createChatMutation,
     createConferenceMutation,
@@ -1664,6 +1668,7 @@ export function NorthMessengerWorkspace({
       setPasswordChangeCurrent("");
       setPasswordChangeNext("");
       setPasswordChangeConfirm("");
+      setChangePasswordSuccess(true);
     },
     onSessionChange,
     openChat,
@@ -1709,7 +1714,16 @@ export function NorthMessengerWorkspace({
       }
     : null;
   const changePasswordError = changePasswordMutation.error
-    ? describeError(changePasswordMutation.error)
+    ? (changePasswordMutation.error instanceof ApiError &&
+       changePasswordMutation.error.status === 401
+       ? "Неверный текущий пароль."
+       : describeError(changePasswordMutation.error))
+    : null;
+  const changeUsernameError = changeUsernameMutation.error
+    ? describeError(changeUsernameMutation.error)
+    : null;
+  const changeUsernameInfo = changeUsernameMutation.isSuccess
+    ? "Юзернейм успешно изменён."
     : null;
 
   const requestEmailChangeMutation = useMutation({
@@ -1728,7 +1742,9 @@ export function NorthMessengerWorkspace({
     }
 
     setEmailChangeInput("");
+    setUsernameChangeInput("");
     requestEmailChangeMutation.reset();
+    changeUsernameMutation.reset();
     setPasswordChangeCurrent("");
     setPasswordChangeNext("");
     setPasswordChangeConfirm("");
@@ -2514,6 +2530,7 @@ export function NorthMessengerWorkspace({
     updateProfilePending: updateProfileMutation.isPending,
     changePasswordPending: changePasswordMutation.isPending,
     changePasswordError,
+    changePasswordSuccess,
     avatarPending: avatarMutation.isPending,
     deleteAccountPending: deleteAccountMutation.isPending,
     emailVerificationPending: resendOwnEmailVerificationMutation.isPending,
@@ -2528,6 +2545,15 @@ export function NorthMessengerWorkspace({
       requestEmailChangeMutation.reset();
     },
     onRequestEmailChange: () => requestEmailChangeMutation.mutate(emailChangeInput.trim()),
+    usernameChangePending: changeUsernameMutation.isPending,
+    usernameChangeInfo: changeUsernameInfo,
+    usernameChangeError: changeUsernameError,
+    usernameChangeInput,
+    onUsernameChangeInputChange: (value: string) => {
+      setUsernameChangeInput(value);
+      changeUsernameMutation.reset();
+    },
+    onSubmitUsernameChange: () => changeUsernameMutation.mutate(usernameChangeInput.trim()),
     pushNotificationsSupported: pushNotificationState.supported,
     pushNotificationsServerEnabled: pushNotificationState.serverEnabled,
     pushNotificationsEnabled: pushNotificationState.subscribed,
@@ -2541,12 +2567,6 @@ export function NorthMessengerWorkspace({
     onProfileDisplayNameChange: setProfileDisplayName,
     onProfileProfessionChange: setProfileProfession,
     onSubmitProfileDisplayName: handleSubmitProfileDisplayName,
-    onSetMailEnabled: (mailEnabled) =>
-      updateProfileMutation.mutate({
-        displayName: profile.displayName,
-        profession: profile.profession ?? null,
-        mailEnabled,
-      }),
     onPasswordChangeCurrentChange: setPasswordChangeCurrent,
     onPasswordChangeNextChange: setPasswordChangeNext,
     onPasswordChangeConfirmChange: setPasswordChangeConfirm,

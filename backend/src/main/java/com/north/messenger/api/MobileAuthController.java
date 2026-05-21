@@ -1,5 +1,6 @@
 package com.north.messenger.api;
 
+import com.north.messenger.api.dto.ChangeUsernameRequest;
 import com.north.messenger.api.dto.LoginRequest;
 import com.north.messenger.api.dto.MobileAuthResponse;
 import com.north.messenger.api.dto.MobileRefreshTokenRequest;
@@ -12,7 +13,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -97,5 +100,31 @@ public class MobileAuthController {
     })
     public void logout(@Valid @RequestBody MobileRefreshTokenRequest request) {
         authService.logout(request.refreshToken());
+    }
+
+    @PutMapping("/me/username")
+    @Operation(
+            summary = "Change username (mobile)",
+            description = "Changes the authenticated user's username. All existing sessions are revoked and a new session is returned in the response body."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Username changed; new session tokens returned", useReturnTypeSchema = true),
+            @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
+            @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
+            @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictError"),
+            @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
+    })
+    public MobileAuthResponse changeUsername(
+            Authentication authentication,
+            @Valid @RequestBody ChangeUsernameRequest request,
+            jakarta.servlet.http.HttpServletRequest httpRequest
+    ) {
+        return MobileAuthResponse.fromIssuedSession(
+                authService.changeUsername(
+                        authentication.getName(),
+                        request.newUsername(),
+                        httpRequest.getHeader("User-Agent")
+                )
+        );
     }
 }

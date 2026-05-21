@@ -17,7 +17,13 @@ const defaultPushNotificationProps = {
   pushNotificationsError: null,
   onEnablePushNotifications: () => {},
   onDisablePushNotifications: () => {},
-  onSetMailEnabled: () => {},
+  changePasswordSuccess: false,
+  usernameChangePending: false,
+  usernameChangeInfo: null,
+  usernameChangeError: null,
+  usernameChangeInput: "",
+  onUsernameChangeInputChange: () => {},
+  onSubmitUsernameChange: () => {},
 };
 
 describe("ProfileSettingsCard email status", () => {

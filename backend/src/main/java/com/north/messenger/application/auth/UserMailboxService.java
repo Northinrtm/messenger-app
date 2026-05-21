@@ -19,7 +19,7 @@ import org.springframework.web.server.ResponseStatusException;
 public class UserMailboxService {
 
     private static final Pattern EMAIL_PATTERN = Pattern.compile(
-            "^[a-z0-9._%+-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
+            "^[a-z0-9][a-z0-9._%+-]*@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
     );
 
     private final AuthService authService;

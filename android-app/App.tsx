@@ -33,6 +33,7 @@ import {
   addContact,
   ApiError,
   blockUser,
+  changeUsername,
   requestEmailChange,
   cancelVideoConference,
   clearConferencePresence,
@@ -842,6 +843,15 @@ function App() {
     [runAuthorized],
   );
 
+  const handleChangeUsername = useCallback(
+    async (newUsername: string) => {
+      const response = await runAuthorized(token => changeUsername(token, newUsername));
+      const nextSession = await activateSession(response);
+      setSession(nextSession);
+    },
+    [runAuthorized],
+  );
+
   const handleRequestEmailChange = useCallback(
     async (newEmail: string) => {
       await runAuthorized(token => requestEmailChange(token, newEmail));
@@ -953,6 +963,7 @@ function App() {
           onUnblockUser={handleUnblockUser}
           onResendEmailVerification={handleResendOwnEmailVerification}
           onRequestEmailChange={handleRequestEmailChange}
+          onChangeUsername={handleChangeUsername}
           onUpdateAvatar={handleUpdateAvatar}
           onUpdateProfile={handleUpdateProfile}
           onRefreshWorkspace={handleReloadWorkspace}

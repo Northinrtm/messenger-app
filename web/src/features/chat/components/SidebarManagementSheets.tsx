@@ -74,6 +74,7 @@ type Props = {
   updateProfilePending: boolean;
   changePasswordPending: boolean;
   changePasswordError: string | null;
+  changePasswordSuccess: boolean;
   avatarPending: boolean;
   deleteAccountPending: boolean;
   emailVerificationPending: boolean;
@@ -85,6 +86,12 @@ type Props = {
   emailChangeInput: string;
   onEmailChangeInputChange: (value: string) => void;
   onRequestEmailChange: () => void;
+  usernameChangePending: boolean;
+  usernameChangeInfo: string | null;
+  usernameChangeError: string | null;
+  usernameChangeInput: string;
+  onUsernameChangeInputChange: (value: string) => void;
+  onSubmitUsernameChange: () => void;
   pushNotificationsSupported: boolean;
   pushNotificationsServerEnabled: boolean;
   pushNotificationsEnabled: boolean;
@@ -109,7 +116,6 @@ type Props = {
   onResendEmailVerification: () => void;
   onEnablePushNotifications: () => void;
   onDisablePushNotifications: () => void;
-  onSetMailEnabled: (value: boolean) => void;
   onGroupTitleChange: (value: string) => void;
   onGroupDetailsTitleChange: (value: string) => void;
   onGroupDetailsPrejoinHistoryPolicyChange: (value: ChatPrejoinHistoryPolicy) => void;
@@ -186,6 +192,7 @@ export function SidebarManagementSheets({
   updateProfilePending,
   changePasswordPending,
   changePasswordError,
+  changePasswordSuccess,
   avatarPending,
   deleteAccountPending,
   emailVerificationPending,
@@ -197,6 +204,12 @@ export function SidebarManagementSheets({
   emailChangeInput,
   onEmailChangeInputChange,
   onRequestEmailChange,
+  usernameChangePending,
+  usernameChangeInfo,
+  usernameChangeError,
+  usernameChangeInput,
+  onUsernameChangeInputChange,
+  onSubmitUsernameChange,
   pushNotificationsSupported,
   pushNotificationsServerEnabled,
   pushNotificationsEnabled,
@@ -221,7 +234,6 @@ export function SidebarManagementSheets({
   onResendEmailVerification,
   onEnablePushNotifications,
   onDisablePushNotifications,
-  onSetMailEnabled,
   onGroupTitleChange,
   onGroupDetailsTitleChange,
   onGroupDetailsPrejoinHistoryPolicyChange,
@@ -290,6 +302,7 @@ export function SidebarManagementSheets({
         updateProfilePending={updateProfilePending}
         changePasswordPending={changePasswordPending}
         changePasswordError={changePasswordError}
+        changePasswordSuccess={changePasswordSuccess}
         avatarPending={avatarPending}
         deleteAccountPending={deleteAccountPending}
         emailVerificationPending={emailVerificationPending}
@@ -301,6 +314,12 @@ export function SidebarManagementSheets({
         emailChangeInput={emailChangeInput}
         onEmailChangeInputChange={onEmailChangeInputChange}
         onRequestEmailChange={onRequestEmailChange}
+        usernameChangePending={usernameChangePending}
+        usernameChangeInfo={usernameChangeInfo}
+        usernameChangeError={usernameChangeError}
+        usernameChangeInput={usernameChangeInput}
+        onUsernameChangeInputChange={onUsernameChangeInputChange}
+        onSubmitUsernameChange={onSubmitUsernameChange}
         pushNotificationsSupported={pushNotificationsSupported}
         pushNotificationsServerEnabled={pushNotificationsServerEnabled}
         pushNotificationsEnabled={pushNotificationsEnabled}
@@ -322,7 +341,6 @@ export function SidebarManagementSheets({
         onResendEmailVerification={onResendEmailVerification}
         onEnablePushNotifications={onEnablePushNotifications}
         onDisablePushNotifications={onDisablePushNotifications}
-        onSetMailEnabled={onSetMailEnabled}
       />
     );
   }

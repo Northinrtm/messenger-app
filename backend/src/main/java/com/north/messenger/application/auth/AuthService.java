@@ -231,6 +231,33 @@ public class AuthService {
     }
 
     @Transactional
+    public IssuedAuthSession changeUsername(String currentUsername, String newUsername, String userAgent) {
+        UserAccount currentUser = requireAuthenticatedUser(currentUsername);
+        String normalized = normalizeUsername(newUsername);
+        validateUsername(normalized);
+        if (normalized.equals(currentUser.getUsername())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "New username must be different from current username");
+        }
+        if (userAccountRepository.existsByUsernameIgnoreCase(normalized)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Username is already taken");
+        }
+
+        Instant now = Instant.now();
+        userSessionRepository.findAllByUserIdAndRevokedAtIsNullOrderByLastUsedAtDesc(currentUser.getId())
+                .forEach(session -> {
+                    if (!session.isRevoked()) {
+                        session.revoke(now);
+                        userSessionRepository.save(session);
+                        notifySessionRevoked(currentUsername, session.getId());
+                    }
+                });
+
+        currentUser.updateUsername(normalized);
+        userAccountRepository.save(currentUser);
+        return createSessionResponse(currentUser, userAgent);
+    }
+
+    @Transactional
     public void changePassword(String username, ChangePasswordRequest request) {
         UserAccount currentUser = requireAuthenticatedUser(username);
         assertCurrentPassword(currentUser, request.currentPassword());

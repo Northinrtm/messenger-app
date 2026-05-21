@@ -54,6 +54,7 @@ type Props = {
   onUnblockUser: (username: string) => Promise<void>;
   onResendEmailVerification: () => Promise<void>;
   onRequestEmailChange: (newEmail: string) => Promise<void>;
+  onChangeUsername: (newUsername: string) => Promise<void>;
   onUpdateAvatar: (dataUri: string) => Promise<void>;
   onUpdateProfile: (input: {displayName: string; profession?: string | null}) => Promise<void>;
   onRefreshWorkspace: () => Promise<void>;
@@ -78,6 +79,7 @@ export function WorkspaceHomeScreen({
   onUnblockUser,
   onResendEmailVerification,
   onRequestEmailChange,
+  onChangeUsername,
   onUpdateAvatar,
   onUpdateProfile,
   onRefreshWorkspace,
@@ -137,6 +139,10 @@ export function WorkspaceHomeScreen({
   const [emailChangePending, setEmailChangePending] = useState(false);
   const [emailChangeInfo, setEmailChangeInfo] = useState<string | null>(null);
   const [emailChangeError, setEmailChangeError] = useState<string | null>(null);
+  const [usernameChangeInput, setUsernameChangeInput] = useState('');
+  const [usernameChangePending, setUsernameChangePending] = useState(false);
+  const [usernameChangeInfo, setUsernameChangeInfo] = useState<string | null>(null);
+  const [usernameChangeError, setUsernameChangeError] = useState<string | null>(null);
 
   const normalizedSearchQuery = searchQuery.trim();
   const archivedChatIds = useMemo(
@@ -595,6 +601,25 @@ export function WorkspaceHomeScreen({
       setEmailChangeError(toErrorText(err));
     } finally {
       setEmailChangePending(false);
+    }
+  };
+
+  const handleChangeUsernameFromEditScreen = async () => {
+    const newUsername = usernameChangeInput.trim();
+    if (!newUsername) {
+      return;
+    }
+    setUsernameChangePending(true);
+    setUsernameChangeInfo(null);
+    setUsernameChangeError(null);
+    try {
+      await onChangeUsername(newUsername);
+      setUsernameChangeInfo('Юзернейм успешно изменён.');
+      setUsernameChangeInput('');
+    } catch (err) {
+      setUsernameChangeError(toErrorText(err));
+    } finally {
+      setUsernameChangePending(false);
     }
   };
 
@@ -1460,7 +1485,43 @@ export function WorkspaceHomeScreen({
                     <Text style={editStyles.readonlyValue}>{`@${session.user.username}`}</Text>
                   </View>
                 </View>
-                <Text style={editStyles.inputHint}>{'Имя пользователя изменить нельзя'}</Text>
+                <Text style={editStyles.inputHint}>{'Текущий юзернейм. После смены все сессии будут сброшены.'}</Text>
+                <View style={editStyles.inputCard}>
+                  <TextInput
+                    style={editStyles.input}
+                    value={usernameChangeInput}
+                    onChangeText={text => {
+                      setUsernameChangeInput(text);
+                      setUsernameChangeInfo(null);
+                      setUsernameChangeError(null);
+                    }}
+                    placeholder={'Новый юзернейм (3–24 символа)'}
+                    placeholderTextColor={androidTheme.colors.textMuted}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    editable={!usernameChangePending}
+                    maxLength={24}
+                  />
+                </View>
+                {usernameChangeInput.trim() && usernameChangeInput.trim() !== session.user.username ? (
+                  <Pressable
+                    onPress={() => { handleChangeUsernameFromEditScreen().catch(() => undefined); }}
+                    disabled={usernameChangePending || !usernameChangeInput.trim()}
+                    style={[
+                      editStyles.resendBtn,
+                      (!usernameChangeInput.trim() || usernameChangePending) && {opacity: 0.5},
+                    ]}>
+                    <Text style={editStyles.resendBtnText}>
+                      {usernameChangePending ? 'Меняем...' : 'Сменить юзернейм'}
+                    </Text>
+                  </Pressable>
+                ) : null}
+                {usernameChangeInfo ? (
+                  <Text style={editStyles.verifiedHint}>{usernameChangeInfo}</Text>
+                ) : null}
+                {usernameChangeError ? (
+                  <Text style={editStyles.unverifiedHint}>{usernameChangeError}</Text>
+                ) : null}
 
                 <Text style={editStyles.sectionLabel}>{'EMAIL'}</Text>
                 <View style={editStyles.inputCard}>

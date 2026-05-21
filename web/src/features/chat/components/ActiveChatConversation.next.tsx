@@ -371,7 +371,7 @@ export function ActiveChatConversation({
           )}
         </div>
         <div className="conversation-actions">
-          {!activeChat.direct ? (
+          {!activeChat.direct && !historyAccessNotice ? (
             <button
               type="button"
               className="ghost-button compact conversation-call-button"
@@ -447,6 +447,23 @@ export function ActiveChatConversation({
         </div>
       ) : null}
 
+      {historyAccessNotice ? (
+        <div
+          className={
+            historyAccessNotice.isPending
+              ? "message-history-notice is-sticky is-pending"
+              : "message-history-notice is-sticky"
+          }
+          role="status"
+          aria-live="polite"
+        >
+          <div className="message-history-notice-copy">
+            <strong>{historyAccessNotice.title}</strong>
+            <span>{historyAccessNotice.description}</span>
+          </div>
+        </div>
+      ) : null}
+
       <div className="message-stream north-message-stream" ref={messageStreamRef}>
         {hasNextPage ? (
           <button
@@ -457,23 +474,6 @@ export function ActiveChatConversation({
           >
             {isFetchingNextPage ? "Загружаем..." : "Показать более ранние"}
           </button>
-        ) : null}
-
-        {historyAccessNotice ? (
-          <div
-            className={
-              historyAccessNotice.isPending
-                ? "message-history-notice is-pending"
-                : "message-history-notice"
-            }
-            role="status"
-            aria-live="polite"
-          >
-            <div className="message-history-notice-copy">
-              <strong>{historyAccessNotice.title}</strong>
-              <span>{historyAccessNotice.description}</span>
-            </div>
-          </div>
         ) : null}
 
         {messagesLoading ? (
