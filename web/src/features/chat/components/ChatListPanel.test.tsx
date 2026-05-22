@@ -90,6 +90,7 @@ function renderPanel(root: Root, chat: ChatSummary, failedChatIds: ReadonlySet<s
         failedChatIds={failedChatIds}
         openConference={() => {}}
         openChat={() => {}}
+        openChatAtFailedMessage={() => {}}
         openChatContextMenu={() => {}}
         onAddMailbox={() => {}}
         onMailboxInputChange={() => {}}
@@ -134,7 +135,7 @@ describe("ChatListPanel", () => {
     const errorIndicator = container.querySelector(".chat-preview-error");
     expect(errorIndicator?.textContent).toBe("!");
     expect(errorIndicator?.getAttribute("aria-label")).toBe(
-      "\u0415\u0441\u0442\u044c \u043d\u0435\u043e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u043d\u043e\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435"
+      "\u041f\u0435\u0440\u0435\u0439\u0442\u0438 \u043a \u043d\u0435\u043e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u043d\u043e\u043c\u0443 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u044e"
     );
   });
 

@@ -408,16 +408,7 @@ export function useWorkspaceMutations({
         newPassword: input.newPassword,
       }),
     onSuccess: () => {
-      try {
-        sessionStorage.setItem("north-force-logout", "1");
-      } catch {
-        // sessionStorage unavailable
-      }
       onPasswordChanged?.();
-      window.setTimeout(() => {
-        queryClient.clear();
-        onSessionChange(null);
-      }, 2500);
     },
   });
 

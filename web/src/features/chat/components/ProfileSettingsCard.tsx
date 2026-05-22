@@ -609,7 +609,7 @@ export function ProfileSettingsCard({
               </div>
               {changePasswordError ? <div className="form-error">{changePasswordError}</div> : null}
               {changePasswordSuccess ? (
-                <div className="form-success">Пароль успешно изменён. Выполняем выход...</div>
+                <div className="form-success">Пароль успешно изменён.</div>
               ) : null}
 
               <div className="profile-inline-row">

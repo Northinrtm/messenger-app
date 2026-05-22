@@ -18,6 +18,7 @@ import {
   buildMessagesQueryKey,
   mergeMessagePages,
   removeMessageById,
+  clearChatReactionIndicators,
   setChatReactionAttention,
   updateMessageReactionsPages,
   updateMessageStatusPages,
@@ -366,7 +367,7 @@ export function useRealtimeChatSubscription({
       return;
     }
     queryClient.setQueryData<ChatSummary[]>(["chats", sessionToken], (current) =>
-      setChatReactionAttention(current, activeChatId, false)
+      clearChatReactionIndicators(current, activeChatId)
     );
   }, [activeChatId, queryClient, sessionToken]);
 

@@ -445,6 +445,31 @@ export function setChatReactionAttention(
   return changed ? next : current;
 }
 
+export function clearChatReactionIndicators(
+  current: ChatSummary[] | undefined,
+  chatId: string
+) {
+  if (!current) {
+    return current;
+  }
+
+  let changed = false;
+  const next = current.map((chat) => {
+    if (chat.id !== chatId || (!chat.reactionAttention && !chat.lastMessageHasReactions)) {
+      return chat;
+    }
+
+    changed = true;
+    return {
+      ...chat,
+      reactionAttention: false,
+      lastMessageHasReactions: false,
+    };
+  });
+
+  return changed ? next : current;
+}
+
 export function removeMessageById(
   current: InfiniteData<ChatMessage[]> | undefined,
   messageId: string

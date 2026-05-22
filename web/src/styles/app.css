@@ -1582,6 +1582,7 @@ select {
   position: relative;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
+  height: 100%;
   padding: 0;
   overflow: hidden;
   background: #17212b;
@@ -1928,7 +1929,8 @@ select {
   grid-row: 3;
   padding: 0 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
   background: #17212b;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .sheet-card {

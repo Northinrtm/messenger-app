@@ -160,6 +160,25 @@ public class ChatAttachmentService {
     }
 
     @Transactional
+    public void copyAttachmentsForForward(UUID sourceMessageId, UUID targetChatId, UUID targetMessageId) {
+        List<ChatAttachment> sourceAttachments = chatAttachmentRepository.findAllByMessageId(sourceMessageId);
+        for (ChatAttachment src : sourceAttachments) {
+            ChatAttachment copy = new ChatAttachment(
+                    UUID.randomUUID(),
+                    targetChatId,
+                    src.getUploaderId(),
+                    src.getStorageKey(),
+                    src.getFileName(),
+                    src.getMimeType(),
+                    src.getSizeBytes(),
+                    Instant.now()
+            );
+            copy.attachToMessage(targetMessageId);
+            chatAttachmentRepository.save(copy);
+        }
+    }
+
+    @Transactional
     public void deleteAttachmentsForMessage(UUID messageId) {
         List<ChatAttachment> attachments = chatAttachmentRepository.findAllByMessageId(messageId);
         if (attachments.isEmpty()) {

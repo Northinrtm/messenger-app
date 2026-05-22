@@ -40,6 +40,7 @@ type Props = {
   failedChatIds: ReadonlySet<string>;
   openConference: (conferenceId: string) => void;
   openChat: (chatId: string) => void;
+  openChatAtFailedMessage: (chatId: string) => void;
   openChatContextMenu: (event: ReactMouseEvent<HTMLButtonElement>, chatId: string) => void;
   onAddMailbox: () => void;
   onMailboxInputChange: (value: string) => void;
@@ -83,6 +84,7 @@ export const ChatListPanel = memo(function ChatListPanel({
   failedChatIds,
   openConference,
   openChat,
+  openChatAtFailedMessage,
   openChatContextMenu,
   onAddMailbox,
   onMailboxInputChange,
@@ -350,9 +352,21 @@ export const ChatListPanel = memo(function ChatListPanel({
                     ) : null}
                     {hasFailedOutgoingMessage && !liveGroupConference ? (
                       <span
+                        role="button"
+                        tabIndex={0}
                         className="chat-preview-error"
                         title={"\u0415\u0441\u0442\u044c \u043d\u0435\u043e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u043d\u043e\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435"}
-                        aria-label={"\u0415\u0441\u0442\u044c \u043d\u0435\u043e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u043d\u043e\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435"}
+                        aria-label={"\u041f\u0435\u0440\u0435\u0439\u0442\u0438 \u043a \u043d\u0435\u043e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u043d\u043e\u043c\u0443 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u044e"}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openChatAtFailedMessage(chat.id);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.stopPropagation();
+                            openChatAtFailedMessage(chat.id);
+                          }
+                        }}
                       >
                         !
                       </span>

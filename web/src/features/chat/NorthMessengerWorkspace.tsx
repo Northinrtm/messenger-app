@@ -44,6 +44,7 @@ import {
   updateProfile,
   updateProfileAvatar,
 } from "../../lib/api";
+import { validateEmailAddress } from "../auth/authValidation";
 import { JITSI_BASE_URL } from "../../lib/config";
 import {
   disablePushNotifications,
@@ -1150,7 +1151,9 @@ export function NorthMessengerWorkspace({
         Boolean(activeChat?.capabilities.canModerateMembers))
   );
   const canReactContextMenuMessage = Boolean(
-    contextMenuMessage && contextMenuMessage.id !== contextMenuMessage.clientMessageId
+    contextMenuMessage &&
+      contextMenuMessage.id !== contextMenuMessage.clientMessageId &&
+      !isOwnMessage(contextMenuMessage, session.user)
   );
   const canEditContextMenuMessage = Boolean(
     contextMenuMessage &&
@@ -1310,6 +1313,7 @@ export function NorthMessengerWorkspace({
     }
     if (mode === "all" || mode === "forward") {
       setForwardingMessageIds([]);
+      forwardMessageMutation.reset();
       if (sidebarSheet === "forward") {
         setSidebarSheet(null);
       }
@@ -1427,6 +1431,17 @@ export function NorthMessengerWorkspace({
       jumpToSourceMessageTarget(chatId, item);
     }
   );
+
+  const openChatAtFailedMessage = useEffectEvent((chatId: string) => {
+    const firstFailed = (pendingOutgoingMessagesQuery.data ?? []).find(
+      (msg) => msg.chatId === chatId && msg.status === "FAILED"
+    );
+    if (firstFailed) {
+      scrollToMessage(chatId, firstFailed.clientMessageId);
+    } else {
+      openChat(chatId);
+    }
+  });
 
   useEffect(() => {
     if (!pendingMessageJump) {
@@ -1752,7 +1767,7 @@ export function NorthMessengerWorkspace({
 
   const handleAddMailbox = useEffectEvent(() => {
     const nextEmail = mailboxEmailInput.trim();
-    if (!nextEmail) {
+    if (!nextEmail || validateEmailAddress(nextEmail)) {
       return;
     }
 
@@ -2150,8 +2165,8 @@ export function NorthMessengerWorkspace({
     lastMessageId,
     messageCount: messages.length,
     readableIncomingMessageIdsKey,
-    profileDisplayName: profile.displayName,
-    profileProfession: profile.profession,
+    profileDisplayName,
+    profileProfession,
     queryClient,
     replyingToMessageId,
     sessionToken: session.token,
@@ -2325,6 +2340,7 @@ export function NorthMessengerWorkspace({
         failedChatIds={failedChatIds}
         openConference={openConference}
         openChat={openChat}
+        openChatAtFailedMessage={openChatAtFailedMessage}
         openChatContextMenu={openChatContextMenu}
         onAddMailbox={handleAddMailbox}
         onMailboxInputChange={setMailboxEmailInput}

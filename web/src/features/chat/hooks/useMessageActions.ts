@@ -421,20 +421,26 @@ export function useMessageActions({
   }, [currentUser.id, pendingOutgoingMessages, queryClient, sessionToken]);
 
   const wasRealtimeConnectedRef = useRef(isRealtimeConnected);
+  // Track which client IDs have been auto-retried to avoid loops on permanent failures
+  const autoRetriedClientMessageIdsRef = useRef(new Set<string>());
   useEffect(() => {
-    const wasConnected = wasRealtimeConnectedRef.current;
     wasRealtimeConnectedRef.current = isRealtimeConnected;
-    if (!isRealtimeConnected || wasConnected) {
+    if (!isRealtimeConnected) {
+      autoRetriedClientMessageIdsRef.current.clear();
       return;
     }
     const failedMessages = pendingOutgoingMessages.filter(
       (message) => message.status === "FAILED"
     );
     failedMessages.forEach((message) => {
+      if (autoRetriedClientMessageIdsRef.current.has(message.clientMessageId)) {
+        return;
+      }
       const chat = chats.find((c) => c.id === message.chatId);
       if (!chat) {
         return;
       }
+      autoRetriedClientMessageIdsRef.current.add(message.clientMessageId);
       sendOutgoingMessage({
         chatId: message.chatId,
         clientMessageId: message.clientMessageId,
@@ -445,7 +451,7 @@ export function useMessageActions({
         attachments: message.attachments ?? [],
       });
     });
-  }, [isRealtimeConnected]);
+  }, [isRealtimeConnected, pendingOutgoingMessages]);
 
   const deleteChatMutation = useMutation({
     mutationFn: (chatId: string) => deleteChatRequest(sessionToken, chatId),
@@ -664,7 +670,6 @@ export function useMessageActions({
           null,
           {
             forwardedFromMessageId: message.id,
-            attachments: message.attachments,
           }
         );
         sentMessages.push(sentMessage);

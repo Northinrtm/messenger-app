@@ -138,7 +138,8 @@ class MessageCommandService {
             return existingResponse;
         }
 
-        boolean attachmentsPresent = request.attachmentIds() != null && !request.attachmentIds().isEmpty();
+        boolean attachmentsPresent = (request.attachmentIds() != null && !request.attachmentIds().isEmpty())
+                || forwardedContext != null;
         String plainContent = messageSupport.validatePlainPayload(request.plainPayload(), attachmentsPresent);
 
         try {
@@ -174,6 +175,11 @@ class MessageCommandService {
             );
             chatMessageLinkService.syncLinks(persistedMessage, plainContent);
             if (forwardedContext != null) {
+                chatAttachmentService.copyAttachmentsForForward(
+                        forwardedContext.sourceMessage().getId(),
+                        chatId,
+                        persistedMessage.getId()
+                );
                 forwardedContext.sourceMessage().markForwarded(Instant.now());
                 chatMessageRepository.save(forwardedContext.sourceMessage());
             }

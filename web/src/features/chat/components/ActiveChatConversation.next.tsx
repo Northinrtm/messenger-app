@@ -371,7 +371,7 @@ export function ActiveChatConversation({
           )}
         </div>
         <div className="conversation-actions">
-          {!activeChat.direct && !historyAccessNotice ? (
+          {!activeChat.direct && !historyAccessNotice && (activeChat.capabilities.canLeaveGroup || activeChat.ownerUserId === sessionUser.id) ? (
             <button
               type="button"
               className="ghost-button compact conversation-call-button"
@@ -1619,6 +1619,7 @@ const MessageRow = memo(function MessageRow({
                       : "message-reaction-button"
                   }
                   onClick={() => onToggleReaction(chatId, message.id, reaction.key)}
+                  disabled={ownMessage}
                   title={reactionOption?.label ?? reaction.key}
                   aria-label={reactionOption?.label ?? reaction.key}
                 >
