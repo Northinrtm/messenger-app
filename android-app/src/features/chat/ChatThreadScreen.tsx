@@ -1600,6 +1600,7 @@ export function ChatThreadScreen({
                 ) : null}
                 {ownMessage ? <View style={{flex: 1}} /> : null}
                 <Pressable
+                  testID={`message-bubble-${message.id}`}
                   onPress={() => {
                     if (isSelectionMode) {
                       handleToggleSelectMessage(message.id);
@@ -1747,6 +1748,24 @@ export function ChatThreadScreen({
                     </Text>
                   ) : null}
                 </View>
+                {message.reactions.length > 0 ? (
+                  <View style={styles.reactionRow}>
+                    {message.reactions.map(reaction => {
+                      const emoji = REACTION_OPTIONS.find(o => o.key === reaction.key)?.emoji ?? '';
+                      return (
+                        <Pressable
+                          key={reaction.key}
+                          testID={`reaction-toggle-${message.id}-${reaction.key}`}
+                          style={reaction.reactedByCurrentUser ? styles.reactionButtonActive : styles.reactionButton}
+                          onPress={() => { handleToggleReaction(message, reaction.key).catch(() => undefined); }}>
+                          <Text style={reaction.reactedByCurrentUser ? styles.reactionButtonLabelActive : styles.reactionButtonLabel}>
+                            {`${emoji} ${reaction.count}`}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ) : null}
                 {sendFailure ? (
                   <View style={styles.failureCard}>
                     <Text style={styles.failureText}>{sendFailure}</Text>
@@ -2072,6 +2091,7 @@ export function ChatThreadScreen({
                 return (
                   <Pressable
                     key={option.key}
+                    testID={`reaction-toggle-${contextMenuMessage?.id}-${option.key}`}
                     style={[
                       styles.menuReactionBtn,
                       active && styles.menuReactionBtnActive,
@@ -2093,6 +2113,7 @@ export function ChatThreadScreen({
               {contextMenuMessage && canReplyToMessage(contextMenuMessage) ? (
                 <>
                   <Pressable
+                    testID={`reply-action-${contextMenuMessage.id}`}
                     style={styles.menuItem}
                     onPress={() => {
                       handleReplyMessage(contextMenuMessage);
@@ -2114,6 +2135,7 @@ export function ChatThreadScreen({
                 <>
                   <View style={styles.menuDivider} />
                   <Pressable
+                    testID={`forward-action-${contextMenuMessage.id}`}
                     style={styles.menuItem}
                     onPress={() => {
                       handleForwardMessage(contextMenuMessage);
@@ -2129,6 +2151,7 @@ export function ChatThreadScreen({
                 <>
                   <View style={styles.menuDivider} />
                   <Pressable
+                    testID={`edit-action-${contextMenuMessage.id}`}
                     style={styles.menuItem}
                     onPress={() => {
                       handleEditMessage(contextMenuMessage);

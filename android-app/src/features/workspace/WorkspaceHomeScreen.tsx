@@ -1359,7 +1359,7 @@ export function WorkspaceHomeScreen({
                     {avatarUploading ? 'Загрузка...' : 'Выбрать фото'}
                   </Text>
                 </Pressable>
-                <Pressable style={styles.profileActionItem} onPress={openEditProfile}>
+                <Pressable testID="edit-profile-button" style={styles.profileActionItem} onPress={openEditProfile}>
                   <View style={styles.profileActionIconWrap}>
                     <Text style={styles.profileActionIconText}>✏️</Text>
                   </View>
@@ -1560,6 +1560,7 @@ export function WorkspaceHomeScreen({
                   </Pressable>
                 ) : !session.user.emailVerified && session.user.email ? (
                   <Pressable
+                    testID="resend-email-verification-button"
                     onPress={() => { handleResendVerificationFromEditScreen().catch(() => undefined); }}
                     disabled={verificationPending}
                     style={editStyles.resendBtn}>

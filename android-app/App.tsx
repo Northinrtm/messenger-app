@@ -10,7 +10,8 @@ import type {
   VideoConference,
   WorkspaceBootstrap,
 } from '@north/shared';
-import {useCallback, useEffect, useRef, useState} from 'react';
+import {Component, useCallback, useEffect, useRef, useState} from 'react';
+import type {ReactNode} from 'react';
 import {SoundPlayer, type SoundPlayerHandle} from './src/lib/SoundPlayer';
 import {
   ActivityIndicator,
@@ -1215,6 +1216,73 @@ function removeWorkspaceBlockedUser(
   };
 }
 
+type ErrorBoundaryState = {hasError: boolean; message: string};
+
+class AppErrorBoundary extends Component<
+  {children: ReactNode},
+  ErrorBoundaryState
+> {
+  state: ErrorBoundaryState = {hasError: false, message: ''};
+
+  static getDerivedStateFromError(error: unknown): ErrorBoundaryState {
+    const message =
+      error instanceof Error ? error.message : 'Unexpected error';
+    return {hasError: true, message};
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <View style={errorBoundaryStyles.screen}>
+          <Text style={errorBoundaryStyles.title}>Что-то пошло не так</Text>
+          <Text style={errorBoundaryStyles.body}>{this.state.message}</Text>
+          <Pressable
+            style={errorBoundaryStyles.button}
+            onPress={() => this.setState({hasError: false, message: ''})}>
+            <Text style={errorBoundaryStyles.buttonLabel}>Попробовать снова</Text>
+          </Pressable>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+const errorBoundaryStyles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: '#0f1720',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+    gap: 16,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#eef4fb',
+    textAlign: 'center',
+  },
+  body: {
+    fontSize: 14,
+    color: 'rgba(238, 244, 251, 0.6)',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  button: {
+    marginTop: 8,
+    paddingHorizontal: 28,
+    paddingVertical: 14,
+    borderRadius: 18,
+    backgroundColor: '#4ea1ff',
+  },
+  buttonLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#081521',
+  },
+});
+
 const styles = StyleSheet.create({
   loadingScreen: {
     flex: 1,
@@ -1306,4 +1374,12 @@ const styles = StyleSheet.create({
   },
 });
 
-export default App;
+function AppWithBoundary() {
+  return (
+    <AppErrorBoundary>
+      <App />
+    </AppErrorBoundary>
+  );
+}
+
+export default AppWithBoundary;

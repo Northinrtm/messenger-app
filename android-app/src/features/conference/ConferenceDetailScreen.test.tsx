@@ -152,9 +152,7 @@ describe('ConferenceDetailScreen', () => {
     });
 
     expect(onTouchConferencePresence).toHaveBeenCalledWith('conference-1');
-    expect(openUrlSpy).toHaveBeenCalledWith(
-      buildExpectedJoinUrl('weekly-sync'),
-    );
+    expect(openUrlSpy).not.toHaveBeenCalled();
     expect(
       renderer!.root.findByProps({testID: 'conference-leave-button'}),
     ).toBeTruthy();

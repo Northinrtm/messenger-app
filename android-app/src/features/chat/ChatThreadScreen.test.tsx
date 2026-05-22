@@ -301,6 +301,13 @@ describe('ChatThreadScreen', () => {
       renderer = renderChatThread();
     });
 
+    const messageBubble = renderer!.root.findByProps({
+      testID: 'message-bubble-message-1',
+    });
+    await ReactTestRenderer.act(async () => {
+      messageBubble.props.onPress();
+    });
+
     const replyButton = renderer!.root.findByProps({
       testID: 'reply-action-message-1',
     });
@@ -358,6 +365,13 @@ describe('ChatThreadScreen', () => {
     let renderer: ReactTestRenderer.ReactTestRenderer;
     await ReactTestRenderer.act(async () => {
       renderer = renderChatThread();
+    });
+
+    const editBubble = renderer!.root.findByProps({
+      testID: 'message-bubble-message-own-1',
+    });
+    await ReactTestRenderer.act(async () => {
+      editBubble.props.onPress();
     });
 
     const editButton = renderer!.root.findByProps({
@@ -675,6 +689,13 @@ describe('ChatThreadScreen', () => {
       });
     });
 
+    const forwardBubble = renderer!.root.findByProps({
+      testID: 'message-bubble-message-1',
+    });
+    await ReactTestRenderer.act(async () => {
+      forwardBubble.props.onPress();
+    });
+
     const forwardButton = renderer!.root.findByProps({
       testID: 'forward-action-message-1',
     });
@@ -727,6 +748,13 @@ describe('ChatThreadScreen', () => {
     let renderer: ReactTestRenderer.ReactTestRenderer;
     await ReactTestRenderer.act(async () => {
       renderer = renderChatThread();
+    });
+
+    const reactionBubble = renderer!.root.findByProps({
+      testID: 'message-bubble-message-1',
+    });
+    await ReactTestRenderer.act(async () => {
+      reactionBubble.props.onPress();
     });
 
     const reactionButton = renderer!.root.findByProps({

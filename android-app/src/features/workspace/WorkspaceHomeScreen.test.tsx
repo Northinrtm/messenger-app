@@ -584,6 +584,11 @@ describe('WorkspaceHomeScreen', () => {
       profileTab.props.onPress();
     });
 
+    const editProfileButton = renderer!.root.findByProps({testID: 'edit-profile-button'});
+    await ReactTestRenderer.act(async () => {
+      editProfileButton.props.onPress();
+    });
+
     const resendButton = renderer!.root.findByProps({
       testID: 'resend-email-verification-button',
     });

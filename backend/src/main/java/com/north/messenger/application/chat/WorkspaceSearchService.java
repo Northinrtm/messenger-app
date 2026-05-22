@@ -6,6 +6,7 @@ import com.north.messenger.api.dto.UserProfileResponse;
 import com.north.messenger.api.dto.VideoConferenceResponse;
 import com.north.messenger.api.dto.WorkspaceSearchResponse;
 import com.north.messenger.application.auth.AuthService;
+import com.north.messenger.domain.model.UserAccount;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -41,6 +42,7 @@ public class WorkspaceSearchService {
 
         List<UserProfileResponse> users = authService.searchUsers(username, normalizedQuery);
         List<UserProfileResponse> contacts = authService.listContacts(username).stream()
+                .filter(contact -> !contact.username().startsWith(UserAccount.DELETED_USERNAME_PREFIX))
                 .filter(contact -> matchesUser(contact, normalizedQuery))
                 .limit(SEARCH_RESULT_LIMIT)
                 .toList();

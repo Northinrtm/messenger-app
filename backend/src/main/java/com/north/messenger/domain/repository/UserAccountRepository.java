@@ -40,6 +40,7 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, UUID> 
             select user
             from UserAccount user
             where user.id <> :excludeUserId
+              and lower(user.username) not like 'deleted:%'
               and (
                 lower(user.username) like lower(concat('%', :query, '%'))
                 or lower(user.displayName) like lower(concat('%', :query, '%'))
