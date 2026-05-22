@@ -115,10 +115,10 @@ app:
       url-base: ${APP_AUTH_PASSWORD_RESET_URL_BASE:}
       from-address: ${APP_AUTH_PASSWORD_RESET_FROM_ADDRESS:${SPRING_MAIL_USERNAME:}}
     email-change:
-      enabled: ${APP_AUTH_EMAIL_CHANGE_ENABLED:false}
+      enabled: ${APP_AUTH_EMAIL_CHANGE_ENABLED:true}
       token-ttl: ${APP_AUTH_EMAIL_CHANGE_TOKEN_TTL:PT24H}
-      url-base: ${APP_AUTH_EMAIL_CHANGE_URL_BASE:}
-      from-address: ${APP_AUTH_EMAIL_CHANGE_FROM_ADDRESS:${SPRING_MAIL_USERNAME:}}
+      url-base: ${APP_AUTH_EMAIL_CHANGE_URL_BASE:${APP_AUTH_EMAIL_VERIFICATION_URL_BASE:}}
+      from-address: ${APP_AUTH_EMAIL_CHANGE_FROM_ADDRESS:${APP_AUTH_EMAIL_VERIFICATION_FROM_ADDRESS:${SPRING_MAIL_USERNAME:}}}
   cors:
     allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:5173}
   realtime:
