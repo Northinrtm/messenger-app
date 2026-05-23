@@ -126,6 +126,7 @@ export function WorkspaceHomeScreen({
   const [workspaceRefreshing, setWorkspaceRefreshing] = useState(false);
   const [showArchiveView, setShowArchiveView] = useState(false);
   const [chatListScrollY, setChatListScrollY] = useState(ARCHIVE_ROW_H);
+  const [chatListViewHeight, setChatListViewHeight] = useState(0);
   const chatListScrollRef = useRef<ScrollView>(null);
   const [conferenceModal, setConferenceModal] = useState<'schedule' | 'start' | null>(null);
   const [confTitle, setConfTitle] = useState('');
@@ -992,9 +993,17 @@ export function WorkspaceHomeScreen({
               <ScrollView
                 ref={chatListScrollRef}
                 style={styles.tabScroll}
-                contentContainerStyle={styles.chatListContent}
+                contentContainerStyle={[
+                  styles.chatListContent,
+                  {minHeight: chatListViewHeight + ARCHIVE_ROW_H},
+                ]}
                 keyboardShouldPersistTaps="handled"
                 scrollEventThrottle={16}
+                onLayout={e => {
+                  const h = e.nativeEvent.layout.height;
+                  setChatListViewHeight(h);
+                  chatListScrollRef.current?.scrollTo({y: ARCHIVE_ROW_H + 4, animated: false});
+                }}
                 onScroll={(e) => {
                   setChatListScrollY(e.nativeEvent.contentOffset.y);
                 }}
