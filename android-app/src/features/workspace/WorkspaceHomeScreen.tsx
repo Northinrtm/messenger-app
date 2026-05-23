@@ -390,6 +390,9 @@ export function WorkspaceHomeScreen({
     setSearchQuery('');
     setSearchResults(null);
     setSearchError(null);
+    if (tab === 'chats') {
+      setShowArchiveView(false);
+    }
     if (tab === 'settings') {
       onRefreshWorkspace().catch(() => undefined);
     }
@@ -1009,9 +1012,7 @@ export function WorkspaceHomeScreen({
                 }}
                 onScrollEndDrag={(e) => {
                   const y = e.nativeEvent.contentOffset.y;
-                  if (y <= 10) {
-                    setShowArchiveView(true);
-                  } else if (y < ARCHIVE_ROW_H + 4) {
+                  if (y < ARCHIVE_ROW_H + 4) {
                     chatListScrollRef.current?.scrollTo({y: ARCHIVE_ROW_H + 4, animated: true});
                   }
                 }}>
