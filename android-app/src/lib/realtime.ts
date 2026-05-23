@@ -11,6 +11,7 @@ import type {
   ChatSummary,
   MessageReactionEvent,
   MessageSendErrorEvent,
+  MessageStatusEvent,
   SessionEvent,
   TypingEvent,
 } from '@north/shared';
@@ -24,6 +25,7 @@ type SubscriptionOptions = {
   currentUserId: string;
   onChat: (chat: ChatSummary) => void;
   onMessage: (message: ChatMessage) => void;
+  onMessageStatus?: (event: MessageStatusEvent) => void;
   onMessageReaction?: (event: MessageReactionEvent) => void;
   onTyping?: (event: TypingEvent) => void;
   onSessionEvent: (event: SessionEvent) => void;
@@ -36,6 +38,7 @@ type RealtimeConnection = {
   client: Client;
   onChat: (chat: ChatSummary) => void;
   onMessage: (message: ChatMessage) => void;
+  onMessageStatus?: (event: MessageStatusEvent) => void;
   onMessageReaction?: (event: MessageReactionEvent) => void;
   onTyping?: (event: TypingEvent) => void;
   onSessionEvent: (event: SessionEvent) => void;
@@ -77,6 +80,7 @@ export function subscribeToChats({
   token,
   onChat,
   onMessage,
+  onMessageStatus,
   onMessageReaction,
   onTyping,
   onSessionEvent,
@@ -93,6 +97,7 @@ export function subscribeToChats({
     client: null as unknown as Client,
     onChat,
     onMessage,
+    onMessageStatus,
     onMessageReaction,
     onTyping,
     onSessionEvent,
@@ -162,6 +167,16 @@ export function subscribeToChats({
         connection.onMessage(hydrateApiChatMessage(payload));
       }),
     );
+
+    if (connection.onMessageStatus) {
+      connection.userSubscriptions.push(
+        client.subscribe('/user/queue/message-statuses', (frame: IFrame) => {
+          connection.onMessageStatus?.(
+            JSON.parse(frame.body) as MessageStatusEvent,
+          );
+        }),
+      );
+    }
 
     if (connection.onMessageReaction) {
       connection.userSubscriptions.push(

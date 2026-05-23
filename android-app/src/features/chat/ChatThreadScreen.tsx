@@ -5,6 +5,7 @@ import type {
   MessageSnippet,
   MessageReaction,
   MessageReactionEvent,
+  MessageStatusEvent,
   TypingEvent,
   Participant,
   ChatSummary,
@@ -95,6 +96,11 @@ type RealtimeTypingEnvelope = {
   receivedAt: number;
 };
 
+type RealtimeStatusEnvelope = {
+  event: MessageStatusEvent;
+  receivedAt: number;
+};
+
 type Props = {
   session: AuthResponse;
   chatId: string;
@@ -105,6 +111,7 @@ type Props = {
   realtimeMessage: RealtimeMessageEnvelope | null;
   realtimeReaction: RealtimeReactionEnvelope | null;
   realtimeTyping: RealtimeTypingEnvelope | null;
+  realtimeStatus?: RealtimeStatusEnvelope | null;
   runAuthorized: RunAuthorized;
   preferences?: {fontSize: 'small' | 'medium' | 'large'; chatBackground: string};
   onBack: () => void;
@@ -143,6 +150,7 @@ export function ChatThreadScreen({
   realtimeMessage,
   realtimeReaction,
   realtimeTyping,
+  realtimeStatus,
   runAuthorized,
   preferences,
   onBack,
@@ -677,6 +685,19 @@ export function ChatThreadScreen({
     runAuthorized,
     session.user.id,
   ]);
+
+  useEffect(() => {
+    if (!realtimeStatus || realtimeStatus.event.chatId !== chatId) {
+      return;
+    }
+
+    const {messageId, status} = realtimeStatus.event;
+    applyMessagesUpdate(currentMessages =>
+      currentMessages.map(message =>
+        message.id === messageId ? {...message, status} : message,
+      ),
+    );
+  }, [applyMessagesUpdate, chatId, realtimeStatus]);
 
   useEffect(() => {
     if (!realtimeReaction || realtimeReaction.event.chatId !== chatId) {
@@ -1746,7 +1767,8 @@ export function ChatThreadScreen({
                     <Text style={styles.messageStatusTick}>
                       {message.status.state === 'READ'
                         ? '✓✓'
-                        : message.status.state === 'DELIVERED'
+                        : message.status.state === 'DELIVERED' ||
+                            message.status.state === 'SENT'
                           ? '✓'
                           : message.status.state === 'FAILED'
                             ? '✗'

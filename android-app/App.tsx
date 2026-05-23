@@ -2,6 +2,7 @@ import type {
   AuthResponse,
   ChatMessage,
   MessageReactionEvent,
+  MessageStatusEvent,
   TypingEvent,
   ChatSummary,
   MobileAuthResponse,
@@ -108,6 +109,11 @@ type RealtimeTypingEnvelope = {
   receivedAt: number;
 };
 
+type RealtimeStatusEnvelope = {
+  event: MessageStatusEvent;
+  receivedAt: number;
+};
+
 async function activateSession(response: MobileAuthResponse) {
   const nextSession: ActiveSession = {
     auth: toAuthResponse(response),
@@ -138,6 +144,8 @@ function App() {
     useState<RealtimeReactionEnvelope | null>(null);
   const [latestRealtimeTyping, setLatestRealtimeTyping] =
     useState<RealtimeTypingEnvelope | null>(null);
+  const [latestRealtimeStatus, setLatestRealtimeStatus] =
+    useState<RealtimeStatusEnvelope | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [authInfo, setAuthInfo] = useState<string | null>(
@@ -177,6 +185,7 @@ function App() {
     setLatestRealtimeMessage(null);
     setLatestRealtimeReaction(null);
     setLatestRealtimeTyping(null);
+    setLatestRealtimeStatus(null);
     setAuthMode('login');
     setAuthInfo(infoMessage);
     setAuthError(null);
@@ -427,6 +436,12 @@ function App() {
       onMessage: message => {
         setLatestRealtimeMessage({
           message,
+          receivedAt: Date.now(),
+        });
+      },
+      onMessageStatus: event => {
+        setLatestRealtimeStatus({
+          event,
           receivedAt: Date.now(),
         });
       },
@@ -980,6 +995,7 @@ function App() {
           realtimeMessage={latestRealtimeMessage}
           realtimeReaction={latestRealtimeReaction}
           realtimeTyping={latestRealtimeTyping}
+          realtimeStatus={latestRealtimeStatus}
           runAuthorized={runAuthorized}
           preferences={preferences}
           onBack={handleBackToWorkspace}
