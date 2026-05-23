@@ -127,6 +127,7 @@ export function WorkspaceHomeScreen({
   const [showArchiveView, setShowArchiveView] = useState(false);
   const [chatListViewHeight, setChatListViewHeight] = useState(0);
   const [chatListReady, setChatListReady] = useState(false);
+  const chatListInitializedRef = useRef(false);
   const chatListScrollRef = useRef<ScrollView>(null);
   const [conferenceModal, setConferenceModal] = useState<'schedule' | 'start' | null>(null);
   const [confTitle, setConfTitle] = useState('');
@@ -392,7 +393,6 @@ export function WorkspaceHomeScreen({
     setSearchError(null);
     if (tab === 'chats') {
       setShowArchiveView(false);
-      setChatListReady(false);
     }
     if (tab === 'settings') {
       onRefreshWorkspace().catch(() => undefined);
@@ -440,12 +440,36 @@ export function WorkspaceHomeScreen({
       return;
     }
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      setChatListReady(false);
       setShowArchiveView(false);
       return true;
     });
     return () => sub.remove();
   }, [showArchiveView]);
+
+  // Reset chat list initialization whenever it's about to remount
+  useEffect(() => {
+    chatListInitializedRef.current = false;
+    setChatListReady(false);
+    setChatListViewHeight(0);
+  }, [activeTab, showArchiveView]);
+
+  // After height is known (minHeight is correct), scroll to hide archive row
+  useEffect(() => {
+    if (
+      activeTab !== 'chats' ||
+      showArchiveView ||
+      chatListViewHeight === 0 ||
+      chatListInitializedRef.current
+    ) {
+      return;
+    }
+    chatListInitializedRef.current = true;
+    chatListScrollRef.current?.scrollTo({y: ARCHIVE_ROW_H + 4, animated: false});
+    // Double rAF: wait for native scroll to apply before making list visible
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => setChatListReady(true)),
+    );
+  }, [chatListViewHeight, activeTab, showArchiveView]);
 
   const handleCreateGroup = () => {
     setMenuOpen(false);
@@ -995,10 +1019,7 @@ export function WorkspaceHomeScreen({
                 ]}
                 keyboardShouldPersistTaps="handled"
                 onLayout={e => {
-                  const h = e.nativeEvent.layout.height;
-                  setChatListViewHeight(h);
-                  chatListScrollRef.current?.scrollTo({y: ARCHIVE_ROW_H + 4, animated: false});
-                  setChatListReady(true);
+                  setChatListViewHeight(e.nativeEvent.layout.height);
                 }}>
                 <Pressable
                   style={styles.archiveRevealRow}
