@@ -14,6 +14,7 @@ import type {
   PendingOutgoingMessage,
   Participant,
   UserProfile,
+  UserSessionInfo,
   WorkspaceBootstrap,
   WorkspaceSearch,
 } from '@north/shared';
@@ -644,6 +645,22 @@ export function updateAvatar(token: string, avatarUrl: string | null) {
     method: 'PUT',
     token,
     body: {avatarUrl},
+  });
+}
+
+export function listSessions(token: string) {
+  return request<UserSessionInfo[]>('/api/auth/sessions', {
+    method: 'GET',
+    token,
+    timeoutMs: 10000,
+  });
+}
+
+export function revokeSession(token: string, sessionId: string) {
+  return request<void>(`/api/auth/sessions/${sessionId}`, {
+    method: 'DELETE',
+    token,
+    timeoutMs: 10000,
   });
 }
 

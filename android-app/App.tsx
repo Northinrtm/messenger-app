@@ -7,6 +7,7 @@ import type {
   MobileAuthResponse,
   PendingOutgoingMessage,
   UserProfile,
+  UserSessionInfo,
   VideoConference,
   WorkspaceBootstrap,
 } from '@north/shared';
@@ -49,12 +50,14 @@ import {
   updateProfile,
   getWorkspaceBootstrap,
   leaveChatGroup,
+  listSessions,
   login,
   logout,
   removeContact,
   refreshSession,
   resendOwnEmailVerification,
   register,
+  revokeSession,
   searchWorkspace,
   startVideoConference,
   touchConferencePresence,
@@ -63,6 +66,13 @@ import {
   updateArchivedChat,
   upsertPendingOutgoingMessage,
 } from './src/lib/api';
+import {
+  type AppPreferences,
+  type FontSize,
+  loadPreferences,
+  saveFontSize,
+  saveChatBackground,
+} from './src/lib/appPreferences';
 import {
   normalizeBootstrappedPendingOutgoingMessages,
   removeWorkspacePendingOutgoingMessages,
@@ -133,12 +143,20 @@ function App() {
   const [authInfo, setAuthInfo] = useState<string | null>(
     'Secure session restore runs through the new mobile refresh endpoint.',
   );
+  const [preferences, setPreferences] = useState<AppPreferences>({
+    fontSize: 'medium',
+    chatBackground: '#0f1720',
+  });
   const sessionRef = useRef<ActiveSession | null>(null);
   const soundPlayerRef = useRef<SoundPlayerHandle>(null);
 
   useEffect(() => {
     sessionRef.current = session;
   }, [session]);
+
+  useEffect(() => {
+    loadPreferences().then(setPreferences).catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (!latestRealtimeMessage) return;
@@ -576,19 +594,21 @@ function App() {
     }
   }, [persistRecoveredPendingOutgoingFailures, runAuthorized]);
 
-  const lastWorkspaceRefreshRef = useRef(0);
+  const lastForegroundRefreshRef = useRef(0);
   useEffect(() => {
     const sub = AppState.addEventListener('change', nextState => {
       if (nextState !== 'active') return;
       const now = Date.now();
-      if (now - lastWorkspaceRefreshRef.current < 30_000) return;
-      lastWorkspaceRefreshRef.current = now;
+      if (now - lastForegroundRefreshRef.current < 30_000) return;
+      lastForegroundRefreshRef.current = now;
       if (sessionRef.current && workspace) {
-        handleReloadWorkspace().catch(() => undefined);
+        refreshSessionState()
+          .then(() => handleReloadWorkspace())
+          .catch(() => undefined);
       }
     });
     return () => sub.remove();
-  }, [handleReloadWorkspace, workspace]);
+  }, [handleReloadWorkspace, refreshSessionState, workspace]);
 
   const handleLogout = useCallback(async () => {
     const refreshToken =
@@ -860,6 +880,28 @@ function App() {
     [runAuthorized],
   );
 
+  const handleListSessions = useCallback(
+    () => runAuthorized(token => listSessions(token)),
+    [runAuthorized],
+  );
+
+  const handleRevokeSession = useCallback(
+    async (sessionId: string) => {
+      await runAuthorized(token => revokeSession(token, sessionId));
+    },
+    [runAuthorized],
+  );
+
+  const handleSetFontSize = useCallback(async (size: FontSize) => {
+    await saveFontSize(size);
+    setPreferences(prev => ({...prev, fontSize: size}));
+  }, []);
+
+  const handleSetChatBackground = useCallback(async (color: string) => {
+    await saveChatBackground(color);
+    setPreferences(prev => ({...prev, chatBackground: color}));
+  }, []);
+
   const handleUpdateAvatar = useCallback(
     async (dataUri: string) => {
       const updatedProfile = await runAuthorized(token =>
@@ -939,6 +981,7 @@ function App() {
           realtimeReaction={latestRealtimeReaction}
           realtimeTyping={latestRealtimeTyping}
           runAuthorized={runAuthorized}
+          preferences={preferences}
           onBack={handleBackToWorkspace}
           onOpenChat={handleOpenChat}
           onChatSummaryChange={handleChatSummaryChange}
@@ -951,6 +994,7 @@ function App() {
           session={session.auth}
           workspace={workspace}
           error={workspaceError}
+          preferences={preferences}
           onLogout={handleLogout}
           onOpenChat={handleOpenChat}
           onOpenConference={handleOpenConference}
@@ -970,6 +1014,10 @@ function App() {
           onRefreshWorkspace={handleReloadWorkspace}
           onScheduleConference={handleScheduleConference}
           onStartNewConference={handleStartNewConference}
+          onListSessions={handleListSessions}
+          onRevokeSession={handleRevokeSession}
+          onSetFontSize={handleSetFontSize}
+          onSetChatBackground={handleSetChatBackground}
         />
       ) : session ? (
         <WorkspaceRecoveryScreen

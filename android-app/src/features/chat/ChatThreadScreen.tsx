@@ -106,6 +106,7 @@ type Props = {
   realtimeReaction: RealtimeReactionEnvelope | null;
   realtimeTyping: RealtimeTypingEnvelope | null;
   runAuthorized: RunAuthorized;
+  preferences?: {fontSize: 'small' | 'medium' | 'large'; chatBackground: string};
   onBack: () => void;
   onOpenChat: (chatId: string) => void;
   onChatSummaryChange: (chat: ChatSummary) => void;
@@ -130,6 +131,8 @@ type ImagePreviewState = {
   url: string;
 };
 
+const FONT_SIZE_MAP = {small: 13, medium: 15, large: 18} as const;
+
 export function ChatThreadScreen({
   session,
   chatId,
@@ -141,6 +144,7 @@ export function ChatThreadScreen({
   realtimeReaction,
   realtimeTyping,
   runAuthorized,
+  preferences,
   onBack,
   onOpenChat,
   onChatSummaryChange,
@@ -148,6 +152,8 @@ export function ChatThreadScreen({
   onPersistPendingOutgoingMessage,
   onDeletePendingOutgoingMessages,
 }: Props) {
+  const msgFontSize = FONT_SIZE_MAP[preferences?.fontSize ?? 'medium'];
+  const chatBg = preferences?.chatBackground ?? '#0f1720';
   const insets = useSafeAreaInsets();
   const [chat, setChat] = useState<ChatSummary | null>(initialChat);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -1442,8 +1448,8 @@ export function ChatThreadScreen({
   return (
     <KeyboardAvoidingView
       behavior={Platform.select({ios: 'padding', android: 'height'})}
-      style={styles.screen}>
-      <View style={styles.screen}>
+      style={[styles.screen, {backgroundColor: chatBg}]}>
+      <View style={[styles.screen, {backgroundColor: chatBg}]}>
         <View style={styles.threadBackdrop} pointerEvents="none">
           <View style={styles.threadGlowPrimary} />
           <View style={styles.threadGlowSecondary} />
@@ -1645,7 +1651,7 @@ export function ChatThreadScreen({
                 {forwardedLabel ? (
                   <Text style={styles.forwardedLabel}>{forwardedLabel}</Text>
                 ) : null}
-                <Text style={styles.messageBody}>
+                <Text style={[styles.messageBody, {fontSize: msgFontSize}]}>
                   {message.content || 'Attachment-only message'}
                 </Text>
                 {attachments.length > 0 ? (
@@ -2264,8 +2270,24 @@ function mergeLoadedMessages(
   currentMessages: ChatMessage[],
   recoveredPendingMessages: ChatMessage[],
 ) {
+  const loadedIds = new Set(loadedMessages.map(message => message.id));
+  const loadedClientMessageIds = new Set(
+    loadedMessages
+      .map(message => message.clientMessageId)
+      .filter((id): id is string => Boolean(id)),
+  );
+
+  const filteredCurrentMessages = currentMessages.filter(
+    message =>
+      !loadedIds.has(message.id) &&
+      !(
+        message.clientMessageId &&
+        loadedClientMessageIds.has(message.clientMessageId)
+      ),
+  );
+
   return syncRecoveredPendingMessages(
-    sortMessagesForDisplay([...loadedMessages, ...currentMessages]),
+    sortMessagesForDisplay([...loadedMessages, ...filteredCurrentMessages]),
     recoveredPendingMessages,
   );
 }

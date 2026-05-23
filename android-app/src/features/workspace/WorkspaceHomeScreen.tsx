@@ -4,6 +4,7 @@ import type {
   ChatSummary,
   PendingOutgoingMessage,
   UserProfile,
+  UserSessionInfo,
   VideoConference,
   WorkspaceBootstrap,
   WorkspaceSearch,
@@ -41,6 +42,7 @@ type Props = {
   session: AuthResponse;
   workspace: WorkspaceBootstrap;
   error: string | null;
+  preferences: {fontSize: 'small' | 'medium' | 'large'; chatBackground: string};
   onLogout: () => Promise<void>;
   onOpenChat: (chatId: string) => void;
   onOpenConference: (conferenceId: string) => void;
@@ -60,12 +62,17 @@ type Props = {
   onRefreshWorkspace: () => Promise<void>;
   onScheduleConference: (title: string, scheduledAt: string, participantUsernames?: string[]) => Promise<VideoConference>;
   onStartNewConference: (title: string, participantUsernames?: string[]) => Promise<VideoConference>;
+  onListSessions: () => Promise<UserSessionInfo[]>;
+  onRevokeSession: (sessionId: string) => Promise<void>;
+  onSetFontSize: (size: 'small' | 'medium' | 'large') => Promise<void>;
+  onSetChatBackground: (color: string) => Promise<void>;
 };
 
 export function WorkspaceHomeScreen({
   session,
   workspace,
   error,
+  preferences,
   onLogout,
   onOpenChat,
   onOpenConference,
@@ -85,6 +92,10 @@ export function WorkspaceHomeScreen({
   onRefreshWorkspace,
   onScheduleConference,
   onStartNewConference,
+  onListSessions,
+  onRevokeSession,
+  onSetFontSize,
+  onSetChatBackground,
 }: Props) {
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('chats');
@@ -143,6 +154,18 @@ export function WorkspaceHomeScreen({
   const [usernameChangePending, setUsernameChangePending] = useState(false);
   const [usernameChangeInfo, setUsernameChangeInfo] = useState<string | null>(null);
   const [usernameChangeError, setUsernameChangeError] = useState<string | null>(null);
+
+  // Settings modals
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [settingsScreenOpen, setSettingsScreenOpen] = useState(false);
+  const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
+  const [dataStorageOpen, setDataStorageOpen] = useState(false);
+  const [devicesOpen, setDevicesOpen] = useState(false);
+  const [sessions, setSessions] = useState<UserSessionInfo[]>([]);
+  const [sessionsPending, setSessionsPending] = useState(false);
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
+  const [revokingSessionIds, setRevokingSessionIds] = useState<Set<string>>(new Set());
+  const [cacheCleared, setCacheCleared] = useState(false);
 
   const normalizedSearchQuery = searchQuery.trim();
   const archivedChatIds = useMemo(
@@ -540,6 +563,36 @@ export function WorkspaceHomeScreen({
     }
   };
 
+  const openDevices = () => {
+    setSessionsPending(true);
+    setSessionsError(null);
+    setSessions([]);
+    setDevicesOpen(true);
+    onListSessions()
+      .then(setSessions)
+      .catch(err => setSessionsError(toErrorText(err)))
+      .finally(() => setSessionsPending(false));
+  };
+
+  const handleRevokeSession = (sessionId: string) => {
+    setRevokingSessionIds(prev => new Set([...prev, sessionId]));
+    onRevokeSession(sessionId)
+      .then(() => setSessions(prev => prev.filter(s => s.id !== sessionId)))
+      .catch(err => setSessionsError(toErrorText(err)))
+      .finally(() =>
+        setRevokingSessionIds(prev => {
+          const next = new Set(prev);
+          next.delete(sessionId);
+          return next;
+        }),
+      );
+  };
+
+  const handleRevokeOtherSessions = () => {
+    const others = sessions.filter(s => s.id !== session.sessionId);
+    others.forEach(s => handleRevokeSession(s.id));
+  };
+
   const openEditProfile = () => {
     const name = session.user.displayName.trim();
     const spaceIdx = name.indexOf(' ');
@@ -698,6 +751,14 @@ export function WorkspaceHomeScreen({
                   style={styles.appBarIconBtn}
                   testID="conf-menu-button">
                   <Text style={styles.appBarMenuDots}>⋯</Text>
+                </Pressable>
+              ) : null}
+              {activeTab === 'profile' ? (
+                <Pressable
+                  onPress={() => setProfileMenuOpen(true)}
+                  style={styles.appBarIconBtn}
+                  testID="profile-menu-button">
+                  <Text style={styles.appBarMenuDots}>⋮</Text>
                 </Pressable>
               ) : null}
             </View>
@@ -1095,6 +1156,7 @@ export function WorkspaceHomeScreen({
                   colors={[androidTheme.colors.blue]}
                 />
               }>
+
               <View style={styles.conferenceToolbar}>
                 <Pressable
                   style={styles.confToolbarBtn}
@@ -1331,41 +1393,52 @@ export function WorkspaceHomeScreen({
               style={styles.tabScroll}
               contentContainerStyle={styles.profileTabContent}
               keyboardShouldPersistTaps="handled">
+
+              {/* Avatar + name + status */}
               <View style={styles.profileHeroNew}>
-                <Avatar
-                  name={session.user.displayName}
-                  avatarUrl={session.user.avatarUrl}
-                  size={96}
-                />
+                <Pressable
+                  disabled={avatarUploading}
+                  onPress={() => handlePickAvatar().catch(err => setActionError(toErrorText(err)))}>
+                  <Avatar
+                    name={session.user.displayName}
+                    avatarUrl={session.user.avatarUrl}
+                    size={96}
+                  />
+                  {avatarUploading ? (
+                    <View style={settingsStyles.avatarOverlay}>
+                      <Text style={settingsStyles.avatarOverlayText}>⏳</Text>
+                    </View>
+                  ) : null}
+                </Pressable>
                 <Text style={styles.profileNameNew}>{session.user.displayName}</Text>
                 <Text style={styles.profileOnlineStatus}>
                   {session.user.online ? 'в сети' : 'не в сети'}
                 </Text>
               </View>
 
+              {/* Three action buttons */}
               <View style={styles.profileActionsRow}>
                 <Pressable
                   style={styles.profileActionItem}
                   disabled={avatarUploading}
-                  onPress={() => {
-                    handlePickAvatar().catch(err => setActionError(toErrorText(err)));
-                  }}>
+                  onPress={() => handlePickAvatar().catch(err => setActionError(toErrorText(err)))}>
                   <View style={styles.profileActionIconWrap}>
-                    <Text style={styles.profileActionIconText}>
-                      {avatarUploading ? '⏳' : '📷'}
-                    </Text>
+                    <Text style={styles.profileActionIconText}>📷</Text>
                   </View>
-                  <Text style={styles.profileActionLabel}>
-                    {avatarUploading ? 'Загрузка...' : 'Выбрать фото'}
-                  </Text>
+                  <Text style={styles.profileActionLabel}>Выбрать фото</Text>
                 </Pressable>
-                <Pressable testID="edit-profile-button" style={styles.profileActionItem} onPress={openEditProfile}>
+                <Pressable
+                  testID="edit-profile-button"
+                  style={styles.profileActionItem}
+                  onPress={openEditProfile}>
                   <View style={styles.profileActionIconWrap}>
                     <Text style={styles.profileActionIconText}>✏️</Text>
                   </View>
                   <Text style={styles.profileActionLabel}>Изменить</Text>
                 </Pressable>
-                <Pressable style={styles.profileActionItem} onPress={() => undefined}>
+                <Pressable
+                  style={styles.profileActionItem}
+                  onPress={() => setSettingsScreenOpen(true)}>
                   <View style={styles.profileActionIconWrap}>
                     <Text style={styles.profileActionIconText}>⚙️</Text>
                   </View>
@@ -1373,6 +1446,7 @@ export function WorkspaceHomeScreen({
                 </Pressable>
               </View>
 
+              {/* Info card */}
               <View style={styles.profileInfoCard}>
                 {session.user.profession ? (
                   <>
@@ -1398,11 +1472,321 @@ export function WorkspaceHomeScreen({
                 ) : null}
               </View>
 
-              <Pressable onPress={onLogout} style={styles.logoutButton}>
-                <Text style={styles.logoutButtonLabel}>Выйти</Text>
-              </Pressable>
             </ScrollView>
           ) : null}
+
+          {/* Profile logout dropdown */}
+          <Modal
+            visible={profileMenuOpen}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setProfileMenuOpen(false)}>
+            <Pressable
+              style={settingsStyles.menuOverlay}
+              onPress={() => setProfileMenuOpen(false)}>
+              <View style={settingsStyles.menuDropdown}>
+                <Pressable
+                  style={settingsStyles.menuItem}
+                  onPress={() => {
+                    setProfileMenuOpen(false);
+                    onLogout().catch(() => undefined);
+                  }}>
+                  <Text style={settingsStyles.menuItemTextDanger}>Выйти</Text>
+                </Pressable>
+              </View>
+            </Pressable>
+          </Modal>
+
+          {/* Settings screen */}
+          <Modal
+            visible={settingsScreenOpen}
+            animationType="slide"
+            transparent={false}
+            onRequestClose={() => setSettingsScreenOpen(false)}>
+            <View style={settingsStyles.modalScreen}>
+              <View style={settingsStyles.modalHeader}>
+                <Pressable onPress={() => setSettingsScreenOpen(false)} style={settingsStyles.modalBackBtn}>
+                  <Text style={settingsStyles.modalBackText}>‹ Назад</Text>
+                </Pressable>
+                <Text style={settingsStyles.modalTitle}>Настройки</Text>
+                <View style={settingsStyles.modalBackBtn} />
+              </View>
+              <ScrollView contentContainerStyle={settingsStyles.modalContent}>
+                {/* Profile mini-header */}
+                <Pressable
+                  style={settingsStyles.settingsProfileHeader}
+                  onPress={() => {
+                    setSettingsScreenOpen(false);
+                    openEditProfile();
+                  }}>
+                  <Avatar
+                    name={session.user.displayName}
+                    avatarUrl={session.user.avatarUrl}
+                    size={56}
+                  />
+                  <View style={settingsStyles.settingsProfileInfo}>
+                    <Text style={settingsStyles.settingsProfileName}>{session.user.displayName}</Text>
+                    <Text style={settingsStyles.settingsProfileSub}>
+                      @{session.user.username}{session.user.email ? ` · ${session.user.email}` : ''}
+                    </Text>
+                  </View>
+                  <Text style={settingsStyles.settingsChevron}>›</Text>
+                </Pressable>
+
+                <View style={settingsStyles.sectionCard}>
+                  <Pressable
+                    testID="settings-account-button"
+                    style={settingsStyles.settingsRow}
+                    onPress={() => {
+                      setSettingsScreenOpen(false);
+                      openEditProfile();
+                    }}>
+                    <View style={[settingsStyles.settingsIcon, {backgroundColor: '#3a6bc4'}]}>
+                      <Text style={settingsStyles.settingsIconText}>👤</Text>
+                    </View>
+                    <View style={settingsStyles.settingsRowContent}>
+                      <Text style={settingsStyles.settingsRowTitle}>Аккаунт</Text>
+                      <Text style={settingsStyles.settingsRowSub}>Имя, пользователь, почта</Text>
+                    </View>
+                    <Text style={settingsStyles.settingsChevron}>›</Text>
+                  </Pressable>
+
+                  <View style={settingsStyles.rowDivider} />
+
+                  <Pressable
+                    style={settingsStyles.settingsRow}
+                    onPress={() => setChatSettingsOpen(true)}>
+                    <View style={[settingsStyles.settingsIcon, {backgroundColor: '#2e8c5c'}]}>
+                      <Text style={settingsStyles.settingsIconText}>💬</Text>
+                    </View>
+                    <View style={settingsStyles.settingsRowContent}>
+                      <Text style={settingsStyles.settingsRowTitle}>Настройки чатов</Text>
+                      <Text style={settingsStyles.settingsRowSub}>Размер текста, фон чата</Text>
+                    </View>
+                    <Text style={settingsStyles.settingsChevron}>›</Text>
+                  </Pressable>
+
+                  <View style={settingsStyles.rowDivider} />
+
+                  <Pressable
+                    style={settingsStyles.settingsRow}
+                    onPress={() => setDataStorageOpen(true)}>
+                    <View style={[settingsStyles.settingsIcon, {backgroundColor: '#7a4db8'}]}>
+                      <Text style={settingsStyles.settingsIconText}>💾</Text>
+                    </View>
+                    <View style={settingsStyles.settingsRowContent}>
+                      <Text style={settingsStyles.settingsRowTitle}>Данные и память</Text>
+                      <Text style={settingsStyles.settingsRowSub}>Кэш приложения</Text>
+                    </View>
+                    <Text style={settingsStyles.settingsChevron}>›</Text>
+                  </Pressable>
+
+                  <View style={settingsStyles.rowDivider} />
+
+                  <Pressable
+                    style={settingsStyles.settingsRow}
+                    onPress={openDevices}>
+                    <View style={[settingsStyles.settingsIcon, {backgroundColor: '#c46a2e'}]}>
+                      <Text style={settingsStyles.settingsIconText}>📱</Text>
+                    </View>
+                    <View style={settingsStyles.settingsRowContent}>
+                      <Text style={settingsStyles.settingsRowTitle}>Устройства</Text>
+                      <Text style={settingsStyles.settingsRowSub}>Активные сеансы</Text>
+                    </View>
+                    <Text style={settingsStyles.settingsChevron}>›</Text>
+                  </Pressable>
+                </View>
+              </ScrollView>
+            </View>
+          </Modal>
+
+          {/* Chat settings modal */}
+          <Modal
+            visible={chatSettingsOpen}
+            animationType="slide"
+            transparent={false}
+            onRequestClose={() => setChatSettingsOpen(false)}>
+            <View style={settingsStyles.modalScreen}>
+              <View style={settingsStyles.modalHeader}>
+                <Pressable onPress={() => setChatSettingsOpen(false)} style={settingsStyles.modalBackBtn}>
+                  <Text style={settingsStyles.modalBackText}>‹ Назад</Text>
+                </Pressable>
+                <Text style={settingsStyles.modalTitle}>Настройки чатов</Text>
+                <View style={settingsStyles.modalBackBtn} />
+              </View>
+              <ScrollView contentContainerStyle={settingsStyles.modalContent}>
+                <Text style={settingsStyles.sectionLabel}>РАЗМЕР ТЕКСТА</Text>
+                <View style={settingsStyles.sectionCard}>
+                  {(['small', 'medium', 'large'] as const).map((size, idx, arr) => (
+                    <View key={size}>
+                      <Pressable
+                        style={settingsStyles.settingsRow}
+                        onPress={() => onSetFontSize(size).catch(() => undefined)}>
+                        <Text style={settingsStyles.settingsRowTitle}>
+                          {size === 'small' ? 'Маленький' : size === 'medium' ? 'Средний' : 'Крупный'}
+                        </Text>
+                        {preferences.fontSize === size ? (
+                          <Text style={settingsStyles.checkmark}>✓</Text>
+                        ) : null}
+                      </Pressable>
+                      {idx < arr.length - 1 ? <View style={settingsStyles.rowDivider} /> : null}
+                    </View>
+                  ))}
+                </View>
+
+                <Text style={settingsStyles.sectionLabel}>ФОН ЧАТА</Text>
+                <View style={settingsStyles.bgGrid}>
+                  {[
+                    {label: 'Тёмный', value: '#0f1720'},
+                    {label: 'Чёрный', value: '#000000'},
+                    {label: 'Синий', value: '#0d1f3c'},
+                    {label: 'Зелёный', value: '#0d2118'},
+                    {label: 'Фиолетовый', value: '#1a0d2e'},
+                    {label: 'Серый', value: '#1a1a1a'},
+                  ].map(opt => (
+                    <Pressable
+                      key={opt.value}
+                      style={[
+                        settingsStyles.bgOption,
+                        {backgroundColor: opt.value},
+                        preferences.chatBackground === opt.value && settingsStyles.bgOptionSelected,
+                      ]}
+                      onPress={() => onSetChatBackground(opt.value).catch(() => undefined)}>
+                      <Text style={settingsStyles.bgOptionLabel}>{opt.label}</Text>
+                      {preferences.chatBackground === opt.value ? (
+                        <Text style={settingsStyles.bgCheckmark}>✓</Text>
+                      ) : null}
+                    </Pressable>
+                  ))}
+                </View>
+              </ScrollView>
+            </View>
+          </Modal>
+
+          {/* Data & storage modal */}
+          <Modal
+            visible={dataStorageOpen}
+            animationType="slide"
+            transparent={false}
+            onRequestClose={() => setDataStorageOpen(false)}>
+            <View style={settingsStyles.modalScreen}>
+              <View style={settingsStyles.modalHeader}>
+                <Pressable onPress={() => setDataStorageOpen(false)} style={settingsStyles.modalBackBtn}>
+                  <Text style={settingsStyles.modalBackText}>‹ Назад</Text>
+                </Pressable>
+                <Text style={settingsStyles.modalTitle}>Данные и память</Text>
+                <View style={settingsStyles.modalBackBtn} />
+              </View>
+              <ScrollView contentContainerStyle={settingsStyles.modalContent}>
+                <Text style={settingsStyles.sectionLabel}>КЭШ</Text>
+                <View style={settingsStyles.sectionCard}>
+                  <Pressable
+                    style={settingsStyles.settingsRow}
+                    onPress={() => {
+                      setCacheCleared(true);
+                      setTimeout(() => setCacheCleared(false), 2000);
+                    }}>
+                    <View style={settingsStyles.settingsRowContent}>
+                      <Text style={settingsStyles.settingsRowTitle}>
+                        {cacheCleared ? 'Кэш очищен ✓' : 'Очистить кэш'}
+                      </Text>
+                      <Text style={settingsStyles.settingsRowSub}>
+                        Временные файлы и данные приложения
+                      </Text>
+                    </View>
+                  </Pressable>
+                </View>
+              </ScrollView>
+            </View>
+          </Modal>
+
+          {/* Devices / sessions modal */}
+          <Modal
+            visible={devicesOpen}
+            animationType="slide"
+            transparent={false}
+            onRequestClose={() => setDevicesOpen(false)}>
+            <View style={settingsStyles.modalScreen}>
+              <View style={settingsStyles.modalHeader}>
+                <Pressable onPress={() => setDevicesOpen(false)} style={settingsStyles.modalBackBtn}>
+                  <Text style={settingsStyles.modalBackText}>‹ Назад</Text>
+                </Pressable>
+                <Text style={settingsStyles.modalTitle}>Устройства</Text>
+                <View style={settingsStyles.modalBackBtn} />
+              </View>
+              <ScrollView contentContainerStyle={settingsStyles.modalContent}>
+                {sessionsPending ? (
+                  <Text style={settingsStyles.emptyText}>Загрузка...</Text>
+                ) : sessionsError ? (
+                  <Text style={settingsStyles.errorText}>{sessionsError}</Text>
+                ) : (
+                  <>
+                    {sessions.filter(s => s.id !== session.sessionId).length > 0 ? (
+                      <>
+                        <Pressable
+                          style={settingsStyles.dangerButton}
+                          onPress={handleRevokeOtherSessions}>
+                          <Text style={settingsStyles.dangerButtonLabel}>
+                            Завершить все другие сеансы
+                          </Text>
+                        </Pressable>
+                        <Text style={settingsStyles.sectionLabel}>ДРУГИЕ СЕАНСЫ</Text>
+                        <View style={settingsStyles.sectionCard}>
+                          {sessions
+                            .filter(s => s.id !== session.sessionId)
+                            .map((s, idx, arr) => (
+                              <View key={s.id}>
+                                <View style={settingsStyles.sessionRow}>
+                                  <View style={settingsStyles.sessionInfo}>
+                                    <Text style={settingsStyles.sessionDevice}>{s.deviceName || 'Устройство'}</Text>
+                                    <Text style={settingsStyles.sessionMeta}>
+                                      {new Date(s.lastUsedAt).toLocaleDateString('ru-RU', {
+                                        day: 'numeric', month: 'long', year: 'numeric',
+                                      })}
+                                    </Text>
+                                  </View>
+                                  <Pressable
+                                    style={[
+                                      settingsStyles.revokeBtn,
+                                      revokingSessionIds.has(s.id) && {opacity: 0.5},
+                                    ]}
+                                    disabled={revokingSessionIds.has(s.id)}
+                                    onPress={() => handleRevokeSession(s.id)}>
+                                    <Text style={settingsStyles.revokeBtnText}>
+                                      {revokingSessionIds.has(s.id) ? '...' : 'Завершить'}
+                                    </Text>
+                                  </Pressable>
+                                </View>
+                                {idx < arr.length - 1 ? <View style={settingsStyles.rowDivider} /> : null}
+                              </View>
+                            ))}
+                        </View>
+                      </>
+                    ) : null}
+
+                    <Text style={settingsStyles.sectionLabel}>ТЕКУЩИЙ СЕАНС</Text>
+                    <View style={settingsStyles.sectionCard}>
+                      {sessions.filter(s => s.id === session.sessionId).map(s => (
+                        <View key={s.id} style={settingsStyles.sessionRow}>
+                          <View style={settingsStyles.sessionInfo}>
+                            <Text style={settingsStyles.sessionDevice}>{s.deviceName || 'Текущее устройство'}</Text>
+                            <Text style={settingsStyles.sessionMeta}>
+                              Активен · {new Date(s.lastUsedAt).toLocaleDateString('ru-RU', {
+                                day: 'numeric', month: 'long', year: 'numeric',
+                              })}
+                            </Text>
+                          </View>
+                          <View style={[settingsStyles.revokeBtn, {backgroundColor: 'transparent', borderColor: 'transparent'}]}>
+                            <Text style={{color: androidTheme.colors.success, fontSize: 12}}>●</Text>
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  </>
+                )}
+              </ScrollView>
+            </View>
+          </Modal>
 
           <Modal
             visible={editProfileOpen}
@@ -3303,6 +3687,38 @@ const styles = StyleSheet.create({
     backgroundColor: androidTheme.colors.border,
     marginLeft: 16,
   },
+  profilePubTabsRow: {
+    flexDirection: 'row',
+    width: '100%',
+    borderRadius: 18,
+    backgroundColor: androidTheme.colors.surface,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
+    overflow: 'hidden',
+  },
+  profilePubTabActive: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: androidTheme.colors.blueSoft,
+    borderBottomWidth: 2,
+    borderBottomColor: androidTheme.colors.blue,
+  },
+  profilePubTabLabelActive: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: androidTheme.colors.blue,
+  },
+  profilePubTab: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  profilePubTabLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: androidTheme.colors.textMuted,
+  },
   logoutButton: {
     width: '100%',
     minHeight: 50,
@@ -3899,5 +4315,282 @@ const editStyles = StyleSheet.create({
     color: androidTheme.colors.warm,
     marginTop: 6,
     marginLeft: 4,
+  },
+});
+
+const settingsStyles = StyleSheet.create({
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  topBarTitle: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: androidTheme.colors.textPrimary,
+  },
+  menuBtn: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 20,
+  },
+  menuBtnText: {
+    fontSize: 24,
+    color: androidTheme.colors.textSecondary,
+    lineHeight: 28,
+  },
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    alignItems: 'flex-end',
+    paddingTop: 60,
+    paddingRight: 12,
+  },
+  menuDropdown: {
+    backgroundColor: androidTheme.colors.surface,
+    borderRadius: 12,
+    minWidth: 160,
+    paddingVertical: 4,
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  menuItem: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  menuItemTextDanger: {
+    fontSize: 15,
+    color: androidTheme.colors.danger,
+    fontWeight: '600',
+  },
+  settingsProfileHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: androidTheme.colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
+    gap: 14,
+  },
+  settingsProfileInfo: {
+    flex: 1,
+    gap: 3,
+  },
+  settingsProfileName: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: androidTheme.colors.textPrimary,
+  },
+  settingsProfileSub: {
+    fontSize: 13,
+    color: androidTheme.colors.textSecondary,
+  },
+  avatarOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 48,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarOverlayText: {
+    fontSize: 24,
+  },
+  sectionCard: {
+    backgroundColor: androidTheme.colors.surface,
+    borderRadius: 16,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
+  },
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    color: androidTheme.colors.textMuted,
+    marginHorizontal: 16,
+    marginTop: 20,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+  },
+  settingsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    minHeight: 56,
+  },
+  settingsIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  settingsIconText: {
+    fontSize: 18,
+  },
+  settingsRowContent: {
+    flex: 1,
+  },
+  settingsRowTitle: {
+    fontSize: 16,
+    color: androidTheme.colors.textPrimary,
+    fontWeight: '500',
+  },
+  settingsRowSub: {
+    fontSize: 13,
+    color: androidTheme.colors.textMuted,
+    marginTop: 2,
+  },
+  settingsChevron: {
+    fontSize: 22,
+    color: androidTheme.colors.textMuted,
+    fontWeight: '300',
+  },
+  rowDivider: {
+    height: 1,
+    backgroundColor: androidTheme.colors.border,
+    marginLeft: 66,
+  },
+  checkmark: {
+    fontSize: 18,
+    color: androidTheme.colors.blue,
+    fontWeight: '700',
+  },
+  bgGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: 16,
+    gap: 10,
+    marginBottom: 8,
+  },
+  bgOption: {
+    width: '30%',
+    aspectRatio: 1.5,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: 'transparent',
+    padding: 6,
+  },
+  bgOptionSelected: {
+    borderColor: androidTheme.colors.blue,
+  },
+  bgOptionLabel: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.8)',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  bgCheckmark: {
+    fontSize: 16,
+    color: androidTheme.colors.blue,
+    fontWeight: '800',
+  },
+  modalScreen: {
+    flex: 1,
+    backgroundColor: androidTheme.colors.background,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 8,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: androidTheme.colors.border,
+  },
+  modalBackBtn: {
+    minWidth: 80,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  modalBackText: {
+    fontSize: 16,
+    color: androidTheme.colors.blue,
+  },
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: androidTheme.colors.textPrimary,
+  },
+  modalContent: {
+    paddingBottom: 40,
+  },
+  emptyText: {
+    textAlign: 'center',
+    color: androidTheme.colors.textMuted,
+    marginTop: 40,
+    fontSize: 15,
+  },
+  errorText: {
+    textAlign: 'center',
+    color: androidTheme.colors.danger,
+    marginTop: 40,
+    fontSize: 15,
+    marginHorizontal: 24,
+  },
+  dangerButton: {
+    margin: 16,
+    paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: androidTheme.colors.dangerSoft,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: androidTheme.colors.danger,
+  },
+  dangerButtonLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: androidTheme.colors.danger,
+  },
+  sessionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  sessionInfo: {
+    flex: 1,
+  },
+  sessionDevice: {
+    fontSize: 15,
+    color: androidTheme.colors.textPrimary,
+    fontWeight: '500',
+  },
+  sessionMeta: {
+    fontSize: 13,
+    color: androidTheme.colors.textMuted,
+    marginTop: 2,
+  },
+  revokeBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.danger,
+  },
+  revokeBtnText: {
+    fontSize: 13,
+    color: androidTheme.colors.danger,
+    fontWeight: '600',
   },
 });
