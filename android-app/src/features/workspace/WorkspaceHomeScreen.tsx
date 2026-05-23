@@ -429,7 +429,7 @@ export function WorkspaceHomeScreen({
   }, [searchQuery, searchMode]);
 
   useEffect(() => {
-    if (activeTab !== 'chats' || showArchiveView || archivedChats.length === 0) {
+    if (activeTab !== 'chats' || showArchiveView) {
       return;
     }
     const t = setTimeout(() => {
@@ -1000,28 +1000,26 @@ export function WorkspaceHomeScreen({
                 }}
                 onScrollEndDrag={(e) => {
                   const y = e.nativeEvent.contentOffset.y;
-                  if (archivedChats.length > 0) {
-                    if (y <= 10) {
-                      setShowArchiveView(true);
-                    } else if (y < ARCHIVE_ROW_H + 4) {
-                      chatListScrollRef.current?.scrollTo({y: ARCHIVE_ROW_H + 4, animated: true});
-                    }
+                  if (y <= 10) {
+                    setShowArchiveView(true);
+                  } else if (y < ARCHIVE_ROW_H + 4) {
+                    chatListScrollRef.current?.scrollTo({y: ARCHIVE_ROW_H + 4, animated: true});
                   }
                 }}>
-                {archivedChats.length > 0 ? (
-                  <Pressable
-                    style={styles.archiveRevealRow}
-                    onPress={() => setShowArchiveView(true)}>
-                    <View style={styles.archiveRevealIconWrap}>
-                      <Text style={styles.archiveRevealIconText}>📥</Text>
-                    </View>
-                    <Text style={styles.archiveRevealLabel}>
-                      {chatListScrollY <= 20
-                        ? 'Отпустите для открытия архива'
-                        : `Архив · ${archivedChats.length}`}
-                    </Text>
-                  </Pressable>
-                ) : null}
+                <Pressable
+                  style={styles.archiveRevealRow}
+                  onPress={() => setShowArchiveView(true)}>
+                  <View style={styles.archiveRevealIconWrap}>
+                    <Text style={styles.archiveRevealIconText}>📥</Text>
+                  </View>
+                  <Text style={styles.archiveRevealLabel}>
+                    {chatListScrollY <= 20
+                      ? 'Отпустите для открытия архива'
+                      : archivedChats.length > 0
+                        ? `Архив · ${archivedChats.length}`
+                        : 'Архив'}
+                  </Text>
+                </Pressable>
                 {filteredActiveChats.length === 0 ? (
                   <EmptyState label="No active chats yet." />
                 ) : (
