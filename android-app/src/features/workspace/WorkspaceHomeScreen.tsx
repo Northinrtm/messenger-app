@@ -126,6 +126,7 @@ export function WorkspaceHomeScreen({
   const [workspaceRefreshing, setWorkspaceRefreshing] = useState(false);
   const [showArchiveView, setShowArchiveView] = useState(false);
   const [chatListViewHeight, setChatListViewHeight] = useState(0);
+  const [chatListReady, setChatListReady] = useState(false);
   const chatListScrollRef = useRef<ScrollView>(null);
   const [conferenceModal, setConferenceModal] = useState<'schedule' | 'start' | null>(null);
   const [confTitle, setConfTitle] = useState('');
@@ -391,6 +392,7 @@ export function WorkspaceHomeScreen({
     setSearchError(null);
     if (tab === 'chats') {
       setShowArchiveView(false);
+      setChatListReady(false);
     }
     if (tab === 'settings') {
       onRefreshWorkspace().catch(() => undefined);
@@ -431,22 +433,14 @@ export function WorkspaceHomeScreen({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery, searchMode]);
 
-  useEffect(() => {
-    if (activeTab !== 'chats' || showArchiveView) {
-      return;
-    }
-    const t = setTimeout(() => {
-      chatListScrollRef.current?.scrollTo({y: ARCHIVE_ROW_H + 4, animated: false});
-    }, 50);
-    return () => clearTimeout(t);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, showArchiveView]);
+
 
   useEffect(() => {
     if (!showArchiveView) {
       return;
     }
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setChatListReady(false);
       setShowArchiveView(false);
       return true;
     });
@@ -994,20 +988,18 @@ export function WorkspaceHomeScreen({
             ) : (
               <ScrollView
                 ref={chatListScrollRef}
-                style={styles.tabScroll}
+                style={[styles.tabScroll, !chatListReady && {opacity: 0}]}
                 contentContainerStyle={[
                   styles.chatListContent,
                   {minHeight: chatListViewHeight + ARCHIVE_ROW_H},
                 ]}
                 keyboardShouldPersistTaps="handled"
-                scrollEventThrottle={16}
                 onLayout={e => {
                   const h = e.nativeEvent.layout.height;
                   setChatListViewHeight(h);
                   chatListScrollRef.current?.scrollTo({y: ARCHIVE_ROW_H + 4, animated: false});
-                }}
-
->
+                  setChatListReady(true);
+                }}>
                 <Pressable
                   style={styles.archiveRevealRow}
                   onPress={() => setShowArchiveView(true)}>
