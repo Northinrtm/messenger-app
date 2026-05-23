@@ -125,7 +125,6 @@ export function WorkspaceHomeScreen({
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [workspaceRefreshing, setWorkspaceRefreshing] = useState(false);
   const [showArchiveView, setShowArchiveView] = useState(false);
-  const [chatListScrollY, setChatListScrollY] = useState(ARCHIVE_ROW_H);
   const [chatListViewHeight, setChatListViewHeight] = useState(0);
   const chatListScrollRef = useRef<ScrollView>(null);
   const [conferenceModal, setConferenceModal] = useState<'schedule' | 'start' | null>(null);
@@ -1007,9 +1006,7 @@ export function WorkspaceHomeScreen({
                   setChatListViewHeight(h);
                   chatListScrollRef.current?.scrollTo({y: ARCHIVE_ROW_H + 4, animated: false});
                 }}
-                onScroll={(e) => {
-                  setChatListScrollY(e.nativeEvent.contentOffset.y);
-                }}
+
 >
                 <Pressable
                   style={styles.archiveRevealRow}
@@ -1018,11 +1015,9 @@ export function WorkspaceHomeScreen({
                     <Text style={styles.archiveRevealIconText}>📥</Text>
                   </View>
                   <Text style={styles.archiveRevealLabel}>
-                    {chatListScrollY <= 20
-                      ? 'Отпустите для открытия архива'
-                      : archivedChats.length > 0
-                        ? `Архив · ${archivedChats.length}`
-                        : 'Архив'}
+                    {archivedChats.length > 0
+                      ? `Архив · ${archivedChats.length}`
+                      : 'Архив'}
                   </Text>
                 </Pressable>
                 {filteredActiveChats.length === 0 ? (
