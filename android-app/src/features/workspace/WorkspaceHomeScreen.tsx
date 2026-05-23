@@ -1010,12 +1010,7 @@ export function WorkspaceHomeScreen({
                 onScroll={(e) => {
                   setChatListScrollY(e.nativeEvent.contentOffset.y);
                 }}
-                onScrollEndDrag={(e) => {
-                  const y = e.nativeEvent.contentOffset.y;
-                  if (y < ARCHIVE_ROW_H + 4) {
-                    chatListScrollRef.current?.scrollTo({y: ARCHIVE_ROW_H + 4, animated: true});
-                  }
-                }}>
+>
                 <Pressable
                   style={styles.archiveRevealRow}
                   onPress={() => setShowArchiveView(true)}>
