@@ -1,6 +1,7 @@
 import type {AuthResponse, VideoConference} from '@north/shared';
 import {useEffect, useMemo, useState} from 'react';
 import {
+  BackHandler,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -90,6 +91,14 @@ export function ConferenceDetailScreen({
       conference.activeParticipantUserIds.includes(session.user.id),
     );
   }, [conference.activeParticipantUserIds, session.user.id]);
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      onBack();
+      return true;
+    });
+    return () => sub.remove();
+  }, [onBack]);
 
   const runAction = async <T,>(
     action: NonNullable<typeof pendingAction>,

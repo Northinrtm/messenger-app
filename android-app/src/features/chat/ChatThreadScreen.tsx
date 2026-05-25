@@ -10,6 +10,7 @@ import type {
   Participant,
   ChatSummary,
   PendingOutgoingMessage,
+  UserProfile,
 } from '@north/shared';
 import type {Dispatch, SetStateAction} from 'react';
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
@@ -21,6 +22,7 @@ import {
   types as documentPickerTypes,
 } from '@react-native-documents/picker';
 import {
+  BackHandler,
   Image,
   KeyboardAvoidingView,
   Linking,
@@ -122,6 +124,12 @@ type Props = {
     message: PendingOutgoingMessage,
   ) => Promise<PendingOutgoingMessage>;
   onDeletePendingOutgoingMessages: (clientMessageIds: string[]) => Promise<void>;
+  contacts?: UserProfile[];
+  blockedUsers?: UserProfile[];
+  onAddContact?: (username: string) => Promise<UserProfile>;
+  onRemoveContact?: (username: string) => Promise<void>;
+  onBlockUser?: (username: string) => Promise<UserProfile>;
+  onUnblockUser?: (username: string) => Promise<void>;
 };
 
 type ComposerAttachmentDraft = {
@@ -159,6 +167,12 @@ export function ChatThreadScreen({
   onChatRead,
   onPersistPendingOutgoingMessage,
   onDeletePendingOutgoingMessages,
+  contacts = [],
+  blockedUsers = [],
+  onAddContact,
+  onRemoveContact,
+  onBlockUser,
+  onUnblockUser,
 }: Props) {
   const msgFontSize = FONT_SIZE_MAP[preferences?.fontSize ?? 'medium'];
   const chatBg = preferences?.chatBackground ?? '#0f1720';
@@ -213,6 +227,8 @@ export function ChatThreadScreen({
     forEveryone: boolean;
   } | null>(null);
   const [typingParticipants, setTypingParticipants] = useState<Participant[]>([]);
+  const [profileSheetOpen, setProfileSheetOpen] = useState(false);
+  const [profileActionPending, setProfileActionPending] = useState<'contact' | 'block' | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
   const messageScrollRef = useRef<ScrollView | null>(null);
   const handledRealtimeMessageIdsRef = useRef(new Map<string, true>());
@@ -328,6 +344,14 @@ export function ChatThreadScreen({
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      onBack();
+      return true;
+    });
+    return () => sub.remove();
+  }, [onBack]);
 
   const replaceMessages = useCallback((nextMessages: ChatMessage[]) => {
     messagesRef.current = nextMessages;
@@ -1465,6 +1489,33 @@ export function ChatThreadScreen({
   const isSelectionMode = selectedMessageIds.size > 0;
   const peerName =
     activeConversationMember?.displayName ?? chat?.title ?? 'собеседника';
+  const isContact = activeConversationMember
+    ? contacts.some(c => c.username === activeConversationMember.username)
+    : false;
+  const isBlocked = activeConversationMember
+    ? blockedUsers.some(b => b.username === activeConversationMember.username)
+    : false;
+
+  const handleProfileAddContact = async () => {
+    if (!activeConversationMember || !onAddContact) return;
+    setProfileActionPending('contact');
+    try { await onAddContact(activeConversationMember.username); } catch {} finally { setProfileActionPending(null); }
+  };
+  const handleProfileRemoveContact = async () => {
+    if (!activeConversationMember || !onRemoveContact) return;
+    setProfileActionPending('contact');
+    try { await onRemoveContact(activeConversationMember.username); } catch {} finally { setProfileActionPending(null); }
+  };
+  const handleProfileBlock = async () => {
+    if (!activeConversationMember || !onBlockUser) return;
+    setProfileActionPending('block');
+    try { await onBlockUser(activeConversationMember.username); } catch {} finally { setProfileActionPending(null); }
+  };
+  const handleProfileUnblock = async () => {
+    if (!activeConversationMember || !onUnblockUser) return;
+    setProfileActionPending('block');
+    try { await onUnblockUser(activeConversationMember.username); } catch {} finally { setProfileActionPending(null); }
+  };
 
   return (
     <KeyboardAvoidingView
@@ -1504,18 +1555,22 @@ export function ChatThreadScreen({
             <Pressable onPress={onBack} style={styles.headerButton}>
               <Text style={styles.headerButtonLabel}>{'<'}</Text>
             </Pressable>
-            <AvatarBadge
-              name={chat?.title ?? 'Chat'}
-              avatarUrl={chat?.avatarUrl ?? activeConversationMember?.avatarUrl ?? null}
-              size={44}
-              online={headerMemberOnline}
-            />
-            <View style={styles.headerCopy}>
-              <Text style={styles.headerTitle}>{chat?.title ?? 'Loading chat'}</Text>
-              {headerStatusText ? (
-                <Text style={styles.headerSubtitle}>{headerStatusText}</Text>
-              ) : null}
-            </View>
+            <Pressable
+              style={styles.headerPressable}
+              onPress={() => chat && setProfileSheetOpen(true)}>
+              <AvatarBadge
+                name={chat?.title ?? 'Chat'}
+                avatarUrl={chat?.avatarUrl ?? activeConversationMember?.avatarUrl ?? null}
+                size={44}
+                online={headerMemberOnline}
+              />
+              <View style={styles.headerCopy}>
+                <Text style={styles.headerTitle}>{chat?.title ?? 'Loading chat'}</Text>
+                {headerStatusText ? (
+                  <Text style={styles.headerSubtitle}>{headerStatusText}</Text>
+                ) : null}
+              </View>
+            </Pressable>
             <View style={styles.headerSpacer}>
               {chat?.unreadCount ? (
                 <View style={styles.headerUnreadBadge}>
@@ -2210,6 +2265,126 @@ export function ChatThreadScreen({
           </View>
         </Pressable>
       </Modal>
+
+      <Modal
+        visible={profileSheetOpen}
+        transparent={false}
+        animationType="slide"
+        onRequestClose={() => setProfileSheetOpen(false)}>
+        <View style={styles.profileScreen}>
+          {/* Шапка с кнопкой назад */}
+          <View style={styles.profileTopBar}>
+            <Pressable
+              style={styles.profileBackBtn}
+              onPress={() => setProfileSheetOpen(false)}>
+              <Text style={styles.profileBackLabel}>{'<'}</Text>
+            </Pressable>
+          </View>
+
+          {/* Герой: аватар на тёмном фоне */}
+          <View style={styles.profileHero}>
+            <AvatarBadge
+              name={chat?.title ?? '?'}
+              avatarUrl={chat?.avatarUrl ?? activeConversationMember?.avatarUrl ?? null}
+              size={112}
+              online={headerMemberOnline}
+            />
+            <Text style={styles.profileHeroName}>{chat?.title ?? ''}</Text>
+            <Text style={styles.profileHeroStatus}>
+              {activeConversationMember
+                ? activeConversationMember.online
+                  ? 'В сети'
+                  : 'был(а) недавно'
+                : `${chat?.members.length ?? 0} участников`}
+            </Text>
+          </View>
+
+          {/* Кнопки действий */}
+          <View style={styles.profileActions}>
+            <Pressable
+              style={styles.profileActionBtn}
+              onPress={() => setProfileSheetOpen(false)}>
+              <Text style={styles.profileActionIcon}>💬</Text>
+              <Text style={styles.profileActionLabel}>Чат</Text>
+            </Pressable>
+            {(onAddContact || onRemoveContact) ? (
+              <Pressable
+                style={styles.profileActionBtn}
+                disabled={profileActionPending === 'contact'}
+                onPress={isContact ? handleProfileRemoveContact : handleProfileAddContact}>
+                <Text style={styles.profileActionIcon}>
+                  {profileActionPending === 'contact' ? '⏳' : isContact ? '✓' : '👤'}
+                </Text>
+                <Text style={styles.profileActionLabel}>
+                  {profileActionPending === 'contact'
+                    ? '...'
+                    : isContact
+                      ? 'Контакт'
+                      : 'Добавить'}
+                </Text>
+              </Pressable>
+            ) : null}
+            {(onBlockUser || onUnblockUser) ? (
+              <Pressable
+                style={[
+                  styles.profileActionBtn,
+                  isBlocked ? styles.profileActionBtnDanger : null,
+                ]}
+                disabled={profileActionPending === 'block'}
+                onPress={isBlocked ? handleProfileUnblock : handleProfileBlock}>
+                <Text style={styles.profileActionIcon}>
+                  {profileActionPending === 'block' ? '⏳' : isBlocked ? '🔓' : '🚫'}
+                </Text>
+                <Text
+                  style={[
+                    styles.profileActionLabel,
+                    isBlocked ? styles.profileActionLabelDanger : null,
+                  ]}>
+                  {profileActionPending === 'block'
+                    ? '...'
+                    : isBlocked
+                      ? 'Разблок.'
+                      : 'Блок.'}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+
+          {/* Информационная карточка */}
+          <View style={styles.profileInfoCard}>
+            {activeConversationMember ? (
+              <View style={styles.profileInfoRow}>
+                <Text style={styles.profileInfoValue}>
+                  @{activeConversationMember.username}
+                </Text>
+                <Text style={styles.profileInfoLabel}>Имя пользователя</Text>
+              </View>
+            ) : null}
+            {activeConversationMember?.profession?.trim() ? (
+              <>
+                <View style={styles.profileInfoDivider} />
+                <View style={styles.profileInfoRow}>
+                  <Text style={styles.profileInfoValue}>
+                    {activeConversationMember.profession}
+                  </Text>
+                  <Text style={styles.profileInfoLabel}>О себе</Text>
+                </View>
+              </>
+            ) : null}
+            {!chat?.direct && chat ? (
+              <>
+                {activeConversationMember ? <View style={styles.profileInfoDivider} /> : null}
+                <View style={styles.profileInfoRow}>
+                  <Text style={styles.profileInfoValue}>
+                    {chat.members.length} участников
+                  </Text>
+                  <Text style={styles.profileInfoLabel}>Участники группы</Text>
+                </View>
+              </>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
       </View>
     </KeyboardAvoidingView>
   );
@@ -2845,6 +3020,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(18, 29, 40, 0.92)',
     borderBottomWidth: 1,
     borderBottomColor: androidTheme.colors.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  headerPressable: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
@@ -3743,5 +3924,117 @@ const styles = StyleSheet.create({
     color: androidTheme.colors.textInverse,
     fontSize: 12,
     fontWeight: '800',
+  },
+  profileScreen: {
+    flex: 1,
+    backgroundColor: androidTheme.colors.background,
+  },
+  profileTopBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingTop: 10,
+    paddingBottom: 8,
+  },
+  profileBackBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  profileBackLabel: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  profileHero: {
+    alignItems: 'center',
+    paddingTop: 70,
+    paddingBottom: 28,
+    paddingHorizontal: 24,
+    backgroundColor: androidTheme.colors.backgroundElevated,
+    borderBottomWidth: 1,
+    borderBottomColor: androidTheme.colors.border,
+    gap: 8,
+  },
+  profileHeroName: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: androidTheme.colors.textPrimary,
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  profileHeroStatus: {
+    fontSize: 14,
+    color: androidTheme.colors.textSecondary,
+    textAlign: 'center',
+  },
+  profileActions: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 12,
+    paddingVertical: 20,
+    paddingHorizontal: 24,
+    backgroundColor: androidTheme.colors.backgroundElevated,
+    borderBottomWidth: 1,
+    borderBottomColor: androidTheme.colors.border,
+  },
+  profileActionBtn: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: androidTheme.colors.surfaceAlt,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    maxWidth: 110,
+  },
+  profileActionBtnDanger: {
+    backgroundColor: androidTheme.colors.dangerSoft,
+  },
+  profileActionIcon: {
+    fontSize: 24,
+  },
+  profileActionLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: androidTheme.colors.textSecondary,
+    textAlign: 'center',
+  },
+  profileActionLabelDanger: {
+    color: androidTheme.colors.danger,
+  },
+  profileInfoCard: {
+    marginTop: 12,
+    marginHorizontal: 12,
+    backgroundColor: androidTheme.colors.surface,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  profileInfoRow: {
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    gap: 3,
+  },
+  profileInfoValue: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: androidTheme.colors.textPrimary,
+  },
+  profileInfoLabel: {
+    fontSize: 13,
+    color: androidTheme.colors.textMuted,
+  },
+  profileInfoDivider: {
+    height: 1,
+    backgroundColor: androidTheme.colors.border,
+    marginLeft: 18,
   },
 });

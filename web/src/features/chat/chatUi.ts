@@ -21,6 +21,7 @@ export type MenuActionId =
   | "group"
   | "contacts"
   | "sessions"
+  | "download-apk"
   | "logout";
 
 export type MenuAction = {
@@ -37,6 +38,7 @@ export const MENU_ACTIONS: MenuAction[] = [
   { id: "conference", label: "\u0412\u0438\u0434\u0435\u043E\u043A\u043E\u043D\u0444\u0435\u0440\u0435\u043D\u0446\u0438\u0438", symbol: "VC" },
   { id: "contacts", label: "\u041A\u043E\u043D\u0442\u0430\u043A\u0442\u044B", symbol: "CT" },
   { id: "sessions", label: "\u0410\u043A\u0442\u0438\u0432\u043D\u044B\u0435 \u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u0430", symbol: "DV" },
+  { id: "download-apk", label: "\u0421\u043A\u0430\u0447\u0430\u0442\u044C Android \u043F\u0440\u0438\u043B\u043E\u0436\u0435\u043D\u0438\u0435", symbol: "AN" },
   { id: "logout", label: "\u0412\u044B\u0439\u0442\u0438", symbol: "EX" },
 ];
 

@@ -9,7 +9,7 @@ import type {
   WorkspaceBootstrap,
   WorkspaceSearch,
 } from '@north/shared';
-import type {ReactNode} from 'react';
+import type {ReactNode, RefObject} from 'react';
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {launchImageLibrary} from 'react-native-image-picker';
 import {
@@ -114,6 +114,48 @@ export function WorkspaceHomeScreen({
   const [searchMode, setSearchMode] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const chatListScrollRef = useRef<ScrollView>(null);
+  const archiveRowTranslateX = useRef(new Animated.Value(0)).current;
+  const archiveRowDismissRef = useRef<{
+    translateX: Animated.Value;
+    scrollRef: RefObject<ScrollView | null>;
+  } | null>(null);
+  archiveRowDismissRef.current = {translateX: archiveRowTranslateX, scrollRef: chatListScrollRef};
+  const archiveRowPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, {dx, dy}) =>
+        dx < -8 && Math.abs(dx) > Math.abs(dy) * 1.8,
+      onPanResponderMove: (_, {dx}) => {
+        if (dx < 0) {
+          archiveRowDismissRef.current?.translateX.setValue(Math.max(dx, -220));
+        }
+      },
+      onPanResponderRelease: (_, {dx, vx}) => {
+        const ctx = archiveRowDismissRef.current;
+        if (!ctx) {return;}
+        const pastThreshold = dx < -80 || (dx < -40 && vx < -0.6);
+        if (pastThreshold) {
+          Animated.timing(ctx.translateX, {
+            toValue: -500,
+            duration: 200,
+            useNativeDriver: true,
+          }).start(() => {
+            ctx.translateX.setValue(0);
+            ctx.scrollRef.current?.scrollTo({y: ARCHIVE_ROW_H + 4, animated: true});
+          });
+        } else {
+          Animated.spring(ctx.translateX, {toValue: 0, useNativeDriver: true}).start();
+        }
+      },
+      onPanResponderTerminate: () => {
+        archiveRowDismissRef.current?.translateX.setValue(0);
+        if (archiveRowDismissRef.current) {
+          Animated.spring(archiveRowDismissRef.current.translateX, {toValue: 0, useNativeDriver: true}).start();
+        }
+      },
+    }),
+  ).current;
   const [selectedChatIds, setSelectedChatIds] = useState<Set<string>>(
     new Set(),
   );
@@ -125,10 +167,7 @@ export function WorkspaceHomeScreen({
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [workspaceRefreshing, setWorkspaceRefreshing] = useState(false);
   const [showArchiveView, setShowArchiveView] = useState(false);
-  const [chatListViewHeight, setChatListViewHeight] = useState(0);
-  const [chatListReady, setChatListReady] = useState(false);
-  const chatListInitializedRef = useRef(false);
-  const chatListScrollRef = useRef<ScrollView>(null);
+  const [chatListViewHeight, setChatListViewHeight] = useState(2000);
   const [conferenceModal, setConferenceModal] = useState<'schedule' | 'start' | null>(null);
   const [confTitle, setConfTitle] = useState('');
   const [confDate, setConfDate] = useState('');
@@ -445,31 +484,6 @@ export function WorkspaceHomeScreen({
     });
     return () => sub.remove();
   }, [showArchiveView]);
-
-  // Reset chat list initialization whenever it's about to remount
-  useEffect(() => {
-    chatListInitializedRef.current = false;
-    setChatListReady(false);
-    setChatListViewHeight(0);
-  }, [activeTab, showArchiveView]);
-
-  // After height is known (minHeight is correct), scroll to hide archive row
-  useEffect(() => {
-    if (
-      activeTab !== 'chats' ||
-      showArchiveView ||
-      chatListViewHeight === 0 ||
-      chatListInitializedRef.current
-    ) {
-      return;
-    }
-    chatListInitializedRef.current = true;
-    chatListScrollRef.current?.scrollTo({y: ARCHIVE_ROW_H + 4, animated: false});
-    // Double rAF: wait for native scroll to apply before making list visible
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => setChatListReady(true)),
-    );
-  }, [chatListViewHeight, activeTab, showArchiveView]);
 
   const handleCreateGroup = () => {
     setMenuOpen(false);
@@ -1012,7 +1026,8 @@ export function WorkspaceHomeScreen({
             ) : (
               <ScrollView
                 ref={chatListScrollRef}
-                style={[styles.tabScroll, !chatListReady && {opacity: 0}]}
+                style={styles.tabScroll}
+                contentOffset={{x: 0, y: ARCHIVE_ROW_H + 4}}
                 contentContainerStyle={[
                   styles.chatListContent,
                   {minHeight: chatListViewHeight + ARCHIVE_ROW_H},
@@ -1021,18 +1036,37 @@ export function WorkspaceHomeScreen({
                 onLayout={e => {
                   setChatListViewHeight(e.nativeEvent.layout.height);
                 }}>
-                <Pressable
-                  style={styles.archiveRevealRow}
-                  onPress={() => setShowArchiveView(true)}>
-                  <View style={styles.archiveRevealIconWrap}>
-                    <Text style={styles.archiveRevealIconText}>📥</Text>
-                  </View>
-                  <Text style={styles.archiveRevealLabel}>
-                    {archivedChats.length > 0
-                      ? `Архив · ${archivedChats.length}`
-                      : 'Архив'}
-                  </Text>
-                </Pressable>
+                <View style={styles.swipeContainer}>
+                  <Animated.View
+                    style={[
+                      styles.archiveRowDismissBg,
+                      {
+                        opacity: archiveRowTranslateX.interpolate({
+                          inputRange: [-220, -20, 0],
+                          outputRange: [1, 0.4, 0],
+                          extrapolate: 'clamp',
+                        }),
+                      },
+                    ]}>
+                    <Text style={styles.archiveRowDismissIcon}>✕</Text>
+                  </Animated.View>
+                  <Animated.View
+                    style={{transform: [{translateX: archiveRowTranslateX}]}}
+                    {...archiveRowPanResponder.panHandlers}>
+                    <Pressable
+                      style={styles.archiveRevealRow}
+                      onPress={() => setShowArchiveView(true)}>
+                      <View style={styles.archiveRevealIconWrap}>
+                        <Text style={styles.archiveRevealIconText}>📥</Text>
+                      </View>
+                      <Text style={styles.archiveRevealLabel}>
+                        {archivedChats.length > 0
+                          ? `Архив · ${archivedChats.length}`
+                          : 'Архив'}
+                      </Text>
+                    </Pressable>
+                  </Animated.View>
+                </View>
                 {filteredActiveChats.length === 0 ? (
                   <EmptyState label="No active chats yet." />
                 ) : (
@@ -3855,6 +3889,22 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 0.3,
+  },
+  archiveRowDismissBg: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 4,
+    width: 64,
+    borderRadius: 16,
+    backgroundColor: androidTheme.colors.surfaceMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  archiveRowDismissIcon: {
+    fontSize: 18,
+    color: androidTheme.colors.textSecondary,
+    fontWeight: '600',
   },
   archiveRevealRow: {
     height: ARCHIVE_ROW_H,

@@ -272,7 +272,7 @@ export function NorthMessengerWorkspace({
   const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
   const [mobilePane, setMobilePane] = useState<MobilePane>(initialNavigationState.mobilePane);
   const [hasExplicitlyOpenedActiveChatThisSession, setHasExplicitlyOpenedActiveChatThisSession] =
-    useState(false);
+    useState(() => Boolean(initialNavigationState.activeChatId));
   const [isConferenceInfoOpen, setIsConferenceInfoOpen] = useState(false);
   const [conferenceRecordingState, setConferenceRecordingState] =
     useState<ConferenceRecordingState>("idle");

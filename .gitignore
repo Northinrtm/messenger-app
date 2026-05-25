@@ -1,3 +1,4 @@
+CLAUDE.md
 .idea/
 .vscode/
 .settings/
@@ -30,3 +31,4 @@ docs/test/
 .claude/
 android-app/*.xml
 android-app/*.png
+web/public/downloads/*.apk

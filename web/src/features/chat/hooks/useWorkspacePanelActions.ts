@@ -189,6 +189,13 @@ export function useWorkspacePanelActions({
       case "sessions":
         openSidebarSheet("sessions");
         return;
+      case "download-apk": {
+        const a = document.createElement("a");
+        a.href = "/downloads/north-messenger.apk";
+        a.download = "north-messenger.apk";
+        a.click();
+        return;
+      }
       case "logout":
         setIsMenuOpen(false);
         signOut();

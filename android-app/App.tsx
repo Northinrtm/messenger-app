@@ -1004,6 +1004,12 @@ function App() {
           onChatRead={handleChatRead}
           onPersistPendingOutgoingMessage={persistPendingOutgoingMessage}
           onDeletePendingOutgoingMessages={deletePendingOutgoingMessages}
+          contacts={workspace.contacts}
+          blockedUsers={workspace.blockedUsers}
+          onAddContact={handleAddContact}
+          onRemoveContact={handleRemoveContact}
+          onBlockUser={handleBlockUser}
+          onUnblockUser={handleUnblockUser}
         />
       ) : session && workspace ? (
         <WorkspaceHomeScreen
