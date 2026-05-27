@@ -78,47 +78,79 @@ function buildRequestUrl(path: string, query?: Record<string, QueryValue>) {
   return url.toString();
 }
 
+// Delays between retry attempts (ms). Max 3 retries total.
+const RETRY_DELAYS_MS = [700, 1500, 3000] as const;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => {
-    controller.abort();
-  }, options.timeoutMs ?? 10000);
+  // Caller-timed requests express urgency — not retried.
+  const shouldRetry = !options.timeoutMs;
+  const maxAttempts = shouldRetry ? RETRY_DELAYS_MS.length + 1 : 1;
 
-  let response: Response;
-  try {
-    response = await fetch(buildRequestUrl(path, options.query), {
-      method: options.method ?? 'GET',
-      signal: controller.signal,
-      headers: {
-        Accept: 'application/json',
-        ...(options.body !== undefined ? {'Content-Type': 'application/json'} : {}),
-        ...(options.token ? {Authorization: `Bearer ${options.token}`} : {}),
-      },
-      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-    });
-  } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new ApiError('Request timed out', 0);
+  let lastError: ApiError | undefined;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (attempt > 0) {
+      await sleep(RETRY_DELAYS_MS[attempt - 1] ?? 3000);
     }
-    throw new ApiError('Cannot reach backend. Check API URL and device connectivity.', 0);
-  } finally {
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, options.timeoutMs ?? 10000);
+
+    let response: Response;
+    try {
+      response = await fetch(buildRequestUrl(path, options.query), {
+        method: options.method ?? 'GET',
+        signal: controller.signal,
+        headers: {
+          Accept: 'application/json',
+          ...(options.body !== undefined ? {'Content-Type': 'application/json'} : {}),
+          ...(options.token ? {Authorization: `Bearer ${options.token}`} : {}),
+        },
+        body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      });
+    } catch (error) {
+      clearTimeout(timeoutId);
+      const isTimeout = error instanceof Error && error.name === 'AbortError';
+      if (isTimeout) {
+        // Explicit timeout — do not retry.
+        throw new ApiError('Request timed out', 0);
+      }
+      // Pure network error — retry.
+      lastError = new ApiError('Cannot reach backend. Check API URL and device connectivity.', 0);
+      if (attempt < maxAttempts - 1) continue;
+      throw lastError;
+    }
+
     clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      // 503 Service Unavailable: server temporarily overloaded — retry.
+      if (response.status === 503 && attempt < maxAttempts - 1) {
+        lastError = new ApiError('Service temporarily unavailable', 503);
+        continue;
+      }
+      throw await parseApiError(response);
+    }
+
+    if (response.status === 204 || response.status === 205) {
+      return undefined as T;
+    }
+
+    const rawBody = await response.text();
+    if (!rawBody.trim()) {
+      return undefined as T;
+    }
+
+    return JSON.parse(rawBody) as T;
   }
 
-  if (!response.ok) {
-    throw await parseApiError(response);
-  }
-
-  if (response.status === 204 || response.status === 205) {
-    return undefined as T;
-  }
-
-  const rawBody = await response.text();
-  if (!rawBody.trim()) {
-    return undefined as T;
-  }
-
-  return JSON.parse(rawBody) as T;
+  throw lastError ?? new ApiError('Request failed', 0);
 }
 
 async function parseApiError(response: Response) {

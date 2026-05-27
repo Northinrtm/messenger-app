@@ -24,7 +24,8 @@ public class SecurityConfig {
             HttpSecurity http,
             ActuatorEndpointProtectionFilter actuatorEndpointProtectionFilter,
             AuthEndpointProtectionFilter authEndpointProtectionFilter,
-            JwtAuthenticationFilter jwtAuthenticationFilter
+            JwtAuthenticationFilter jwtAuthenticationFilter,
+            ApiRateLimitFilter apiRateLimitFilter
     ) throws Exception {
         http
                 .csrf(csrf -> csrf.disable())
@@ -71,7 +72,8 @@ public class SecurityConfig {
                 )
                 .addFilterBefore(actuatorEndpointProtectionFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(authEndpointProtectionFilter, UsernamePasswordAuthenticationFilter.class)
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterAfter(apiRateLimitFilter, JwtAuthenticationFilter.class);
 
         return http.build();
     }

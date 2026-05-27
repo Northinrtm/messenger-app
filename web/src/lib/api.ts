@@ -112,68 +112,99 @@ function buildRequestUrl(path: string, query?: Record<string, string | number | 
   return url;
 }
 
+// Delays between retry attempts (ms). Max 3 retries total.
+const RETRY_DELAYS_MS = [700, 1500, 3000] as const;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const url = buildRequestUrl(path, options.query);
-  const controller = options.timeoutMs ? new AbortController() : null;
-  const timeout =
-    controller && options.timeoutMs
-      ? window.setTimeout(() => {
-          controller.abort("request-timeout");
-        }, options.timeoutMs)
-      : null;
+  // Fire-and-forget requests (keepalive) and caller-timed requests are not retried:
+  // keepalive is for page-unload sends; timeoutMs callers already express urgency.
+  const shouldRetry = !options.keepalive && !options.timeoutMs;
+  const maxAttempts = shouldRetry ? RETRY_DELAYS_MS.length + 1 : 1;
 
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method: options.method ?? "GET",
-      cache: "no-store",
-      credentials: "include",
-      keepalive: options.keepalive,
-      signal: controller?.signal,
-      headers: {
-        ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
-        ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
-      },
-      body: options.body ? JSON.stringify(options.body) : undefined,
-    });
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") {
-      throw new ApiError("Backend did not respond in time. Try again.", 0);
+  let lastError: ApiError | undefined;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (attempt > 0) {
+      await sleep(RETRY_DELAYS_MS[attempt - 1] ?? 3000);
     }
-    throw new ApiError("Cannot reach backend. Check that API and proxy are running.", 0);
-  } finally {
-    if (timeout !== null) {
-      window.clearTimeout(timeout);
+
+    const url = buildRequestUrl(path, options.query);
+    const controller = options.timeoutMs ? new AbortController() : null;
+    const timeout =
+      controller && options.timeoutMs
+        ? window.setTimeout(() => {
+            controller.abort("request-timeout");
+          }, options.timeoutMs)
+        : null;
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: options.method ?? "GET",
+        cache: "no-store",
+        credentials: "include",
+        keepalive: options.keepalive,
+        signal: controller?.signal,
+        headers: {
+          ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
+          ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+        },
+        body: options.body ? JSON.stringify(options.body) : undefined,
+      });
+    } catch (error) {
+      if (timeout !== null) window.clearTimeout(timeout);
+      if (error instanceof DOMException && error.name === "AbortError") {
+        // User-triggered abort or explicit timeout — do not retry.
+        throw new ApiError("Backend did not respond in time. Try again.", 0);
+      }
+      // Pure network error (connection refused, DNS failure, etc.) — retry.
+      lastError = new ApiError("Cannot reach backend. Check that API and proxy are running.", 0);
+      if (attempt < maxAttempts - 1) continue;
+      throw lastError;
+    } finally {
+      if (timeout !== null) window.clearTimeout(timeout);
     }
+
+    if (!response.ok) {
+      // 503 Service Unavailable: server temporarily overloaded — retry.
+      if (response.status === 503 && attempt < maxAttempts - 1) {
+        lastError = new ApiError("Service temporarily unavailable", 503);
+        continue;
+      }
+
+      let payload: ApiErrorResponse | null = null;
+      let fallbackMessage = "";
+      const contentType = response.headers.get("content-type") ?? "";
+
+      if (contentType.includes("application/json")) {
+        try {
+          payload = (await response.json()) as ApiErrorResponse;
+        } catch {
+          payload = null;
+        }
+      } else {
+        try {
+          fallbackMessage = normalizeErrorText(await response.text());
+        } catch {
+          fallbackMessage = "";
+        }
+      }
+
+      throw new ApiError(
+        payload?.error ?? resolveHttpErrorMessage(response.status, response.statusText, fallbackMessage),
+        response.status,
+        payload?.details ?? []
+      );
+    }
+
+    return parseSuccessResponse<T>(response);
   }
 
-  if (!response.ok) {
-    let payload: ApiErrorResponse | null = null;
-    let fallbackMessage = "";
-    const contentType = response.headers.get("content-type") ?? "";
-
-    if (contentType.includes("application/json")) {
-      try {
-        payload = (await response.json()) as ApiErrorResponse;
-      } catch {
-        payload = null;
-      }
-    } else {
-      try {
-        fallbackMessage = normalizeErrorText(await response.text());
-      } catch {
-        fallbackMessage = "";
-      }
-    }
-
-    throw new ApiError(
-      payload?.error ?? resolveHttpErrorMessage(response.status, response.statusText, fallbackMessage),
-      response.status,
-      payload?.details ?? []
-    );
-  }
-
-  return parseSuccessResponse<T>(response);
+  throw lastError ?? new ApiError("Request failed", 0);
 }
 
 async function parseSuccessResponse<T>(response: Response): Promise<T> {
