@@ -82,6 +82,12 @@ services:
       default:
         aliases:
           - xmpp.meet.jitsi
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:5280/http-bind"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
     volumes:
       - jitsi_prosody_config:/config
 
@@ -89,7 +95,8 @@ services:
     image: jitsi/jicofo:stable
     container_name: messenger-jitsi-jicofo
     depends_on:
-      - jitsi-prosody
+      jitsi-prosody:
+        condition: service_healthy
     environment:
       ENABLE_AUTH: "0"
       ENABLE_RECORDING: "1"
@@ -116,7 +123,8 @@ services:
     image: jitsi/jvb:stable
     container_name: messenger-jitsi-jvb
     depends_on:
-      - jitsi-prosody
+      jitsi-prosody:
+        condition: service_healthy
     environment:
       ENABLE_AUTH: "0"
       ENABLE_COLIBRI_WEBSOCKET: "1"

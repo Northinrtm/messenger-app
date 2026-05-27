@@ -4,12 +4,15 @@ import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.UserPushSubscription;
 import com.north.messenger.domain.repository.DevicePushTokenRepository;
+import com.north.messenger.domain.repository.MessageReceiptRepository;
 import com.north.messenger.domain.repository.UserPushSubscriptionRepository;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -29,6 +32,7 @@ public class PushNotificationDeliveryService {
     private final PushVapidKeyService vapidKeyService;
     private final UserPushSubscriptionRepository pushSubscriptionRepository;
     private final DevicePushTokenRepository devicePushTokenRepository;
+    private final MessageReceiptRepository messageReceiptRepository;
     private final Optional<FcmDeliveryService> fcmDeliveryService;
     private final HttpClient httpClient;
 
@@ -37,12 +41,14 @@ public class PushNotificationDeliveryService {
             PushVapidKeyService vapidKeyService,
             UserPushSubscriptionRepository pushSubscriptionRepository,
             DevicePushTokenRepository devicePushTokenRepository,
+            MessageReceiptRepository messageReceiptRepository,
             Optional<FcmDeliveryService> fcmDeliveryService
     ) {
         this.properties = properties;
         this.vapidKeyService = vapidKeyService;
         this.pushSubscriptionRepository = pushSubscriptionRepository;
         this.devicePushTokenRepository = devicePushTokenRepository;
+        this.messageReceiptRepository = messageReceiptRepository;
         this.fcmDeliveryService = fcmDeliveryService;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(properties.requestTimeout())
@@ -67,18 +73,26 @@ public class PushNotificationDeliveryService {
         pushSubscriptionRepository.findAllByUserIdIn(recipientIds)
                 .forEach(subscription -> sendGenericMessageNotification(subscription, message));
 
-        fcmDeliveryService.ifPresent(fcm ->
-                devicePushTokenRepository.findAllByUserIdIn(recipientIds)
-                        .forEach(deviceToken -> {
-                            boolean valid = fcm.sendNewMessageNotification(
-                                    deviceToken.getToken(),
-                                    message.getChatId().toString()
-                            );
-                            if (!valid) {
-                                devicePushTokenRepository.deleteByToken(deviceToken.getToken());
-                            }
-                        })
-        );
+        fcmDeliveryService.ifPresent(fcm -> {
+            Map<UUID, Long> unreadByUserId = new HashMap<>();
+            messageReceiptRepository.countTotalUnreadByUserIdIn(recipientIds)
+                    .forEach(view -> unreadByUserId.put(view.getUserId(), view.getUnreadCount()));
+
+            devicePushTokenRepository.findAllByUserIdIn(recipientIds)
+                    .forEach(deviceToken -> {
+                        int unreadCount = unreadByUserId
+                                .getOrDefault(deviceToken.getUserId(), 0L)
+                                .intValue();
+                        boolean valid = fcm.sendNewMessageNotification(
+                                deviceToken.getToken(),
+                                message.getChatId().toString(),
+                                unreadCount
+                        );
+                        if (!valid) {
+                            devicePushTokenRepository.deleteByToken(deviceToken.getToken());
+                        }
+                    });
+        });
     }
 
     private void sendGenericMessageNotification(UserPushSubscription subscription, ChatMessage message) {

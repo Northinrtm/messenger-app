@@ -69,12 +69,13 @@ public class FcmDeliveryService {
     /**
      * Sends a generic new-message push notification to a single FCM token.
      *
+     * @param unreadCount total unread messages for this recipient, used to set the launcher badge
      * @return true if delivered, false if the token is permanently invalid and should be removed
      */
-    public boolean sendNewMessageNotification(String fcmToken, String chatId) {
+    public boolean sendNewMessageNotification(String fcmToken, String chatId, int unreadCount) {
         try {
             String accessToken = getAccessToken();
-            ObjectNode message = buildMessage(fcmToken, chatId);
+            ObjectNode message = buildMessage(fcmToken, chatId, unreadCount);
             ObjectNode payload = objectMapper.createObjectNode().set("message", message);
 
             HttpRequest request = HttpRequest.newBuilder(
@@ -124,7 +125,7 @@ public class FcmDeliveryService {
         }
     }
 
-    private ObjectNode buildMessage(String fcmToken, String chatId) {
+    private ObjectNode buildMessage(String fcmToken, String chatId, int unreadCount) {
         ObjectNode message = objectMapper.createObjectNode();
         message.put("token", fcmToken);
 
@@ -137,6 +138,9 @@ public class FcmDeliveryService {
         androidNotification.put("channel_id", "north_messages");
         androidNotification.put("sound", "default");
         androidNotification.put("priority", "HIGH");
+        if (unreadCount > 0) {
+            androidNotification.put("notification_count", unreadCount);
+        }
 
         ObjectNode android = objectMapper.createObjectNode();
         android.put("priority", "high");

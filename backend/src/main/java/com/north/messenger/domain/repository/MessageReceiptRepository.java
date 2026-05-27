@@ -61,6 +61,22 @@ public interface MessageReceiptRepository extends JpaRepository<MessageReceipt, 
     List<UserUnreadCountView> countUnreadByChatId(@Param("chatId") UUID chatId);
 
     @Query("""
+            select receipt.userId as userId, count(receipt.id) as unreadCount
+            from MessageReceipt receipt, ChatMessage message
+            where receipt.messageId = message.id
+              and receipt.userId in :userIds
+              and receipt.readAt is null
+              and not exists (
+                select deleted.id
+                from UserDeletedMessage deleted
+                where deleted.userId = receipt.userId
+                  and deleted.messageId = message.id
+              )
+            group by receipt.userId
+            """)
+    List<UserUnreadCountView> countTotalUnreadByUserIdIn(@Param("userIds") Collection<UUID> userIds);
+
+    @Query("""
             select receipt
             from MessageReceipt receipt
             where receipt.userId = :userId

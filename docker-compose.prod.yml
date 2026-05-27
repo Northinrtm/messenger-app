@@ -128,6 +128,12 @@ services:
       default:
         aliases:
           - xmpp.meet.jitsi
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:5280/http-bind"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
     volumes:
       - jitsi_prosody_config:/config
 
@@ -137,13 +143,14 @@ services:
     init: true
     restart: unless-stopped
     logging: *default-logging
-    cpus: 0.25
-    mem_limit: 128m
+    cpus: 0.5
+    mem_limit: 256m
     pids_limit: 256
     security_opt:
       - no-new-privileges:true
     depends_on:
-      - jitsi-prosody
+      jitsi-prosody:
+        condition: service_healthy
     environment:
       ENABLE_AUTH: "0"
       ENABLE_RECORDING: "1"
@@ -179,7 +186,8 @@ services:
     security_opt:
       - no-new-privileges:true
     depends_on:
-      - jitsi-prosody
+      jitsi-prosody:
+        condition: service_healthy
     environment:
       JAVA_TOOL_OPTIONS: "-Xmx180m -XX:MaxMetaspaceSize=48m -XX:ReservedCodeCacheSize=16m -XX:+ExitOnOutOfMemoryError"
       ENABLE_AUTH: "0"
