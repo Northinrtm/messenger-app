@@ -21,6 +21,12 @@ declare module '@react-native-firebase/messaging' {
     getToken(): Promise<string>;
     onTokenRefresh(callback: (token: string) => void): () => void;
     onMessage(callback: (message: RemoteMessage) => Promise<void>): () => void;
+    /** Fired when the user taps a notification while the app is in the background. */
+    onNotificationOpenedApp(
+      callback: (message: RemoteMessage) => void,
+    ): () => void;
+    /** Returns the notification that launched the app from a killed state, or null. */
+    getInitialNotification(): Promise<RemoteMessage | null>;
     setBackgroundMessageHandler(
       handler: (message: RemoteMessage) => Promise<void>,
     ): void;

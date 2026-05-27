@@ -90,8 +90,10 @@ import {
 import {replaceSubscribedChatIds, subscribeToChats} from './src/lib/realtime';
 import {
   cleanupFcmForSession,
+  getInitialNotificationChatId,
   initFcmForSession,
   setupFcmForegroundHandler,
+  setupFcmNotificationOpenedHandler,
 } from './src/lib/fcm';
 import {androidTheme} from './src/theme';
 
@@ -183,6 +185,12 @@ function App() {
   const preferencesRef = useRef<AppPreferences>(preferences);
   const soundPlayerRef = useRef<SoundPlayerHandle>(null);
   const fcmCleanupRef = useRef<(() => void) | null>(null);
+  /**
+   * chatId stored when a notification tap launches the app before the workspace
+   * is loaded (killed-state or background-with-JS-recycled). Cleared once the
+   * workspace becomes available and the chat is opened.
+   */
+  const pendingNotificationChatIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     sessionRef.current = session;
@@ -385,10 +393,14 @@ function App() {
     let cancelled = false;
 
     const restore = async () => {
-      const [refreshToken, savedPrefs] = await Promise.all([
+      const [refreshToken, savedPrefs, initialNotifChatId] = await Promise.all([
         loadStoredRefreshToken(),
         loadPreferences(),
+        getInitialNotificationChatId(),
       ]);
+      if (initialNotifChatId) {
+        pendingNotificationChatIdRef.current = initialNotifChatId;
+      }
       if (!cancelled) {
         setPreferences(savedPrefs);
         preferencesRef.current = savedPrefs;
@@ -712,6 +724,37 @@ function App() {
     setActiveConferenceId(null);
     setActiveChatId(chatId);
   }, []);
+
+  // Open a pending notification chat as soon as the workspace is available.
+  // This covers two cases:
+  //   1. Killed state: getInitialNotificationChatId set the ref during restore.
+  //   2. Background tap racing with JS reinit: onNotificationOpenedApp set the
+  //      ref before the workspace finished loading.
+  useEffect(() => {
+    if (!workspace) return;
+    const pendingChatId = pendingNotificationChatIdRef.current;
+    if (!pendingChatId) return;
+    pendingNotificationChatIdRef.current = null;
+    handleOpenChat(pendingChatId);
+  }, [workspace, handleOpenChat]);
+
+  // Background tap handler: app was suspended (not killed), user tapped the
+  // notification. Workspace is already loaded in the normal case; the pending
+  // ref guards the rare edge case where the JS thread was recycled.
+  useEffect(() => {
+    const unsubscribe = setupFcmNotificationOpenedHandler(chatId => {
+      if (workspace) {
+        handleOpenChat(chatId);
+      } else {
+        pendingNotificationChatIdRef.current = chatId;
+      }
+    });
+    return unsubscribe;
+    // workspace intentionally omitted — the handler closure reaches it via
+    // the pending ref path; re-registering on every workspace change would
+    // cause duplicate subscriptions with @react-native-firebase/messaging.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handleOpenChat]);
 
   const handleOpenConference = useCallback((conferenceId: string) => {
     setActiveChatId(null);

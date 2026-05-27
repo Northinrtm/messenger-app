@@ -127,3 +127,36 @@ export function setupFcmForegroundHandler(
     }
   });
 }
+
+/**
+ * Subscribes to notification taps when the app was in the **background**
+ * (not killed). Called once on mount; returns an unsubscribe function.
+ *
+ * When the app is killed and launched via a notification tap, use
+ * {@link getInitialNotificationChatId} instead.
+ */
+export function setupFcmNotificationOpenedHandler(
+  onChatOpen: (chatId: string) => void,
+): () => void {
+  return messaging().onNotificationOpenedApp(remoteMessage => {
+    const chatId = remoteMessage?.data?.chatId as string | undefined;
+    if (chatId) {
+      onChatOpen(chatId);
+    }
+  });
+}
+
+/**
+ * Returns the chatId from the FCM notification that launched the app from a
+ * **killed** state, or null if the app was opened normally.
+ * Must be called once at startup (before any navigation).
+ */
+export async function getInitialNotificationChatId(): Promise<string | null> {
+  try {
+    const remoteMessage = await messaging().getInitialNotification();
+    const chatId = remoteMessage?.data?.chatId as string | undefined;
+    return chatId ?? null;
+  } catch {
+    return null;
+  }
+}

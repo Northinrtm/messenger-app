@@ -7,6 +7,8 @@ const messaging = jest.fn(() => ({
   getToken: jest.fn(() => Promise.resolve('test-fcm-token')),
   onTokenRefresh: jest.fn(() => jest.fn()),
   onMessage: jest.fn(() => jest.fn()),
+  onNotificationOpenedApp: jest.fn(() => jest.fn()),
+  getInitialNotification: jest.fn(() => Promise.resolve(null)),
   setBackgroundMessageHandler: jest.fn(),
 }));
 
