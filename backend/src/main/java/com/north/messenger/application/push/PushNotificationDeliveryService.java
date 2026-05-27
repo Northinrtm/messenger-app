@@ -3,12 +3,14 @@ package com.north.messenger.application.push;
 import com.north.messenger.domain.model.ChatMessage;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.UserPushSubscription;
+import com.north.messenger.domain.repository.DevicePushTokenRepository;
 import com.north.messenger.domain.repository.UserPushSubscriptionRepository;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -26,16 +28,22 @@ public class PushNotificationDeliveryService {
     private final PushNotificationProperties properties;
     private final PushVapidKeyService vapidKeyService;
     private final UserPushSubscriptionRepository pushSubscriptionRepository;
+    private final DevicePushTokenRepository devicePushTokenRepository;
+    private final Optional<FcmDeliveryService> fcmDeliveryService;
     private final HttpClient httpClient;
 
     public PushNotificationDeliveryService(
             PushNotificationProperties properties,
             PushVapidKeyService vapidKeyService,
-            UserPushSubscriptionRepository pushSubscriptionRepository
+            UserPushSubscriptionRepository pushSubscriptionRepository,
+            DevicePushTokenRepository devicePushTokenRepository,
+            Optional<FcmDeliveryService> fcmDeliveryService
     ) {
         this.properties = properties;
         this.vapidKeyService = vapidKeyService;
         this.pushSubscriptionRepository = pushSubscriptionRepository;
+        this.devicePushTokenRepository = devicePushTokenRepository;
+        this.fcmDeliveryService = fcmDeliveryService;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(properties.requestTimeout())
                 .build();
@@ -58,6 +66,19 @@ public class PushNotificationDeliveryService {
 
         pushSubscriptionRepository.findAllByUserIdIn(recipientIds)
                 .forEach(subscription -> sendGenericMessageNotification(subscription, message));
+
+        fcmDeliveryService.ifPresent(fcm ->
+                devicePushTokenRepository.findAllByUserIdIn(recipientIds)
+                        .forEach(deviceToken -> {
+                            boolean valid = fcm.sendNewMessageNotification(
+                                    deviceToken.getToken(),
+                                    message.getChatId().toString()
+                            );
+                            if (!valid) {
+                                devicePushTokenRepository.deleteByToken(deviceToken.getToken());
+                            }
+                        })
+        );
     }
 
     private void sendGenericMessageNotification(UserPushSubscription subscription, ChatMessage message) {

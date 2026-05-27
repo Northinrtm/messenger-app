@@ -202,6 +202,9 @@ app:
     vapid-private-key: ${APP_PUSH_VAPID_PRIVATE_KEY:}
     request-timeout: ${APP_PUSH_REQUEST_TIMEOUT:PT5S}
     ttl: ${APP_PUSH_TTL:PT1M}
+    fcm:
+      enabled: ${APP_PUSH_FCM_ENABLED:false}
+      service-account-json: ${APP_PUSH_FCM_SERVICE_ACCOUNT_JSON:}
 
 logging:
   pattern:

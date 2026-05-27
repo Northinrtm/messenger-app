@@ -10,6 +10,7 @@ import com.north.messenger.api.dto.PasswordResetRequest;
 import com.north.messenger.api.dto.RegisterRequest;
 import com.north.messenger.api.dto.UserProfileResponse;
 import com.north.messenger.application.auth.AuthService;
+import com.north.messenger.application.auth.EmailChangeService;
 import com.north.messenger.application.auth.EmailVerificationService;
 import com.north.messenger.application.auth.PasswordResetService;
 import com.north.messenger.application.auth.UserMailboxService;
@@ -71,6 +72,9 @@ class SecurityConfigTest {
 
     @MockitoBean
     private EmailVerificationService emailVerificationService;
+
+    @MockitoBean
+    private EmailChangeService emailChangeService;
 
     @MockitoBean
     private UserMailboxService userMailboxService;

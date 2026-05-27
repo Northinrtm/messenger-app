@@ -84,7 +84,9 @@ class MessageDispatchOutboxProcessorTest {
         assertThat(processedCount).isEqualTo(1);
         assertThat(entry.getAttemptCount()).isEqualTo(1);
         assertThat(entry.getProcessedAt()).isNull();
-        assertThat(entry.getAvailableAt()).isEqualTo(now.plusSeconds(3));
+        // nextRetryDelayMs applies jitter ±20% on top of retryDelayMs=3000ms * multiplier=1
+        assertThat(entry.getAvailableAt()).isAfterOrEqualTo(now.plusMillis(2400))
+                .isBeforeOrEqualTo(now.plusMillis(3700));
         assertThat(entry.getLastError()).contains("simulated dispatch failure");
         verify(messageDispatchOutboxRepository).save(entry);
     }

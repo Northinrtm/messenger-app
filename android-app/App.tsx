@@ -12,7 +12,7 @@ import type {
   VideoConference,
   WorkspaceBootstrap,
 } from '@north/shared';
-import {Component, useCallback, useEffect, useRef, useState} from 'react';
+import React, {Component, useCallback, useEffect, useRef, useState} from 'react';
 import type {ReactNode} from 'react';
 import {SoundPlayer, type SoundPlayerHandle} from './src/lib/SoundPlayer';
 import {
@@ -85,6 +85,11 @@ import {
   saveStoredRefreshToken,
 } from './src/lib/sessionStorage';
 import {replaceSubscribedChatIds, subscribeToChats} from './src/lib/realtime';
+import {
+  cleanupFcmForSession,
+  initFcmForSession,
+  setupFcmForegroundHandler,
+} from './src/lib/fcm';
 import {androidTheme} from './src/theme';
 
 type AuthMode = 'login' | 'register';
@@ -123,6 +128,19 @@ async function activateSession(response: MobileAuthResponse) {
   return nextSession;
 }
 
+function startFcmSession(
+  session: ActiveSession,
+  sessionRef: React.RefObject<ActiveSession | null>,
+  fcmCleanupRef: React.RefObject<(() => void) | null>,
+) {
+  fcmCleanupRef.current?.();
+  const unsubscribe = initFcmForSession(
+    session.auth.token,
+    () => sessionRef.current?.auth.token ?? session.auth.token,
+  );
+  fcmCleanupRef.current = unsubscribe;
+}
+
 async function refreshActiveSession(refreshToken: string) {
   const response = await refreshSession({refreshToken});
   return activateSession(response);
@@ -157,6 +175,7 @@ function App() {
   });
   const sessionRef = useRef<ActiveSession | null>(null);
   const soundPlayerRef = useRef<SoundPlayerHandle>(null);
+  const fcmCleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     sessionRef.current = session;
@@ -365,6 +384,7 @@ function App() {
 
         sessionRef.current = nextSession;
         setSession(nextSession);
+        startFcmSession(nextSession, sessionRef, fcmCleanupRef);
 
         try {
           const bootstrap = await loadWorkspace(nextSession);
@@ -409,6 +429,15 @@ function App() {
       cancelled = true;
     };
   }, [loadWorkspace, persistRecoveredPendingOutgoingFailures]);
+
+  useEffect(() => {
+    if (!session) return;
+    const unsubscribe = setupFcmForegroundHandler(_chatId => {
+      // App is in foreground — realtime WebSocket delivers the message directly,
+      // so no separate in-app notification is needed here.
+    });
+    return unsubscribe;
+  }, [session]);
 
   const realtimeSessionToken = session?.auth.token ?? null;
   const realtimeSessionUserId = session?.auth.user.id ?? null;
@@ -509,6 +538,7 @@ function App() {
         setSession(activeSession);
         setActiveChatId(null);
         setActiveConferenceId(null);
+        startFcmSession(activeSession, sessionRef, fcmCleanupRef);
 
         try {
           const bootstrap = await loadWorkspace(activeSession);
@@ -555,6 +585,7 @@ function App() {
         setSession(activeSession);
         setActiveChatId(null);
         setActiveConferenceId(null);
+        startFcmSession(activeSession, sessionRef, fcmCleanupRef);
 
         try {
           const bootstrap = await loadWorkspace(activeSession);
@@ -626,8 +657,15 @@ function App() {
   }, [handleReloadWorkspace, refreshSessionState, workspace]);
 
   const handleLogout = useCallback(async () => {
+    const currentSession = sessionRef.current;
     const refreshToken =
-      sessionRef.current?.refreshToken ?? (await loadStoredRefreshToken());
+      currentSession?.refreshToken ?? (await loadStoredRefreshToken());
+
+    if (currentSession) {
+      cleanupFcmForSession(currentSession.auth.token).catch(() => undefined);
+      fcmCleanupRef.current?.();
+      fcmCleanupRef.current = null;
+    }
 
     try {
       if (refreshToken) {
