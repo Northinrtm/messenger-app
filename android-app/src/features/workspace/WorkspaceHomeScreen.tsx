@@ -24,6 +24,7 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -42,7 +43,13 @@ type Props = {
   session: AuthResponse;
   workspace: WorkspaceBootstrap;
   error: string | null;
-  preferences: {fontSize: 'small' | 'medium' | 'large'; chatBackground: string};
+  preferences: {
+    fontSize: 'small' | 'medium' | 'large';
+    chatBackground: string;
+    notificationsEnabled: boolean;
+    mutedChatIds: string[];
+    silentChatIds: string[];
+  };
   onLogout: () => Promise<void>;
   onOpenChat: (chatId: string) => void;
   onOpenConference: (conferenceId: string) => void;
@@ -66,6 +73,9 @@ type Props = {
   onRevokeSession: (sessionId: string) => Promise<void>;
   onSetFontSize: (size: 'small' | 'medium' | 'large') => Promise<void>;
   onSetChatBackground: (color: string) => Promise<void>;
+  onSetNotificationsEnabled: (enabled: boolean) => Promise<void>;
+  onMuteChat: (chatId: string, muted: boolean) => Promise<void>;
+  onSetChatSilent: (chatId: string, silent: boolean) => Promise<void>;
 };
 
 export function WorkspaceHomeScreen({
@@ -96,6 +106,9 @@ export function WorkspaceHomeScreen({
   onRevokeSession,
   onSetFontSize,
   onSetChatBackground,
+  onSetNotificationsEnabled,
+  onMuteChat,
+  onSetChatSilent,
 }: Props) {
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('chats');
@@ -199,6 +212,7 @@ export function WorkspaceHomeScreen({
   // Settings modals
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [settingsScreenOpen, setSettingsScreenOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
   const [dataStorageOpen, setDataStorageOpen] = useState(false);
   const [devicesOpen, setDevicesOpen] = useState(false);
@@ -231,6 +245,14 @@ export function WorkspaceHomeScreen({
         ),
       ),
     [workspace.blockedUsers],
+  );
+  const mutedChatIdSet = useMemo(
+    () => new Set(preferences.mutedChatIds),
+    [preferences.mutedChatIds],
+  );
+  const silentChatIdSet = useMemo(
+    () => new Set(preferences.silentChatIds),
+    [preferences.silentChatIds],
   );
   const draftsByChatId = useMemo(
     () => new Map(workspace.drafts.map(draft => [draft.chatId, draft])),
@@ -376,8 +398,12 @@ export function WorkspaceHomeScreen({
     );
   };
 
-  const handleBulkMute = () => {
-    setActionError('Mute notifications: coming soon.');
+  const handleBulkMute = async () => {
+    const ids = [...selectedChatIds];
+    // If any selected chat is unmuted → mute all; otherwise → unmute all
+    const shouldMute = ids.some(id => !mutedChatIdSet.has(id));
+    setSelectedChatIds(new Set());
+    await Promise.all(ids.map(id => onMuteChat(id, shouldMute).catch(() => undefined)));
   };
 
   const openConferenceModal = (mode: 'schedule' | 'start') => {
@@ -1009,6 +1035,7 @@ export function WorkspaceHomeScreen({
                       pendingCount={pendingByChatId.get(chat.id) ?? 0}
                       selected={selectedChatIds.has(chat.id)}
                       isSelectionMode={isSelectionMode}
+                      muted={mutedChatIdSet.has(chat.id)}
                       onOpen={() => onOpenChat(chat.id)}
                       onLongPress={() => handleLongPressChat(chat.id)}
                       onSelect={() => handleToggleSelectChat(chat.id)}
@@ -1078,6 +1105,7 @@ export function WorkspaceHomeScreen({
                       pendingCount={pendingByChatId.get(chat.id) ?? 0}
                       selected={selectedChatIds.has(chat.id)}
                       isSelectionMode={isSelectionMode}
+                      muted={mutedChatIdSet.has(chat.id)}
                       onOpen={() => onOpenChat(chat.id)}
                       onLongPress={() => handleLongPressChat(chat.id)}
                       onSelect={() => handleToggleSelectChat(chat.id)}
@@ -1600,6 +1628,28 @@ export function WorkspaceHomeScreen({
 
                   <Pressable
                     style={settingsStyles.settingsRow}
+                    onPress={() => setNotificationsOpen(true)}>
+                    <View style={[settingsStyles.settingsIcon, {backgroundColor: '#c46a2e'}]}>
+                      <Text style={settingsStyles.settingsIconText}>
+                        {preferences.notificationsEnabled ? '🔔' : '🔕'}
+                      </Text>
+                    </View>
+                    <View style={settingsStyles.settingsRowContent}>
+                      <Text style={settingsStyles.settingsRowTitle}>Уведомления</Text>
+                      <Text style={settingsStyles.settingsRowSub}>
+                        {preferences.notificationsEnabled ? 'Включены' : 'Отключены'}
+                        {preferences.mutedChatIds.length > 0
+                          ? ` · ${preferences.mutedChatIds.length} чат${preferences.mutedChatIds.length === 1 ? '' : 'а/ов'} без звука`
+                          : ''}
+                      </Text>
+                    </View>
+                    <Text style={settingsStyles.settingsChevron}>›</Text>
+                  </Pressable>
+
+                  <View style={settingsStyles.rowDivider} />
+
+                  <Pressable
+                    style={settingsStyles.settingsRow}
                     onPress={() => setChatSettingsOpen(true)}>
                     <View style={[settingsStyles.settingsIcon, {backgroundColor: '#2e8c5c'}]}>
                       <Text style={settingsStyles.settingsIconText}>💬</Text>
@@ -1641,6 +1691,132 @@ export function WorkspaceHomeScreen({
                     <Text style={settingsStyles.settingsChevron}>›</Text>
                   </Pressable>
                 </View>
+              </ScrollView>
+            </View>
+          </Modal>
+
+          {/* Notifications modal */}
+          <Modal
+            visible={notificationsOpen}
+            animationType="slide"
+            transparent={false}
+            onRequestClose={() => setNotificationsOpen(false)}>
+            <View style={settingsStyles.modalScreen}>
+              <View style={settingsStyles.modalHeader}>
+                <Pressable
+                  onPress={() => setNotificationsOpen(false)}
+                  style={settingsStyles.modalBackBtn}>
+                  <Text style={settingsStyles.modalBackText}>‹ Назад</Text>
+                </Pressable>
+                <Text style={settingsStyles.modalTitle}>Уведомления</Text>
+                <View style={settingsStyles.modalBackBtn} />
+              </View>
+              <ScrollView contentContainerStyle={settingsStyles.modalContent}>
+                <Text style={settingsStyles.sectionLabel}>УВЕДОМЛЕНИЯ</Text>
+                <View style={settingsStyles.sectionCard}>
+                  <View style={[settingsStyles.settingsRow, notifStyles.toggleRow]}>
+                    <View style={[settingsStyles.settingsIcon, {backgroundColor: '#c46a2e'}]}>
+                      <Text style={settingsStyles.settingsIconText}>
+                        {preferences.notificationsEnabled ? '🔔' : '🔕'}
+                      </Text>
+                    </View>
+                    <View style={settingsStyles.settingsRowContent}>
+                      <Text style={settingsStyles.settingsRowTitle}>Получать уведомления</Text>
+                      <Text style={settingsStyles.settingsRowSub}>
+                        Push-уведомления и звуки
+                      </Text>
+                    </View>
+                    <Switch
+                      value={preferences.notificationsEnabled}
+                      onValueChange={v =>
+                        onSetNotificationsEnabled(v).catch(() => undefined)
+                      }
+                      trackColor={{
+                        false: androidTheme.colors.border,
+                        true: androidTheme.colors.blueStrong,
+                      }}
+                      thumbColor="#ffffff"
+                    />
+                  </View>
+                </View>
+
+                {workspace.chats.length > 0 ? (
+                  <>
+                    <Text style={settingsStyles.sectionLabel}>ЧАТЫ И ГРУППЫ</Text>
+                    <View style={settingsStyles.sectionCard}>
+                      {workspace.chats.map((chat, idx, arr) => {
+                        const isMuted = mutedChatIdSet.has(chat.id);
+                        const isSilent = silentChatIdSet.has(chat.id);
+                        return (
+                          <View key={chat.id}>
+                            <View style={notifStyles.chatRow}>
+                              <Avatar
+                                name={chat.title}
+                                avatarUrl={chat.avatarUrl}
+                                size={40}
+                              />
+                              <View style={notifStyles.chatInfo}>
+                                <Text
+                                  style={settingsStyles.settingsRowTitle}
+                                  numberOfLines={1}>
+                                  {chat.title}
+                                </Text>
+                                <View style={notifStyles.togglesRow}>
+                                  <View style={notifStyles.toggleItem}>
+                                    <Text style={notifStyles.toggleLabel}>
+                                      Уведомления
+                                    </Text>
+                                    <Switch
+                                      value={!isMuted}
+                                      onValueChange={v =>
+                                        onMuteChat(chat.id, !v).catch(
+                                          () => undefined,
+                                        )
+                                      }
+                                      trackColor={{
+                                        false: androidTheme.colors.border,
+                                        true: androidTheme.colors.blueStrong,
+                                      }}
+                                      thumbColor="#ffffff"
+                                      style={notifStyles.switchControl}
+                                    />
+                                  </View>
+                                  <View style={notifStyles.toggleItem}>
+                                    <Text
+                                      style={[
+                                        notifStyles.toggleLabel,
+                                        isMuted && notifStyles.toggleLabelDisabled,
+                                      ]}>
+                                      Звук
+                                    </Text>
+                                    <Switch
+                                      value={!isSilent && !isMuted}
+                                      disabled={isMuted}
+                                      onValueChange={v =>
+                                        onSetChatSilent(chat.id, !v).catch(
+                                          () => undefined,
+                                        )
+                                      }
+                                      trackColor={{
+                                        false: androidTheme.colors.border,
+                                        true: androidTheme.colors.blueStrong,
+                                      }}
+                                      thumbColor="#ffffff"
+                                      style={notifStyles.switchControl}
+                                    />
+                                  </View>
+                                </View>
+                              </View>
+                            </View>
+                            {idx < arr.length - 1 ? (
+                              <View style={settingsStyles.rowDivider} />
+                            ) : null}
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </>
+                ) : null}
               </ScrollView>
             </View>
           </Modal>
@@ -2261,6 +2437,7 @@ type ChatListItemProps = {
   pendingCount: number;
   selected: boolean;
   isSelectionMode: boolean;
+  muted?: boolean;
   onOpen: () => void;
   onLongPress: () => void;
   onSelect: () => void;
@@ -2272,6 +2449,7 @@ function ChatListItem({
   pendingCount,
   selected,
   isSelectionMode,
+  muted = false,
   onOpen,
   onLongPress,
   onSelect,
@@ -2308,9 +2486,14 @@ function ChatListItem({
           <Text numberOfLines={1} style={styles.chatCardTitle}>
             {chat.title}
           </Text>
-          <Text style={styles.chatCardTime}>
-            {formatRelativeMessageTime(chat.lastMessageAt ?? chat.updatedAt)}
-          </Text>
+          <View style={styles.chatCardTimeRow}>
+            {muted ? (
+              <Text style={styles.chatCardMutedIcon}>🔕</Text>
+            ) : null}
+            <Text style={styles.chatCardTime}>
+              {formatRelativeMessageTime(chat.lastMessageAt ?? chat.updatedAt)}
+            </Text>
+          </View>
         </View>
         <View style={styles.chatCardBottomRow}>
           <View style={styles.chatCardSnippetRow}>
@@ -3388,6 +3571,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: androidTheme.colors.textMuted,
     flexShrink: 0,
+  },
+  chatCardTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  chatCardMutedIcon: {
+    fontSize: 11,
+    opacity: 0.7,
   },
   chatCardBottomRow: {
     flexDirection: 'row',
@@ -4653,5 +4845,75 @@ const settingsStyles = StyleSheet.create({
     fontSize: 13,
     color: androidTheme.colors.danger,
     fontWeight: '600',
+  },
+});
+
+const notifStyles = StyleSheet.create({
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    minHeight: 56,
+    gap: 14,
+  },
+  toggleRowContent: {
+    flex: 1,
+    gap: 2,
+  },
+  toggleRowTitle: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: androidTheme.colors.textPrimary,
+  },
+  toggleRowSub: {
+    fontSize: 13,
+    color: androidTheme.colors.textMuted,
+  },
+  chatRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: androidTheme.colors.border,
+  },
+  chatInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  chatName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: androidTheme.colors.textPrimary,
+  },
+  chatStatus: {
+    fontSize: 12,
+    color: androidTheme.colors.textMuted,
+  },
+  togglesRow: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+  },
+  toggleItem: {
+    alignItems: 'center',
+    gap: 4,
+  },
+  toggleLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: androidTheme.colors.textMuted,
+    textAlign: 'center',
+  },
+  toggleLabelDisabled: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.2)',
+    textAlign: 'center',
+  },
+  switchControl: {
+    transform: [{scaleX: 0.8}, {scaleY: 0.8}],
   },
 });

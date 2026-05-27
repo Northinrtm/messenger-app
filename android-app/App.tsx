@@ -73,6 +73,9 @@ import {
   loadPreferences,
   saveFontSize,
   saveChatBackground,
+  saveNotificationsEnabled,
+  saveMutedChatIds,
+  saveSilentChatIds,
 } from './src/lib/appPreferences';
 import {
   normalizeBootstrappedPendingOutgoingMessages,
@@ -172,8 +175,12 @@ function App() {
   const [preferences, setPreferences] = useState<AppPreferences>({
     fontSize: 'medium',
     chatBackground: '#0f1720',
+    notificationsEnabled: true,
+    mutedChatIds: [],
+    silentChatIds: [],
   });
   const sessionRef = useRef<ActiveSession | null>(null);
+  const preferencesRef = useRef<AppPreferences>(preferences);
   const soundPlayerRef = useRef<SoundPlayerHandle>(null);
   const fcmCleanupRef = useRef<(() => void) | null>(null);
 
@@ -182,15 +189,25 @@ function App() {
   }, [session]);
 
   useEffect(() => {
-    loadPreferences().then(setPreferences).catch(() => undefined);
-  }, []);
+    preferencesRef.current = preferences;
+  }, [preferences]);
 
   useEffect(() => {
     if (!latestRealtimeMessage) return;
     const {message} = latestRealtimeMessage;
-    if (message.sender.id !== sessionRef.current?.auth.user.id) {
-      soundPlayerRef.current?.playIcq();
+    if (message.sender.id === sessionRef.current?.auth.user.id) {
+      return;
     }
+    const prefs = preferencesRef.current;
+    // Respect global notification toggle and per-chat mute/silent prefs
+    if (!prefs.notificationsEnabled) {
+      return;
+    }
+    const chatId = message.chatId;
+    if (prefs.mutedChatIds.includes(chatId) || prefs.silentChatIds.includes(chatId)) {
+      return;
+    }
+    soundPlayerRef.current?.playIcq();
   }, [latestRealtimeMessage]);
 
   const resetToSignedOutState = useCallback(async (infoMessage: string) => {
@@ -368,7 +385,14 @@ function App() {
     let cancelled = false;
 
     const restore = async () => {
-      const refreshToken = await loadStoredRefreshToken();
+      const [refreshToken, savedPrefs] = await Promise.all([
+        loadStoredRefreshToken(),
+        loadPreferences(),
+      ]);
+      if (!cancelled) {
+        setPreferences(savedPrefs);
+        preferencesRef.current = savedPrefs;
+      }
       if (!refreshToken) {
         if (!cancelled) {
           setAppReady(true);
@@ -384,7 +408,9 @@ function App() {
 
         sessionRef.current = nextSession;
         setSession(nextSession);
-        startFcmSession(nextSession, sessionRef, fcmCleanupRef);
+        if (savedPrefs.notificationsEnabled) {
+          startFcmSession(nextSession, sessionRef, fcmCleanupRef);
+        }
 
         try {
           const bootstrap = await loadWorkspace(nextSession);
@@ -538,7 +564,9 @@ function App() {
         setSession(activeSession);
         setActiveChatId(null);
         setActiveConferenceId(null);
-        startFcmSession(activeSession, sessionRef, fcmCleanupRef);
+        if (preferencesRef.current.notificationsEnabled) {
+          startFcmSession(activeSession, sessionRef, fcmCleanupRef);
+        }
 
         try {
           const bootstrap = await loadWorkspace(activeSession);
@@ -585,7 +613,9 @@ function App() {
         setSession(activeSession);
         setActiveChatId(null);
         setActiveConferenceId(null);
-        startFcmSession(activeSession, sessionRef, fcmCleanupRef);
+        if (preferencesRef.current.notificationsEnabled) {
+          startFcmSession(activeSession, sessionRef, fcmCleanupRef);
+        }
 
         try {
           const bootstrap = await loadWorkspace(activeSession);
@@ -955,6 +985,45 @@ function App() {
     setPreferences(prev => ({...prev, chatBackground: color}));
   }, []);
 
+  const handleSetNotificationsEnabled = useCallback(
+    async (enabled: boolean) => {
+      await saveNotificationsEnabled(enabled);
+      setPreferences(prev => ({...prev, notificationsEnabled: enabled}));
+      const currentSession = sessionRef.current;
+      if (!currentSession) {
+        return;
+      }
+      if (enabled) {
+        startFcmSession(currentSession, sessionRef, fcmCleanupRef);
+      } else {
+        fcmCleanupRef.current?.();
+        fcmCleanupRef.current = null;
+        cleanupFcmForSession(currentSession.auth.token).catch(() => undefined);
+      }
+    },
+    [],
+  );
+
+  const handleMuteChat = useCallback(async (chatId: string, muted: boolean) => {
+    setPreferences(prev => {
+      const set = new Set(prev.mutedChatIds);
+      if (muted) { set.add(chatId); } else { set.delete(chatId); }
+      const next = [...set];
+      saveMutedChatIds(next).catch(() => undefined);
+      return {...prev, mutedChatIds: next};
+    });
+  }, []);
+
+  const handleSetChatSilent = useCallback(async (chatId: string, silent: boolean) => {
+    setPreferences(prev => {
+      const set = new Set(prev.silentChatIds);
+      if (silent) { set.add(chatId); } else { set.delete(chatId); }
+      const next = [...set];
+      saveSilentChatIds(next).catch(() => undefined);
+      return {...prev, silentChatIds: next};
+    });
+  }, []);
+
   const handleUpdateAvatar = useCallback(
     async (dataUri: string) => {
       const updatedProfile = await runAuthorized(token =>
@@ -1078,6 +1147,9 @@ function App() {
           onRevokeSession={handleRevokeSession}
           onSetFontSize={handleSetFontSize}
           onSetChatBackground={handleSetChatBackground}
+          onSetNotificationsEnabled={handleSetNotificationsEnabled}
+          onMuteChat={handleMuteChat}
+          onSetChatSilent={handleSetChatSilent}
         />
       ) : session ? (
         <WorkspaceRecoveryScreen

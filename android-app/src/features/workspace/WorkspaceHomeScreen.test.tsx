@@ -212,11 +212,14 @@ describe('WorkspaceHomeScreen', () => {
           onRefreshWorkspace={async () => undefined}
           onScheduleConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
           onStartNewConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
-          preferences={{fontSize: 'medium', chatBackground: '#0f1720'}}
+          preferences={{fontSize: 'medium', chatBackground: '#0f1720', notificationsEnabled: true, mutedChatIds: [], silentChatIds: []}}
           onListSessions={async () => []}
           onRevokeSession={async () => undefined}
           onSetFontSize={async () => undefined}
           onSetChatBackground={async () => undefined}
+          onSetNotificationsEnabled={async () => undefined}
+          onMuteChat={async () => undefined}
+          onSetChatSilent={async () => undefined}
         />),
       );
     });
@@ -263,11 +266,14 @@ describe('WorkspaceHomeScreen', () => {
           onRefreshWorkspace={async () => undefined}
           onScheduleConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
           onStartNewConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
-          preferences={{fontSize: 'medium', chatBackground: '#0f1720'}}
+          preferences={{fontSize: 'medium', chatBackground: '#0f1720', notificationsEnabled: true, mutedChatIds: [], silentChatIds: []}}
           onListSessions={async () => []}
           onRevokeSession={async () => undefined}
           onSetFontSize={async () => undefined}
           onSetChatBackground={async () => undefined}
+          onSetNotificationsEnabled={async () => undefined}
+          onMuteChat={async () => undefined}
+          onSetChatSilent={async () => undefined}
         />),
       );
     });
@@ -338,11 +344,14 @@ describe('WorkspaceHomeScreen', () => {
           onRefreshWorkspace={async () => undefined}
           onScheduleConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
           onStartNewConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
-          preferences={{fontSize: 'medium', chatBackground: '#0f1720'}}
+          preferences={{fontSize: 'medium', chatBackground: '#0f1720', notificationsEnabled: true, mutedChatIds: [], silentChatIds: []}}
           onListSessions={async () => []}
           onRevokeSession={async () => undefined}
           onSetFontSize={async () => undefined}
           onSetChatBackground={async () => undefined}
+          onSetNotificationsEnabled={async () => undefined}
+          onMuteChat={async () => undefined}
+          onSetChatSilent={async () => undefined}
         />),
       );
     });
@@ -403,11 +412,14 @@ describe('WorkspaceHomeScreen', () => {
           onRefreshWorkspace={async () => undefined}
           onScheduleConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
           onStartNewConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
-          preferences={{fontSize: 'medium', chatBackground: '#0f1720'}}
+          preferences={{fontSize: 'medium', chatBackground: '#0f1720', notificationsEnabled: true, mutedChatIds: [], silentChatIds: []}}
           onListSessions={async () => []}
           onRevokeSession={async () => undefined}
           onSetFontSize={async () => undefined}
           onSetChatBackground={async () => undefined}
+          onSetNotificationsEnabled={async () => undefined}
+          onMuteChat={async () => undefined}
+          onSetChatSilent={async () => undefined}
         />),
       );
     });
@@ -478,11 +490,14 @@ describe('WorkspaceHomeScreen', () => {
           onRefreshWorkspace={async () => undefined}
           onScheduleConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
           onStartNewConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
-          preferences={{fontSize: 'medium', chatBackground: '#0f1720'}}
+          preferences={{fontSize: 'medium', chatBackground: '#0f1720', notificationsEnabled: true, mutedChatIds: [], silentChatIds: []}}
           onListSessions={async () => []}
           onRevokeSession={async () => undefined}
           onSetFontSize={async () => undefined}
           onSetChatBackground={async () => undefined}
+          onSetNotificationsEnabled={async () => undefined}
+          onMuteChat={async () => undefined}
+          onSetChatSilent={async () => undefined}
         />),
       );
     });
@@ -541,11 +556,14 @@ describe('WorkspaceHomeScreen', () => {
           onRefreshWorkspace={async () => undefined}
           onScheduleConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
           onStartNewConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
-          preferences={{fontSize: 'medium', chatBackground: '#0f1720'}}
+          preferences={{fontSize: 'medium', chatBackground: '#0f1720', notificationsEnabled: true, mutedChatIds: [], silentChatIds: []}}
           onListSessions={async () => []}
           onRevokeSession={async () => undefined}
           onSetFontSize={async () => undefined}
           onSetChatBackground={async () => undefined}
+          onSetNotificationsEnabled={async () => undefined}
+          onMuteChat={async () => undefined}
+          onSetChatSilent={async () => undefined}
         />),
       );
     });
@@ -605,11 +623,14 @@ describe('WorkspaceHomeScreen', () => {
           onRefreshWorkspace={async () => undefined}
           onScheduleConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
           onStartNewConference={async () => ({ id: "", title: "", roomName: null, roomAccessCode: null, scheduledAt: "", createdAt: "", activatedAt: null, startedAt: null, endedAt: null, recordingCreatedAt: null, recordingSizeBytes: null, recordingMimeType: null, createdBy: { id: "", username: "", displayName: "", avatarUrl: null, online: false, profession: null }, participants: [], chatId: null, activeParticipantCount: 0, activeParticipantUserIds: [] })}
-          preferences={{fontSize: 'medium', chatBackground: '#0f1720'}}
+          preferences={{fontSize: 'medium', chatBackground: '#0f1720', notificationsEnabled: true, mutedChatIds: [], silentChatIds: []}}
           onListSessions={async () => []}
           onRevokeSession={async () => undefined}
           onSetFontSize={async () => undefined}
           onSetChatBackground={async () => undefined}
+          onSetNotificationsEnabled={async () => undefined}
+          onMuteChat={async () => undefined}
+          onSetChatSilent={async () => undefined}
         />),
       );
     });
