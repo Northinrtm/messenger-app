@@ -35,6 +35,12 @@ public class InMemoryTypingStateStore implements TypingStateStore {
     }
 
     @Override
+    public void clearAllTypingForUser(UUID userId) {
+        typingByChatId.forEach((chatId, chatTyping) -> chatTyping.remove(userId));
+        typingByChatId.entrySet().removeIf(entry -> entry.getValue().isEmpty());
+    }
+
+    @Override
     public Set<UUID> listTypingUserIds(UUID chatId, Instant threshold) {
         cleanupExpiredTypingEntries(chatId, threshold);
 

@@ -1,6 +1,7 @@
 package com.north.messenger.config;
 
 import com.north.messenger.application.auth.SessionRevokedEvent;
+import com.north.messenger.application.auth.UserDisconnectedEvent;
 import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
@@ -10,6 +11,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
@@ -25,9 +27,14 @@ public class AuthenticatedWebSocketSessionRegistry {
     private static final Logger log = LoggerFactory.getLogger(AuthenticatedWebSocketSessionRegistry.class);
     private static final CloseStatus SESSION_REVOKED_CLOSE_STATUS = CloseStatus.POLICY_VIOLATION.withReason("Session revoked");
 
+    private final ApplicationEventPublisher eventPublisher;
     private final ConcurrentMap<String, RegisteredWebSocketSession> sessionsByWebSocketSessionId = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, java.util.Set<String>> webSocketSessionIdsByUsername = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, WebSocketSession> transportSessionsByWebSocketSessionId = new ConcurrentHashMap<>();
+
+    public AuthenticatedWebSocketSessionRegistry(ApplicationEventPublisher eventPublisher) {
+        this.eventPublisher = eventPublisher;
+    }
 
     public void register(String webSocketSessionId, String username, UUID userId, UUID authSessionId) {
         if (!StringUtils.hasText(webSocketSessionId) || !StringUtils.hasText(username) || userId == null || authSessionId == null) {
@@ -58,6 +65,7 @@ public class AuthenticatedWebSocketSessionRegistry {
         }
 
         removeFromUsernameIndex(removed);
+        eventPublisher.publishEvent(new UserDisconnectedEvent(removed.userId()));
     }
 
     public List<RegisteredWebSocketSession> findSessionsByUsername(String username) {

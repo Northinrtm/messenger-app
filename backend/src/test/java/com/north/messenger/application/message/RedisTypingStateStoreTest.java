@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.data.redis.core.DefaultTypedTuple;
 import org.springframework.data.redis.core.HashOperations;
+import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
 
@@ -25,6 +26,7 @@ class RedisTypingStateStoreTest {
     private StringRedisTemplate redisTemplate;
     private ZSetOperations<String, String> zSetOperations;
     private HashOperations<String, Object, Object> hashOperations;
+    private SetOperations<String, String> setOperations;
     private RedisRealtimeIntegrityService redisRealtimeIntegrityService;
     private RedisTypingStateStore redisTypingStateStore;
 
@@ -34,8 +36,10 @@ class RedisTypingStateStoreTest {
         redisTemplate = mock(StringRedisTemplate.class);
         zSetOperations = mock(ZSetOperations.class);
         hashOperations = mock(HashOperations.class);
+        setOperations = mock(SetOperations.class);
         when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
         when(redisTemplate.opsForHash()).thenReturn(hashOperations);
+        when(redisTemplate.opsForSet()).thenReturn(setOperations);
 
         redisRealtimeIntegrityService = new RedisRealtimeIntegrityService("test-redis-mac-secret");
         redisTypingStateStore = new RedisTypingStateStore(redisTemplate, redisRealtimeIntegrityService, 10_000);
@@ -51,6 +55,7 @@ class RedisTypingStateStoreTest {
 
         String key = "messenger:typing:" + chatId;
         String macKey = "messenger:typing:mac:" + chatId;
+        String userChatsKey = "messenger:typing:user-chats:" + userId;
         verify(zSetOperations).add(key, userId.toString(), (double) at.toEpochMilli());
 
         ArgumentCaptor<Object> macCaptor = ArgumentCaptor.forClass(Object.class);
@@ -65,6 +70,9 @@ class RedisTypingStateStoreTest {
 
         verify(redisTemplate).expire(key, Duration.ofMillis(30_000));
         verify(redisTemplate).expire(macKey, Duration.ofMillis(30_000));
+        // Verify reverse index is updated
+        verify(setOperations).add(userChatsKey, chatId.toString());
+        verify(redisTemplate).expire(userChatsKey, Duration.ofMillis(30_000));
     }
 
     @Test
@@ -101,11 +109,12 @@ class RedisTypingStateStoreTest {
     }
 
     @Test
-    void clearTypingShouldRemoveUserFromScoreSetAndMacIndex() {
+    void clearTypingShouldRemoveUserFromScoreSetMacIndexAndReverseIndex() {
         UUID chatId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
         String key = "messenger:typing:" + chatId;
         String macKey = "messenger:typing:mac:" + chatId;
+        String userChatsKey = "messenger:typing:user-chats:" + userId;
 
         redisTypingStateStore.clearTyping(chatId, userId);
 
@@ -115,5 +124,38 @@ class RedisTypingStateStoreTest {
         verify(hashOperations).delete(eq(macKey), hashRemovalCaptor.capture());
         assertThat(zsetRemovalCaptor.getValue()).containsExactly(userId.toString());
         assertThat(hashRemovalCaptor.getValue()).containsExactly(userId.toString());
+        verify(setOperations).remove(userChatsKey, chatId.toString());
+    }
+
+    @Test
+    void clearAllTypingForUserShouldRemoveUserFromAllChatsAndDeleteReverseIndex() {
+        UUID userId = UUID.randomUUID();
+        UUID chatId1 = UUID.randomUUID();
+        UUID chatId2 = UUID.randomUUID();
+        String userChatsKey = "messenger:typing:user-chats:" + userId;
+
+        when(setOperations.members(userChatsKey))
+                .thenReturn(Set.of(chatId1.toString(), chatId2.toString()));
+
+        redisTypingStateStore.clearAllTypingForUser(userId);
+
+        String userIdStr = userId.toString();
+        verify(zSetOperations).remove("messenger:typing:" + chatId1, userIdStr);
+        verify(hashOperations).delete("messenger:typing:mac:" + chatId1, userIdStr);
+        verify(zSetOperations).remove("messenger:typing:" + chatId2, userIdStr);
+        verify(hashOperations).delete("messenger:typing:mac:" + chatId2, userIdStr);
+        verify(redisTemplate).delete(userChatsKey);
+    }
+
+    @Test
+    void clearAllTypingForUserShouldHandleEmptyReverseIndex() {
+        UUID userId = UUID.randomUUID();
+        String userChatsKey = "messenger:typing:user-chats:" + userId;
+
+        when(setOperations.members(userChatsKey)).thenReturn(Set.of());
+
+        redisTypingStateStore.clearAllTypingForUser(userId);
+
+        verify(redisTemplate).delete(userChatsKey);
     }
 }

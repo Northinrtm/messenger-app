@@ -3,10 +3,8 @@ package com.north.messenger.application.message;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashSet;
-import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.redis.core.ZSetOperations;
@@ -19,6 +17,12 @@ public class RedisTypingStateStore implements TypingStateStore {
 
     private static final String KEY_PREFIX = "messenger:typing:";
     private static final String MAC_KEY_PREFIX = "messenger:typing:mac:";
+    /**
+     * Per-user reverse index: tracks which chats a user is currently typing in.
+     * This allows {@link #clearAllTypingForUser} to remove state without a
+     * full Redis key scan.
+     */
+    private static final String USER_CHATS_KEY_PREFIX = "messenger:typing:user-chats:";
 
     private final StringRedisTemplate redisTemplate;
     private final RedisRealtimeIntegrityService redisRealtimeIntegrityService;
@@ -38,7 +42,9 @@ public class RedisTypingStateStore implements TypingStateStore {
     public void markTyping(UUID chatId, UUID userId, Instant at) {
         String key = key(chatId);
         String macKey = macKey(chatId);
+        String userChatsKey = userChatsKey(userId);
         String member = userId.toString();
+        String chatIdStr = chatId.toString();
         long updatedAtEpochMillis = at.toEpochMilli();
         redisTemplate.opsForZSet().add(key, member, updatedAtEpochMillis);
         redisTemplate.opsForHash().put(
@@ -48,6 +54,9 @@ public class RedisTypingStateStore implements TypingStateStore {
         );
         redisTemplate.expire(key, keyTtl);
         redisTemplate.expire(macKey, keyTtl);
+        // Maintain reverse index so clearAllTypingForUser can find affected chats.
+        redisTemplate.opsForSet().add(userChatsKey, chatIdStr);
+        redisTemplate.expire(userChatsKey, keyTtl);
     }
 
     @Override
@@ -55,6 +64,26 @@ public class RedisTypingStateStore implements TypingStateStore {
         String member = userId.toString();
         redisTemplate.opsForZSet().remove(key(chatId), member);
         redisTemplate.opsForHash().delete(macKey(chatId), member);
+        redisTemplate.opsForSet().remove(userChatsKey(userId), chatId.toString());
+    }
+
+    @Override
+    public void clearAllTypingForUser(UUID userId) {
+        String userChatsKey = userChatsKey(userId);
+        Set<String> chatIdStrings = redisTemplate.opsForSet().members(userChatsKey);
+        if (chatIdStrings != null && !chatIdStrings.isEmpty()) {
+            String userIdStr = userId.toString();
+            for (String chatIdStr : chatIdStrings) {
+                try {
+                    UUID chatId = UUID.fromString(chatIdStr);
+                    redisTemplate.opsForZSet().remove(key(chatId), userIdStr);
+                    redisTemplate.opsForHash().delete(macKey(chatId), userIdStr);
+                } catch (IllegalArgumentException ignored) {
+                    // skip malformed chat IDs stored in the index
+                }
+            }
+        }
+        redisTemplate.delete(userChatsKey);
     }
 
     @Override
@@ -122,6 +151,10 @@ public class RedisTypingStateStore implements TypingStateStore {
 
     private String macKey(UUID chatId) {
         return MAC_KEY_PREFIX + chatId;
+    }
+
+    private String userChatsKey(UUID userId) {
+        return USER_CHATS_KEY_PREFIX + userId;
     }
 
     private void removeEntries(String key, String macKey, Set<String> userIds) {

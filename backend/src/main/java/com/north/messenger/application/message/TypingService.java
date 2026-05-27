@@ -3,6 +3,7 @@ package com.north.messenger.application.message;
 import com.north.messenger.api.dto.TypingEventResponse;
 import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.application.auth.AuthService;
+import com.north.messenger.application.auth.UserDisconnectedEvent;
 import com.north.messenger.application.chat.ChatService;
 import com.north.messenger.domain.model.UserAccount;
 import java.time.Instant;
@@ -11,6 +12,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -76,6 +78,17 @@ public class TypingService {
                 .map(authService::toParticipant)
                 .sorted(Comparator.comparing(ParticipantResponse::displayName, String.CASE_INSENSITIVE_ORDER))
                 .toList();
+    }
+
+    /**
+     * Clears all typing state for a user when their WebSocket session closes
+     * (normal close, network error, or session revocation). This ensures the
+     * typing indicator disappears for other participants immediately rather than
+     * waiting for the expiry window to elapse.
+     */
+    @EventListener
+    public void onUserDisconnected(UserDisconnectedEvent event) {
+        typingStateStore.clearAllTypingForUser(event.userId());
     }
 
     @Scheduled(fixedDelay = 30_000L)

@@ -2,6 +2,7 @@ package com.north.messenger.application.message;
 
 import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.application.auth.AuthService;
+import com.north.messenger.application.auth.UserDisconnectedEvent;
 import com.north.messenger.application.chat.ChatService;
 import com.north.messenger.domain.model.UserAccount;
 import java.time.Instant;
@@ -99,6 +100,15 @@ class TypingServiceTest {
         assertThat(typingService.listTypingParticipants(chatId, "north"))
                 .extracting(ParticipantResponse::id)
                 .containsExactly(otherUser.getId());
+    }
+
+    @Test
+    void shouldClearAllTypingForUserOnDisconnect() {
+        UUID userId = UUID.randomUUID();
+
+        typingService.onUserDisconnected(new UserDisconnectedEvent(userId));
+
+        verify(typingStateStore).clearAllTypingForUser(userId);
     }
 
     @Test

@@ -7,6 +7,7 @@ import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.simp.stomp.StompCommand;
@@ -27,7 +28,7 @@ class WebSocketOutboundSecurityInterceptorTest {
 
     @BeforeEach
     void setUp() {
-        webSocketSessionRegistry = new AuthenticatedWebSocketSessionRegistry();
+        webSocketSessionRegistry = new AuthenticatedWebSocketSessionRegistry(mock(ApplicationEventPublisher.class));
         authService = mock(AuthService.class);
         chatParticipantRepository = mock(ChatParticipantRepository.class);
         interceptor = new WebSocketOutboundSecurityInterceptor(

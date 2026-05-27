@@ -11,6 +11,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.WebSocketSession;
@@ -41,7 +42,7 @@ class WebSocketSessionTrackingDecoratorFactoryTest {
 
     @Test
     void handleTransportErrorShouldLogBenignDisconnectsAsInfo() throws Exception {
-        AuthenticatedWebSocketSessionRegistry registry = new AuthenticatedWebSocketSessionRegistry();
+        AuthenticatedWebSocketSessionRegistry registry = new AuthenticatedWebSocketSessionRegistry(mock(ApplicationEventPublisher.class));
         WebSocketSessionTrackingDecoratorFactory factory =
                 new WebSocketSessionTrackingDecoratorFactory(registry);
         WebSocketHandler delegate = mock(WebSocketHandler.class);
@@ -64,7 +65,7 @@ class WebSocketSessionTrackingDecoratorFactoryTest {
 
     @Test
     void afterConnectionClosedShouldLogNoCloseFrameWithoutReasonAsInfo() throws Exception {
-        AuthenticatedWebSocketSessionRegistry registry = new AuthenticatedWebSocketSessionRegistry();
+        AuthenticatedWebSocketSessionRegistry registry = new AuthenticatedWebSocketSessionRegistry(mock(ApplicationEventPublisher.class));
         WebSocketSessionTrackingDecoratorFactory factory =
                 new WebSocketSessionTrackingDecoratorFactory(registry);
         WebSocketHandler delegate = mock(WebSocketHandler.class);

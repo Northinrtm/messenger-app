@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.web.socket.CloseStatus;
@@ -32,7 +33,7 @@ class AuthenticatedWebSocketUserDeliveryTest {
     void setUp() {
         messagingTemplate = mock(SimpMessagingTemplate.class);
         authService = mock(AuthService.class);
-        webSocketSessionRegistry = new AuthenticatedWebSocketSessionRegistry();
+        webSocketSessionRegistry = new AuthenticatedWebSocketSessionRegistry(mock(ApplicationEventPublisher.class));
         delivery = new AuthenticatedWebSocketUserDelivery(messagingTemplate, webSocketSessionRegistry, authService);
     }
 

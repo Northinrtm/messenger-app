@@ -4,6 +4,7 @@ import com.north.messenger.application.auth.SessionRevokedEvent;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.WebSocketSession;
 
@@ -20,7 +21,7 @@ class AuthenticatedWebSocketSessionRegistryTest {
 
     @BeforeEach
     void setUp() {
-        registry = new AuthenticatedWebSocketSessionRegistry();
+        registry = new AuthenticatedWebSocketSessionRegistry(mock(ApplicationEventPublisher.class));
     }
 
     @Test
