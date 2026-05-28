@@ -1,7 +1,7 @@
 import { Component, Suspense, lazy, useEffect, useEffectEvent, useRef, useState } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 import { AuthCard } from "../features/auth/AuthCard";
-import { refreshSession } from "../lib/api";
+import { ApiError, refreshSession } from "../lib/api";
 import {
   getSessionRefreshDelay,
   isRefreshCompatible,
@@ -130,6 +130,7 @@ export function App() {
     typeof window === "undefined" ? null : extractEmailChangeTokenFromSearch(window.location.search)
   );
   const refreshInFlightRef = useRef(false);
+  const refreshCooloffUntilRef = useRef(0);
 
   useEffect(() => {
     document.documentElement.lang = "ru";
@@ -144,7 +145,20 @@ export function App() {
       return;
     }
 
+    // Prevent rapid-fire loops caused by client clock skew making tokens
+    // appear immediately expired after a successful refresh.
+    const now = Date.now();
+    if (now < refreshCooloffUntilRef.current) {
+      window.setTimeout(
+        () => void requestSessionRefresh(blocking),
+        refreshCooloffUntilRef.current - now + 100,
+      );
+      return;
+    }
+
     refreshInFlightRef.current = true;
+    refreshCooloffUntilRef.current = now + 30_000;
+
     if (blocking) {
       setRefreshingExpiredSession(true);
     }
@@ -154,7 +168,12 @@ export function App() {
       setSession((currentSession) =>
         isRefreshCompatible(currentSession, nextSession) ? nextSession : null
       );
-    } catch {
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 429) {
+        // Rate limited — keep current session alive, retry after limit window resets.
+        window.setTimeout(() => void requestSessionRefresh(false), 65_000);
+        return;
+      }
       setSession(null);
     } finally {
       refreshInFlightRef.current = false;

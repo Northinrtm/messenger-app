@@ -57,7 +57,7 @@ public class AuthEndpointProtectionFilter extends OncePerRequestFilter {
             Map.entry("/api/auth/email-verification/resend", new AuthRateLimitPolicy(5, Duration.ofMinutes(30))),
             Map.entry("/api/auth/password-reset/request", new AuthRateLimitPolicy(5, Duration.ofMinutes(30))),
             Map.entry("/api/auth/password-reset/confirm", new AuthRateLimitPolicy(10, Duration.ofMinutes(10))),
-            Map.entry("/api/auth/refresh", new AuthRateLimitPolicy(60, Duration.ofMinutes(1))),
+            Map.entry("/api/auth/refresh", new AuthRateLimitPolicy(120, Duration.ofMinutes(1))),
             Map.entry("/api/auth/logout", new AuthRateLimitPolicy(30, Duration.ofMinutes(1))),
             Map.entry("/api/mobile/auth/login", new AuthRateLimitPolicy(20, Duration.ofMinutes(1))),
             Map.entry("/api/mobile/auth/register", new AuthRateLimitPolicy(10, Duration.ofMinutes(10))),
