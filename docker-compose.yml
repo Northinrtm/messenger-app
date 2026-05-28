@@ -83,7 +83,7 @@ services:
         aliases:
           - xmpp.meet.jitsi
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:5280/http-bind"]
+      test: ["CMD", "prosodyctl", "status"]
       interval: 5s
       timeout: 5s
       retries: 30
