@@ -845,7 +845,7 @@ export function NorthMessengerWorkspace({
     () => buildConferenceActivitySnapshot(listedConferences),
     [listedConferences]
   );
-  const showMailTab = Boolean(profile.mailEnabled);
+  const showMailTab = Boolean(profile.mailEnabled) && mailboxes.length > 0;
   const isViewingChatsSection = !sidebarSheet && activeListTab === "chats";
   const isViewingConferencesSection = !sidebarSheet && activeListTab === "conferences";
   const showChatsTabIndicator =
