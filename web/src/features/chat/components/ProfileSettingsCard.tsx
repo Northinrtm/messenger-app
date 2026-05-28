@@ -439,38 +439,41 @@ export function ProfileSettingsCard({
           </form>
         </div>
 
-        {mailServerEnabled ? (
         <div className="profile-line profile-action-panel">
           <div className="profile-action-row">
             <div className="profile-action-copy">
-              <span className="profile-label">
-                {"\u0420\u0430\u0437\u0434\u0435\u043b \u00ab\u041f\u043e\u0447\u0442\u0430\u00bb"}
-              </span>
-              <strong>
-                {effectiveMailEnabled
-                  ? "\u041e\u0442\u043a\u0440\u044b\u0442"
-                  : "\u0421\u043a\u0440\u044b\u0442"}
-                {pendingMailEnabled !== null ? " \u2022" : null}
-              </strong>
-              <span>
-                {effectiveMailEnabled
-                  ? "\u0420\u0430\u0437\u0434\u0435\u043b \u00ab\u041f\u043e\u0447\u0442\u0430\u00bb \u043e\u0442\u043a\u0440\u044b\u0442 \u0432 \u043b\u0435\u0432\u043e\u0439 \u043a\u043e\u043b\u043e\u043d\u043a\u0435. \u0412 \u043d\u0435\u043c \u043e\u0442\u043e\u0431\u0440\u0430\u0436\u0430\u044e\u0442\u0441\u044f \u0432\u0430\u0448\u0438 \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u043d\u044b\u0435 \u043f\u043e\u0447\u0442\u043e\u0432\u044b\u0435 \u044f\u0449\u0438\u043a\u0438."
-                  : "\u0420\u0430\u0437\u0434\u0435\u043b \u00ab\u041f\u043e\u0447\u0442\u0430\u00bb \u0441\u043a\u0440\u044b\u0442 \u0432 \u043b\u0435\u0432\u043e\u0439 \u043a\u043e\u043b\u043e\u043d\u043a\u0435. \u0427\u0430\u0442\u044b \u0438 \u043a\u043e\u043d\u0444\u0435\u0440\u0435\u043d\u0446\u0438\u0438 \u043e\u0441\u0442\u0430\u043d\u0443\u0442\u0441\u044f \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b \u043a\u0430\u043a \u0440\u0430\u043d\u044c\u0448\u0435."}
-              </span>
+              <span className="profile-label">{"\u0420\u0430\u0437\u0434\u0435\u043b \u00ab\u041f\u043e\u0447\u0442\u0430\u00bb"}</span>
+              {mailServerEnabled ? (
+                <>
+                  <strong>
+                    {effectiveMailEnabled ? "\u041e\u0442\u043a\u0440\u044b\u0442" : "\u0421\u043a\u0440\u044b\u0442"}
+                    {pendingMailEnabled !== null ? " \u2022" : null}
+                  </strong>
+                  <span>
+                    {effectiveMailEnabled
+                      ? "\u0420\u0430\u0437\u0434\u0435\u043b \u00ab\u041f\u043e\u0447\u0442\u0430\u00bb \u043e\u0442\u043a\u0440\u044b\u0442 \u0432 \u043b\u0435\u0432\u043e\u0439 \u043a\u043e\u043b\u043e\u043d\u043a\u0435. \u0412 \u043d\u0451\u043c \u043e\u0442\u043e\u0431\u0440\u0430\u0436\u0430\u044e\u0442\u0441\u044f \u0432\u0430\u0448\u0438 \u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d\u043d\u044b\u0435 \u043f\u043e\u0447\u0442\u043e\u0432\u044b\u0435 \u044f\u0449\u0438\u043a\u0438."
+                      : "\u0420\u0430\u0437\u0434\u0435\u043b \u00ab\u041f\u043e\u0447\u0442\u0430\u00bb \u0441\u043a\u0440\u044b\u0442 \u0432 \u043b\u0435\u0432\u043e\u0439 \u043a\u043e\u043b\u043e\u043d\u043a\u0435. \u0427\u0430\u0442\u044b \u0438 \u043a\u043e\u043d\u0444\u0435\u0440\u0435\u043d\u0446\u0438\u0438 \u043e\u0441\u0442\u0430\u043d\u0443\u0442\u0441\u044f \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b \u043a\u0430\u043a \u0440\u0430\u043d\u044c\u0448\u0435."}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <strong>{"\u041d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u043e"}</strong>
+                  <span>{"\u041f\u043e\u0447\u0442\u043e\u0432\u044b\u0439 \u0441\u0435\u0440\u0432\u0435\u0440 \u043e\u0442\u043a\u043b\u044e\u0447\u0451\u043d \u0434\u043b\u044f \u044d\u043a\u043e\u043d\u043e\u043c\u0438\u0438 \u0440\u0435\u0441\u0443\u0440\u0441\u043e\u0432."}</span>
+                </>
+              )}
             </div>
-            <button
-              type="button"
-              className="ghost-button compact"
-              onClick={() => setPendingMailEnabled(!effectiveMailEnabled)}
-              disabled={updateProfilePending}
-            >
-              {effectiveMailEnabled
-                ? "\u0423\u0431\u0440\u0430\u0442\u044c \u043f\u043e\u0447\u0442\u0443"
-                : "\u0412\u043a\u043b\u044e\u0447\u0438\u0442\u044c \u043f\u043e\u0447\u0442\u0443"}
-            </button>
+            {mailServerEnabled ? (
+              <button
+                type="button"
+                className="ghost-button compact"
+                onClick={() => setPendingMailEnabled(!effectiveMailEnabled)}
+                disabled={updateProfilePending}
+              >
+                {effectiveMailEnabled ? "\u0423\u0431\u0440\u0430\u0442\u044c \u043f\u043e\u0447\u0442\u0443" : "\u0412\u043a\u043b\u044e\u0447\u0438\u0442\u044c \u043f\u043e\u0447\u0442\u0443"}
+              </button>
+            ) : null}
           </div>
         </div>
-        ) : null}
 
         <div className="profile-line profile-action-panel">
           <div className="profile-action-row">

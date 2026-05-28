@@ -43,6 +43,16 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
             new ProtectedRoute("POST", "/api/chats/*/messages/*/reactions/toggle",
                     new AuthRateLimitPolicy(60, Duration.ofMinutes(1))),
             new ProtectedRoute("GET", "/api/search",
+                    new AuthRateLimitPolicy(30, Duration.ofMinutes(1))),
+            new ProtectedRoute("POST", "/api/chats/direct",
+                    new AuthRateLimitPolicy(15, Duration.ofMinutes(1))),
+            new ProtectedRoute("POST", "/api/chats/group",
+                    new AuthRateLimitPolicy(5, Duration.ofMinutes(1))),
+            new ProtectedRoute("POST", "/api/chats/*/participants",
+                    new AuthRateLimitPolicy(10, Duration.ofMinutes(1))),
+            new ProtectedRoute("PUT", "/api/chats/*",
+                    new AuthRateLimitPolicy(10, Duration.ofMinutes(1))),
+            new ProtectedRoute("POST", "/api/chats/*/attachments/initiate",
                     new AuthRateLimitPolicy(30, Duration.ofMinutes(1)))
     );
 

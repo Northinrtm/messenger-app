@@ -11,21 +11,21 @@ services:
     init: true
     restart: unless-stopped
     logging: *default-logging
-    cpus: 0.5
-    mem_limit: 192m
+    cpus: ${CPUS_POSTGRES:-0.75}
+    mem_limit: ${MEM_LIMIT_POSTGRES:-320m}
     pids_limit: 256
     security_opt:
       - no-new-privileges:true
     command:
       - postgres
       - -c
-      - shared_buffers=64MB
+      - shared_buffers=${POSTGRES_SHARED_BUFFERS:-96MB}
       - -c
-      - work_mem=8MB
+      - work_mem=${POSTGRES_WORK_MEM:-12MB}
       - -c
-      - maintenance_work_mem=32MB
+      - maintenance_work_mem=${POSTGRES_MAINTENANCE_WORK_MEM:-48MB}
       - -c
-      - effective_cache_size=128MB
+      - effective_cache_size=${POSTGRES_EFFECTIVE_CACHE_SIZE:-224MB}
     environment:
       POSTGRES_DB: messenger
       POSTGRES_USER: messenger
@@ -46,8 +46,8 @@ services:
     init: true
     restart: unless-stopped
     logging: *default-logging
-    cpus: 0.25
-    mem_limit: 64m
+    cpus: ${CPUS_REDIS:-0.25}
+    mem_limit: ${MEM_LIMIT_REDIS:-96m}
     pids_limit: 128
     security_opt:
       - no-new-privileges:true
@@ -58,7 +58,7 @@ services:
       - --appendonly
       - "no"
       - --maxmemory
-      - 48mb
+      - ${REDIS_MAXMEMORY:-80mb}
       - --maxmemory-policy
       - allkeys-lru
       - --loglevel
@@ -95,8 +95,8 @@ services:
     init: true
     restart: unless-stopped
     logging: *default-logging
-    cpus: 0.25
-    mem_limit: 256m
+    cpus: ${CPUS_STALWART:-0.25}
+    mem_limit: ${MEM_LIMIT_STALWART:-256m}
     pids_limit: 256
     security_opt:
       - no-new-privileges:true
@@ -324,14 +324,14 @@ services:
     init: true
     restart: unless-stopped
     logging: *default-logging
-    cpus: 0.75
-    mem_limit: 900m
+    cpus: ${CPUS_BACKEND:-1.0}
+    mem_limit: ${MEM_LIMIT_BACKEND:-1024m}
     pids_limit: 512
     security_opt:
       - no-new-privileges:true
     environment:
       SPRING_PROFILES_ACTIVE: prod,json-logs
-      JAVA_TOOL_OPTIONS: "${JAVA_TOOL_OPTIONS:--XX:InitialRAMPercentage=10 -XX:MaxRAMPercentage=60 -XX:MaxMetaspaceSize=160m -XX:ReservedCodeCacheSize=32m -XX:+UseSerialGC -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/messenger-backend-oom.hprof -Xlog:gc*:file=/tmp/messenger-backend-gc.log:time,level,tags:filecount=5,filesize=10M -XX:+ExitOnOutOfMemoryError}"
+      JAVA_TOOL_OPTIONS: "${JAVA_TOOL_OPTIONS:--XX:InitialRAMPercentage=10 -XX:MaxRAMPercentage=60 -XX:MaxMetaspaceSize=160m -XX:ReservedCodeCacheSize=32m -XX:+UseG1GC -XX:G1HeapRegionSize=2m -XX:MaxGCPauseMillis=200 -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/messenger-backend-oom.hprof -Xlog:gc*:file=/tmp/messenger-backend-gc.log:time,level,tags:filecount=5,filesize=10M -XX:+ExitOnOutOfMemoryError}"
       SERVER_PORT: 8080
       DB_URL: ${DB_URL:-jdbc:postgresql://postgres:5432/messenger}
       DB_USERNAME: ${DB_USERNAME:-messenger}

@@ -320,6 +320,58 @@ describe("ProfileSettingsCard email verification section", () => {
     );
   });
 
+  it("shows mail server disabled notice when mailServerEnabled is false", async () => {
+    await act(async () => {
+      root!.render(
+        <ProfileSettingsCard
+          profile={profile({ mailEnabled: false })}
+          mailServerEnabled={false}
+          profileDisplayName="North"
+          profileProfession=""
+          passwordChangeCurrent=""
+          passwordChangeNext=""
+          passwordChangeConfirm=""
+          deleteAccountConfirmation=""
+          deleteAccountRequiresMatch={false}
+          updateProfilePending={false}
+          changePasswordPending={false}
+          changePasswordError={null}
+          avatarPending={false}
+          deleteAccountPending={false}
+          emailVerificationPending={false}
+          emailVerificationInfo={null}
+          emailVerificationError={null}
+          emailChangePending={false}
+          emailChangeInfo={null}
+          emailChangeError={null}
+          emailChangeInput=""
+          onEmailChangeInputChange={() => undefined}
+          onRequestEmailChange={() => undefined}
+          {...defaultPushNotificationProps}
+          onClose={() => {}}
+          onProfileDisplayNameChange={() => {}}
+          onProfileProfessionChange={() => {}}
+          onSubmitProfileDisplayName={() => {}}
+          onPasswordChangeCurrentChange={() => {}}
+          onPasswordChangeNextChange={() => {}}
+          onPasswordChangeConfirmChange={() => {}}
+          onSubmitPasswordChange={() => {}}
+          onDeleteAccountConfirmationChange={() => {}}
+          onDeleteAccount={() => {}}
+          onAvatarSelected={() => {}}
+          onResendEmailVerification={() => {}}
+        />
+      );
+    });
+
+    expect(container.textContent).toContain("Раздел «Почта»");
+    expect(container.textContent).toContain("Недоступно");
+    expect(container.textContent).toContain(
+      "Почтовый сервер отключён для экономии ресурсов."
+    );
+    expect(container.textContent).not.toContain("Включить почту");
+  });
+
   it("keeps the push enable action visible even when browser permission was denied", async () => {
     await act(async () => {
       root!.render(
