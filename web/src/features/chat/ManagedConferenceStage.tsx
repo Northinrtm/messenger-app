@@ -19,6 +19,7 @@ type Props = {
   title: string;
   joinSettings?: ConferenceJoinSettings;
   exitRequestToken?: number;
+  jwtTokenFetcher?: () => Promise<string | null>;
   onConferenceEndForAll?: () => void;
   onConferencePresenceTouch?: (conferenceId: string) => void;
   onConferencePresenceLeave?: (conferenceId: string, options?: { keepalive?: boolean }) => void;
@@ -94,6 +95,7 @@ export function ManagedConferenceStage({
   title,
   joinSettings,
   exitRequestToken = 0,
+  jwtTokenFetcher,
   onConferenceEndForAll,
   onConferencePresenceTouch,
   onConferencePresenceLeave,
@@ -102,6 +104,7 @@ export function ManagedConferenceStage({
   onConferenceExit,
 }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const jwtTokenFetcherRef = useRef(jwtTokenFetcher);
   const conferencePresenceTouchRef = useRef(onConferencePresenceTouch);
   const conferencePresenceLeaveRef = useRef(onConferencePresenceLeave);
   const conferenceEndForAllRef = useRef(onConferenceEndForAll);
@@ -110,6 +113,10 @@ export function ManagedConferenceStage({
   const conferenceExitRef = useRef(onConferenceExit);
   const requestConferenceExitRef = useRef<(() => void) | null>(null);
   const [retryToken, setRetryToken] = useState(0);
+
+  useEffect(() => {
+    jwtTokenFetcherRef.current = jwtTokenFetcher;
+  }, [jwtTokenFetcher]);
 
   useEffect(() => {
     conferencePresenceTouchRef.current = onConferencePresenceTouch;
@@ -398,44 +405,60 @@ export function ManagedConferenceStage({
 
     window.addEventListener("beforeunload", handleBeforeUnload);
 
-    try {
-      host.replaceChildren();
-      const iframe = createConferenceFrame(
-        host,
-        buildConferenceFrameUrl({
-          baseUrl: normalizedBaseUrl,
-          boshUrl,
-          displayName: normalizedDisplayName,
-          externalApiId,
-          joinSettings: normalizedJoinSettings,
-          roomName,
-          title: normalizedConferenceTitle,
-          websocketUrl,
-        }),
-        title
-      );
-
-      if (!iframe.contentWindow) {
-        throw new Error("Jitsi iframe is unavailable");
+    void (async () => {
+      let jwtToken: string | null = null;
+      if (jwtTokenFetcherRef.current) {
+        try {
+          jwtToken = await jwtTokenFetcherRef.current();
+        } catch {
+          // JWT fetch failed — proceed without token
+        }
       }
 
-      bridge = createScopedMessageBridge({
-        allowedOrigin: baseUrlObject.origin,
-        onMessage: handleTransportMessage,
-        scope: `jitsi_meet_external_api_${externalApiId}`,
-        targetWindow: iframe.contentWindow,
-      });
-      requestConferenceExitRef.current = requestConferenceExit;
-    } catch {
-      renderConferencePlaceholder(host, {
-        title: "Не удалось открыть видеоконференцию.",
-        message: "Проверьте доступность Jitsi и повторите попытку.",
-        actionLabel: "Повторить",
-        onAction: retryConference,
-      });
-      roleChangeRef.current?.(null);
-      updateRecordingState("failed");
-    }
+      if (cancelled) {
+        return;
+      }
+
+      try {
+        host.replaceChildren();
+        const iframe = createConferenceFrame(
+          host,
+          buildConferenceFrameUrl({
+            baseUrl: normalizedBaseUrl,
+            boshUrl,
+            displayName: normalizedDisplayName,
+            externalApiId,
+            joinSettings: normalizedJoinSettings,
+            jwtToken,
+            roomName,
+            title: normalizedConferenceTitle,
+            websocketUrl,
+          }),
+          title
+        );
+
+        if (!iframe.contentWindow) {
+          throw new Error("Jitsi iframe is unavailable");
+        }
+
+        bridge = createScopedMessageBridge({
+          allowedOrigin: baseUrlObject.origin,
+          onMessage: handleTransportMessage,
+          scope: `jitsi_meet_external_api_${externalApiId}`,
+          targetWindow: iframe.contentWindow,
+        });
+        requestConferenceExitRef.current = requestConferenceExit;
+      } catch {
+        renderConferencePlaceholder(host, {
+          title: "Не удалось открыть видеоконференцию.",
+          message: "Проверьте доступность Jitsi и повторите попытку.",
+          actionLabel: "Повторить",
+          onAction: retryConference,
+        });
+        roleChangeRef.current?.(null);
+        updateRecordingState("failed");
+      }
+    })();
 
     return () => {
       cancelled = true;
@@ -473,11 +496,15 @@ function buildConferenceFrameUrl(input: {
   displayName: string;
   externalApiId: number;
   joinSettings: ConferenceJoinSettings;
+  jwtToken: string | null;
   roomName: string;
   title: string;
   websocketUrl: string;
 }) {
   const url = new URL(`${encodeURIComponent(input.roomName)}`, `${input.baseUrl}/`);
+  if (input.jwtToken) {
+    url.searchParams.set("jwt", input.jwtToken);
+  }
   const hashParams = new URLSearchParams();
 
   hashParams.set("jitsi_meet_external_api_id", String(input.externalApiId));

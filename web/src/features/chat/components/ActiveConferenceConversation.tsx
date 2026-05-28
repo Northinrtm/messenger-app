@@ -32,6 +32,7 @@ const DEFAULT_CONFERENCE_JOIN_SETTINGS: ConferenceJoinSettings = {
 type Props = {
   conference: VideoConference;
   jitsiBaseUrl: string;
+  jwtTokenFetcher?: () => Promise<string | null>;
   profileDisplayName: string;
   organizerLabel: string | null;
   roleLabel: string | null;
@@ -324,6 +325,7 @@ function ConferenceDeviceControl({
 export function ActiveConferenceConversation({
   conference,
   jitsiBaseUrl,
+  jwtTokenFetcher,
   profileDisplayName,
   organizerLabel,
   roleLabel,
@@ -762,6 +764,7 @@ export function ActiveConferenceConversation({
                 conferenceId={conference.id}
                 key={conference.id}
                 baseUrl={jitsiBaseUrl}
+                jwtTokenFetcher={jwtTokenFetcher}
                 roomName={conference.roomName}
                 displayName={profileDisplayName}
                 title={conference.title}

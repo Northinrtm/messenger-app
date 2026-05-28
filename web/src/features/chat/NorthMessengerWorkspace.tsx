@@ -20,6 +20,7 @@ import {
   addConferenceParticipants as addConferenceParticipantsRequest,
   addGroupParticipants,
   clearConferencePresence as clearConferencePresenceRequest,
+  fetchConferenceJitsiToken,
   createConferenceInviteLink as createConferenceInviteLinkRequest,
   createGroupInviteLink as createGroupInviteLinkRequest,
   createVideoConference as createVideoConferenceRequest,
@@ -2703,6 +2704,7 @@ export function NorthMessengerWorkspace({
       ? {
           conference: activeConference,
           jitsiBaseUrl: JITSI_BASE_URL,
+          jwtTokenFetcher: () => fetchConferenceJitsiToken(session.token, activeConference.id),
           profileDisplayName: profile.displayName,
           organizerLabel: activeConferenceOrganizerLabel,
           roleLabel: activeConferenceRoleLabel,

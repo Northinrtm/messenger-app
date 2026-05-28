@@ -544,6 +544,23 @@ public class VideoConferenceService {
         return buildConferenceResponse(conference, currentUser.getId());
     }
 
+    public String generateJitsiToken(String username, UUID conferenceId, JitsiJwtService jitsiJwtService) {
+        UserAccount currentUser = authService.requireAuthenticatedUser(username);
+        VideoConference conference = videoConferenceRepository.findById(conferenceId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Conference not found"));
+        if (!hasConferenceAccess(conference, currentUser)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Conference is not available");
+        }
+        boolean moderator = conference.getCreatedByUserId().equals(currentUser.getId());
+        return jitsiJwtService.generateToken(
+                currentUser.getId(),
+                currentUser.getDisplayName(),
+                currentUser.getEmail(),
+                conference.getRoomName(),
+                moderator
+        );
+    }
+
     public ConferenceRecordingDownload downloadRecording(String username, UUID conferenceId) {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
         VideoConference conference = videoConferenceRepository.findById(conferenceId)

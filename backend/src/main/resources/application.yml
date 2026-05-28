@@ -142,6 +142,13 @@ app:
       message-size-limit-bytes: ${APP_REALTIME_WEBSOCKET_MESSAGE_SIZE_LIMIT_BYTES:8388608}
       send-buffer-size-limit-bytes: ${APP_REALTIME_WEBSOCKET_SEND_BUFFER_SIZE_LIMIT_BYTES:8388608}
       send-time-limit-ms: ${APP_REALTIME_WEBSOCKET_SEND_TIME_LIMIT_MS:20000}
+  jitsi:
+    jwt:
+      enabled: ${APP_JITSI_JWT_ENABLED:false}
+      app-id: ${APP_JITSI_JWT_APP_ID:}
+      app-secret: ${APP_JITSI_JWT_APP_SECRET:}
+      domain: ${APP_JITSI_JWT_DOMAIN:}
+      token-ttl: ${APP_JITSI_JWT_TOKEN_TTL:PT1H}
   jwt:
     issuer: north-messenger
     audience: north-messenger-clients

@@ -786,6 +786,20 @@ export function clearConferencePresence(
   });
 }
 
+export async function fetchConferenceJitsiToken(
+  token: string,
+  conferenceId: string
+): Promise<string | null> {
+  try {
+    const result = await request<{ token: string }>(`/api/conferences/${conferenceId}/jitsi-token`, {
+      token,
+    });
+    return result.token ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function createDirectChat(token: string, participantUsername: string) {
   return request<ChatSummary>("/api/chats/direct", {
     method: "POST",

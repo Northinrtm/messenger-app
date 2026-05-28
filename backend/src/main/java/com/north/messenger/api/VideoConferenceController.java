@@ -5,6 +5,7 @@ import com.north.messenger.api.dto.CreateVideoConferenceRequest;
 import com.north.messenger.api.dto.UpdateVideoConferenceRequest;
 import com.north.messenger.api.dto.VideoConferenceResponse;
 import com.north.messenger.application.chat.VideoConferenceService;
+import com.north.messenger.application.chat.JitsiJwtService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -17,6 +18,7 @@ import com.north.messenger.security.JwtService;
 import jakarta.validation.Valid;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ContentDisposition;
@@ -50,10 +52,16 @@ import org.springframework.web.server.ResponseStatusException;
 public class VideoConferenceController {
 
     private final VideoConferenceService videoConferenceService;
+    private final JitsiJwtService jitsiJwtService;
     private final JwtService jwtService;
 
-    public VideoConferenceController(VideoConferenceService videoConferenceService, JwtService jwtService) {
+    public VideoConferenceController(
+            VideoConferenceService videoConferenceService,
+            JitsiJwtService jitsiJwtService,
+            JwtService jwtService
+    ) {
         this.videoConferenceService = videoConferenceService;
+        this.jitsiJwtService = jitsiJwtService;
         this.jwtService = jwtService;
     }
 
@@ -253,6 +261,24 @@ public class VideoConferenceController {
     })
     public void cancelConference(Authentication authentication, @PathVariable UUID conferenceId) {
         videoConferenceService.cancelConference(authentication.getName(), conferenceId);
+    }
+
+    @GetMapping("/{conferenceId}/jitsi-token")
+    @Operation(
+            summary = "Generate Jitsi JWT token",
+            description = "Returns a signed JWT for the authenticated participant to join the Jitsi room. Returns 404 when Jitsi JWT is not configured."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "JWT token generated successfully"),
+            @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
+            @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
+    })
+    public Map<String, String> getJitsiToken(Authentication authentication, @PathVariable UUID conferenceId) {
+        if (!jitsiJwtService.isEnabled()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Jitsi JWT is not configured");
+        }
+        String token = videoConferenceService.generateJitsiToken(authentication.getName(), conferenceId, jitsiJwtService);
+        return Map.of("token", token);
     }
 
     private UUID extractSessionId(String authorizationHeader) {
