@@ -19,6 +19,24 @@ export type UserMailbox = {
   createdAt: string;
 };
 
+export type MailMessageSummary = {
+  id: string;
+  from: string;
+  subject: string;
+  sentAt: string;
+  read: boolean;
+};
+
+export type MailMessageDetail = {
+  id: string;
+  from: string;
+  to: string[];
+  subject: string;
+  body: string;
+  sentAt: string;
+  read: boolean;
+};
+
 export type Participant = {
   id: string;
   username: string;

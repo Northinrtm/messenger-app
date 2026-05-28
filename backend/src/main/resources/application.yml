@@ -195,6 +195,16 @@ app:
         key-id: ${APP_MESSAGES_CONTENT_ENCRYPTION_AWS_KMS_KEY_ID:}
         region: ${APP_MESSAGES_CONTENT_ENCRYPTION_AWS_REGION:us-east-1}
         endpoint-override: ${APP_MESSAGES_CONTENT_ENCRYPTION_AWS_ENDPOINT_OVERRIDE:}
+  mail:
+    enabled: ${APP_MAIL_ENABLED:false}
+    domain: ${APP_MAIL_DOMAIN:ktsf.ru}
+    stalwart-url: ${APP_MAIL_STALWART_URL:http://localhost:8081}
+    stalwart-admin-secret: ${APP_MAIL_STALWART_ADMIN_SECRET:}
+    imap-host: ${APP_MAIL_IMAP_HOST:localhost}
+    imap-port: ${APP_MAIL_IMAP_PORT:143}
+    smtp-host: ${APP_MAIL_SMTP_HOST:localhost}
+    smtp-port: ${APP_MAIL_SMTP_PORT:25}
+    credential-secret: ${APP_MAIL_CREDENTIAL_SECRET:}
   push:
     enabled: ${APP_PUSH_ENABLED:true}
     subject: ${APP_PUSH_SUBJECT:mailto:no-reply@localhost.test}

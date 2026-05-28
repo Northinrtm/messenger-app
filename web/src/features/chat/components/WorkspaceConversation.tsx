@@ -6,14 +6,15 @@ import { ActiveConferenceConversation } from "./ActiveConferenceConversation";
 import { ActiveChatConversation } from "./ActiveChatConversation";
 import { ChatMembersPanel } from "./ChatMembersPanel.next";
 import { ChatMenuPanel } from "./ChatMenuPanel";
+import { MailComposeView } from "./MailComposeView";
+import { MailMessageView } from "./MailMessageView";
 import { MessageContextMenu } from "./MessageContextMenu";
 
 const EMPTY_STATE_COPY = {
   loading: "\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043C \u0434\u0430\u043D\u043D\u044B\u0435...",
   selectConference:
     "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0432\u0438\u0434\u0435\u043E\u043A\u043E\u043D\u0444\u0435\u0440\u0435\u043D\u0446\u0438\u044E \u0441\u043B\u0435\u0432\u0430",
-  manageMail:
-    "\u0423\u043F\u0440\u0430\u0432\u043B\u044F\u0439\u0442\u0435 \u043F\u043E\u0447\u0442\u043E\u0432\u044B\u043C\u0438 \u044F\u0449\u0438\u043A\u0430\u043C\u0438 \u0441\u043B\u0435\u0432\u0430",
+  selectMail: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u043F\u0438\u0441\u044C\u043C\u043E \u0441\u043B\u0435\u0432\u0430",
   selectChat:
     "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435, \u043A\u043E\u043C\u0443 \u0445\u043E\u0442\u0435\u043B\u0438 \u0431\u044B \u043D\u0430\u043F\u0438\u0441\u0430\u0442\u044C",
 } as const;
@@ -33,6 +34,8 @@ type Props = {
   errorText: string | null;
   incomingToasts: IncomingToast[];
   isConferenceMinimized: boolean;
+  mailComposeProps: ComponentProps<typeof MailComposeView> | null;
+  mailMessageProps: ComponentProps<typeof MailMessageView> | null;
   onOpenToastChat: (chatId: string) => void;
   showConference: boolean;
 };
@@ -52,9 +55,14 @@ export function WorkspaceConversation({
   errorText,
   incomingToasts,
   isConferenceMinimized,
+  mailComposeProps,
+  mailMessageProps,
   onOpenToastChat,
   showConference,
 }: Props) {
+  const showMailCompose = activeListTab === "mail" && mailComposeProps !== null;
+  const showMailMessage = activeListTab === "mail" && !showMailCompose && mailMessageProps !== null;
+
   return (
     <>
       <section className="conversation north-conversation">
@@ -73,7 +81,11 @@ export function WorkspaceConversation({
           </div>
         ) : null}
 
-        {activeChatConversationProps ? (
+        {showMailCompose && mailComposeProps ? (
+          <MailComposeView {...mailComposeProps} />
+        ) : showMailMessage && mailMessageProps ? (
+          <MailMessageView {...mailMessageProps} />
+        ) : activeChatConversationProps ? (
           <ActiveChatConversation {...activeChatConversationProps} />
         ) : !showConference || isConferenceMinimized ? (
           chatsLoading || conferencesLoading ? (
@@ -84,7 +96,7 @@ export function WorkspaceConversation({
                 {activeListTab === "conferences"
                   ? EMPTY_STATE_COPY.selectConference
                   : activeListTab === "mail"
-                    ? EMPTY_STATE_COPY.manageMail
+                    ? EMPTY_STATE_COPY.selectMail
                     : EMPTY_STATE_COPY.selectChat}
               </div>
             </div>

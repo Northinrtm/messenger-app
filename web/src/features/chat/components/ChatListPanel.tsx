@@ -2,15 +2,15 @@ import { memo, type MouseEvent as ReactMouseEvent, type RefObject } from "react"
 
 import type {
   ChatSummary,
+  MailMessageSummary,
   Participant,
-  UserMailbox,
   UserProfile,
   VideoConference,
 } from "../../../lib/types";
 import type { ConversationListTab } from "../chatUi";
 import { AvatarCircle } from "./AvatarCircle";
 import { ConferenceCalendarPanel } from "./ConferenceCalendarPanel";
-import { MailboxesPanel } from "./MailboxesPanel";
+import { MailInboxPanel } from "./MailInboxPanel";
 
 type Props = {
   activeListTab: ConversationListTab;
@@ -24,13 +24,14 @@ type Props = {
   activeConferenceId: string | null;
   conferenceListScrollRef: RefObject<HTMLDivElement | null>;
   sessionUser: UserProfile;
-  addMailboxPending: boolean;
   chatsLoading: boolean;
-  mailboxError: string | null;
-  mailboxInput: string;
-  mailboxes: UserMailbox[];
-  mailboxesLoading: boolean;
-  removeMailboxPending: boolean;
+  mailInbox: MailMessageSummary[];
+  mailSent: MailMessageSummary[];
+  mailLoading: boolean;
+  mailFolder: "inbox" | "sent";
+  activeMailMessageId: string | null;
+  mailComposing: boolean;
+  userMailAddress: string;
   tabChats: ChatSummary[];
   tabChatsEmptyText: string;
   activeChatId: string | null;
@@ -42,12 +43,13 @@ type Props = {
   openChat: (chatId: string) => void;
   openChatAtFailedMessage: (chatId: string) => void;
   openChatContextMenu: (event: ReactMouseEvent<HTMLButtonElement>, chatId: string) => void;
-  onAddMailbox: () => void;
-  onMailboxInputChange: (value: string) => void;
-  onRemoveMailbox: (mailboxId: string) => void;
+  onMailSwitchFolder: (folder: "inbox" | "sent") => void;
+  onMailOpenMessage: (messageId: string) => void;
+  onMailCompose: () => void;
   formatConferenceListPreview: (conference: VideoConference, currentUsername: string) => string;
   formatConferenceTileTime: (value: string) => string;
   formatConferenceSchedule: (value: string) => string;
+  formatMailTimestamp: (value: string) => string;
   trimPreview: (content: string, maxLength: number) => string;
   getDirectParticipant: (chat: ChatSummary, currentUser: UserProfile) => Participant | null;
   formatTypingParticipants: (participants: Participant[]) => string;
@@ -68,13 +70,14 @@ export const ChatListPanel = memo(function ChatListPanel({
   activeConferenceId,
   conferenceListScrollRef,
   sessionUser,
-  addMailboxPending,
   chatsLoading,
-  mailboxError,
-  mailboxInput,
-  mailboxes,
-  mailboxesLoading,
-  removeMailboxPending,
+  mailInbox,
+  mailSent,
+  mailLoading,
+  mailFolder,
+  activeMailMessageId,
+  mailComposing,
+  userMailAddress,
   tabChats,
   tabChatsEmptyText,
   activeChatId,
@@ -86,12 +89,13 @@ export const ChatListPanel = memo(function ChatListPanel({
   openChat,
   openChatAtFailedMessage,
   openChatContextMenu,
-  onAddMailbox,
-  onMailboxInputChange,
-  onRemoveMailbox,
+  onMailSwitchFolder,
+  onMailOpenMessage,
+  onMailCompose,
   formatConferenceListPreview,
   formatConferenceTileTime,
   formatConferenceSchedule,
+  formatMailTimestamp,
   trimPreview,
   getDirectParticipant,
   formatTypingParticipants,
@@ -229,16 +233,18 @@ export const ChatListPanel = memo(function ChatListPanel({
 
   if (activeListTab === "mail") {
     return (
-      <MailboxesPanel
-        addMailboxPending={addMailboxPending}
-        mailboxError={mailboxError}
-        mailboxInput={mailboxInput}
-        mailboxes={mailboxes}
-        mailboxesLoading={mailboxesLoading}
-        removeMailboxPending={removeMailboxPending}
-        onAddMailbox={onAddMailbox}
-        onMailboxInputChange={onMailboxInputChange}
-        onRemoveMailbox={onRemoveMailbox}
+      <MailInboxPanel
+        inbox={mailInbox}
+        sent={mailSent}
+        loading={mailLoading}
+        folder={mailFolder}
+        activeMessageId={activeMailMessageId}
+        composing={mailComposing}
+        userEmail={userMailAddress}
+        onSwitchFolder={onMailSwitchFolder}
+        onOpenMessage={onMailOpenMessage}
+        onCompose={onMailCompose}
+        formatMailTimestamp={formatMailTimestamp}
       />
     );
   }

@@ -19,12 +19,13 @@ import {
   addContact as addContactRequest,
   addConferenceParticipants as addConferenceParticipantsRequest,
   addGroupParticipants,
-  addOwnMailbox as addOwnMailboxRequest,
   clearConferencePresence as clearConferencePresenceRequest,
   createConferenceInviteLink as createConferenceInviteLinkRequest,
   createGroupInviteLink as createGroupInviteLinkRequest,
   createVideoConference as createVideoConferenceRequest,
+  deleteMailMessage as deleteMailMessageRequest,
   downloadChatAttachment,
+  getMailMessage as getMailMessageRequest,
   getWorkspaceBootstrap,
   deleteOwnAccount as deleteOwnAccountRequest,
   deleteChat as deleteChatRequest,
@@ -33,18 +34,17 @@ import {
   createDirectChat,
   createGroupChat,
   listGroupBans as listGroupBansRequest,
+  sendMail as sendMailRequest,
   touchConferencePresence as touchConferencePresenceRequest,
   updatePinnedMessage as updatePinnedMessageRequest,
   logout,
   removeContact as removeContactRequest,
-  removeOwnMailbox as removeOwnMailboxRequest,
   revokeSession,
   updateArchivedChat,
   requestEmailChange,
   updateProfile,
   updateProfileAvatar,
 } from "../../lib/api";
-import { validateEmailAddress } from "../auth/authValidation";
 import { JITSI_BASE_URL } from "../../lib/config";
 import {
   disablePushNotifications,
@@ -60,11 +60,11 @@ import type {
   ChatMessage,
   ChatMessageAttachment,
   ChatPrejoinHistoryPolicy,
+  MailMessageDetail,
   MessageReaction,
   ChatSummary,
   Participant,
   SourceMessageJumpTarget,
-  UserMailbox,
   UserProfile,
   UserSessionInfo,
   VideoConference,
@@ -255,7 +255,11 @@ export function NorthMessengerWorkspace({
   const [conferenceInviteUsernames, setConferenceInviteUsernames] = useState<string[]>([]);
   const [profileDisplayName, setProfileDisplayName] = useState(session.user.displayName);
   const [profileProfession, setProfileProfession] = useState(session.user.profession ?? "");
-  const [mailboxEmailInput, setMailboxEmailInput] = useState("");
+  const [activeMailMessageId, setActiveMailMessageId] = useState<string | null>(null);
+  const [mailComposing, setMailComposing] = useState(false);
+  const [mailFolder, setMailFolder] = useState<"inbox" | "sent">("inbox");
+  const [mailSendError, setMailSendError] = useState<string | null>(null);
+  const [mailReplyTo, setMailReplyTo] = useState<{ to: string; subject: string } | null>(null);
   const [emailChangeInput, setEmailChangeInput] = useState("");
   const [usernameChangeInput, setUsernameChangeInput] = useState("");
   const [passwordChangeCurrent, setPasswordChangeCurrent] = useState("");
@@ -338,7 +342,8 @@ export function NorthMessengerWorkspace({
     setConferenceComposerMode(null);
     setConferenceEditingId(null);
     setConferenceChatId(null);
-    setMailboxEmailInput("");
+    setActiveMailMessageId(null);
+    setMailComposing(false);
     setSearch("");
   }, [session.user.id]);
   useEffect(() => {
@@ -456,22 +461,29 @@ export function NorthMessengerWorkspace({
       }));
     },
   });
-  const addMailboxMutation = useMutation({
-    mutationFn: (email: string) => addOwnMailboxRequest(session.token, email),
-    onSuccess: (mailbox) => {
-      queryClient.setQueryData<UserMailbox[]>(["mailboxes", session.token], (current) => {
-        const next = current?.filter((item) => item.id !== mailbox.id) ?? [];
-        return [mailbox, ...next];
-      });
-      setMailboxEmailInput("");
+  const mailSendMutation = useMutation({
+    mutationFn: (input: { to: string; subject: string; body: string }) =>
+      sendMailRequest(session.token, input.to, input.subject, input.body),
+    onSuccess: () => {
+      setMailComposing(false);
+      setMailReplyTo(null);
+      setMailSendError(null);
+      setMailFolder("sent");
+      queryClient.invalidateQueries({ queryKey: ["mail-sent", session.token] });
+    },
+    onError: (error) => {
+      setMailSendError(describeError(error));
     },
   });
-  const removeMailboxMutation = useMutation({
-    mutationFn: (mailboxId: string) => removeOwnMailboxRequest(session.token, mailboxId),
-    onSuccess: (_result, mailboxId) => {
-      queryClient.setQueryData<UserMailbox[]>(["mailboxes", session.token], (current) =>
-        current?.filter((item) => item.id !== mailboxId) ?? []
-      );
+  const mailDeleteMutation = useMutation({
+    mutationFn: (messageId: string) => deleteMailMessageRequest(session.token, messageId),
+    onSuccess: (_result, messageId) => {
+      if (activeMailMessageId === messageId) {
+        setActiveMailMessageId(null);
+      }
+      queryClient.invalidateQueries({
+        queryKey: [mailFolder === "inbox" ? "mail-inbox" : "mail-sent", session.token],
+      });
     },
   });
   const handleGroupCreated = useEffectEvent((chat: ChatSummary) => {
@@ -624,6 +636,8 @@ export function NorthMessengerWorkspace({
     contactsQuery,
     contactsSearchQuery,
     mailboxesQuery,
+    mailInboxQuery,
+    mailSentQuery,
     messages,
     messagesQuery,
     pendingOutgoingMessagesQuery,
@@ -686,6 +700,24 @@ export function NorthMessengerWorkspace({
   const sessions = sessionsQuery.data ?? [];
   const profile = profileQuery.data ?? session.user;
   const mailboxes = mailboxesQuery.data ?? [];
+  const mailInbox = mailInboxQuery.data ?? [];
+  const mailSent = mailSentQuery.data ?? [];
+  const mailLoading =
+    activeListTab === "mail" &&
+    (mailInboxQuery.isFetching || mailSentQuery.isFetching) &&
+    mailInbox.length === 0 &&
+    mailSent.length === 0;
+  const userMailAddress =
+    mailboxes.length > 0 ? mailboxes[0].email : `${profile.username}@ktsf.ru`;
+
+  const mailMessageQuery = useQuery({
+    queryKey: ["mail-message", session.token, activeMailMessageId],
+    queryFn: () => getMailMessageRequest(session.token, activeMailMessageId!),
+    enabled: Boolean(activeMailMessageId) && activeListTab === "mail",
+    staleTime: 60_000,
+  });
+  const activeMailMessage: MailMessageDetail | null = mailMessageQuery.data ?? null;
+
   useEffect(() => {
     if (activeListTab === "mail" && !profile.mailEnabled) {
       setActiveListTab("chats");
@@ -1714,8 +1746,6 @@ export function NorthMessengerWorkspace({
   const emailVerificationError = resendOwnEmailVerificationMutation.error
     ? describeError(resendOwnEmailVerificationMutation.error)
     : null;
-  const mailboxMutationError = addMailboxMutation.error ?? removeMailboxMutation.error;
-  const mailboxError = mailboxMutationError ? describeError(mailboxMutationError) : null;
   const resolvedEmailVerificationInfo =
     resendOwnEmailVerificationMutation.isSuccess && !resendOwnEmailVerificationMutation.error
       ? profile.email
@@ -1765,17 +1795,51 @@ export function NorthMessengerWorkspace({
     setPasswordChangeConfirm("");
   }, [sidebarSheet]);
 
-  const handleAddMailbox = useEffectEvent(() => {
-    const nextEmail = mailboxEmailInput.trim();
-    if (!nextEmail || validateEmailAddress(nextEmail)) {
-      return;
-    }
-
-    addMailboxMutation.mutate(nextEmail);
+  const handleMailOpenMessage = useEffectEvent((messageId: string) => {
+    setActiveMailMessageId(messageId);
+    setMailComposing(false);
+    setMailReplyTo(null);
+    setMailSendError(null);
   });
 
-  const handleRemoveMailbox = useEffectEvent((mailboxId: string) => {
-    removeMailboxMutation.mutate(mailboxId);
+  const handleMailCompose = useEffectEvent(() => {
+    setMailComposing(true);
+    setActiveMailMessageId(null);
+    setMailReplyTo(null);
+    setMailSendError(null);
+    mailSendMutation.reset();
+  });
+
+  const handleMailReply = useEffectEvent(() => {
+    if (!activeMailMessage) return;
+    setMailComposing(true);
+    setMailReplyTo({
+      to: activeMailMessage.from,
+      subject: activeMailMessage.subject.startsWith("Re:")
+        ? activeMailMessage.subject
+        : `Re: ${activeMailMessage.subject}`,
+    });
+    setActiveMailMessageId(null);
+    setMailSendError(null);
+    mailSendMutation.reset();
+  });
+
+  const handleMailClose = useEffectEvent(() => {
+    setMailComposing(false);
+    setActiveMailMessageId(null);
+    setMailReplyTo(null);
+    setMailSendError(null);
+    mailSendMutation.reset();
+  });
+
+  const handleMailSend = useEffectEvent((to: string, subject: string, body: string) => {
+    mailSendMutation.mutate({ to, subject, body });
+  });
+
+  const handleMailDelete = useEffectEvent(() => {
+    if (activeMailMessageId) {
+      mailDeleteMutation.mutate(activeMailMessageId);
+    }
   });
 
   const uploadAvatarFromFile = useEffectEvent(async (file: File) => {
@@ -2286,8 +2350,8 @@ export function NorthMessengerWorkspace({
       removeContactMutation.error,
       blockUserMutation.error,
       unblockUserMutation.error,
-      addMailboxMutation.error,
-      removeMailboxMutation.error,
+      mailSendMutation.error,
+      mailDeleteMutation.error,
       workspaceBootstrapQuery.error,
       chatsQuery.error,
       sessionsQuery.error,
@@ -2324,13 +2388,14 @@ export function NorthMessengerWorkspace({
         activeConferenceId={activeConference?.id ?? null}
         conferenceListScrollRef={conferenceListScrollRef}
         sessionUser={session.user}
-        addMailboxPending={addMailboxMutation.isPending}
         chatsLoading={chatsLoading}
-        mailboxError={mailboxError}
-        mailboxInput={mailboxEmailInput}
-        mailboxes={mailboxes}
-        mailboxesLoading={mailboxesLoading}
-        removeMailboxPending={removeMailboxMutation.isPending}
+        mailInbox={mailInbox}
+        mailSent={mailSent}
+        mailLoading={mailLoading}
+        mailFolder={mailFolder}
+        activeMailMessageId={activeMailMessageId}
+        mailComposing={mailComposing}
+        userMailAddress={userMailAddress}
         tabChats={tabChats}
         tabChatsEmptyText={tabChatsEmptyText}
         activeChatId={activeChat?.id ?? null}
@@ -2342,12 +2407,13 @@ export function NorthMessengerWorkspace({
         openChat={openChat}
         openChatAtFailedMessage={openChatAtFailedMessage}
         openChatContextMenu={openChatContextMenu}
-        onAddMailbox={handleAddMailbox}
-        onMailboxInputChange={setMailboxEmailInput}
-        onRemoveMailbox={handleRemoveMailbox}
+        onMailSwitchFolder={setMailFolder}
+        onMailOpenMessage={handleMailOpenMessage}
+        onMailCompose={handleMailCompose}
         formatConferenceListPreview={formatConferenceListPreview}
         formatConferenceTileTime={formatConferenceTileTime}
         formatConferenceSchedule={formatConferenceSchedule}
+        formatMailTimestamp={formatChatTimestamp}
         trimPreview={trimPreview}
         getDirectParticipant={getDirectParticipant}
         formatTypingParticipants={formatTypingParticipants}
@@ -2360,31 +2426,32 @@ export function NorthMessengerWorkspace({
       activeChat?.id,
       activeConference?.id,
       activeListTab,
-      addMailboxMutation.isPending,
+      activeMailMessageId,
       chatsLoading,
       conferenceBrowserMode,
       conferencesLoading,
       draftsByChatId,
       failedChatIds,
-      handleAddMailbox,
-      handleRemoveMailbox,
+      handleMailCompose,
+      handleMailOpenMessage,
       liveGroupConferencesByChatId,
-      mailboxEmailInput,
-      mailboxError,
-      mailboxes,
-      mailboxesLoading,
+      mailComposing,
+      mailFolder,
+      mailInbox,
+      mailLoading,
+      mailSent,
       normalizedSearch,
       openChat,
       openChatContextMenu,
       openConference,
-      removeMailboxMutation.isPending,
       session.user,
-      setMailboxEmailInput,
+      setMailFolder,
       tabChats,
       tabChatsEmptyText,
       toggleConferenceViewMode,
       openConferenceComposer,
       typingByChatId,
+      userMailAddress,
       visibleConferences,
     ]
   );
@@ -2969,6 +3036,31 @@ export function NorthMessengerWorkspace({
         errorText={errorText}
         incomingToasts={incomingToasts}
         isConferenceMinimized={isConferenceMinimized}
+        mailComposeProps={
+          mailComposing
+            ? {
+                sendPending: mailSendMutation.isPending,
+                sendError: mailSendError,
+                initialTo: mailReplyTo?.to,
+                initialSubject: mailReplyTo?.subject,
+                onSend: handleMailSend,
+                onClose: handleMailClose,
+              }
+            : null
+        }
+        mailMessageProps={
+          activeMailMessageId && !mailComposing
+            ? {
+                message: activeMailMessage,
+                loading: mailMessageQuery.isFetching && !activeMailMessage,
+                deletePending: mailDeleteMutation.isPending,
+                folder: mailFolder,
+                onDelete: handleMailDelete,
+                onReply: handleMailReply,
+                formatMailTimestamp: formatChatTimestamp,
+              }
+            : null
+        }
         onOpenToastChat={openChat}
         showConference={Boolean(activeConference)}
       />

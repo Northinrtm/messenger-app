@@ -89,6 +89,32 @@ services:
     volumes:
       - minio_data:/data
 
+  stalwart:
+    image: stalwartlabs/stalwart:latest
+    container_name: messenger-stalwart
+    init: true
+    restart: unless-stopped
+    logging: *default-logging
+    cpus: 0.25
+    mem_limit: 256m
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      STALWART_ADMIN_SECRET: ${STALWART_ADMIN_SECRET:?STALWART_ADMIN_SECRET must be set}
+    ports:
+      - "25:25"
+      - "143:143"
+    volumes:
+      - stalwart_data:/opt/stalwart
+      - ./deploy/stalwart/config.toml:/etc/stalwart/config.toml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz 2>/dev/null || exit 0"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
   jitsi-prosody:
     image: jitsi/prosody:stable
     container_name: messenger-jitsi-prosody
@@ -367,12 +393,23 @@ services:
       APP_PUSH_TTL: ${APP_PUSH_TTL:-PT1M}
       APP_PUSH_FCM_ENABLED: ${APP_PUSH_FCM_ENABLED:-false}
       APP_PUSH_FCM_SERVICE_ACCOUNT_JSON: ${APP_PUSH_FCM_SERVICE_ACCOUNT_JSON:-}
+      APP_MAIL_ENABLED: ${APP_MAIL_ENABLED:-true}
+      APP_MAIL_DOMAIN: ${APP_MAIL_DOMAIN:-ktsf.ru}
+      APP_MAIL_STALWART_URL: ${APP_MAIL_STALWART_URL:-http://stalwart:8080}
+      APP_MAIL_STALWART_ADMIN_SECRET: ${STALWART_ADMIN_SECRET:?STALWART_ADMIN_SECRET must be set}
+      APP_MAIL_IMAP_HOST: ${APP_MAIL_IMAP_HOST:-stalwart}
+      APP_MAIL_IMAP_PORT: ${APP_MAIL_IMAP_PORT:-143}
+      APP_MAIL_SMTP_HOST: ${APP_MAIL_SMTP_HOST:-stalwart}
+      APP_MAIL_SMTP_PORT: ${APP_MAIL_SMTP_PORT:-25}
+      APP_MAIL_CREDENTIAL_SECRET: ${APP_MAIL_CREDENTIAL_SECRET:?APP_MAIL_CREDENTIAL_SECRET must be set}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
       minio:
+        condition: service_started
+      stalwart:
         condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/actuator/health"]
@@ -662,6 +699,7 @@ volumes:
   postgres_data:
   redis_data:
   minio_data:
+  stalwart_data:
   grafana_data:
   alertmanager_data:
   loki_data:

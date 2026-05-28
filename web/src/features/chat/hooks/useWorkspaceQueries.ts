@@ -8,6 +8,8 @@ import {
   getChatOpen,
   getChats,
   getOwnMailboxes,
+  getMailInbox,
+  getMailSent,
   getContacts,
   getMessagesPage,
   getPendingOutgoingMessages,
@@ -303,6 +305,26 @@ export function useWorkspaceQueries({
     staleTime: 60_000,
   });
 
+  const isMailTabActive = activeListTab === "mail";
+
+  const mailInboxQuery = useQuery({
+    queryKey: ["mail-inbox", sessionToken],
+    queryFn: () => getMailInbox(sessionToken),
+    enabled: bootstrapReady && isMailTabActive,
+    staleTime: 30_000,
+    refetchInterval: isMailTabActive ? 60_000 : false,
+    refetchIntervalInBackground: false,
+  });
+
+  const mailSentQuery = useQuery({
+    queryKey: ["mail-sent", sessionToken],
+    queryFn: () => getMailSent(sessionToken),
+    enabled: bootstrapReady && isMailTabActive,
+    staleTime: 30_000,
+    refetchInterval: isMailTabActive ? 60_000 : false,
+    refetchIntervalInBackground: false,
+  });
+
   const archivedConferencesQuery = useQuery({
     queryKey: ["video-conferences-archive", sessionToken],
     queryFn: () => getArchivedVideoConferences(sessionToken),
@@ -497,6 +519,8 @@ export function useWorkspaceQueries({
     contactsQuery,
     contactsSearchQuery,
     mailboxesQuery,
+    mailInboxQuery,
+    mailSentQuery,
     messages,
     messagesQuery,
     pendingOutgoingMessagesQuery,

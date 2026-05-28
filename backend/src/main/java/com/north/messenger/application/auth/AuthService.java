@@ -7,6 +7,9 @@ import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.api.dto.RegisterRequest;
 import com.north.messenger.api.dto.UserSessionResponse;
 import com.north.messenger.api.dto.UserProfileResponse;
+import com.north.messenger.application.mail.MailProperties;
+import com.north.messenger.application.mail.StalwartAdminClient;
+import com.north.messenger.application.mail.UserMailboxCredentialService;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.UserBlock;
 import com.north.messenger.domain.model.UserContact;
@@ -38,6 +41,8 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
@@ -50,6 +55,8 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 @Transactional(readOnly = true)
 public class AuthService {
+
+    private static final Logger log = LoggerFactory.getLogger(AuthService.class);
 
     public static final String DELETED_USER_DISPLAY_NAME = "Deleted user";
     public static final String DELETED_USER_USERNAME_PREFIX = "deleted-user";
@@ -77,6 +84,9 @@ public class AuthService {
     private final AvatarService avatarService;
     private final EmailVerificationService emailVerificationService;
     private final Set<String> allowedRegistrationEmailDomains;
+    private final Optional<StalwartAdminClient> stalwartAdminClient;
+    private final Optional<UserMailboxCredentialService> mailboxCredentialService;
+    private final Optional<MailProperties> mailProperties;
 
     public AuthService(
             UserAccountRepository userAccountRepository,
@@ -90,6 +100,9 @@ public class AuthService {
             ApplicationEventPublisher eventPublisher,
             AvatarService avatarService,
             EmailVerificationService emailVerificationService,
+            Optional<StalwartAdminClient> stalwartAdminClient,
+            Optional<UserMailboxCredentialService> mailboxCredentialService,
+            Optional<MailProperties> mailProperties,
             @Value("${app.auth.registration.allowed-email-domains:gmail.com,googlemail.com,outlook.com,hotmail.com,live.com,msn.com,yahoo.com,yahoo.co.uk,yahoo.co.jp,icloud.com,me.com,mac.com,yandex.ru,yandex.com,ya.ru,mail.ru,bk.ru,inbox.ru,list.ru,rambler.ru,lenta.ru,myrambler.ru,autorambler.ru,proton.me,protonmail.com,pm.me,aol.com,gmx.com,gmx.de,gmx.net,fastmail.com,zoho.com}") String[] allowedRegistrationEmailDomains
     ) {
         this.userAccountRepository = userAccountRepository;
@@ -103,6 +116,9 @@ public class AuthService {
         this.eventPublisher = eventPublisher;
         this.avatarService = avatarService;
         this.emailVerificationService = emailVerificationService;
+        this.stalwartAdminClient = stalwartAdminClient;
+        this.mailboxCredentialService = mailboxCredentialService;
+        this.mailProperties = mailProperties;
         this.allowedRegistrationEmailDomains = Arrays.stream(allowedRegistrationEmailDomains)
                 .map(domain -> domain == null ? "" : domain.trim().toLowerCase(Locale.ROOT))
                 .filter(domain -> !domain.isBlank())
@@ -143,6 +159,7 @@ public class AuthService {
         );
         userAccountRepository.save(user);
         emailVerificationService.issueVerificationForRegisteredUser(user);
+        provisionMailbox(user);
         return createSessionResponse(user, userAgent);
     }
 
@@ -189,6 +206,7 @@ public class AuthService {
                 .toList();
 
         String deletedSuffix = currentUser.getId().toString().substring(0, 8);
+        deprovisionMailbox(deletedUsername);
         currentUser.markDeleted(
                 UserAccount.DELETED_USERNAME_PREFIX + deletedSuffix,
                 "deleted+" + deletedSuffix + "@deleted.local",
@@ -252,8 +270,10 @@ public class AuthService {
                     }
                 });
 
+        String oldUsernameForMailbox = currentUsername;
         currentUser.updateUsername(normalized);
         userAccountRepository.save(currentUser);
+        renameMailbox(oldUsernameForMailbox, normalized);
         return createSessionResponse(currentUser, userAgent);
     }
 
@@ -998,6 +1018,40 @@ public class AuthService {
 
     private void notifySessionRevoked(String username, UUID sessionId) {
         eventPublisher.publishEvent(new SessionRevokedEvent(username, sessionId));
+    }
+
+    private void provisionMailbox(UserAccount user) {
+        stalwartAdminClient.ifPresent(client ->
+                mailProperties.ifPresent(props ->
+                        mailboxCredentialService.ifPresent(credService -> {
+                            String password = credService.derivePassword(user.getId());
+                            boolean ok = client.createAccount(user.getUsername(), password, props.domain());
+                            if (!ok) {
+                                log.warn("Failed to provision Stalwart mailbox for user={}", user.getUsername());
+                            }
+                        })
+                )
+        );
+    }
+
+    private void deprovisionMailbox(String username) {
+        stalwartAdminClient.ifPresent(client -> {
+            boolean ok = client.deleteAccount(username);
+            if (!ok) {
+                log.warn("Failed to deprovision Stalwart mailbox for user={}", username);
+            }
+        });
+    }
+
+    private void renameMailbox(String oldUsername, String newUsername) {
+        stalwartAdminClient.ifPresent(client ->
+                mailProperties.ifPresent(props -> {
+                    boolean ok = client.renameAccount(oldUsername, newUsername, props.domain());
+                    if (!ok) {
+                        log.warn("Failed to rename Stalwart mailbox {} -> {}", oldUsername, newUsername);
+                    }
+                })
+        );
     }
 
     private record RefreshTokenSecret(

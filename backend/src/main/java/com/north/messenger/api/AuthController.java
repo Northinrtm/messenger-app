@@ -7,7 +7,6 @@ import com.north.messenger.api.dto.ConfirmEmailChangeRequest;
 import com.north.messenger.api.dto.EmailVerificationConfirmRequest;
 import com.north.messenger.api.dto.EmailVerificationResendRequest;
 import com.north.messenger.api.dto.LoginRequest;
-import com.north.messenger.api.dto.CreateUserMailboxRequest;
 import com.north.messenger.api.dto.PasswordResetConfirmRequest;
 import com.north.messenger.api.dto.PasswordResetRequest;
 import com.north.messenger.api.dto.RegisterRequest;
@@ -316,38 +315,6 @@ public class AuthController {
     })
     public List<UserMailboxResponse> listOwnMailboxes(Authentication authentication) {
         return userMailboxService.listOwnMailboxes(authentication.getName());
-    }
-
-    @PostMapping("/me/mailboxes")
-    @ResponseStatus(HttpStatus.CREATED)
-    @Operation(summary = "Add a mailbox", description = "Adds one mailbox address to the authenticated user's Mail tab configuration.")
-    @SecurityRequirement(name = "bearerAuth")
-    @ApiResponses({
-            @ApiResponse(responseCode = "201", description = "Mailbox created successfully", useReturnTypeSchema = true),
-            @ApiResponse(responseCode = "400", ref = "#/components/responses/BadRequestError"),
-            @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
-            @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictError"),
-            @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
-    })
-    public UserMailboxResponse addOwnMailbox(
-            Authentication authentication,
-            @Valid @RequestBody CreateUserMailboxRequest request
-    ) {
-        return userMailboxService.addOwnMailbox(authentication.getName(), request.email());
-    }
-
-    @DeleteMapping("/me/mailboxes/{mailboxId}")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    @Operation(summary = "Remove a mailbox", description = "Deletes one mailbox from the authenticated user's Mail tab configuration.")
-    @SecurityRequirement(name = "bearerAuth")
-    @ApiResponses({
-            @ApiResponse(responseCode = "204", description = "Mailbox removed successfully"),
-            @ApiResponse(responseCode = "401", ref = "#/components/responses/UnauthorizedError"),
-            @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError"),
-            @ApiResponse(responseCode = "500", ref = "#/components/responses/InternalServerError")
-    })
-    public void removeOwnMailbox(Authentication authentication, @PathVariable UUID mailboxId) {
-        userMailboxService.removeOwnMailbox(authentication.getName(), mailboxId);
     }
 
     @PutMapping("/password")

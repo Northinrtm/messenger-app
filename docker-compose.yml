@@ -52,6 +52,24 @@ services:
       - "1025:1025"
       - "8025:8025"
 
+  stalwart:
+    image: stalwartlabs/stalwart:latest
+    container_name: messenger-stalwart
+    environment:
+      STALWART_ADMIN_SECRET: ${STALWART_ADMIN_SECRET:-stalwart-admin-dev-secret}
+    ports:
+      - "143:143"
+      - "8081:8080"
+    volumes:
+      - stalwart_data:/opt/stalwart
+      - ./deploy/stalwart/config.toml:/etc/stalwart/config.toml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz 2>/dev/null || exit 0"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
   jitsi-prosody:
     image: jitsi/prosody:stable
     container_name: messenger-jitsi-prosody
@@ -232,6 +250,15 @@ services:
       SPRING_DATA_REDIS_PORT: ${SPRING_DATA_REDIS_PORT:-6379}
       APP_REALTIME_REDIS_ENABLED: ${APP_REALTIME_REDIS_ENABLED:-false}
       APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
+      APP_MAIL_ENABLED: ${APP_MAIL_ENABLED:-true}
+      APP_MAIL_DOMAIN: ${APP_MAIL_DOMAIN:-ktsf.ru}
+      APP_MAIL_STALWART_URL: ${APP_MAIL_STALWART_URL:-http://stalwart:8080}
+      APP_MAIL_STALWART_ADMIN_SECRET: ${STALWART_ADMIN_SECRET:-stalwart-admin-dev-secret}
+      APP_MAIL_IMAP_HOST: ${APP_MAIL_IMAP_HOST:-stalwart}
+      APP_MAIL_IMAP_PORT: ${APP_MAIL_IMAP_PORT:-143}
+      APP_MAIL_SMTP_HOST: ${APP_MAIL_SMTP_HOST:-stalwart}
+      APP_MAIL_SMTP_PORT: ${APP_MAIL_SMTP_PORT:-25}
+      APP_MAIL_CREDENTIAL_SECRET: ${APP_MAIL_CREDENTIAL_SECRET:-mail-cred-dev-secret-changeme}
       APP_JWT_SECRET: ${APP_JWT_SECRET:-MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}
       APP_JWT_REFRESH_TOKEN_TTL: P30D
       APP_AUTH_REGISTRATION_ALLOWED_EMAIL_DOMAINS: ${APP_AUTH_REGISTRATION_ALLOWED_EMAIL_DOMAINS:-gmail.com,googlemail.com,outlook.com,hotmail.com,live.com,msn.com,yahoo.com,icloud.com,me.com,mac.com,yandex.ru,yandex.com,ya.ru,mail.ru,bk.ru,inbox.ru,list.ru}
@@ -280,6 +307,8 @@ services:
       mailpit:
         condition: service_started
       minio:
+        condition: service_started
+      stalwart:
         condition: service_started
     ports:
       - "8080:8080"
@@ -337,6 +366,7 @@ volumes:
   postgres_data:
   redis_data:
   minio_data:
+  stalwart_data:
   jitsi_prosody_config:
   jitsi_jicofo_config:
   jitsi_jvb_config:

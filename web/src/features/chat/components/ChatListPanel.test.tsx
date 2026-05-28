@@ -74,13 +74,14 @@ function renderPanel(root: Root, chat: ChatSummary, failedChatIds: ReadonlySet<s
         activeConferenceId={null}
         conferenceListScrollRef={{ current: null }}
         sessionUser={sessionUser}
-        addMailboxPending={false}
         chatsLoading={false}
-        mailboxError={null}
-        mailboxInput=""
-        mailboxes={[]}
-        mailboxesLoading={false}
-        removeMailboxPending={false}
+        mailInbox={[]}
+        mailSent={[]}
+        mailLoading={false}
+        mailFolder="inbox"
+        activeMailMessageId={null}
+        mailComposing={false}
+        userMailAddress="north@ktsf.ru"
         tabChats={[chat]}
         tabChatsEmptyText="Empty"
         activeChatId={null}
@@ -92,12 +93,13 @@ function renderPanel(root: Root, chat: ChatSummary, failedChatIds: ReadonlySet<s
         openChat={() => {}}
         openChatAtFailedMessage={() => {}}
         openChatContextMenu={() => {}}
-        onAddMailbox={() => {}}
-        onMailboxInputChange={() => {}}
-        onRemoveMailbox={() => {}}
+        onMailSwitchFolder={() => {}}
+        onMailOpenMessage={() => {}}
+        onMailCompose={() => {}}
         formatConferenceListPreview={() => ""}
         formatConferenceTileTime={() => ""}
         formatConferenceSchedule={() => ""}
+        formatMailTimestamp={() => "08:10"}
         trimPreview={(content) => content}
         getDirectParticipant={() => peerParticipant}
         formatTypingParticipants={() => ""}

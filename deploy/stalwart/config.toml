@@ -1,0 +1,49 @@
+[server]
+hostname = "ktsf.ru"
+max-connections = 1024
+
+[server.listener."smtp"]
+bind = ["0.0.0.0:25"]
+protocol = "smtp"
+tls.implicit = false
+
+[server.listener."imap"]
+bind = ["0.0.0.0:143"]
+protocol = "imap"
+tls.implicit = false
+
+[server.listener."http"]
+bind = ["0.0.0.0:8080"]
+protocol = "http"
+tls.implicit = false
+
+[storage]
+data = "rocksdb"
+blob = "fs"
+fts = "rocksdb"
+lookup = "rocksdb"
+directory = "local"
+
+[store."rocksdb"]
+type = "rocksdb"
+path = "/opt/stalwart/data"
+
+[store."fs"]
+type = "fs"
+path = "/opt/stalwart/blobs"
+
+[directory."local"]
+type = "internal"
+store = "rocksdb"
+
+[auth.fallback]
+secret = "%{env:STALWART_ADMIN_SECRET}%"
+
+[smtp.session.rcpt.directory]
+value = "local"
+
+[smtp.relay]
+enable = false
+
+[session.auth.require]
+value = false

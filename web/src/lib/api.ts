@@ -8,6 +8,8 @@ import type {
   ChatAttachmentBrowserPage,
   ChatLinkBrowserPage,
   ChatOpen,
+  MailMessageDetail,
+  MailMessageSummary,
   MessagePage,
   ChatSummary,
   ChatDraft,
@@ -379,16 +381,36 @@ export function getOwnMailboxes(token: string) {
   return request<UserMailbox[]>("/api/auth/me/mailboxes", { token });
 }
 
-export function addOwnMailbox(token: string, email: string) {
-  return request<UserMailbox>("/api/auth/me/mailboxes", {
-    method: "POST",
+export function getMailInbox(token: string, page = 0, size = 25) {
+  return request<MailMessageSummary[]>("/api/mail/inbox", {
     token,
-    body: { email },
+    query: { page, size },
   });
 }
 
-export function removeOwnMailbox(token: string, mailboxId: string) {
-  return request<void>(`/api/auth/me/mailboxes/${encodeURIComponent(mailboxId)}`, {
+export function getMailSent(token: string, page = 0, size = 25) {
+  return request<MailMessageSummary[]>("/api/mail/sent", {
+    token,
+    query: { page, size },
+  });
+}
+
+export function getMailMessage(token: string, messageId: string) {
+  return request<MailMessageDetail>(`/api/mail/message/${encodeURIComponent(messageId)}`, {
+    token,
+  });
+}
+
+export function sendMail(token: string, to: string, subject: string, body: string) {
+  return request<void>("/api/mail/send", {
+    method: "POST",
+    token,
+    body: { to, subject, body },
+  });
+}
+
+export function deleteMailMessage(token: string, messageId: string) {
+  return request<void>(`/api/mail/message/${encodeURIComponent(messageId)}`, {
     method: "DELETE",
     token,
   });
