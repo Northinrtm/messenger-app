@@ -108,6 +108,7 @@ services:
       start_period: 15s
     volumes:
       - jitsi_prosody_config:/config
+      - ./jitsi/prosody-reset-accounts.sh:/etc/cont-init.d/14-reset-accounts
 
   jitsi-jicofo:
     image: jitsi/jicofo:stable
