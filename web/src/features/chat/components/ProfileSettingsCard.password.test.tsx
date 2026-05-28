@@ -21,6 +21,7 @@ const defaultProps: Parameters<typeof ProfileSettingsCard>[0] = {
     emailVerificationEnabled: true,
     mailEnabled: true,
   },
+  mailServerEnabled: true,
   profileDisplayName: "North",
   profileProfession: "",
   passwordChangeCurrent: "",

@@ -63,6 +63,7 @@ describe("ProfileSettingsCard email status", () => {
             emailVerificationEnabled: false,
             mailEnabled: true,
           }}
+          mailServerEnabled={true}
           profileDisplayName="North"
           profileProfession=""
           passwordChangeCurrent=""

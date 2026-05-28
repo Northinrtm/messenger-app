@@ -41,6 +41,7 @@ function buildProps(
       emailVerificationEnabled: true,
       mailEnabled: true,
     },
+    mailServerEnabled: true,
     profileDisplayName: "North",
     profileProfession: "",
     passwordChangeCurrent: "",

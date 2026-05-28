@@ -71,6 +71,7 @@ describe("ProfileSettingsCard email verification section", () => {
       root!.render(
         <ProfileSettingsCard
           profile={profile()}
+          mailServerEnabled={true}
           profileDisplayName="North"
           profileProfession=""
           passwordChangeCurrent=""
@@ -131,6 +132,7 @@ describe("ProfileSettingsCard email verification section", () => {
       root!.render(
         <ProfileSettingsCard
           profile={profile({ emailVerified: true })}
+          mailServerEnabled={true}
           profileDisplayName="North"
           profileProfession=""
           passwordChangeCurrent=""
@@ -177,6 +179,7 @@ describe("ProfileSettingsCard email verification section", () => {
       root!.render(
         <ProfileSettingsCard
           profile={profile()}
+          mailServerEnabled={true}
           profileDisplayName="North"
           profileProfession="Builder"
           passwordChangeCurrent=""
@@ -224,6 +227,7 @@ describe("ProfileSettingsCard email verification section", () => {
       root!.render(
         <ProfileSettingsCard
           profile={profile()}
+          mailServerEnabled={true}
           profileDisplayName="N"
           profileProfession=""
           passwordChangeCurrent=""
@@ -270,6 +274,7 @@ describe("ProfileSettingsCard email verification section", () => {
       root!.render(
         <ProfileSettingsCard
           profile={profile({ mailEnabled: false })}
+          mailServerEnabled={true}
           profileDisplayName="North"
           profileProfession=""
           passwordChangeCurrent=""
@@ -320,6 +325,7 @@ describe("ProfileSettingsCard email verification section", () => {
       root!.render(
         <ProfileSettingsCard
           profile={profile()}
+          mailServerEnabled={true}
           profileDisplayName="North"
           profileProfession=""
           passwordChangeCurrent=""

@@ -2567,6 +2567,7 @@ export function NorthMessengerWorkspace({
         ? sidebarSheet
         : null,
     profile,
+    mailServerEnabled: mailboxes.length > 0,
     sessionUser: session.user,
     currentSessionId: session.sessionId,
     profileDisplayName,

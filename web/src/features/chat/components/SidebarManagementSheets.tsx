@@ -99,12 +99,13 @@ type Props = {
   pushNotificationsPending: boolean;
   pushNotificationsInfo: string | null;
   pushNotificationsError: string | null;
+  mailServerEnabled: boolean;
   revokeSessionPending: boolean;
   contactSearchFetching: boolean;
   onClose: () => void;
   onProfileDisplayNameChange: (value: string) => void;
   onProfileProfessionChange: (value: string) => void;
-  onSubmitProfileDisplayName: () => void;
+  onSubmitProfileDisplayName: (mailEnabled?: boolean) => void;
   onPasswordChangeCurrentChange: (value: string) => void;
   onPasswordChangeNextChange: (value: string) => void;
   onPasswordChangeConfirmChange: (value: string) => void;
@@ -217,6 +218,7 @@ export function SidebarManagementSheets({
   pushNotificationsPending,
   pushNotificationsInfo,
   pushNotificationsError,
+  mailServerEnabled,
   revokeSessionPending,
   contactSearchFetching,
   onClose,
@@ -292,6 +294,7 @@ export function SidebarManagementSheets({
     return (
       <ProfileSettingsCard
         profile={profile}
+        mailServerEnabled={mailServerEnabled}
         profileDisplayName={profileDisplayName}
         profileProfession={profileProfession}
         passwordChangeCurrent={passwordChangeCurrent}

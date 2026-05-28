@@ -12,6 +12,7 @@ import { AvatarCircle } from "./AvatarCircle";
 
 type Props = {
   profile: UserProfile;
+  mailServerEnabled: boolean;
   profileDisplayName: string;
   profileProfession: string;
   passwordChangeCurrent: string;
@@ -67,6 +68,7 @@ type PasswordField = "current" | "next" | "confirm";
 
 export function ProfileSettingsCard({
   profile,
+  mailServerEnabled,
   profileDisplayName,
   profileProfession,
   passwordChangeCurrent,
@@ -437,6 +439,7 @@ export function ProfileSettingsCard({
           </form>
         </div>
 
+        {mailServerEnabled ? (
         <div className="profile-line profile-action-panel">
           <div className="profile-action-row">
             <div className="profile-action-copy">
@@ -467,6 +470,7 @@ export function ProfileSettingsCard({
             </button>
           </div>
         </div>
+        ) : null}
 
         <div className="profile-line profile-action-panel">
           <div className="profile-action-row">
