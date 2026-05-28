@@ -625,8 +625,6 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-      jitsi-web:
-        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/healthz >/dev/null 2>&1 || exit 1"]
       interval: 15s
@@ -648,8 +646,6 @@ services:
     depends_on:
       web:
         condition: service_healthy
-      jitsi-web:
-        condition: service_started
     environment:
       APP_DOMAIN: ${APP_DOMAIN:?APP_DOMAIN must be set}
     ports:

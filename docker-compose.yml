@@ -324,7 +324,6 @@ services:
     container_name: messenger-web
     depends_on:
       - backend
-      - jitsi-web
     ports:
       - "3000:80"
     healthcheck:
