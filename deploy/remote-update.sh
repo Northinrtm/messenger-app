@@ -5,18 +5,6 @@ APP_DIR="${1:-/opt/messenger-app}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 ENV_FILE="${ENV_FILE:-.env.prod}"
 BUILD_SERVICES="${BUILD_SERVICES:-web backend edge}"
-ENABLE_LOCAL_JITSI="${ENABLE_LOCAL_JITSI:-$(env_file_value ENABLE_LOCAL_JITSI true)}"
-APP_MAIL_ENABLED="${APP_MAIL_ENABLED:-$(env_file_value APP_MAIL_ENABLED false)}"
-_jitsi_services="jitsi-prosody jitsi-jicofo jitsi-jvb jitsi-web"
-_base_services="postgres redis minio"
-if [[ "${APP_MAIL_ENABLED,,}" == "true" || "${APP_MAIL_ENABLED}" == "1" ]]; then
-  _base_services="$_base_services stalwart"
-fi
-if [[ "${ENABLE_LOCAL_JITSI,,}" == "true" || "${ENABLE_LOCAL_JITSI}" == "1" ]]; then
-  SUPPORT_SERVICES="${SUPPORT_SERVICES:-$_base_services $_jitsi_services}"
-else
-  SUPPORT_SERVICES="${SUPPORT_SERVICES:-$_base_services}"
-fi
 RUNTIME_SERVICES="${RUNTIME_SERVICES:-web backend edge}"
 OBSERVABILITY_SERVICES="${OBSERVABILITY_SERVICES:-postgres-exporter tempo otel-collector alertmanager loki promtail prometheus grafana}"
 DBVIEWER_SERVICES="${DBVIEWER_SERVICES:-pgweb}"
@@ -194,6 +182,19 @@ else
 fi
 
 acquire_deploy_lock
+
+ENABLE_LOCAL_JITSI="${ENABLE_LOCAL_JITSI:-$(env_file_value ENABLE_LOCAL_JITSI false)}"
+APP_MAIL_ENABLED="${APP_MAIL_ENABLED:-$(env_file_value APP_MAIL_ENABLED false)}"
+_jitsi_services="jitsi-prosody jitsi-jicofo jitsi-jvb jitsi-web"
+_base_services="postgres redis minio"
+if [[ "${APP_MAIL_ENABLED,,}" == "true" || "${APP_MAIL_ENABLED}" == "1" ]]; then
+  _base_services="$_base_services stalwart"
+fi
+if [[ "${ENABLE_LOCAL_JITSI,,}" == "true" || "${ENABLE_LOCAL_JITSI}" == "1" ]]; then
+  SUPPORT_SERVICES="${SUPPORT_SERVICES:-$_base_services $_jitsi_services}"
+else
+  SUPPORT_SERVICES="${SUPPORT_SERVICES:-$_base_services}"
+fi
 
 cd "$APP_DIR"
 
