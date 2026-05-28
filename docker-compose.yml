@@ -136,7 +136,7 @@ services:
       JVB_BREWERY_MUC: jvbbrewery
     volumes:
       - jitsi_jicofo_config:/config
-      - ./jitsi/custom-jicofo.conf:/config/custom-jicofo.conf:ro
+      - ./jitsi/custom-jicofo.conf:/config/custom-jicofo.conf
 
   jitsi-jvb:
     image: jitsi/jvb:stable
