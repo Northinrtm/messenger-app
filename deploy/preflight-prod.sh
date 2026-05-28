@@ -138,6 +138,12 @@ if [[ "$PASSWORD_RESET_ENABLED" == "true" ]]; then
   require_value APP_AUTH_PASSWORD_RESET_FROM_ADDRESS
 fi
 
+MAIL_ENABLED="$(normalize_boolean "$(env_file_value APP_MAIL_ENABLED true)")"
+if [[ "$MAIL_ENABLED" == "true" ]]; then
+  require_value STALWART_ADMIN_SECRET
+  require_value APP_MAIL_CREDENTIAL_SECRET
+fi
+
 ENABLE_OBSERVABILITY_STACK="$(normalize_boolean "$(env_file_value ENABLE_OBSERVABILITY_STACK false)")"
 if [[ "$ENABLE_OBSERVABILITY_STACK" == "true" ]]; then
   require_value GRAFANA_ADMIN_USER
