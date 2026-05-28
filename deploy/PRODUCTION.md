@@ -117,18 +117,21 @@ This removes named volumes and is destructive for server-side state.
 
 ## Required services
 
-Core production stack:
+Core production stack (always started):
 
 - `postgres`
 - `redis`
 - `minio`
-- `jitsi-prosody`
-- `jitsi-jicofo`
-- `jitsi-jvb`
-- `jitsi-web`
 - `backend`
 - `web`
 - `edge`
+
+Optional, controlled by env flags:
+
+- `stalwart` — started when `APP_MAIL_ENABLED=true`
+- `jitsi-prosody`, `jitsi-jicofo`, `jitsi-jvb`, `jitsi-web` — started when `ENABLE_LOCAL_JITSI=true`
+
+For a 2 GB VPS the recommended setup is external Jitsi (`ENABLE_LOCAL_JITSI=false`) and mail disabled (`APP_MAIL_ENABLED=false`), saving ~420 MB RAM.
 
 ## Scaling
 
