@@ -391,7 +391,7 @@ export function ActiveConferenceConversation({
   useEffect(() => {
     setHasJoinedConference(false);
     setJoinSettings(DEFAULT_CONFERENCE_JOIN_SETTINGS);
-  }, [conference.id, conference.roomName]);
+  }, [conference.id]); // intentionally excludes roomName — roomName can change mid-call (e.g., server presence update)
 
   useEffect(() => {
     setJoinSettings((current) => ({
@@ -760,7 +760,7 @@ export function ActiveConferenceConversation({
             <div className="conference-stage">
               <ManagedConferenceStage
                 conferenceId={conference.id}
-                key={`${conference.id}:${conference.roomName}`}
+                key={conference.id}
                 baseUrl={jitsiBaseUrl}
                 roomName={conference.roomName}
                 displayName={profileDisplayName}
