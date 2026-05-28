@@ -511,7 +511,9 @@ function buildConferenceFrameUrl(input: {
     ])
   );
   hashParams.set("config.bosh", JSON.stringify(input.boshUrl));
-  hashParams.set("config.websocket", JSON.stringify(input.websocketUrl));
+  // Disable WebSocket: many Jitsi instances advertise xmpp-websocket but do not proxy
+  // the WS upgrade through nginx, returning 501. Force BOSH which is universally supported.
+  hashParams.set("config.websocket", "null");
   hashParams.set("config.toolbarButtons", JSON.stringify(MINIMAL_TOOLBAR_BUTTONS));
 
   if (input.displayName) {
