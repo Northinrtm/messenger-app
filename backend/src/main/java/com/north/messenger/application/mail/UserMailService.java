@@ -106,7 +106,7 @@ public class UserMailService {
             message.setText(body, "UTF-8", "plain");
             message.setSentDate(new Date());
 
-            Transport.send(message, user.getUsername(), imapPassword);
+            Transport.send(message, fromAddress, imapPassword);
         } catch (MessagingException exception) {
             log.warn("Failed to send mail from {} to {}: {}", fromAddress, to, exception.getMessage());
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Failed to send message");
@@ -151,7 +151,7 @@ public class UserMailService {
         props.put("mail.imap.connectiontimeout", "5000");
         props.put("mail.imap.timeout", "15000");
 
-        String imapUser = user.getUsername();
+        String imapUser = properties.imapAddress(user.getUsername());
         String imapPassword = credentialService.derivePassword(user.getId());
 
         Session session = Session.getInstance(props);

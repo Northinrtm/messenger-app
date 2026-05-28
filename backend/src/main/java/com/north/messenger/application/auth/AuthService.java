@@ -242,7 +242,11 @@ public class AuthService {
         currentUser.updateDisplayName(normalizedDisplayName);
         currentUser.updateProfession(normalizedProfession);
         if (mailEnabled != null) {
+            boolean wasMailEnabled = currentUser.isMailEnabled();
             currentUser.updateMailEnabled(mailEnabled);
+            if (mailEnabled && !wasMailEnabled) {
+                provisionMailbox(currentUser);
+            }
         }
         userAccountRepository.save(currentUser);
         return toProfile(currentUser);

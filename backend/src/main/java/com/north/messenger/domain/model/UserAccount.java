@@ -60,7 +60,7 @@ public class UserAccount {
             String passwordHash,
             Instant createdAt
     ) {
-        this(id, username, email, displayName, profession, avatarUrl, passwordHash, 1L, true, createdAt, createdAt);
+        this(id, username, email, displayName, profession, avatarUrl, passwordHash, 1L, false, createdAt, createdAt);
     }
 
     public UserAccount(
@@ -74,7 +74,7 @@ public class UserAccount {
             Instant createdAt,
             Instant emailVerifiedAt
     ) {
-        this(id, username, email, displayName, profession, avatarUrl, passwordHash, 1L, true, createdAt, emailVerifiedAt);
+        this(id, username, email, displayName, profession, avatarUrl, passwordHash, 1L, false, createdAt, emailVerifiedAt);
     }
 
     public UserAccount(
@@ -89,7 +89,7 @@ public class UserAccount {
             Instant createdAt,
             Instant emailVerifiedAt
     ) {
-        this(id, username, email, displayName, profession, avatarUrl, passwordHash, passwordVersion, true, createdAt, emailVerifiedAt);
+        this(id, username, email, displayName, profession, avatarUrl, passwordHash, passwordVersion, false, createdAt, emailVerifiedAt);
     }
 
     public UserAccount(
