@@ -81,6 +81,9 @@ class AuthServiceTest {
                 eventPublisher,
                 avatarService,
                 emailVerificationService,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
                 new String[]{"example.com", "example.test", "gmail.com"}
         );
 
