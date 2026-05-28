@@ -162,6 +162,7 @@ services:
       start_period: 15s
     volumes:
       - jitsi_prosody_config:/config
+      - ./jitsi/prosody-reset-accounts.sh:/etc/cont-init.d/14-reset-accounts:ro
 
   jitsi-jicofo:
     image: jitsi/jicofo:stable
@@ -199,6 +200,7 @@ services:
       JVB_BREWERY_MUC: jvbbrewery
     volumes:
       - jitsi_jicofo_config:/config
+      - ./jitsi/custom-jicofo.conf:/config/custom-jicofo.conf
 
   jitsi-jvb:
     image: jitsi/jvb:stable
