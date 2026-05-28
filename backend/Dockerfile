@@ -3,7 +3,8 @@ WORKDIR /workspace
 
 COPY pom.xml .
 
-RUN mvn -B \
+RUN --mount=type=cache,target=/root/.m2 \
+    mvn -B \
       -DskipTests \
       -Dmaven.wagon.http.retryHandler.count=5 \
       -Dmaven.wagon.http.retryHandler.requestSentEnabled=true \
@@ -11,7 +12,8 @@ RUN mvn -B \
 
 COPY src src
 
-RUN mvn -B \
+RUN --mount=type=cache,target=/root/.m2 \
+    mvn -B \
       -DskipTests \
       -Dmaven.wagon.http.retryHandler.count=5 \
       -Dmaven.wagon.http.retryHandler.requestSentEnabled=true \

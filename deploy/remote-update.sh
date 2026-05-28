@@ -234,7 +234,7 @@ if [[ "$FULL_RESET" == "true" ]]; then
     down --volumes --remove-orphans || true
 fi
 echo "Building web revision: $WEB_APP_REVISION"
-"${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build $BUILD_SERVICES
+DOCKER_BUILDKIT=1 "${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build $BUILD_SERVICES
 effective_support_services="$SUPPORT_SERVICES"
 "${compose_cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d $effective_support_services
 for service in $effective_support_services; do

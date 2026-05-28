@@ -3,6 +3,10 @@ WORKDIR /app
 
 COPY package.json .
 COPY package-lock.json .
+
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --no-audit --no-fund --cache /root/.npm
+
 COPY tsconfig.json .
 COPY vite.config.ts .
 COPY index.html .
@@ -20,7 +24,6 @@ ENV VITE_APP_REVISION=${VITE_APP_REVISION}
 ENV VITE_WS_URL=${VITE_WS_URL}
 ENV VITE_JITSI_BASE_URL=${VITE_JITSI_BASE_URL}
 
-RUN npm ci --no-audit --no-fund
 RUN npm run build
 
 FROM public.ecr.aws/docker/library/nginx:1.29-alpine
