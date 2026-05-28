@@ -2096,6 +2096,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
+    if (createConferenceMutation.isPending) return;
     const now = new Date().toISOString();
     createConferenceMutation.mutate({
       title: `Созвон с ${activeDirectParticipant.displayName}`,
@@ -2114,6 +2115,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
+    if (startGroupConferenceCallMutation.isPending) return;
     startGroupConferenceCallMutation.mutate(activeChat.id);
   });
 

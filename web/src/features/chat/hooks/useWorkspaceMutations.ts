@@ -669,6 +669,7 @@ export function useWorkspaceMutations({
     const scheduledAt = Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
     const title = conferenceTitle.trim() || `Встреча ${formatClock(scheduledAt.toISOString())}`;
     if (conferenceEditingId) {
+      if (updateConferenceMutation.isPending) return;
       updateConferenceMutation.mutate({
         conferenceId: conferenceEditingId,
         title,
@@ -677,6 +678,7 @@ export function useWorkspaceMutations({
       return;
     }
 
+    if (createConferenceMutation.isPending) return;
     createConferenceMutation.mutate({
       title,
       scheduledAt: scheduledAt.toISOString(),
@@ -686,6 +688,7 @@ export function useWorkspaceMutations({
   };
 
   const submitCreateConferenceNow = (formatClock: (value: string) => string) => {
+    if (createConferenceMutation.isPending) return;
     const now = new Date();
     const title = conferenceTitle.trim() || `Встреча ${formatClock(now.toISOString())}`;
     createConferenceMutation.mutate({
