@@ -129,7 +129,7 @@ services:
         aliases:
           - xmpp.meet.jitsi
     healthcheck:
-      test: ["CMD", "prosodyctl", "status"]
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/localhost/5222' 2>/dev/null"]
       interval: 5s
       timeout: 5s
       retries: 30
