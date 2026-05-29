@@ -160,6 +160,7 @@ export function ManagedConferenceStage({
     let exitRequested = false;
     let hangupTimerId: number | null = null;
     let presenceHeartbeatId: number | null = null;
+    let conferenceLeftDebounceId: number | null = null;
     let localRecordingActive = false;
     let localParticipantJoined = false;
     let endForAllRequested = false;
@@ -361,6 +362,11 @@ export function ManagedConferenceStage({
           syncConferenceIdentity();
           return;
         case "video-conference-joined":
+          // Cancel any pending exit debounce — the participant rejoined.
+          if (conferenceLeftDebounceId !== null) {
+            window.clearTimeout(conferenceLeftDebounceId);
+            conferenceLeftDebounceId = null;
+          }
           roleChangeRef.current?.(null);
           syncConferenceIdentity();
           startPresenceHeartbeat();
@@ -390,7 +396,24 @@ export function ManagedConferenceStage({
           }
           return;
         case "video-conference-left":
+          // Jitsi fires this during BOSH reconnects and role promotions — debounce
+          // for 4 s so a quick rejoin (video-conference-joined) can cancel the exit.
+          if (conferenceLeftDebounceId !== null) {
+            window.clearTimeout(conferenceLeftDebounceId);
+          }
+          conferenceLeftDebounceId = window.setTimeout(() => {
+            conferenceLeftDebounceId = null;
+            if (!isConferenceClosed && !cancelled) {
+              leaveConferencePresence();
+              handleConferenceExit();
+            }
+          }, 4_000);
+          return;
         case "video-ready-to-close":
+          if (conferenceLeftDebounceId !== null) {
+            window.clearTimeout(conferenceLeftDebounceId);
+            conferenceLeftDebounceId = null;
+          }
           leaveConferencePresence();
           handleConferenceExit();
           return;
@@ -463,6 +486,9 @@ export function ManagedConferenceStage({
     return () => {
       cancelled = true;
       clearHangupTimer();
+      if (conferenceLeftDebounceId !== null) {
+        window.clearTimeout(conferenceLeftDebounceId);
+      }
       leaveConferencePresence();
       clearPresenceHeartbeat();
       window.removeEventListener("beforeunload", handleBeforeUnload);

@@ -111,6 +111,8 @@ export function useWorkspaceNavigation({
     setConferenceChatId(null);
     setConferenceEditingId(null);
     setConferenceComposerMode(mode);
+    setConferenceParticipantUsernames([]);
+    setConferenceTitle("");
     if (mode === "scheduled") {
       setConferenceScheduledAt(createInitialConferenceDateTime());
     }
@@ -135,6 +137,7 @@ export function useWorkspaceNavigation({
     setConferenceChatId(activeChat.id);
     setConferenceEditingId(null);
     setConferenceComposerMode(mode);
+    setConferenceParticipantUsernames([]);
     setConferenceTitle(`Встреча ${activeChat.title}`);
     setConferenceParticipantUsernames(
       activeChat.members
