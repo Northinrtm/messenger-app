@@ -1723,12 +1723,17 @@ public class ChatService {
         );
     }
 
+    private static final int MAX_AVATAR_DATA_URL_BYTES = 512 * 1024; // 512 KB
+
     private String normalizeAvatarUrl(String avatarUrl) {
         if (avatarUrl == null || avatarUrl.isBlank()) {
             return null;
         }
         if (!avatarUrl.startsWith("data:image/")) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Avatar must be an image");
+        }
+        if (avatarUrl.length() > MAX_AVATAR_DATA_URL_BYTES) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Avatar image is too large");
         }
 
         return avatarUrl;
