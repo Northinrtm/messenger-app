@@ -948,6 +948,7 @@ select {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 0.15rem;
   min-width: 1.2rem;
   height: 1.2rem;
   padding: 0 0.28rem;
@@ -957,6 +958,14 @@ select {
   color: #9fd0ff;
   font-size: 0.76rem;
   font-weight: 700;
+  line-height: 1;
+}
+
+.reaction-attention-count {
+  font-size: 0.6rem;
+  font-style: normal;
+  font-weight: 700;
+  vertical-align: baseline;
   line-height: 1;
 }
 

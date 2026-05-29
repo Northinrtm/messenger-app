@@ -40,7 +40,7 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
     private static final List<ProtectedRoute> ROUTES = List.of(
             new ProtectedRoute("POST", "/api/chats/*/messages",
                     new AuthRateLimitPolicy(60, Duration.ofMinutes(1))),
-            new ProtectedRoute("POST", "/api/chats/*/messages/*/reactions/toggle",
+            new ProtectedRoute("PUT", "/api/chats/*/messages/*/reactions",
                     new AuthRateLimitPolicy(60, Duration.ofMinutes(1))),
             new ProtectedRoute("GET", "/api/search",
                     new AuthRateLimitPolicy(30, Duration.ofMinutes(1))),

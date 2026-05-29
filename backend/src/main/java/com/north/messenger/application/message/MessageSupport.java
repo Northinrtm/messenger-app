@@ -549,6 +549,9 @@ class MessageSupport {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Forward source not found"));
         ChatParticipant membership = chatParticipantRepository.findByChatIdAndUserId(sourceRoom.getId(), currentUser.getId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Forward source not found"));
+        if (!sourceRoom.isDirect() && chatRoomBanRepository.existsByChatIdAndUserId(sourceRoom.getId(), currentUser.getId())) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Forward source not found");
+        }
         Instant visibleFrom = resolveVisibleHistoryStart(sourceRoom, membership);
         Instant visibleTo = resolveVisibleHistoryEnd(sourceRoom, membership);
         if (!canViewMessageForReplySnippet(sourceMessage, currentUser.getId(), visibleFrom, visibleTo)) {

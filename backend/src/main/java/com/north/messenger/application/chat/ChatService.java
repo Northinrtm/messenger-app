@@ -1038,6 +1038,9 @@ public class ChatService {
         UUID reactionAttentionMessageId = reactionAttentionRecord != null
                 ? reactionAttentionRecord.getMessageId()
                 : null;
+        List<UUID> reactionAttentionMessageIds = reactionAttentionRecord != null
+                ? reactionAttentionRecord.getMessageIdList()
+                : List.of();
 
         String title;
         if (room.isDirect()) {
@@ -1076,6 +1079,7 @@ public class ChatService {
                 lastMessageHasReactions,
                 reactionAttention,
                 reactionAttentionMessageId,
+                reactionAttentionMessageIds,
                 lastMessage != null ? lastMessage.getServerOrder() : null,
                   updatedAt,
                   unreadCount,

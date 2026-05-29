@@ -6,6 +6,18 @@ import {
 } from "./messagePayload";
 import type { ChatMessageAttachment, Participant } from "./types";
 
+const TRANSIENT_SEND_STATUSES = new Set([0, 502, 503, 504]);
+const MAX_SEND_RETRIES = 3;
+const SEND_RETRY_BASE_DELAY_MS = 1_000;
+
+function isTransientSendError(error: unknown): boolean {
+  return error instanceof ApiError && TRANSIENT_SEND_STATUSES.has(error.status);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function sendPlainMessage(
   token: string,
   currentUserId: string,
@@ -30,18 +42,31 @@ export async function sendPlainMessage(
     throw new ApiError("Message content cannot be blank", 400);
   }
 
-  const response = await sendMessageRaw(token, chatId, {
-    clientMessageId: resolvedClientMessageId,
-    replyToMessageId: replyToMessageId ?? null,
-    forwardedFromMessageId: options?.forwardedFromMessageId ?? null,
-    attachmentIds: attachments.map((attachment) => attachment.id),
-    plainPayload: {
-      content: normalizedContent,
-    },
-  });
-
-  void currentUserId;
-  return hydrateApiChatMessage(response);
+  let lastError: unknown;
+  for (let attempt = 0; attempt < MAX_SEND_RETRIES; attempt++) {
+    if (attempt > 0) {
+      await sleep(Math.min(SEND_RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1), 8_000));
+    }
+    try {
+      const response = await sendMessageRaw(token, chatId, {
+        clientMessageId: resolvedClientMessageId,
+        replyToMessageId: replyToMessageId ?? null,
+        forwardedFromMessageId: options?.forwardedFromMessageId ?? null,
+        attachmentIds: attachments.map((attachment) => attachment.id),
+        plainPayload: {
+          content: normalizedContent,
+        },
+      });
+      void currentUserId;
+      return hydrateApiChatMessage(response);
+    } catch (error) {
+      lastError = error;
+      if (!isTransientSendError(error)) {
+        throw error;
+      }
+    }
+  }
+  throw lastError;
 }
 
 export async function updatePlainMessage(

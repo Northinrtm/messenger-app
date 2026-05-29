@@ -7,9 +7,13 @@ import com.north.messenger.application.auth.PasswordPolicyViolationException;
 import com.north.messenger.application.message.MessageSendDiagnostics;
 import com.north.messenger.application.message.MessageService;
 import com.north.messenger.application.message.RealtimeMessagingGateway;
+import com.north.messenger.security.AuthRateLimitDecision;
+import com.north.messenger.security.AuthRateLimitPolicy;
+import com.north.messenger.security.AuthRateLimiter;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import java.security.Principal;
+import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
@@ -26,19 +30,23 @@ public class MessageWebSocketController {
 
     private static final String MESSAGE_ACK_DESTINATION = "/queue/message-acks";
     private static final String MESSAGE_ERROR_DESTINATION = "/queue/message-errors";
+    private static final AuthRateLimitPolicy WS_SEND_POLICY = new AuthRateLimitPolicy(60, Duration.ofMinutes(1));
 
     private final MessageService messageService;
     private final RealtimeMessagingGateway realtimeMessagingGateway;
     private final Validator validator;
+    private final AuthRateLimiter rateLimiter;
 
     public MessageWebSocketController(
             MessageService messageService,
             RealtimeMessagingGateway realtimeMessagingGateway,
-            Validator validator
+            Validator validator,
+            AuthRateLimiter rateLimiter
     ) {
         this.messageService = messageService;
         this.realtimeMessagingGateway = realtimeMessagingGateway;
         this.validator = validator;
+        this.rateLimiter = rateLimiter;
     }
 
     @MessageMapping("/chats/{chatId}/messages")
@@ -53,6 +61,19 @@ public class MessageWebSocketController {
 
         String clientMessageId = request != null ? request.clientMessageId() : null;
         MessageSendDiagnostics.logIngress("websocket", chatId, principal.getName(), clientMessageId);
+
+        AuthRateLimitDecision rateLimitDecision = rateLimiter.acquire(
+                "/ws/chats/messages", principal.getName(), WS_SEND_POLICY, System.currentTimeMillis());
+        if (!rateLimitDecision.allowed()) {
+            sendError(principal.getName(), new MessageSendErrorResponse(
+                    chatId,
+                    clientMessageId,
+                    HttpStatus.TOO_MANY_REQUESTS.value(),
+                    "Too many messages. Retry after " + rateLimitDecision.retryAfterSeconds() + " seconds.",
+                    MessageSendDiagnostics.withServerStage("controller.rate_limit", List.of())
+            ));
+            return;
+        }
 
         List<String> validationErrors = validate(request);
         if (!validationErrors.isEmpty()) {

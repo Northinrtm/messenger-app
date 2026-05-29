@@ -358,7 +358,10 @@ export const ChatListPanel = memo(function ChatListPanel({
                         }
                         onClick={(event) => {
                           event.stopPropagation();
-                          const msgId = chat.reactionAttentionMessageId;
+                          const msgIds = chat.reactionAttentionMessageIds;
+                          const msgId = msgIds && msgIds.length > 0
+                            ? msgIds[0]
+                            : chat.reactionAttentionMessageId;
                           if (msgId) {
                             openChatAtMessage(chat.id, msgId);
                           } else {
@@ -368,7 +371,10 @@ export const ChatListPanel = memo(function ChatListPanel({
                         onKeyDown={(event) => {
                           if (event.key === "Enter" || event.key === " ") {
                             event.stopPropagation();
-                            const msgId = chat.reactionAttentionMessageId;
+                            const msgIds = chat.reactionAttentionMessageIds;
+                            const msgId = msgIds && msgIds.length > 0
+                              ? msgIds[0]
+                              : chat.reactionAttentionMessageId;
                             if (msgId) {
                               openChatAtMessage(chat.id, msgId);
                             } else {
@@ -378,6 +384,9 @@ export const ChatListPanel = memo(function ChatListPanel({
                         }}
                       >
                         {"\u263A"}
+                        {chat.reactionAttentionMessageIds && chat.reactionAttentionMessageIds.length > 1
+                          ? <sup className="reaction-attention-count">{chat.reactionAttentionMessageIds.length}</sup>
+                          : null}
                       </span>
                     ) : null}
                     {hasFailedOutgoingMessage && !liveGroupConference ? (
