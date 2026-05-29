@@ -783,6 +783,10 @@ export function NorthMessengerWorkspace({
     });
     return next;
   }, [listedConferences]);
+  const totalUnreadCount = useMemo(
+    () => chats.reduce((sum, chat) => sum + (chat.unreadCount ?? 0), 0),
+    [chats]
+  );
   const chatIds = useMemo(() => chats.map((chat) => chat.id).sort(), [chats]);
   const chatIdsKey = useMemo(() => chatIds.join(","), [chatIds]);
   const listedChats = useMemo(
@@ -2160,6 +2164,11 @@ export function NorthMessengerWorkspace({
       setConferenceViewportMode("full");
     }
   }, [activeConferenceId]);
+
+  useEffect(() => {
+    const base = "Мессенджер";
+    document.title = totalUnreadCount > 0 ? `(${totalUnreadCount}) ${base}` : base;
+  }, [totalUnreadCount]);
 
   const conferenceWasLiveRef = useRef(false);
   useEffect(() => {
