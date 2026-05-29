@@ -2166,6 +2166,30 @@ export function NorthMessengerWorkspace({
   }, [activeConferenceId]);
 
   useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const tag = (event.target as HTMLElement).tagName;
+      const isTyping = tag === "INPUT" || tag === "TEXTAREA" || (event.target as HTMLElement).isContentEditable;
+
+      if (event.key === "Escape" && !isTyping) {
+        if (activeConferenceId) {
+          closeActiveConference();
+        } else if (activeChatId) {
+          closeActiveChat();
+        }
+        return;
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.key === "k") {
+        event.preventDefault();
+        (document.querySelector(".north-search") as HTMLInputElement | null)?.focus();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [activeChatId, activeConferenceId, closeActiveChat, closeActiveConference]);
+
+  useEffect(() => {
     const base = "Мессенджер";
     document.title = totalUnreadCount > 0 ? `(${totalUnreadCount}) ${base}` : base;
   }, [totalUnreadCount]);

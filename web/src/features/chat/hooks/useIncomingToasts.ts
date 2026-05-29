@@ -119,6 +119,9 @@ export function useIncomingToasts({
 }
 
 function playIcqSound() {
+  if (document.visibilityState === "visible") {
+    return;
+  }
   try {
     const ctx = new AudioContext();
     const t = ctx.currentTime;
