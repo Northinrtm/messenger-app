@@ -116,9 +116,35 @@ public class FcmDeliveryService {
                 return false;
             }
 
+            if (response.statusCode() == 429 || response.statusCode() == 503) {
+                long delayMs = response.statusCode() == 429 ? 5_000L : 2_000L;
+                try {
+                    Thread.sleep(delayMs);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return true;
+                }
+                HttpRequest retryRequest = HttpRequest.newBuilder(
+                                URI.create("https://fcm.googleapis.com/v1/projects/" + projectId + "/messages:send"))
+                        .header("Content-Type", "application/json")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
+                        .timeout(Duration.ofSeconds(10))
+                        .build();
+                HttpResponse<String> retryResponse = httpClient.send(retryRequest, HttpResponse.BodyHandlers.ofString());
+                if (retryResponse.statusCode() == 200) {
+                    return true;
+                }
+                log.warn("FCM send failed after retry status={} chatId={}", retryResponse.statusCode(), chatId);
+                return true;
+            }
+
             log.warn("FCM send failed status={} chatId={}", response.statusCode(), chatId);
             return true;
 
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            return true;
         } catch (Exception e) {
             log.warn("FCM send exception chatId={}: {}", chatId, e.getMessage());
             return true; // don't delete device token on transient errors

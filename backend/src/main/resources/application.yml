@@ -217,8 +217,8 @@ app:
     subject: ${APP_PUSH_SUBJECT:mailto:no-reply@localhost.test}
     vapid-public-key: ${APP_PUSH_VAPID_PUBLIC_KEY:}
     vapid-private-key: ${APP_PUSH_VAPID_PRIVATE_KEY:}
-    request-timeout: ${APP_PUSH_REQUEST_TIMEOUT:PT5S}
-    ttl: ${APP_PUSH_TTL:PT1M}
+    request-timeout: ${APP_PUSH_REQUEST_TIMEOUT:PT10S}
+    ttl: ${APP_PUSH_TTL:PT24H}
     fcm:
       enabled: ${APP_PUSH_FCM_ENABLED:false}
       service-account-json: ${APP_PUSH_FCM_SERVICE_ACCOUNT_JSON:}

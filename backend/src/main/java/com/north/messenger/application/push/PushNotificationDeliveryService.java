@@ -10,6 +10,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +28,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class PushNotificationDeliveryService {
 
     private static final Logger log = LoggerFactory.getLogger(PushNotificationDeliveryService.class);
+    private static final int MAX_PUSH_RETRIES = 3;
+    private static final long[] PUSH_RETRY_DELAYS_MS = {1_000L, 2_000L, 4_000L};
 
     private final PushNotificationProperties properties;
     private final PushVapidKeyService vapidKeyService;
@@ -96,44 +99,66 @@ public class PushNotificationDeliveryService {
     }
 
     private void sendGenericMessageNotification(UserPushSubscription subscription, ChatMessage message) {
-        try {
-            HttpRequest request = HttpRequest.newBuilder(URI.create(subscription.getEndpoint()))
-                    .timeout(properties.requestTimeout())
-                    .header("TTL", String.valueOf(properties.ttl().toSeconds()))
-                    .header("Urgency", "normal")
-                    .header("Authorization", vapidKeyService.authorizationHeader(subscription.getEndpoint()))
-                    .POST(HttpRequest.BodyPublishers.noBody())
-                    .build();
-            HttpResponse<Void> response = httpClient.send(request, HttpResponse.BodyHandlers.discarding());
-            if (response.statusCode() == 404 || response.statusCode() == 410) {
-                pushSubscriptionRepository.deleteByEndpoint(subscription.getEndpoint());
-                return;
-            }
-            if (response.statusCode() == 403 && isFcmEndpoint(subscription.getEndpoint())) {
-                pushSubscriptionRepository.deleteByEndpoint(subscription.getEndpoint());
-                log.warn(
-                        "Push notification subscription removed after FCM 403 chatId={} messageId={}",
-                        message.getChatId(),
-                        message.getId()
-                );
-                return;
-            }
-            if (response.statusCode() >= 400) {
-                log.warn(
-                        "Push notification rejected endpointStatus={} chatId={} messageId={}",
-                        response.statusCode(),
-                        message.getChatId(),
-                        message.getId()
-                );
-            }
-        } catch (Exception exception) {
-            log.warn(
-                    "Failed to send push notification chatId={} messageId={}: {}",
-                    message.getChatId(),
-                    message.getId(),
-                    exception.getMessage()
-            );
+        if (subscription.getExpirationTime() != null
+                && subscription.getExpirationTime().isBefore(Instant.now())) {
+            pushSubscriptionRepository.deleteByEndpoint(subscription.getEndpoint());
+            log.debug("Skipped expired push subscription chatId={}", message.getChatId());
+            return;
         }
+
+        for (int attempt = 0; attempt < MAX_PUSH_RETRIES; attempt++) {
+            if (attempt > 0) {
+                try {
+                    Thread.sleep(PUSH_RETRY_DELAYS_MS[attempt - 1]);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+            try {
+                HttpRequest request = HttpRequest.newBuilder(URI.create(subscription.getEndpoint()))
+                        .timeout(properties.requestTimeout())
+                        .header("TTL", String.valueOf(properties.ttl().toSeconds()))
+                        .header("Urgency", "normal")
+                        .header("Authorization", vapidKeyService.authorizationHeader(subscription.getEndpoint()))
+                        .POST(HttpRequest.BodyPublishers.noBody())
+                        .build();
+                HttpResponse<Void> response = httpClient.send(request, HttpResponse.BodyHandlers.discarding());
+
+                if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                    return;
+                }
+                if (response.statusCode() == 404 || response.statusCode() == 410) {
+                    pushSubscriptionRepository.deleteByEndpoint(subscription.getEndpoint());
+                    return;
+                }
+                if (response.statusCode() == 403 && isFcmEndpoint(subscription.getEndpoint())) {
+                    pushSubscriptionRepository.deleteByEndpoint(subscription.getEndpoint());
+                    log.warn("Push subscription removed after FCM 403 chatId={} messageId={}",
+                            message.getChatId(), message.getId());
+                    return;
+                }
+                if (response.statusCode() == 429 || response.statusCode() >= 500) {
+                    log.warn("Push transient error attempt={}/{} status={} chatId={} messageId={}",
+                            attempt + 1, MAX_PUSH_RETRIES, response.statusCode(),
+                            message.getChatId(), message.getId());
+                    continue;
+                }
+                log.warn("Push rejected status={} chatId={} messageId={}",
+                        response.statusCode(), message.getChatId(), message.getId());
+                return;
+
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                return;
+            } catch (Exception exception) {
+                log.warn("Push send error attempt={}/{} chatId={} messageId={}: {}",
+                        attempt + 1, MAX_PUSH_RETRIES,
+                        message.getChatId(), message.getId(), exception.getMessage());
+            }
+        }
+        log.warn("Push notification failed after {} attempts chatId={} messageId={}",
+                MAX_PUSH_RETRIES, message.getChatId(), message.getId());
     }
 
     private boolean isFcmEndpoint(String endpoint) {

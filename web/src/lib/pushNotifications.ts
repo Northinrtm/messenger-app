@@ -1,10 +1,13 @@
 import {
+  ApiError,
   deletePushSubscription,
   getPushNotificationConfig,
   upsertPushSubscription,
 } from "./api";
 import { isDesktopRuntime } from "./platform";
 import type { PushSubscriptionPayload } from "./types";
+
+const MAX_SUBSCRIPTION_SYNC_RETRIES = 3;
 
 export type PushNotificationPermission = NotificationPermission | "unsupported";
 
@@ -76,7 +79,7 @@ export async function enablePushNotifications(token: string) {
     });
   }
 
-  await upsertPushSubscription(token, toPushSubscriptionPayload(subscription));
+  await upsertPushSubscriptionWithRetry(token, toPushSubscriptionPayload(subscription));
   return getPushNotificationState(token);
 }
 
@@ -119,7 +122,7 @@ export async function syncPushSubscription(token: string) {
     });
   }
 
-  await upsertPushSubscription(token, toPushSubscriptionPayload(subscription));
+  await upsertPushSubscriptionWithRetry(token, toPushSubscriptionPayload(subscription));
   return getPushNotificationState(token);
 }
 
@@ -146,16 +149,40 @@ function ensurePushSupported() {
 
 function toPushSubscriptionPayload(subscription: PushSubscription): PushSubscriptionPayload {
   const payload = subscription.toJSON();
+  const p256dh = payload.keys?.p256dh ?? "";
+  const auth = payload.keys?.auth ?? "";
+  if (!p256dh || !auth) {
+    throw new Error("Push subscription is missing required encryption keys (p256dh/auth)");
+  }
   return {
     endpoint: subscription.endpoint,
     expirationTime: subscription.expirationTime
       ? new Date(subscription.expirationTime).toISOString()
       : null,
-    keys: {
-      p256dh: payload.keys?.p256dh ?? "",
-      auth: payload.keys?.auth ?? "",
-    },
+    keys: { p256dh, auth },
   };
+}
+
+async function upsertPushSubscriptionWithRetry(
+  token: string,
+  payload: PushSubscriptionPayload
+): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < MAX_SUBSCRIPTION_SYNC_RETRIES; attempt++) {
+    if (attempt > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 1_000 * attempt));
+    }
+    try {
+      await upsertPushSubscription(token, payload);
+      return;
+    } catch (err) {
+      lastError = err;
+      if (err instanceof ApiError && err.status >= 400 && err.status < 500) {
+        throw err;
+      }
+    }
+  }
+  throw lastError;
 }
 
 function hasMatchingApplicationServerKey(subscription: PushSubscription, publicKey: string) {

@@ -14,6 +14,7 @@ import java.security.spec.ECParameterSpec;
 import java.security.spec.ECPoint;
 import java.security.spec.ECPrivateKeySpec;
 import java.security.spec.ECPublicKeySpec;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Base64;
@@ -29,6 +30,7 @@ public class PushVapidKeyService {
     private static final String EC_CURVE = "secp256r1";
     private static final int VAPID_PUBLIC_KEY_LENGTH = 65;
     private static final int VAPID_COORDINATE_LENGTH = 32;
+    private static final Duration VAPID_JWT_TTL = Duration.ofHours(12);
 
     private final PushNotificationProperties properties;
     private final KeyPair keyPair;
@@ -47,8 +49,8 @@ public class PushVapidKeyService {
     public String authorizationHeader(String endpoint) {
         String token = Jwts.builder()
                 .subject(properties.subject())
-                .setAudience(resolveAudience(endpoint))
-                .expiration(Date.from(Instant.now().plus(properties.ttl())))
+                .audience().add(resolveAudience(endpoint)).and()
+                .expiration(Date.from(Instant.now().plus(VAPID_JWT_TTL)))
                 .signWith((PrivateKey) keyPair.getPrivate(), Jwts.SIG.ES256)
                 .compact();
         return "vapid t=" + token + ", k=" + publicKey;
