@@ -601,33 +601,40 @@ export function ActiveConferenceConversation({
             </div>
           </div>
         </div>
-        {canEditSchedule || canCancelSchedule || localRecordingActive ? (
-          <div className="conversation-actions conference-actions">
-            {canEditSchedule ? (
-              <button
-                type="button"
-                className="ghost-button compact"
-                disabled={conferenceActionPending}
-                onClick={onEditConference}
-              >
-                Изменить
-              </button>
-            ) : null}
-            {canCancelSchedule ? (
-              <button
-                type="button"
-                className="ghost-button compact"
-                disabled={conferenceActionPending}
-                onClick={onCancelConference}
-              >
-                Отменить
-              </button>
-            ) : null}
-            {localRecordingActive ? (
-              <span className="conference-recording-badge">Идет локальная запись</span>
-            ) : null}
-          </div>
-        ) : null}
+        <div className="conversation-actions conference-actions">
+          {canEditSchedule ? (
+            <button
+              type="button"
+              className="ghost-button compact"
+              disabled={conferenceActionPending}
+              onClick={onEditConference}
+            >
+              Изменить
+            </button>
+          ) : null}
+          {canCancelSchedule ? (
+            <button
+              type="button"
+              className="ghost-button compact"
+              disabled={conferenceActionPending}
+              onClick={onCancelConference}
+            >
+              Отменить
+            </button>
+          ) : null}
+          {localRecordingActive ? (
+            <span className="conference-recording-badge">Идет локальная запись</span>
+          ) : null}
+          {!canJoin && !canEditSchedule && !canCancelSchedule ? (
+            <button
+              type="button"
+              className="ghost-button compact"
+              onClick={onConferenceExit}
+            >
+              Закрыть
+            </button>
+          ) : null}
+        </div>
 
         <div className="conference-summary">
           <div className="conference-summary-grid">
