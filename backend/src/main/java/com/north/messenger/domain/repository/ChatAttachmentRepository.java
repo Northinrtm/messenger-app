@@ -43,6 +43,8 @@ public interface ChatAttachmentRepository extends JpaRepository<ChatAttachment, 
 
     boolean existsByMessageId(UUID messageId);
 
+    long countByStorageKey(String storageKey);
+
     @Query("""
             select
                 attachment.id as attachmentId,

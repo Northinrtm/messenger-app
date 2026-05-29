@@ -23,7 +23,7 @@ const PASSWORD_CONFIRM_MISMATCH_ERROR =
 
 const USERNAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]{2,23}$/;
 const EMAIL_PATTERN =
-  /^[A-Za-z0-9._%+-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/;
+  /^[A-Za-z0-9][A-Za-z0-9._%+-]*@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/;
 const DISPLAY_NAME_PATTERN = /^(?=.*[\p{L}\p{N}])[\p{L}\p{N} ._'-]{2,40}$/u;
 const LETTER_PATTERN = /\p{L}/u;
 const PERSONAL_INFO_SPLIT_PATTERN = /[^\p{L}\p{N}]+/u;

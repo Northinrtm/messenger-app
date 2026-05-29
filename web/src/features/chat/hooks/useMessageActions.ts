@@ -664,7 +664,7 @@ export function useMessageActions({
           sessionToken,
           currentUser.id,
           targetChat.id,
-          message.content,
+          message.content ?? "",
           targetChat.members,
           crypto.randomUUID(),
           null,

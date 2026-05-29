@@ -35,6 +35,7 @@ import {
   flattenMessagePages,
   MESSAGE_PAGE_SIZE,
   reconcileMessageInfiniteData,
+  setChatReactionAttention,
   upsertChat,
 } from "../chatState";
 
@@ -444,9 +445,12 @@ export function useWorkspaceQueries({
             })
           : null;
       if (chatOpen) {
-        queryClient.setQueryData<ChatSummary[]>(["chats", sessionToken], (current) =>
-          upsertChat(current, chatOpen.chat)
-        );
+        queryClient.setQueryData<ChatSummary[]>(["chats", sessionToken], (current) => {
+          const afterUpsert = upsertChat(current, chatOpen.chat);
+          // upsertChat skips same-version chats, so reactionAttention may not be applied.
+          // Force-apply it: getChatOpen clears reactionAttention server-side before building the response.
+          return setChatReactionAttention(afterUpsert, chatOpen.chat.id, chatOpen.chat.reactionAttention ?? false);
+        });
       }
       nextMessageCursorByRequestKeyRef.current.set(
         pageRequestKey,

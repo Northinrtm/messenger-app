@@ -84,12 +84,12 @@ textarea::placeholder {
 
 .auth-shell {
   display: grid;
-  place-items: center;
+  place-items: center start;
+  align-content: center;
   min-height: 100vh;
   min-height: 100svh;
   padding: 2rem;
   overflow-y: auto;
-  overscroll-behavior-y: contain;
 }
 
 .unlock-overlay {
@@ -4734,7 +4734,8 @@ select {
 
 .chat-menu-panel-frame {
   width: min(31rem, calc(100vw - 2.2rem));
-  max-height: 100%;
+  max-height: min(100%, calc(100dvh - 3rem));
+  overflow: hidden;
 }
 
 .chat-members-panel-frame {

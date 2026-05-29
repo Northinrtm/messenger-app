@@ -185,8 +185,14 @@ public class ChatAttachmentService {
             return;
         }
 
-        attachments.forEach(attachment -> chatAttachmentStorage.deleteQuietly(attachment.getStorageKey()));
         chatAttachmentRepository.deleteAll(attachments);
+        // Only delete physical file when no other ChatAttachment records reference the same key.
+        // Forwarded messages share the same storage object, so we must check before deleting.
+        attachments.forEach(attachment -> {
+            if (chatAttachmentRepository.countByStorageKey(attachment.getStorageKey()) == 0) {
+                chatAttachmentStorage.deleteQuietly(attachment.getStorageKey());
+            }
+        });
     }
 
     @Scheduled(
