@@ -1,5 +1,6 @@
 package com.north.messenger.application.message;
 
+import com.north.messenger.api.dto.MessageReceiptListResponse;
 import com.north.messenger.api.dto.MessageReceiptRequest;
 import com.north.messenger.api.dto.MessageStatusEventResponse;
 import com.north.messenger.application.auth.AuthService;
@@ -54,6 +55,38 @@ class MessageReceiptService {
         this.realtimeMessagingGateway = realtimeMessagingGateway;
         this.messageSupport = messageSupport;
         this.eventPublisher = eventPublisher;
+    }
+
+    MessageReceiptListResponse listReceipts(UUID chatId, UUID messageId, String username) {
+        UserAccount currentUser = authService.requireAuthenticatedUser(username);
+        chatService.requireChatMembership(chatId, currentUser);
+        List<MessageReceipt> receipts = messageReceiptRepository.findAllByMessageId(messageId);
+        if (receipts.isEmpty()) {
+            return new MessageReceiptListResponse(List.of());
+        }
+        Set<UUID> userIds = receipts.stream().map(MessageReceipt::getUserId).collect(Collectors.toSet());
+        Map<UUID, UserAccount> usersById = userAccountRepository.findAllByIdIn(userIds).stream()
+                .collect(Collectors.toMap(UserAccount::getId, Function.identity()));
+        List<MessageReceiptListResponse.Entry> entries = receipts.stream()
+                .filter(r -> !r.getUserId().equals(currentUser.getId()))
+                .map(r -> {
+                    UserAccount user = usersById.get(r.getUserId());
+                    if (user == null) return null;
+                    return new MessageReceiptListResponse.Entry(
+                            user.getId(), user.getUsername(), user.getDisplayName(),
+                            user.getAvatarUrl(), r.getDeliveredAt(), r.getReadAt()
+                    );
+                })
+                .filter(e -> e != null)
+                .sorted((a, b) -> {
+                    if (a.readAt() != null && b.readAt() != null) return b.readAt().compareTo(a.readAt());
+                    if (a.readAt() != null) return -1;
+                    if (b.readAt() != null) return 1;
+                    if (a.deliveredAt() != null && b.deliveredAt() != null) return b.deliveredAt().compareTo(a.deliveredAt());
+                    return 0;
+                })
+                .toList();
+        return new MessageReceiptListResponse(entries);
     }
 
     @Transactional

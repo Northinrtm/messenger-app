@@ -15,6 +15,7 @@ import type {
   ChatDraft,
   InviteAcceptance,
   InviteLink,
+  MessageReceiptList,
   MessageReactionEvent,
   PendingOutgoingMessage,
   Participant,
@@ -991,6 +992,10 @@ export function toggleMessageReaction(
     token,
     body: { key },
   });
+}
+
+export function getMessageReceipts(token: string, chatId: string, messageId: string) {
+  return request<MessageReceiptList>(`/api/chats/${chatId}/messages/${messageId}/receipts`, { token });
 }
 
 export function getTypingParticipants(token: string, chatId: string) {

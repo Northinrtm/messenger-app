@@ -2,6 +2,7 @@ package com.north.messenger.application.message;
 
 import com.north.messenger.api.dto.CreateMessageRequest;
 import com.north.messenger.api.dto.MessagePageResponse;
+import com.north.messenger.api.dto.MessageReceiptListResponse;
 import com.north.messenger.api.dto.MessageReceiptRequest;
 import com.north.messenger.api.dto.MessageReactionEventResponse;
 import com.north.messenger.api.dto.MessageResponse;
@@ -94,6 +95,10 @@ public class MessageService {
             ToggleMessageReactionRequest request
     ) {
         return messageReactionService.toggleReaction(chatId, messageId, username, request);
+    }
+
+    public MessageReceiptListResponse listReceipts(UUID chatId, UUID messageId, String username) {
+        return messageReceiptService.listReceipts(chatId, messageId, username);
     }
 
     @Transactional

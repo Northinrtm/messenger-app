@@ -1,5 +1,6 @@
 package com.north.messenger.api;
 
+import com.north.messenger.api.dto.MessageReceiptListResponse;
 import com.north.messenger.api.dto.MessageReceiptRequest;
 import com.north.messenger.api.dto.MessageReactionEventResponse;
 import com.north.messenger.api.dto.MessagePageResponse;
@@ -233,6 +234,21 @@ public class MessageController {
             @Valid @RequestBody ToggleMessageReactionRequest request
     ) {
         return messageService.toggleReaction(chatId, messageId, authentication.getName(), request);
+    }
+
+    @GetMapping("/{messageId}/receipts")
+    @Operation(summary = "List message receipts", description = "Returns delivery and read receipts for a message. Only the message sender sees receipts from other participants.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Receipts returned", useReturnTypeSchema = true),
+            @ApiResponse(responseCode = "403", ref = "#/components/responses/ForbiddenError"),
+            @ApiResponse(responseCode = "404", ref = "#/components/responses/NotFoundError")
+    })
+    public MessageReceiptListResponse listReceipts(
+            Authentication authentication,
+            @PathVariable UUID chatId,
+            @PathVariable UUID messageId
+    ) {
+        return messageService.listReceipts(chatId, messageId, authentication.getName());
     }
 
     private String extractBearerToken(String authorization) {

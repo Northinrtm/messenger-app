@@ -22,6 +22,8 @@ public interface MessageReceiptRepository extends JpaRepository<MessageReceipt, 
         long getUnreadCount();
     }
 
+    List<MessageReceipt> findAllByMessageId(UUID messageId);
+
     List<MessageReceipt> findAllByMessageIdIn(Collection<UUID> messageIds);
 
     @Query("""

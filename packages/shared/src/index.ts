@@ -68,6 +68,19 @@ export type MessageStatus = {
   readCount: number;
 };
 
+export type MessageReceiptEntry = {
+  userId: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+  deliveredAt: string | null;
+  readAt: string | null;
+};
+
+export type MessageReceiptList = {
+  receipts: MessageReceiptEntry[];
+};
+
 export type MessageReaction = {
   key: "LIKE" | "DISLIKE" | "EYES" | "OK";
   count: number;
