@@ -7,6 +7,8 @@ import com.north.messenger.api.dto.PlainMessagePayloadRequest;
 import com.north.messenger.api.dto.PlainMessagePayloadResponse;
 import com.north.messenger.application.message.MessageService;
 import com.north.messenger.application.message.RealtimeMessagingGateway;
+import com.north.messenger.security.AuthRateLimitDecision;
+import com.north.messenger.security.AuthRateLimiter;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import java.security.Principal;
@@ -37,7 +39,10 @@ class MessageWebSocketControllerTest {
         messageService = mock(MessageService.class);
         realtimeMessagingGateway = mock(RealtimeMessagingGateway.class);
         Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
-        controller = new MessageWebSocketController(messageService, realtimeMessagingGateway, validator);
+        AuthRateLimiter rateLimiter = mock(AuthRateLimiter.class);
+        when(rateLimiter.acquire(any(), any(), any(), any(long.class)))
+                .thenReturn(new AuthRateLimitDecision(true, 0));
+        controller = new MessageWebSocketController(messageService, realtimeMessagingGateway, validator, rateLimiter);
     }
 
     @Test
