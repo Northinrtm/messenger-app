@@ -11,7 +11,7 @@
         Strict-Transport-Security "max-age=31536000"
         X-Content-Type-Options "nosniff"
         Referrer-Policy "no-referrer"
-        Permissions-Policy "camera=(self), microphone=(self), geolocation=(), payment=()"
+        Permissions-Policy "camera=(self \"https://api.test.vc.ktsf.ru\"), microphone=(self \"https://api.test.vc.ktsf.ru\"), geolocation=(), payment=()"
     }
 
     redir /meet /meet/ 308
