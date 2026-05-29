@@ -2161,6 +2161,19 @@ export function NorthMessengerWorkspace({
     }
   }, [activeConferenceId]);
 
+  const conferenceWasLiveRef = useRef(false);
+  useEffect(() => {
+    conferenceWasLiveRef.current = activeConference !== null && !activeConference.endedAt;
+  }, [activeConferenceId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!activeConference?.endedAt || !conferenceWasLiveRef.current) {
+      return;
+    }
+    const timer = setTimeout(() => closeActiveConference(), 5_000);
+    return () => clearTimeout(timer);
+  }, [activeConference?.endedAt, closeActiveConference]);
+
   const requestConferenceExit = useEffectEvent(() => {
     if (!activeConference) {
       return;
