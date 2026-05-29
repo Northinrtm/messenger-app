@@ -62,6 +62,7 @@ import {
 } from './typingState';
 import {androidTheme} from '../../theme';
 import {API_URL} from '../../config';
+import {SoundPlayer, type SoundPlayerHandle} from '../../lib/SoundPlayer';
 
 const MESSAGE_PAGE_SIZE = 30;
 const TYPING_HEARTBEAT_MS = 3_000;
@@ -211,6 +212,7 @@ export function ChatThreadScreen({
   const [imagePreview, setImagePreview] = useState<ImagePreviewState | null>(
     null,
   );
+  const [activePinnedIndex, setActivePinnedIndex] = useState(0);
   const [dismissedPinnedMessageId, setDismissedPinnedMessageId] = useState<
     string | null
   >(null);
@@ -231,6 +233,7 @@ export function ChatThreadScreen({
   const [profileActionPending, setProfileActionPending] = useState<'contact' | 'block' | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
   const messageScrollRef = useRef<ScrollView | null>(null);
+  const soundPlayerRef = useRef<SoundPlayerHandle>(null);
   const handledRealtimeMessageIdsRef = useRef(new Map<string, true>());
   const acknowledgedReadIdsRef = useRef(new Set<string>());
   const shouldStickToBottomRef = useRef(true);
@@ -310,14 +313,13 @@ export function ChatThreadScreen({
     () => formatTypingParticipants(typingParticipants),
     [typingParticipants],
   );
-  const visiblePinnedMessage = useMemo(() => {
-    const pinnedMessage = chat?.pinnedMessage ?? chat?.pinnedMessages?.[0] ?? null;
-    if (!pinnedMessage) {
-      return null;
-    }
-
-    return pinnedMessage.id === dismissedPinnedMessageId ? null : pinnedMessage;
+  const allPinnedMessages = useMemo(() => {
+    const list = chat?.pinnedMessages ?? (chat?.pinnedMessage ? [chat.pinnedMessage] : []);
+    return list.filter(m => m.id !== dismissedPinnedMessageId);
   }, [chat, dismissedPinnedMessageId]);
+  const pinnedCount = allPinnedMessages.length;
+  const clampedPinnedIndex = pinnedCount > 0 ? Math.min(activePinnedIndex, pinnedCount - 1) : 0;
+  const visiblePinnedMessage = allPinnedMessages[clampedPinnedIndex] ?? null;
   const latestMessageKey = useMemo(() => {
     const latestMessage = messages[messages.length - 1];
     if (!latestMessage) {
@@ -690,6 +692,8 @@ export function ChatThreadScreen({
     if (realtimeMessage.message.sender.id === session.user.id) {
       return;
     }
+
+    soundPlayerRef.current?.playIcq();
 
     acknowledgeMessagesAsRead({
       chatId,
@@ -1521,6 +1525,7 @@ export function ChatThreadScreen({
     <KeyboardAvoidingView
       behavior={Platform.select({ios: 'padding', android: 'height'})}
       style={[styles.screen, {backgroundColor: chatBg}]}>
+      <SoundPlayer ref={soundPlayerRef} />
       <View style={[styles.screen, {backgroundColor: chatBg}]}>
         <View style={styles.threadBackdrop} pointerEvents="none">
           <View style={styles.threadGlowPrimary} />
@@ -1588,19 +1593,31 @@ export function ChatThreadScreen({
         <View style={styles.pinnedBanner} testID="pinned-banner">
           <View style={styles.pinnedAccent} />
           <View style={styles.pinnedCopy}>
-            <Text style={styles.pinnedLabel}>Pinned message</Text>
+            <Text style={styles.pinnedLabel}>
+              {'Закреплено'}
+              {pinnedCount > 1 ? ` ${clampedPinnedIndex + 1}/${pinnedCount}` : ''}
+            </Text>
             <Text numberOfLines={1} style={styles.pinnedPreview}>
-              {visiblePinnedMessage.preview || 'Open pinned message'}
+              {visiblePinnedMessage.preview || 'Открыть закреплённое'}
             </Text>
           </View>
-          <Text style={styles.pinnedMeta}>
-            {formatRelativeMessageTime(visiblePinnedMessage.createdAt)}
-          </Text>
+          {pinnedCount > 1 ? (
+            <Pressable
+              onPress={() =>
+                setActivePinnedIndex(i => (i + 1) % pinnedCount)
+              }
+              style={styles.pinnedClose}>
+              <Text style={styles.pinnedCloseLabel}>›</Text>
+            </Pressable>
+          ) : null}
           <Pressable
-            onPress={() => setDismissedPinnedMessageId(visiblePinnedMessage.id)}
+            onPress={() => {
+              setDismissedPinnedMessageId(visiblePinnedMessage.id);
+              setActivePinnedIndex(0);
+            }}
             style={styles.pinnedClose}
             testID="dismiss-pinned-button">
-            <Text style={styles.pinnedCloseLabel}>x</Text>
+            <Text style={styles.pinnedCloseLabel}>×</Text>
           </Pressable>
         </View>
       ) : null}
