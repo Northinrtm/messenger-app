@@ -1,10 +1,10 @@
 package com.north.messenger.application.chat;
 
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.security.Keys;
 import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKey;
+import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
@@ -22,7 +22,9 @@ public class JitsiJwtService {
         this.properties = properties;
         if (properties.enabled()) {
             byte[] keyBytes = properties.appSecret().getBytes(StandardCharsets.UTF_8);
-            this.signingKey = Keys.hmacShaKeyFor(keyBytes);
+            // Use SecretKeySpec directly to bypass JJWT's minimum-length check —
+            // Prosody (Jitsi's XMPP server) does not enforce RFC 7518 key size requirements.
+            this.signingKey = new SecretKeySpec(keyBytes, "HmacSHA256");
         } else {
             this.signingKey = null;
         }
@@ -65,7 +67,7 @@ public class JitsiJwtService {
                 .expiration(Date.from(exp))
                 .claim("room", roomName != null ? roomName : "*")
                 .claim("context", context)
-                .signWith(signingKey)
+                .signWith(signingKey, Jwts.SIG.HS256)
                 .compact();
     }
 }
