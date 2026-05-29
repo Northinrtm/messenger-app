@@ -2,6 +2,8 @@ import type {
   ApiChatMessage,
   ApiErrorResponse,
   AuthResponse,
+  ChatAttachmentBrowserKind,
+  ChatAttachmentBrowserPage,
   ChatMessageAttachment,
   ChatOpen,
   ChatSummary,
@@ -425,6 +427,17 @@ export async function uploadChatAttachment(
     mimeType: uploadTarget.mimeType,
     sizeBytes: uploadTarget.sizeBytes,
   } satisfies ChatMessageAttachment;
+}
+
+export function getChatAttachmentBrowserPage(
+  token: string,
+  chatId: string,
+  options: {kind?: ChatAttachmentBrowserKind; cursor?: string | null; limit?: number} = {},
+) {
+  return request<ChatAttachmentBrowserPage>(
+    `/api/chats/${encodeURIComponent(chatId)}/attachments/browser`,
+    {token, query: {kind: options.kind, cursor: options.cursor ?? undefined, limit: options.limit}},
+  );
 }
 
 export function downloadChatAttachment(

@@ -63,6 +63,7 @@ import {
 import {androidTheme} from '../../theme';
 import {API_URL} from '../../config';
 import {SoundPlayer, type SoundPlayerHandle} from '../../lib/SoundPlayer';
+import {ChatMediaBrowserSheet} from './ChatMediaBrowserSheet';
 
 const MESSAGE_PAGE_SIZE = 30;
 const TYPING_HEARTBEAT_MS = 3_000;
@@ -213,6 +214,7 @@ export function ChatThreadScreen({
     null,
   );
   const [activePinnedIndex, setActivePinnedIndex] = useState(0);
+  const [isMediaBrowserOpen, setIsMediaBrowserOpen] = useState(false);
   const [dismissedPinnedMessageId, setDismissedPinnedMessageId] = useState<
     string | null
   >(null);
@@ -237,6 +239,7 @@ export function ChatThreadScreen({
   const handledRealtimeMessageIdsRef = useRef(new Map<string, true>());
   const acknowledgedReadIdsRef = useRef(new Set<string>());
   const shouldStickToBottomRef = useRef(true);
+  const [isAtBottom, setIsAtBottom] = useState(true);
   const lastAutoScrolledMessageKeyRef = useRef<string | null>(null);
   const nextLocalOrderRef = useRef(0);
   const reactionOverridesRef = useRef<
@@ -392,7 +395,9 @@ export function ChatThreadScreen({
       const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
       const distanceFromBottom =
         contentSize.height - (contentOffset.y + layoutMeasurement.height);
-      shouldStickToBottomRef.current = distanceFromBottom < 72;
+      const atBottom = distanceFromBottom < 72;
+      shouldStickToBottomRef.current = atBottom;
+      setIsAtBottom(atBottom);
     },
     [],
   );
@@ -531,6 +536,7 @@ export function ChatThreadScreen({
     typingSignalRef.current.active = false;
     typingSignalRef.current.lastSentAt = 0;
     shouldStickToBottomRef.current = true;
+    setIsAtBottom(true);
     lastAutoScrolledMessageKeyRef.current = null;
     setChat(initialChatRef.current);
     replaceMessages([]);
@@ -1526,6 +1532,12 @@ export function ChatThreadScreen({
       behavior={Platform.select({ios: 'padding', android: 'height'})}
       style={[styles.screen, {backgroundColor: chatBg}]}>
       <SoundPlayer ref={soundPlayerRef} />
+      <ChatMediaBrowserSheet
+        visible={isMediaBrowserOpen}
+        chatId={chatId}
+        runAuthorized={runAuthorized}
+        onClose={() => setIsMediaBrowserOpen(false)}
+      />
       <View style={[styles.screen, {backgroundColor: chatBg}]}>
         <View style={styles.threadBackdrop} pointerEvents="none">
           <View style={styles.threadGlowPrimary} />
@@ -1584,6 +1596,11 @@ export function ChatThreadScreen({
                   </Text>
                 </View>
               ) : null}
+              <Pressable
+                style={styles.headerButton}
+                onPress={() => setIsMediaBrowserOpen(true)}>
+                <Text style={styles.headerButtonLabel}>⊞</Text>
+              </Pressable>
             </View>
           </View>
         )}
@@ -1882,6 +1899,16 @@ export function ChatThreadScreen({
           })
         )}
       </ScrollView>
+
+      {!isAtBottom && (chat?.unreadCount ?? 0) > 0 ? (
+        <Pressable
+          style={styles.jumpToUnreadButton}
+          onPress={() => scrollMessagesToEnd(true)}>
+          <Text style={styles.jumpToUnreadLabel}>
+            ↓ {chat!.unreadCount} {chat!.unreadCount === 1 ? 'новое' : 'новых'}
+          </Text>
+        </Pressable>
+      ) : null}
 
       <View
         style={[
@@ -3216,6 +3243,22 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     color: androidTheme.colors.textPrimary,
+  },
+  jumpToUnreadButton: {
+    position: 'absolute',
+    bottom: 80,
+    alignSelf: 'center',
+    backgroundColor: androidTheme.colors.blueStrong,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    zIndex: 10,
+    elevation: 4,
+  },
+  jumpToUnreadLabel: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
   },
   messageScroll: {
     flex: 1,
