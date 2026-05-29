@@ -18,7 +18,7 @@
     <description>Java backend for a realtime messenger</description>
 
     <properties>
-        <java.version>17</java.version>
+        <java.version>21</java.version>
         <aws.sdk.version>2.27.21</aws.sdk.version>
         <jjwt.version>0.12.6</jjwt.version>
         <springdoc.version>2.8.17</springdoc.version>

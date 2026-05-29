@@ -4,6 +4,9 @@ server:
 spring:
   application:
     name: messenger-backend
+  threads:
+    virtual:
+      enabled: true
   config:
     import: "optional:file:.env[.properties],optional:file:../.env[.properties]"
   datasource:
