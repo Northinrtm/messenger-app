@@ -23,6 +23,9 @@ public class UserChatReactionAttention {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Column(name = "message_id")
+    private UUID messageId;
+
     protected UserChatReactionAttention() {
     }
 
@@ -45,11 +48,16 @@ public class UserChatReactionAttention {
         return chatId;
     }
 
+    public UUID getMessageId() {
+        return messageId;
+    }
+
     public Instant getUpdatedAt() {
         return updatedAt;
     }
 
-    public void touch(Instant updatedAt) {
+    public void touch(Instant updatedAt, UUID messageId) {
         this.updatedAt = updatedAt;
+        this.messageId = messageId;
     }
 }

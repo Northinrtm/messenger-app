@@ -91,6 +91,7 @@ function renderPanel(root: Root, chat: ChatSummary, failedChatIds: ReadonlySet<s
         failedChatIds={failedChatIds}
         openConference={() => {}}
         openChat={() => {}}
+        openChatAtMessage={() => {}}
         openChatAtFailedMessage={() => {}}
         openChatContextMenu={() => {}}
         onMailSwitchFolder={() => {}}

@@ -158,6 +158,7 @@ export type ChatSummary = {
   lastMessageAt: string | null;
   lastMessageHasReactions?: boolean;
   reactionAttention?: boolean;
+  reactionAttentionMessageId?: string | null;
   lastMessageServerOrder?: number | null;
   updatedAt: string;
   unreadCount: number;

@@ -41,6 +41,7 @@ type Props = {
   failedChatIds: ReadonlySet<string>;
   openConference: (conferenceId: string) => void;
   openChat: (chatId: string) => void;
+  openChatAtMessage: (chatId: string, messageId: string) => void;
   openChatAtFailedMessage: (chatId: string) => void;
   openChatContextMenu: (event: ReactMouseEvent<HTMLButtonElement>, chatId: string) => void;
   onMailSwitchFolder: (folder: "inbox" | "sent") => void;
@@ -87,6 +88,7 @@ export const ChatListPanel = memo(function ChatListPanel({
   failedChatIds,
   openConference,
   openChat,
+  openChatAtMessage,
   openChatAtFailedMessage,
   openChatContextMenu,
   onMailSwitchFolder,
@@ -341,6 +343,8 @@ export const ChatListPanel = memo(function ChatListPanel({
                   <span className="chat-preview-indicators">
                     {hasReactionIndicator ? (
                       <span
+                        role="button"
+                        tabIndex={0}
                         className="chat-preview-reaction"
                         title={
                           chat.reactionAttention
@@ -352,6 +356,26 @@ export const ChatListPanel = memo(function ChatListPanel({
                             ? "\u0415\u0441\u0442\u044c \u043d\u043e\u0432\u0430\u044f \u0440\u0435\u0430\u043a\u0446\u0438\u044f \u043d\u0430 \u0432\u0430\u0448\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435"
                             : "\u041d\u0430 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0435\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435 \u0435\u0441\u0442\u044c \u0440\u0435\u0430\u043a\u0446\u0438\u0438"
                         }
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          const msgId = chat.reactionAttentionMessageId;
+                          if (msgId) {
+                            openChatAtMessage(chat.id, msgId);
+                          } else {
+                            openChat(chat.id);
+                          }
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.stopPropagation();
+                            const msgId = chat.reactionAttentionMessageId;
+                            if (msgId) {
+                              openChatAtMessage(chat.id, msgId);
+                            } else {
+                              openChat(chat.id);
+                            }
+                          }
+                        }}
                       >
                         {"\u263A"}
                       </span>

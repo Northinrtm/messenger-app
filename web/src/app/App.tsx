@@ -232,7 +232,9 @@ export function App() {
     }
 
     if (isAccessTokenExpired(session)) {
-      void requestSessionRefresh(true);
+      // Non-blocking: the workspace is already visible, refresh silently without
+      // showing the "Reconnecting securely" overlay (BUG25).
+      void requestSessionRefresh(false);
       return;
     }
 
@@ -261,7 +263,7 @@ export function App() {
       }
 
       if (isAccessTokenExpired(session)) {
-        void requestSessionRefresh(true);
+        void requestSessionRefresh(false);
         return;
       }
 

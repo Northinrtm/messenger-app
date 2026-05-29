@@ -1031,10 +1031,13 @@ public class ChatService {
         MessageSnippetResponse pinnedMessage = pinnedMessages.isEmpty() ? null : pinnedMessages.get(0);
         Instant updatedAt = lastMessage != null ? lastMessage.getCreatedAt() : room.getCreatedAt();
         boolean lastMessageHasReactions = hasReactions(lastMessage, currentUserId);
-        boolean reactionAttention = userChatReactionAttentionRepository.existsByUserIdAndChatId(
-                currentUserId,
-                room.getId()
-        );
+        UserChatReactionAttention reactionAttentionRecord = userChatReactionAttentionRepository
+                .findByUserIdAndChatId(currentUserId, room.getId())
+                .orElse(null);
+        boolean reactionAttention = reactionAttentionRecord != null;
+        UUID reactionAttentionMessageId = reactionAttentionRecord != null
+                ? reactionAttentionRecord.getMessageId()
+                : null;
 
         String title;
         if (room.isDirect()) {
@@ -1072,6 +1075,7 @@ public class ChatService {
                 lastMessage != null ? lastMessage.getCreatedAt() : null,
                 lastMessageHasReactions,
                 reactionAttention,
+                reactionAttentionMessageId,
                 lastMessage != null ? lastMessage.getServerOrder() : null,
                   updatedAt,
                   unreadCount,

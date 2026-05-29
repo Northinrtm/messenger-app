@@ -1465,6 +1465,10 @@ export function NorthMessengerWorkspace({
     }
   );
 
+  const openChatAtMessage = useEffectEvent((chatId: string, messageId: string) => {
+    scrollToMessage(chatId, messageId);
+  });
+
   const openChatAtFailedMessage = useEffectEvent((chatId: string) => {
     const firstFailed = (pendingOutgoingMessagesQuery.data ?? []).find(
       (msg) => msg.chatId === chatId && msg.status === "FAILED"
@@ -2408,6 +2412,7 @@ export function NorthMessengerWorkspace({
         failedChatIds={failedChatIds}
         openConference={openConference}
         openChat={openChat}
+        openChatAtMessage={openChatAtMessage}
         openChatAtFailedMessage={openChatAtFailedMessage}
         openChatContextMenu={openChatContextMenu}
         onMailSwitchFolder={setMailFolder}

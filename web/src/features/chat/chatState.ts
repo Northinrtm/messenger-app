@@ -439,6 +439,7 @@ export function setChatReactionAttention(
     return {
       ...chat,
       reactionAttention,
+      reactionAttentionMessageId: reactionAttention ? chat.reactionAttentionMessageId : null,
     };
   });
 
@@ -463,6 +464,7 @@ export function clearChatReactionIndicators(
     return {
       ...chat,
       reactionAttention: false,
+      reactionAttentionMessageId: null,
       lastMessageHasReactions: false,
     };
   });

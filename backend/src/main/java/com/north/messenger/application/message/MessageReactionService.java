@@ -108,20 +108,19 @@ class MessageReactionService {
             return;
         }
 
+        Instant now = Instant.now();
         UserChatReactionAttention existingAttention = userChatReactionAttentionRepository
                 .findByUserIdAndChatId(attentionUserId, chatId)
                 .orElse(null);
         if (existingAttention == null) {
-            userChatReactionAttentionRepository.save(new UserChatReactionAttention(
-                    UUID.randomUUID(),
-                    attentionUserId,
-                    chatId,
-                    Instant.now()
-            ));
+            UserChatReactionAttention attention = new UserChatReactionAttention(
+                    UUID.randomUUID(), attentionUserId, chatId, now);
+            attention.touch(now, message.getId());
+            userChatReactionAttentionRepository.save(attention);
             return;
         }
 
-        existingAttention.touch(Instant.now());
+        existingAttention.touch(now, message.getId());
     }
 
     void broadcastReactionChanged(UUID chatId, UUID messageId, UUID actorUserId) {

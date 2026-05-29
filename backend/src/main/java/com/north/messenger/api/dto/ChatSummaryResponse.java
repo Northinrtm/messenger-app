@@ -18,6 +18,7 @@ public record ChatSummaryResponse(
         Instant lastMessageAt,
         boolean lastMessageHasReactions,
         boolean reactionAttention,
+        UUID reactionAttentionMessageId,
         Long lastMessageServerOrder,
         Instant updatedAt,
         int unreadCount,
