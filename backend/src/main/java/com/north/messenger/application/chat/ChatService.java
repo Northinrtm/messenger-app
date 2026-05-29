@@ -22,6 +22,7 @@ import com.north.messenger.domain.model.ChatRoomBan;
 import com.north.messenger.domain.model.ChatRoomModerator;
 import com.north.messenger.domain.model.UserArchivedChat;
 import com.north.messenger.domain.model.UserAccount;
+import com.north.messenger.domain.model.UserChatReactionAttention;
 import com.north.messenger.domain.model.UserDeletedChat;
 import com.north.messenger.domain.model.UserDeletedMessage;
 import com.north.messenger.domain.repository.UserArchivedChatRepository;
