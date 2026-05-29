@@ -453,7 +453,10 @@ textarea {
   resize: vertical;
 }
 
-select {
+select,
+input[type="datetime-local"],
+input[type="date"],
+input[type="time"] {
   color-scheme: dark;
 }
 

@@ -189,6 +189,7 @@ export function SidebarUtilitySheets({
                 type="datetime-local"
                 value={conferenceScheduledAt}
                 min={createMinimumConferenceDateTime()}
+                step={60}
                 onChange={(event) => onConferenceScheduledAtChange(event.target.value)}
               />
             ) : null}
