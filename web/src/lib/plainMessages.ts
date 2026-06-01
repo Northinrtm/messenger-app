@@ -38,7 +38,7 @@ export async function sendPlainMessage(
 
   const attachments = normalizeChatMessageAttachments(options?.attachments ?? []);
   const normalizedContent = content.trim();
-  if (!normalizedContent && attachments.length === 0) {
+  if (!normalizedContent && attachments.length === 0 && !options?.forwardedFromMessageId) {
     throw new ApiError("Message content cannot be blank", 400);
   }
 

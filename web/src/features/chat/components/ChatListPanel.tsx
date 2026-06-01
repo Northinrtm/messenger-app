@@ -345,7 +345,7 @@ export const ChatListPanel = memo(function ChatListPanel({
                       <span
                         role="button"
                         tabIndex={0}
-                        className="chat-preview-reaction"
+                        className={chat.reactionAttention ? "chat-preview-reaction is-attention" : "chat-preview-reaction"}
                         title={
                           chat.reactionAttention
                             ? "\u0415\u0441\u0442\u044c \u043d\u043e\u0432\u0430\u044f \u0440\u0435\u0430\u043a\u0446\u0438\u044f \u043d\u0430 \u0432\u0430\u0448\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435"

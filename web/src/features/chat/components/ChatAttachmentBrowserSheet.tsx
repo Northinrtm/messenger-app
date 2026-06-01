@@ -11,7 +11,7 @@ import type {
 } from "../../../lib/types";
 
 const PAGE_SIZE = 60;
-const PHOTO_VIEWER_MIN_ZOOM = 1;
+const PHOTO_VIEWER_MIN_ZOOM = 0.25;
 const PHOTO_VIEWER_MAX_ZOOM = 4;
 const PHOTO_VIEWER_ZOOM_STEP = 0.25;
 
@@ -633,10 +633,10 @@ function PhotoViewerOverlay({
     onLoadAttachmentPreview,
     { enabled: Boolean(currentItem) }
   );
-  const [zoom, setZoom] = useState(PHOTO_VIEWER_MIN_ZOOM);
+  const [zoom, setZoom] = useState(1);
 
   useEffect(() => {
-    setZoom(PHOTO_VIEWER_MIN_ZOOM);
+    setZoom(1);
   }, [currentItemId]);
 
   useEffect(() => {

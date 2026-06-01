@@ -198,6 +198,7 @@ public class VideoConferenceService {
             if (room.isDirect()) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Direct chats cannot host group conference calls");
             }
+            chatService.assertChatInteractionAllowed(room, currentUser);
             conferenceParticipants = resolveGroupConferenceParticipants(targetChatId);
         } else {
             LinkedHashSet<String> normalizedUsernames = normalizeParticipantUsernames(

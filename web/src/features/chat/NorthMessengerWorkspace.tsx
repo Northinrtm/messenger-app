@@ -19,6 +19,7 @@ import {
   addContact as addContactRequest,
   addConferenceParticipants as addConferenceParticipantsRequest,
   addGroupParticipants,
+  clearChatReactionAttention,
   clearConferencePresence as clearConferencePresenceRequest,
   fetchConferenceJitsiToken,
   createConferenceInviteLink as createConferenceInviteLinkRequest,
@@ -76,6 +77,7 @@ import {
   getChatPinnedMessages,
   getMessageIdentityKey,
   removeChatById,
+  setChatReactionAttention,
   upsertChat,
 } from "./chatState";
 import { formatTypingParticipants } from "./typingState";
@@ -2193,6 +2195,16 @@ export function NorthMessengerWorkspace({
     const base = "Мессенджер";
     document.title = totalUnreadCount > 0 ? `(${totalUnreadCount}) ${base}` : base;
   }, [totalUnreadCount]);
+
+  useEffect(() => {
+    if (!activeChatId) return;
+    const chat = chats.find((c) => c.id === activeChatId);
+    if (!chat?.reactionAttention) return;
+    queryClient.setQueryData<ChatSummary[]>(["chats", session.token], (current) =>
+      setChatReactionAttention(current, activeChatId, false)
+    );
+    void clearChatReactionAttention(session.token, activeChatId).catch(() => undefined);
+  }, [activeChatId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const conferenceWasLiveRef = useRef(false);
   useEffect(() => {
