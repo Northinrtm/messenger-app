@@ -120,8 +120,9 @@ public class PushNotificationDeliveryService {
                         .timeout(properties.requestTimeout())
                         .header("TTL", String.valueOf(properties.ttl().toSeconds()))
                         .header("Urgency", "normal")
+                        .header("Content-Length", "0")
                         .header("Authorization", vapidKeyService.authorizationHeader(subscription.getEndpoint()))
-                        .POST(HttpRequest.BodyPublishers.noBody())
+                        .POST(HttpRequest.BodyPublishers.ofByteArray(new byte[0]))
                         .build();
                 HttpResponse<Void> response = httpClient.send(request, HttpResponse.BodyHandlers.discarding());
 
@@ -138,7 +139,7 @@ public class PushNotificationDeliveryService {
                             message.getChatId(), message.getId());
                     return;
                 }
-                if (response.statusCode() == 429 || response.statusCode() >= 500) {
+                if (response.statusCode() == 411 || response.statusCode() == 429 || response.statusCode() >= 500) {
                     log.warn("Push transient error attempt={}/{} status={} chatId={} messageId={}",
                             attempt + 1, MAX_PUSH_RETRIES, response.statusCode(),
                             message.getChatId(), message.getId());

@@ -360,7 +360,7 @@ export const ChatListPanel = memo(function ChatListPanel({
                           event.stopPropagation();
                           const msgIds = chat.reactionAttentionMessageIds;
                           const msgId = msgIds && msgIds.length > 0
-                            ? msgIds[0]
+                            ? msgIds[msgIds.length - 1]
                             : chat.reactionAttentionMessageId;
                           if (msgId) {
                             openChatAtMessage(chat.id, msgId);
@@ -373,7 +373,7 @@ export const ChatListPanel = memo(function ChatListPanel({
                             event.stopPropagation();
                             const msgIds = chat.reactionAttentionMessageIds;
                             const msgId = msgIds && msgIds.length > 0
-                              ? msgIds[0]
+                              ? msgIds[msgIds.length - 1]
                               : chat.reactionAttentionMessageId;
                             if (msgId) {
                               openChatAtMessage(chat.id, msgId);

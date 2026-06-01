@@ -634,9 +634,11 @@ function PhotoViewerOverlay({
     { enabled: Boolean(currentItem) }
   );
   const [zoom, setZoom] = useState(1);
+  const [imageLoaded, setImageLoaded] = useState(false);
 
   useEffect(() => {
     setZoom(1);
+    setImageLoaded(false);
   }, [currentItemId]);
 
   useEffect(() => {
@@ -778,10 +780,12 @@ function PhotoViewerOverlay({
           <div className="chat-attachment-browser-photo-viewer-image-shell">
             {previewUrl && !previewError ? (
               <img
-                className="chat-attachment-browser-photo-viewer-image"
+                className={imageLoaded ? "chat-attachment-browser-photo-viewer-image" : "chat-attachment-browser-photo-viewer-image is-viewer-loading"}
                 src={previewUrl}
                 alt={currentItem.fileName}
                 style={{ transform: `scale(${zoom})` }}
+                onLoad={() => setImageLoaded(true)}
+                onError={() => setImageLoaded(true)}
               />
             ) : (
               <div className="chat-attachment-browser-photo-viewer-empty">
