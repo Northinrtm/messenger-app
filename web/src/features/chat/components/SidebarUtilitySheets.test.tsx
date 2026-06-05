@@ -91,6 +91,7 @@ function buildProps(
     activeChat: targetChat(),
     sessionUser,
     sessionToken: "token",
+    chatInteractionBlocked: false,
     conferenceComposerMode: null,
     conferenceChatId: null,
     conferenceEditingId: null,

@@ -2574,6 +2574,7 @@ export function NorthMessengerWorkspace({
     activeChat,
     sessionUser: session.user,
     sessionToken: session.token,
+    chatInteractionBlocked: activeChatHistoryAccessNotice !== null,
     conferenceComposerMode,
     conferenceChatId,
     conferenceEditingId,

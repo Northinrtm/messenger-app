@@ -17,6 +17,7 @@ type Props = {
   activeChat: ChatSummary | null;
   sessionUser: UserProfile;
   sessionToken: string;
+  chatInteractionBlocked: boolean;
   conferenceComposerMode: "instant" | "scheduled" | null;
   conferenceChatId: string | null;
   conferenceEditingId: string | null;
@@ -65,6 +66,7 @@ export function SidebarUtilitySheets({
   activeChat,
   sessionUser,
   sessionToken,
+  chatInteractionBlocked,
   conferenceComposerMode,
   conferenceChatId,
   conferenceEditingId,
@@ -134,7 +136,7 @@ export function SidebarUtilitySheets({
           </button>
         </div>
 
-        {!isEditingConference ? (
+        {!isEditingConference && !chatInteractionBlocked ? (
           <div className="conference-browser-actions">
             <button
               type="button"
