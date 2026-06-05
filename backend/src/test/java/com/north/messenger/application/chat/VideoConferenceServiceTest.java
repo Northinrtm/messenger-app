@@ -16,6 +16,7 @@ import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.VideoConference;
 import com.north.messenger.domain.model.VideoConferenceParticipant;
 import com.north.messenger.domain.repository.ChatParticipantRepository;
+import com.north.messenger.domain.repository.ChatRoomBanRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import com.north.messenger.domain.repository.VideoConferenceAttendanceRepository;
 import com.north.messenger.domain.repository.VideoConferenceParticipantRepository;
@@ -56,6 +57,7 @@ class VideoConferenceServiceTest {
     private AuthService authService;
     private ChatService chatService;
     private ChatParticipantRepository chatParticipantRepository;
+    private ChatRoomBanRepository chatRoomBanRepository;
     private UserAccountRepository userAccountRepository;
     private VideoConferenceRepository videoConferenceRepository;
     private VideoConferenceParticipantRepository videoConferenceParticipantRepository;
@@ -71,6 +73,7 @@ class VideoConferenceServiceTest {
         authService = mock(AuthService.class);
         chatService = mock(ChatService.class);
         chatParticipantRepository = mock(ChatParticipantRepository.class);
+        chatRoomBanRepository = mock(ChatRoomBanRepository.class);
         userAccountRepository = mock(UserAccountRepository.class);
         videoConferenceRepository = mock(VideoConferenceRepository.class);
         videoConferenceParticipantRepository = mock(VideoConferenceParticipantRepository.class);
@@ -83,6 +86,7 @@ class VideoConferenceServiceTest {
                 authService,
                 chatService,
                 chatParticipantRepository,
+                chatRoomBanRepository,
                 userAccountRepository,
                 videoConferenceRepository,
                 videoConferenceParticipantRepository,

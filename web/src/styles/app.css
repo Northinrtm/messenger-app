@@ -2088,6 +2088,8 @@ input[type="time"] {
 .chat-attachment-browser-photo-card-main {
   display: grid;
   align-items: end;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
 }
 
 .chat-attachment-browser-photo-card:hover,
@@ -2308,7 +2310,11 @@ input[type="time"] {
 .sheet-row-with-avatar {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
+  align-items: flex-start;
+}
+
+.sheet-row-with-avatar .sheet-row-actions {
+  max-width: 16rem;
 }
 
 .profile-sheet {

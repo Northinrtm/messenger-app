@@ -15,6 +15,7 @@ import com.north.messenger.domain.model.VideoConference;
 import com.north.messenger.domain.model.VideoConferenceAttendance;
 import com.north.messenger.domain.model.VideoConferenceParticipant;
 import com.north.messenger.domain.repository.ChatParticipantRepository;
+import com.north.messenger.domain.repository.ChatRoomBanRepository;
 import com.north.messenger.domain.repository.ConferenceRecordingRepository;
 import com.north.messenger.domain.repository.UserAccountRepository;
 import com.north.messenger.domain.repository.VideoConferenceAttendanceRepository;
@@ -35,6 +36,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -65,6 +67,7 @@ public class VideoConferenceService {
     private final AuthService authService;
     private final ChatService chatService;
     private final ChatParticipantRepository chatParticipantRepository;
+    private final ChatRoomBanRepository chatRoomBanRepository;
     private final UserAccountRepository userAccountRepository;
     private final VideoConferenceRepository videoConferenceRepository;
     private final VideoConferenceParticipantRepository videoConferenceParticipantRepository;
@@ -79,6 +82,7 @@ public class VideoConferenceService {
             AuthService authService,
             ChatService chatService,
             ChatParticipantRepository chatParticipantRepository,
+            ChatRoomBanRepository chatRoomBanRepository,
             UserAccountRepository userAccountRepository,
             VideoConferenceRepository videoConferenceRepository,
             VideoConferenceParticipantRepository videoConferenceParticipantRepository,
@@ -92,6 +96,7 @@ public class VideoConferenceService {
         this.authService = authService;
         this.chatService = chatService;
         this.chatParticipantRepository = chatParticipantRepository;
+        this.chatRoomBanRepository = chatRoomBanRepository;
         this.userAccountRepository = userAccountRepository;
         this.videoConferenceRepository = videoConferenceRepository;
         this.videoConferenceParticipantRepository = videoConferenceParticipantRepository;
@@ -717,6 +722,9 @@ public class VideoConferenceService {
 
     private List<UserAccount> resolveGroupConferenceParticipants(UUID chatId) {
         List<ChatParticipant> chatMemberships = chatParticipantRepository.findAllByChatIdAndLeftAtIsNullOrderByJoinedAtAsc(chatId);
+        Set<UUID> bannedUserIds = chatRoomBanRepository.findAllByChatId(chatId).stream()
+                .map(ban -> ban.getUserId())
+                .collect(Collectors.toSet());
         Map<UUID, UserAccount> usersById = findUsersById(
                 chatMemberships.stream()
                         .map(ChatParticipant::getUserId)
@@ -724,6 +732,7 @@ public class VideoConferenceService {
         );
         return chatMemberships.stream()
                 .map(ChatParticipant::getUserId)
+                .filter(userId -> !bannedUserIds.contains(userId))
                 .map(usersById::get)
                 .filter(Objects::nonNull)
                 .toList();

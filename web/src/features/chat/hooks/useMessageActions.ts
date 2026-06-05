@@ -58,6 +58,8 @@ import {
 } from "../messagePresentation";
 
 const MAX_ATTACHMENT_SIZE_BYTES = 25 * 1024 * 1024;
+const MAX_MESSAGE_LENGTH = 65535;
+const MAX_ATTACHMENT_COUNT = 10;
 const TRANSIENT_SEND_FAILURE_STATUSES = new Set([0, 502, 503, 504]);
 const RETRYABLE_SEND_FAILURE_MESSAGES = new Set(["Message send is already pending"]);
 
@@ -750,7 +752,12 @@ export function useMessageActions({
       return false;
     }
 
-    await deleteMessageMutation.mutateAsync({ chatId, messageId, scope: "EVERYONE" });
+    try {
+      await deleteMessageMutation.mutateAsync({ chatId, messageId, scope: "EVERYONE" });
+    } catch {
+      window.alert("Не удалось удалить сообщение. Вы можете удалять для всех только свои сообщения.");
+      return false;
+    }
     return true;
   };
 
@@ -970,6 +977,16 @@ export function useMessageActions({
   ) => {
     const trimmed = draft.trim();
     if ((!trimmed && files.length === 0) || !activeChat) {
+      return false;
+    }
+
+    if (trimmed.length > MAX_MESSAGE_LENGTH) {
+      window.alert(`\u0421\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435 \u0441\u043b\u0438\u0448\u043a\u043e\u043c \u0434\u043b\u0438\u043d\u043d\u043e\u0435. \u041c\u0430\u043a\u0441\u0438\u043c\u0443\u043c ${MAX_MESSAGE_LENGTH.toLocaleString()} \u0441\u0438\u043c\u0432\u043e\u043b\u043e\u0432 (\u0441\u0435\u0439\u0447\u0430\u0441 ${trimmed.length.toLocaleString()}).`);
+      return false;
+    }
+
+    if (files.length > MAX_ATTACHMENT_COUNT) {
+      window.alert(`\u041c\u043e\u0436\u043d\u043e \u043e\u0442\u043f\u0440\u0430\u0432\u0438\u0442\u044c \u043d\u0435 \u0431\u043e\u043b\u0435\u0435 ${MAX_ATTACHMENT_COUNT} \u0444\u0430\u0439\u043b\u043e\u0432 \u0432 \u043e\u0434\u043d\u043e\u043c \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0438.`);
       return false;
     }
 

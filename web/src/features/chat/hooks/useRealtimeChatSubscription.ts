@@ -305,6 +305,8 @@ export function useRealtimeChatSubscription({
         setChatReactionAttention(current, event.chatId, false)
       );
       void clearChatReactionAttention(sessionToken, event.chatId).catch(() => undefined);
+    } else {
+      void refreshChatPreviewFromServer(event.chatId);
     }
   });
 
