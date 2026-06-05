@@ -669,6 +669,8 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    volumes:
+      - web_downloads:/usr/share/nginx/html/downloads
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/healthz >/dev/null 2>&1 || exit 1"]
       interval: 15s
@@ -720,3 +722,4 @@ volumes:
   conference_recordings_raw:
   conference_recordings_archive:
   promtail_positions:
+  web_downloads:
