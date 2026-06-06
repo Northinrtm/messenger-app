@@ -157,9 +157,12 @@ public class VideoConferenceService {
                 .map(VideoConference::getChatId)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
+        // Only active memberships (left_at IS NULL) define a chat-bound conference's participants.
+        // Banning a member calls ChatParticipant.leave(...), so this also keeps banned users out of
+        // the conference participant list, matching buildConferenceResponse(...).
         Map<UUID, List<ChatParticipant>> participantsByChatId = conferenceChatIds.isEmpty()
                 ? Map.of()
-                : chatParticipantRepository.findAllByChatIdInOrderByJoinedAtAsc(conferenceChatIds).stream()
+                : chatParticipantRepository.findAllByChatIdInAndLeftAtIsNullOrderByJoinedAtAsc(conferenceChatIds).stream()
                         .collect(Collectors.groupingBy(
                                 ChatParticipant::getChatId,
                                 LinkedHashMap::new,

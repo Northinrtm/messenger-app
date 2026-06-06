@@ -1,6 +1,6 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ChatSummary, Participant, UserProfile } from "../../../lib/types";
 import { ChatListPanel } from "./ChatListPanel";
@@ -59,7 +59,12 @@ function directChat(): ChatSummary {
   };
 }
 
-function renderPanel(root: Root, chat: ChatSummary, failedChatIds: ReadonlySet<string>) {
+function renderPanel(
+  root: Root,
+  chat: ChatSummary,
+  failedChatIds: ReadonlySet<string>,
+  startReactionTour: (chatId: string, messageIds: string[]) => void = () => {}
+) {
   return act(async () => {
     root.render(
       <ChatListPanel
@@ -91,7 +96,7 @@ function renderPanel(root: Root, chat: ChatSummary, failedChatIds: ReadonlySet<s
         failedChatIds={failedChatIds}
         openConference={() => {}}
         openChat={() => {}}
-        openChatAtMessage={() => {}}
+        startReactionTour={startReactionTour}
         openChatAtFailedMessage={() => {}}
         openChatContextMenu={() => {}}
         onMailSwitchFolder={() => {}}
@@ -142,21 +147,19 @@ describe("ChatListPanel", () => {
     );
   });
 
-  it("shows a reaction indicator when the last message has reactions", async () => {
+  it("does not show a reaction indicator when only lastMessageHasReactions is true", async () => {
     await renderPanel(
       root!,
       {
         ...directChat(),
         lastMessageHasReactions: true,
+        reactionAttention: false,
       },
       new Set()
     );
 
     const reactionIndicator = container.querySelector(".chat-preview-reaction");
-    expect(reactionIndicator?.textContent).toBe("\u263A");
-    expect(reactionIndicator?.getAttribute("aria-label")).toBe(
-      "\u041d\u0430 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0435\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435 \u0435\u0441\u0442\u044c \u0440\u0435\u0430\u043a\u0446\u0438\u0438"
-    );
+    expect(reactionIndicator).toBeNull();
   });
 
   it("shows a stronger reaction indicator when reaction attention is pending on an older message", async () => {
@@ -175,5 +178,27 @@ describe("ChatListPanel", () => {
     expect(reactionIndicator?.getAttribute("aria-label")).toBe(
       "\u0415\u0441\u0442\u044c \u043d\u043e\u0432\u0430\u044f \u0440\u0435\u0430\u043a\u0446\u0438\u044f \u043d\u0430 \u0432\u0430\u0448\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435"
     );
+  });
+
+  it("starts a reaction tour with the full ordered list when the indicator is clicked", async () => {
+    const startReactionTour = vi.fn();
+    await renderPanel(
+      root!,
+      {
+        ...directChat(),
+        reactionAttention: true,
+        reactionAttentionMessageId: "m10",
+        reactionAttentionMessageIds: ["m1", "m5", "m10"],
+      },
+      new Set(),
+      startReactionTour
+    );
+
+    const reactionIndicator = container.querySelector<HTMLElement>(".chat-preview-reaction");
+    await act(async () => {
+      reactionIndicator?.click();
+    });
+
+    expect(startReactionTour).toHaveBeenCalledWith("chat-1", ["m1", "m5", "m10"]);
   });
 });

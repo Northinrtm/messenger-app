@@ -89,4 +89,24 @@ public class UserChatReactionAttention {
         }
         this.messageIds = current.stream().map(UUID::toString).collect(Collectors.joining(","));
     }
+
+    /**
+     * Drops a message from the tracked set when its reaction is removed. Returns {@code true}
+     * when the message was actually tracked. The single-message alias is repointed at the most
+     * recent remaining message so legacy clients keep a valid target.
+     */
+    public boolean removeMessage(Instant updatedAt, UUID removedMessageId) {
+        List<UUID> current = new ArrayList<>(getMessageIdList());
+        if (!current.remove(removedMessageId)) {
+            return false;
+        }
+        this.updatedAt = updatedAt;
+        this.messageIds = current.stream().map(UUID::toString).collect(Collectors.joining(","));
+        this.messageId = current.isEmpty() ? null : current.get(current.size() - 1);
+        return true;
+    }
+
+    public boolean isEmpty() {
+        return getMessageIdList().isEmpty();
+    }
 }

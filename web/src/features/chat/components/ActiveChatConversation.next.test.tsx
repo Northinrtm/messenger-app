@@ -323,7 +323,7 @@ describe("ActiveChatConversation timeline memoization", () => {
       onLoadAttachmentPreview: loadAudioPreview,
     });
 
-    const playButton = container.querySelector(".message-audio-play") as HTMLButtonElement | null;
+    const playButton = container.querySelector(".audio-play-btn") as HTMLButtonElement | null;
     if (!playButton) {
       throw new Error("Audio play button is missing");
     }
@@ -335,7 +335,7 @@ describe("ActiveChatConversation timeline memoization", () => {
     });
 
     expect(loadAudioPreview).toHaveBeenCalledTimes(1);
-    expect(container.querySelector(".message-audio-player")).not.toBeNull();
+    expect(container.querySelector(".message-audio-attachment")).not.toBeNull();
     expect(playSpy).toHaveBeenCalled();
     playSpy.mockRestore();
   });

@@ -20,6 +20,8 @@ public interface ChatParticipantRepository extends JpaRepository<ChatParticipant
 
     List<ChatParticipant> findAllByChatIdInOrderByJoinedAtAsc(Collection<UUID> chatIds);
 
+    List<ChatParticipant> findAllByChatIdInAndLeftAtIsNullOrderByJoinedAtAsc(Collection<UUID> chatIds);
+
     Optional<ChatParticipant> findByChatIdAndUserId(UUID chatId, UUID userId);
 
     Optional<ChatParticipant> findByChatIdAndUserIdAndLeftAtIsNull(UUID chatId, UUID userId);

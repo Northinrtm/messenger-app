@@ -12,6 +12,13 @@ import { AvatarCircle } from "./AvatarCircle";
 import { ConferenceCalendarPanel } from "./ConferenceCalendarPanel";
 import { MailInboxPanel } from "./MailInboxPanel";
 
+function resolveReactionMessageIds(chat: ChatSummary): string[] {
+  if (chat.reactionAttentionMessageIds && chat.reactionAttentionMessageIds.length > 0) {
+    return chat.reactionAttentionMessageIds;
+  }
+  return chat.reactionAttentionMessageId ? [chat.reactionAttentionMessageId] : [];
+}
+
 type Props = {
   activeListTab: ConversationListTab;
   conferenceViewMode: "list" | "calendar";
@@ -41,7 +48,7 @@ type Props = {
   failedChatIds: ReadonlySet<string>;
   openConference: (conferenceId: string) => void;
   openChat: (chatId: string) => void;
-  openChatAtMessage: (chatId: string, messageId: string) => void;
+  startReactionTour: (chatId: string, messageIds: string[]) => void;
   openChatAtFailedMessage: (chatId: string) => void;
   openChatContextMenu: (event: ReactMouseEvent<HTMLButtonElement>, chatId: string) => void;
   onMailSwitchFolder: (folder: "inbox" | "sent") => void;
@@ -88,7 +95,7 @@ export const ChatListPanel = memo(function ChatListPanel({
   failedChatIds,
   openConference,
   openChat,
-  openChatAtMessage,
+  startReactionTour,
   openChatAtFailedMessage,
   openChatContextMenu,
   onMailSwitchFolder,
@@ -277,7 +284,7 @@ export const ChatListPanel = memo(function ChatListPanel({
         const draftPreview = liveGroupConference ? "" : rawDraftPreview;
         const hasFailedOutgoingMessage = failedChatIds.has(chat.id);
         const hasReactionIndicator =
-          Boolean(chat.reactionAttention || chat.lastMessageHasReactions) && !liveGroupConference;
+          Boolean(chat.reactionAttention) && !liveGroupConference;
         const preview = isChatTyping
           ? formatTypingParticipants(chatTypingParticipants)
           : draftPreview ||
@@ -358,28 +365,12 @@ export const ChatListPanel = memo(function ChatListPanel({
                         }
                         onClick={(event) => {
                           event.stopPropagation();
-                          const msgIds = chat.reactionAttentionMessageIds;
-                          const msgId = msgIds && msgIds.length > 0
-                            ? msgIds[msgIds.length - 1]
-                            : chat.reactionAttentionMessageId;
-                          if (msgId) {
-                            openChatAtMessage(chat.id, msgId);
-                          } else {
-                            openChat(chat.id);
-                          }
+                          startReactionTour(chat.id, resolveReactionMessageIds(chat));
                         }}
                         onKeyDown={(event) => {
                           if (event.key === "Enter" || event.key === " ") {
                             event.stopPropagation();
-                            const msgIds = chat.reactionAttentionMessageIds;
-                            const msgId = msgIds && msgIds.length > 0
-                              ? msgIds[msgIds.length - 1]
-                              : chat.reactionAttentionMessageId;
-                            if (msgId) {
-                              openChatAtMessage(chat.id, msgId);
-                            } else {
-                              openChat(chat.id);
-                            }
+                            startReactionTour(chat.id, resolveReactionMessageIds(chat));
                           }
                         }}
                       >

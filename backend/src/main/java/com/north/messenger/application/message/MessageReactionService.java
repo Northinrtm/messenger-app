@@ -90,37 +90,59 @@ class MessageReactionService {
             ));
         }
 
+        boolean reactionAdded = !alreadyHasThisKey;
         MessageReactionEventResponse event = new MessageReactionEventResponse(
                 messageId,
                 chatId,
                 messageSupport.loadReactionSummaries(List.of(messageId), currentUser.getId())
                         .getOrDefault(messageId, List.of())
         );
-        markReactionAttention(chatId, message, currentUser.getId());
+        updateReactionAttention(chatId, message, currentUser.getId(), reactionAdded);
 
         eventPublisher.publishEvent(new MessageReactionChangedEvent(chatId, messageId, currentUser.getId()));
         return event;
     }
 
-    private void markReactionAttention(UUID chatId, ChatMessage message, UUID actorUserId) {
+    private void updateReactionAttention(UUID chatId, ChatMessage message, UUID actorUserId, boolean reactionAdded) {
         UUID attentionUserId = message.getSenderId();
         if (attentionUserId == null || attentionUserId.equals(actorUserId)) {
             return;
         }
 
         Instant now = Instant.now();
+        if (reactionAdded) {
+            UserChatReactionAttention existingAttention = userChatReactionAttentionRepository
+                    .findByUserIdAndChatId(attentionUserId, chatId)
+                    .orElse(null);
+            if (existingAttention == null) {
+                UserChatReactionAttention attention = new UserChatReactionAttention(
+                        UUID.randomUUID(), attentionUserId, chatId, now);
+                attention.touch(now, message.getId());
+                userChatReactionAttentionRepository.save(attention);
+                return;
+            }
+
+            existingAttention.touch(now, message.getId());
+            return;
+        }
+
+        // Reaction was removed: stop tracking this message unless another participant still reacts to it.
+        boolean stillReactedByOthers = messageReactionRepository.findAllByMessageIdIn(List.of(message.getId())).stream()
+                .anyMatch(reaction -> !reaction.getUserId().equals(attentionUserId));
+        if (stillReactedByOthers) {
+            return;
+        }
+
         UserChatReactionAttention existingAttention = userChatReactionAttentionRepository
                 .findByUserIdAndChatId(attentionUserId, chatId)
                 .orElse(null);
         if (existingAttention == null) {
-            UserChatReactionAttention attention = new UserChatReactionAttention(
-                    UUID.randomUUID(), attentionUserId, chatId, now);
-            attention.touch(now, message.getId());
-            userChatReactionAttentionRepository.save(attention);
             return;
         }
 
-        existingAttention.touch(now, message.getId());
+        if (existingAttention.removeMessage(now, message.getId()) && existingAttention.isEmpty()) {
+            userChatReactionAttentionRepository.delete(existingAttention);
+        }
     }
 
     void broadcastReactionChanged(UUID chatId, UUID messageId, UUID actorUserId) {

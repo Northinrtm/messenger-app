@@ -41,6 +41,7 @@ import com.north.messenger.domain.repository.UserDeletedMessageRepository;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -1040,7 +1041,7 @@ public class ChatService {
                 ? reactionAttentionRecord.getMessageId()
                 : null;
         List<UUID> reactionAttentionMessageIds = reactionAttentionRecord != null
-                ? reactionAttentionRecord.getMessageIdList()
+                ? sortMessageIdsByServerOrder(reactionAttentionRecord.getMessageIdList())
                 : List.of();
 
         String title;
@@ -1352,6 +1353,26 @@ public class ChatService {
 
     private String summarizeLastMessage(ChatMessage lastMessage) {
         return messagePreviewService.summarizeMessagePreview(lastMessage);
+    }
+
+    /**
+     * Orders reaction-attention message ids by their chronological position in the chat
+     * (ascending {@code serverOrder}) so the first element is the earliest message that
+     * carries a reaction. The stored order only reflects the order reactions were added,
+     * which is not the order the user expects to navigate through.
+     */
+    private List<UUID> sortMessageIdsByServerOrder(List<UUID> messageIds) {
+        if (messageIds.size() <= 1) {
+            return messageIds;
+        }
+
+        Map<UUID, Long> serverOrderById = chatMessageRepository.findAllById(messageIds).stream()
+                .filter(message -> message.getServerOrder() != null)
+                .collect(Collectors.toMap(ChatMessage::getId, ChatMessage::getServerOrder, (a, b) -> a));
+
+        return messageIds.stream()
+                .sorted(Comparator.comparingLong(id -> serverOrderById.getOrDefault(id, Long.MAX_VALUE)))
+                .collect(Collectors.toList());
     }
 
     private boolean hasReactions(ChatMessage message, UUID currentUserId) {

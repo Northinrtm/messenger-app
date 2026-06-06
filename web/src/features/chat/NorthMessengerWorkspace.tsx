@@ -287,6 +287,11 @@ export function NorthMessengerWorkspace({
   const [replyingToMessageId, setReplyingToMessageId] = useState<string | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [activePinnedMessageId, setActivePinnedMessageId] = useState<string | null>(null);
+  const [reactionTour, setReactionTour] = useState<{
+    chatId: string;
+    messageIds: string[];
+    index: number;
+  } | null>(null);
   const [forwardingMessageIds, setForwardingMessageIds] = useState<string[]>([]);
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
   const [isDeleteSelectedMessagesDialogOpen, setIsDeleteSelectedMessagesDialogOpen] =
@@ -1471,9 +1476,40 @@ export function NorthMessengerWorkspace({
     }
   );
 
-  const openChatAtMessage = useEffectEvent((chatId: string, messageId: string) => {
-    scrollToMessage(chatId, messageId);
+  const startReactionTour = useEffectEvent((chatId: string, messageIds: string[]) => {
+    const ids = messageIds.filter((id) => Boolean(id));
+    if (ids.length === 0) {
+      openChat(chatId);
+      return;
+    }
+    setReactionTour({ chatId, messageIds: ids, index: 0 });
+    scrollToMessage(chatId, ids[0]!);
   });
+
+  const goToReactionTourStep = useEffectEvent((delta: number) => {
+    if (!reactionTour) {
+      return;
+    }
+    const nextIndex = Math.min(
+      Math.max(reactionTour.index + delta, 0),
+      reactionTour.messageIds.length - 1
+    );
+    if (nextIndex === reactionTour.index) {
+      return;
+    }
+    setReactionTour({ ...reactionTour, index: nextIndex });
+    scrollToMessage(reactionTour.chatId, reactionTour.messageIds[nextIndex]!);
+  });
+
+  const closeReactionTour = useEffectEvent(() => {
+    setReactionTour(null);
+  });
+
+  useEffect(() => {
+    setReactionTour((current) =>
+      current && current.chatId === activeChatId ? current : null
+    );
+  }, [activeChatId]);
 
   const openChatAtFailedMessage = useEffectEvent((chatId: string) => {
     const firstFailed = (pendingOutgoingMessagesQuery.data ?? []).find(
@@ -1522,7 +1558,6 @@ export function NorthMessengerWorkspace({
     deleteMessagesForEveryone,
     deleteMessageForSelf,
     deleteMessagesForSelf,
-    deleteMessageMutation,
     editMessageAction,
     editMessageMutation,
     forwardMessageAction,
@@ -2406,7 +2441,10 @@ export function NorthMessengerWorkspace({
       deleteAccountMutation.error,
       updateArchivedChatMutation.error,
       deleteChatMutation.error,
-      deleteMessageMutation.error,
+      // deleteMessageMutation errors are surfaced with a localized window.alert in
+      // useMessageActions (deleteMessageForEveryoneInternal); keeping them here too would also
+      // show the raw backend message (e.g. "Delete for everyone is only available...") in the
+      // floating banner, producing a duplicate, un-localized error notification.
       editMessageMutation.error,
       pinMessageMutation.error,
       forwardMessageMutation.error,
@@ -2470,7 +2508,7 @@ export function NorthMessengerWorkspace({
         failedChatIds={failedChatIds}
         openConference={openConference}
         openChat={openChat}
-        openChatAtMessage={openChatAtMessage}
+        startReactionTour={startReactionTour}
         openChatAtFailedMessage={openChatAtFailedMessage}
         openChatContextMenu={openChatContextMenu}
         onMailSwitchFolder={setMailFolder}
@@ -2818,6 +2856,17 @@ export function NorthMessengerWorkspace({
           activePinnedMessage,
           activePinnedMessageIndex,
           activePinnedMessageCount: activePinnedMessages.length,
+          reactionTourCount:
+            reactionTour && reactionTour.chatId === activeChat.id
+              ? reactionTour.messageIds.length
+              : 0,
+          reactionTourIndex:
+            reactionTour && reactionTour.chatId === activeChat.id
+              ? reactionTour.index
+              : -1,
+          onReactionTourPrevious: () => goToReactionTourStep(-1),
+          onReactionTourNext: () => goToReactionTourStep(1),
+          onReactionTourClose: closeReactionTour,
           timelineItems,
           messagesLoading,
           hasNextPage: Boolean(messagesQuery.hasNextPage),

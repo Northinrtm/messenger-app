@@ -118,6 +118,7 @@ class VideoConferenceServiceTest {
         when(chatParticipantRepository.findAllByUserIdOrderByJoinedAtAsc(any(UUID.class))).thenReturn(List.of());
         when(chatParticipantRepository.findAllByChatIdAndLeftAtIsNullOrderByJoinedAtAsc(any(UUID.class))).thenReturn(List.of());
         when(chatParticipantRepository.findAllByChatIdInOrderByJoinedAtAsc(anyCollection())).thenReturn(List.of());
+        when(chatParticipantRepository.findAllByChatIdInAndLeftAtIsNullOrderByJoinedAtAsc(anyCollection())).thenReturn(List.of());
         when(chatParticipantRepository.existsByChatIdAndUserIdAndLeftAtIsNull(any(UUID.class), any(UUID.class))).thenReturn(false);
         when(clusterJobLockService.runIfLockAcquired(anyLong(), any(Runnable.class))).thenAnswer(invocation -> {
             Runnable task = invocation.getArgument(1);
@@ -644,6 +645,51 @@ class VideoConferenceServiceTest {
         List<VideoConferenceResponse> response = videoConferenceService.listConferences("north");
 
         assertThat(response).extracting(VideoConferenceResponse::id).containsExactly(activeConference.getId());
+    }
+
+    @Test
+    void listConferencesShouldExcludeBannedMembersFromChatBoundConferenceParticipants() {
+        UserAccount organizer = testUserAccount(
+                UUID.randomUUID(), "north", "North", "password-hash", Instant.parse("2026-03-20T12:00:00Z"));
+        UserAccount banned = testUserAccount(
+                UUID.randomUUID(), "alice", "Alice", "password-hash", Instant.parse("2026-03-20T12:10:00Z"));
+        UUID chatId = UUID.randomUUID();
+        VideoConference chatConference = new VideoConference(
+                UUID.randomUUID(), "Group call", "vc-room", organizer.getId(),
+                Instant.parse("2026-03-25T12:00:00Z"), Instant.parse("2026-03-25T11:55:00Z"),
+                Instant.parse("2026-03-25T11:55:00Z"), Instant.parse("2026-03-25T11:56:00Z"),
+                chatId);
+
+        ChatParticipant organizerMembership =
+                new ChatParticipant(UUID.randomUUID(), chatId, organizer.getId(), Instant.parse("2026-03-25T11:30:00Z"));
+        // Banned member: ban set left_at, so the active-only query must drop them.
+        ChatParticipant bannedMembership = new ChatParticipant(
+                UUID.randomUUID(), chatId, banned.getId(), Instant.parse("2026-03-25T11:31:00Z"),
+                null, Instant.parse("2026-03-25T11:45:00Z"));
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(organizer);
+        when(chatParticipantRepository.findAllByUserIdOrderByJoinedAtAsc(organizer.getId()))
+                .thenReturn(List.of(organizerMembership));
+        when(videoConferenceRepository.findAllByChatIdIn(anyCollection()))
+                .thenReturn(List.of(chatConference));
+        when(videoConferenceParticipantRepository.findAllByConferenceIdInOrderByInvitedAtAsc(anyCollection()))
+                .thenReturn(List.of());
+        when(chatParticipantRepository.findAllByChatIdInAndLeftAtIsNullOrderByJoinedAtAsc(anyCollection()))
+                .thenReturn(List.of(organizerMembership));
+        // The legacy unfiltered query would still surface the banned member; the service must not use it.
+        when(chatParticipantRepository.findAllByChatIdInOrderByJoinedAtAsc(anyCollection()))
+                .thenReturn(List.of(organizerMembership, bannedMembership));
+        when(userAccountRepository.findAllByIdIn(anyCollection())).thenReturn(List.of(organizer, banned));
+        when(authService.resolveOnlineByUserIds(anyCollection())).thenReturn(Map.of(organizer.getId(), true));
+        when(authService.toParticipant(organizer, true)).thenReturn(new ParticipantResponse(
+                organizer.getId(), organizer.getUsername(), organizer.getDisplayName(), organizer.getAvatarUrl(), true));
+
+        List<VideoConferenceResponse> response = videoConferenceService.listConferences("north");
+
+        assertThat(response).hasSize(1);
+        assertThat(response.get(0).participants())
+                .extracting(ParticipantResponse::username)
+                .containsExactly("north");
     }
 
     @Test

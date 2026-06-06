@@ -17,6 +17,7 @@ import com.north.messenger.domain.model.ChatRoom;
 import com.north.messenger.domain.model.ChatRoomModerator;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.model.UserArchivedChat;
+import com.north.messenger.domain.model.UserChatReactionAttention;
 import com.north.messenger.domain.model.UserDeletedChat;
 import com.north.messenger.domain.model.UserDeletedMessage;
 import com.north.messenger.domain.repository.ChatMessageRepository;
@@ -330,6 +331,75 @@ class ChatServiceTest {
 
         assertThat(chats).hasSize(1);
         assertThat(chats.get(0).lastMessageHasReactions()).isTrue();
+    }
+
+    @Test
+    void listChatsShouldOrderReactionAttentionMessageIdsByServerOrder() {
+        UserAccount user = testUserAccount(
+                UUID.randomUUID(),
+                "north",
+                "North",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UserAccount peer = testUserAccount(
+                UUID.randomUUID(),
+                "alice",
+                "Alice",
+                "password-hash",
+                Instant.parse("2026-03-20T12:00:00Z")
+        );
+        UUID chatId = UUID.randomUUID();
+        ChatRoom room = new ChatRoom(chatId, null, true, Instant.parse("2026-03-21T12:00:00Z"));
+        ChatParticipant ownMembership = new ChatParticipant(UUID.randomUUID(), chatId, user.getId(), Instant.parse("2026-03-21T12:00:00Z"));
+        ChatParticipant peerMembership = new ChatParticipant(UUID.randomUUID(), chatId, peer.getId(), Instant.parse("2026-03-21T12:00:00Z"));
+        ChatMessage earliest = withServerOrder(new ChatMessage(
+                UUID.randomUUID(), chatId, user.getId(), "first own message", Instant.parse("2026-03-22T12:00:00Z")
+        ), 10L);
+        ChatMessage middle = withServerOrder(new ChatMessage(
+                UUID.randomUUID(), chatId, user.getId(), "fifth own message", Instant.parse("2026-03-22T12:05:00Z")
+        ), 50L);
+        ChatMessage latest = withServerOrder(new ChatMessage(
+                UUID.randomUUID(), chatId, user.getId(), "tenth own message", Instant.parse("2026-03-22T12:10:00Z")
+        ), 100L);
+
+        // Reactions were added in a different order than the messages appear in the chat.
+        UserChatReactionAttention attention = new UserChatReactionAttention(
+                UUID.randomUUID(), user.getId(), chatId, Instant.parse("2026-03-22T13:00:00Z")
+        );
+        attention.touch(Instant.parse("2026-03-22T13:00:00Z"), latest.getId());
+        attention.touch(Instant.parse("2026-03-22T13:01:00Z"), earliest.getId());
+        attention.touch(Instant.parse("2026-03-22T13:02:00Z"), middle.getId());
+
+        when(authService.requireAuthenticatedUser("north")).thenReturn(user);
+        when(chatParticipantRepository.findAllByUserIdOrderByJoinedAtAsc(user.getId())).thenReturn(List.of(ownMembership));
+        when(userDeletedChatRepository.findAllByUserIdOrderByDeletedAtDesc(user.getId())).thenReturn(List.of());
+        when(chatRoomRepository.findAllById(List.of(chatId))).thenReturn(List.of(room));
+        when(messageReceiptRepository.countUnreadByUserIdAndChatIdIn(user.getId(), List.of(chatId)))
+                .thenReturn(List.of());
+        when(chatParticipantRepository.findAllByChatIdOrderByJoinedAtAsc(chatId)).thenReturn(List.of(ownMembership, peerMembership));
+        when(userAccountRepository.findAllByIdIn(List.of(user.getId(), peer.getId()))).thenReturn(List.of(user, peer));
+        when(authService.resolveOnlineByUserIds(List.of(user.getId(), peer.getId())))
+                .thenReturn(java.util.Map.of(user.getId(), true, peer.getId(), true));
+        when(chatMessageRepository.findLatestVisibleByChatIdAndUserIdCreatedAfter(
+                eq(chatId), eq(user.getId()), eq(ownMembership.getJoinedAt()), any(Pageable.class)
+        )).thenReturn(List.of(latest));
+        when(userChatReactionAttentionRepository.findByUserIdAndChatId(user.getId(), chatId))
+                .thenReturn(Optional.of(attention));
+        when(chatMessageRepository.findAllById(attention.getMessageIdList()))
+                .thenReturn(List.of(latest, earliest, middle));
+        when(authService.toParticipant(user, true)).thenReturn(new com.north.messenger.api.dto.ParticipantResponse(
+                user.getId(), user.getUsername(), user.getDisplayName(), user.getAvatarUrl(), true
+        ));
+        when(authService.toParticipant(peer, true)).thenReturn(new com.north.messenger.api.dto.ParticipantResponse(
+                peer.getId(), peer.getUsername(), peer.getDisplayName(), peer.getAvatarUrl(), true
+        ));
+
+        var chats = chatService.listChats("north");
+
+        assertThat(chats).hasSize(1);
+        assertThat(chats.get(0).reactionAttentionMessageIds())
+                .containsExactly(earliest.getId(), middle.getId(), latest.getId());
     }
 
     @Test

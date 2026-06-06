@@ -120,6 +120,11 @@ type Props = {
   activePinnedMessage: MessageSnippet | null;
   activePinnedMessageIndex: number;
   activePinnedMessageCount: number;
+  reactionTourCount: number;
+  reactionTourIndex: number;
+  onReactionTourPrevious: () => void;
+  onReactionTourNext: () => void;
+  onReactionTourClose: () => void;
   timelineItems: TimelineItem[];
   messagesLoading: boolean;
   hasNextPage: boolean;
@@ -193,6 +198,11 @@ export function ActiveChatConversation({
   activePinnedMessage,
   activePinnedMessageIndex,
   activePinnedMessageCount,
+  reactionTourCount,
+  reactionTourIndex,
+  onReactionTourPrevious,
+  onReactionTourNext,
+  onReactionTourClose,
   timelineItems,
   messagesLoading,
   hasNextPage,
@@ -258,6 +268,10 @@ export function ActiveChatConversation({
     activePinnedMessageCount > 1 && activePinnedMessageIndex >= 0
       ? activePinnedMessageIndex < activePinnedMessageCount - 1
       : false;
+  const showReactionTour = reactionTourCount > 0 && reactionTourIndex >= 0;
+  const canSelectPreviousReaction = showReactionTour && reactionTourIndex > 0;
+  const canSelectNextReaction =
+    showReactionTour && reactionTourIndex < reactionTourCount - 1;
   return (
     <>
       <header
@@ -440,6 +454,42 @@ export function ActiveChatConversation({
               className="ghost-button compact pinned-message-close"
               onClick={onUnpin}
               aria-label="Открепить сообщение"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {showReactionTour ? (
+        <div className="reaction-tour-banner" role="status" aria-live="polite">
+          <span className="reaction-tour-label">
+            {`Реакции на ваши сообщения ${reactionTourIndex + 1}/${reactionTourCount}`}
+          </span>
+          <div className="reaction-tour-nav" aria-label="Навигация по сообщениям с реакциями">
+            <button
+              type="button"
+              className="ghost-button compact reaction-tour-nav-button"
+              onClick={onReactionTourPrevious}
+              disabled={!canSelectPreviousReaction}
+              aria-label="Предыдущее сообщение с реакцией"
+            >
+              {"<"}
+            </button>
+            <button
+              type="button"
+              className="ghost-button compact reaction-tour-nav-button"
+              onClick={onReactionTourNext}
+              disabled={!canSelectNextReaction}
+              aria-label="Следующее сообщение с реакцией"
+            >
+              {">"}
+            </button>
+            <button
+              type="button"
+              className="ghost-button compact reaction-tour-close"
+              onClick={onReactionTourClose}
+              aria-label="Закрыть навигацию по реакциям"
             >
               ×
             </button>
