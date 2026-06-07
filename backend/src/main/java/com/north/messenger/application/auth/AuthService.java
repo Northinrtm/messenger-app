@@ -199,11 +199,19 @@ public class AuthService {
     public void deleteAccount(String username) {
         UserAccount currentUser = requireAuthenticatedUser(username);
         String deletedUsername = currentUser.getUsername();
-        List<UUID> activeSessionIds = userSessionRepository
-                .findAllByUserIdAndRevokedAtIsNullOrderByLastUsedAtDesc(currentUser.getId())
-                .stream()
-                .map(UserSession::getId)
-                .toList();
+
+        // Revoke every active session so refresh tokens on other devices stop working
+        // immediately. Without an actual revoke the rows stay active and any other
+        // session could keep refreshing the now-deleted account indefinitely.
+        Instant now = Instant.now();
+        userSessionRepository.findAllByUserIdAndRevokedAtIsNullOrderByLastUsedAtDesc(currentUser.getId())
+                .forEach(session -> {
+                    if (!session.isRevoked()) {
+                        session.revoke(now);
+                        userSessionRepository.save(session);
+                        notifySessionRevoked(deletedUsername, session.getId());
+                    }
+                });
 
         String deletedSuffix = currentUser.getId().toString().substring(0, 8);
         deprovisionMailbox(deletedUsername);
@@ -215,8 +223,6 @@ public class AuthService {
         );
         currentUser.advancePasswordVersion();
         userAccountRepository.save(currentUser);
-
-        activeSessionIds.forEach(sessionId -> notifySessionRevoked(deletedUsername, sessionId));
     }
 
     public UserProfileResponse me(String username) {

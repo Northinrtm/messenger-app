@@ -481,6 +481,12 @@ class AuthServiceTest {
         verify(chatRoomRepository, never()).deleteRoomsWithoutParticipants();
         verify(chatRoomRepository, never()).deleteDirectRoomsWithFewerThanTwoParticipants();
         verify(eventPublisher, times(2)).publishEvent(any(SessionRevokedEvent.class));
+        // Sessions must be actually revoked in the store (not merely notified), otherwise the
+        // refresh token on another device could keep minting access tokens for the deleted account.
+        assertThat(firstSession.getRevokedAt()).isNotNull();
+        assertThat(secondSession.getRevokedAt()).isNotNull();
+        verify(userSessionRepository).save(firstSession);
+        verify(userSessionRepository).save(secondSession);
     }
 
     @Test
