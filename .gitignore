@@ -32,3 +32,5 @@ docs/test/
 android-app/*.xml
 android-app/*.png
 web/public/downloads/*.apk
+.mcp.json
+.playwright-mcp/
