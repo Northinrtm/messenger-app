@@ -7,9 +7,14 @@ import com.north.messenger.application.auth.AuthService;
 import com.north.messenger.application.chat.ChatService;
 import com.north.messenger.application.support.ClusterJobLockService;
 import com.north.messenger.domain.model.ChatAttachment;
+import com.north.messenger.domain.model.ChatParticipant;
+import com.north.messenger.domain.model.ChatPrejoinHistoryPolicy;
 import com.north.messenger.domain.model.ChatRoom;
+import com.north.messenger.domain.model.ChatRoomBan;
 import com.north.messenger.domain.model.UserAccount;
 import com.north.messenger.domain.repository.ChatAttachmentRepository;
+import com.north.messenger.domain.repository.ChatParticipantRepository;
+import com.north.messenger.domain.repository.ChatRoomBanRepository;
 import java.time.Instant;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -29,6 +34,8 @@ public class ChatAttachmentService {
     private final AuthService authService;
     private final ChatService chatService;
     private final ChatAttachmentRepository chatAttachmentRepository;
+    private final ChatParticipantRepository chatParticipantRepository;
+    private final ChatRoomBanRepository chatRoomBanRepository;
     private final ChatAttachmentStorage chatAttachmentStorage;
     private final ChatAttachmentStorageProperties storageProperties;
     private final ClusterJobLockService clusterJobLockService;
@@ -37,6 +44,8 @@ public class ChatAttachmentService {
             AuthService authService,
             ChatService chatService,
             ChatAttachmentRepository chatAttachmentRepository,
+            ChatParticipantRepository chatParticipantRepository,
+            ChatRoomBanRepository chatRoomBanRepository,
             ChatAttachmentStorage chatAttachmentStorage,
             ChatAttachmentStorageProperties storageProperties,
             ClusterJobLockService clusterJobLockService
@@ -44,6 +53,8 @@ public class ChatAttachmentService {
         this.authService = authService;
         this.chatService = chatService;
         this.chatAttachmentRepository = chatAttachmentRepository;
+        this.chatParticipantRepository = chatParticipantRepository;
+        this.chatRoomBanRepository = chatRoomBanRepository;
         this.chatAttachmentStorage = chatAttachmentStorage;
         this.storageProperties = storageProperties;
         this.clusterJobLockService = clusterJobLockService;
@@ -99,9 +110,10 @@ public class ChatAttachmentService {
 
     public ChatAttachmentDownloadUrlResponse createDownloadUrl(String username, UUID chatId, UUID attachmentId) {
         UserAccount currentUser = authService.requireAuthenticatedUser(username);
-        chatService.requireChatMembership(chatId, currentUser);
+        ChatRoom room = chatService.requireChatMembership(chatId, currentUser);
         ChatAttachment attachment = chatAttachmentRepository.findByIdAndChatId(attachmentId, chatId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Chat attachment not found"));
+        assertAttachmentVisible(room, currentUser, attachment);
         if (!chatAttachmentStorage.exists(attachment.getStorageKey())) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Chat attachment binary is missing");
         }
@@ -117,6 +129,63 @@ public class ChatAttachmentService {
                 downloadTarget.url().toString(),
                 downloadTarget.expiresAt()
         );
+    }
+
+    /**
+     * Enforces the same history-visibility window that message listing and the attachment browser
+     * apply: a member who left or was banned must not resolve a download URL for attachments from
+     * messages outside their [joinedAt .. leftAt/ban] window. The uploader always keeps access to
+     * their own files. Membership presence alone is not sufficient, because leaving/being banned
+     * keeps the participant row for history bookkeeping.
+     */
+    private void assertAttachmentVisible(ChatRoom room, UserAccount currentUser, ChatAttachment attachment) {
+        if (attachment.getUploaderId().equals(currentUser.getId())) {
+            return;
+        }
+        ChatParticipant membership = chatParticipantRepository
+                .findByChatIdAndUserId(room.getId(), currentUser.getId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Chat attachment not found"));
+        Instant visibleFrom = resolveVisibleHistoryStart(room, membership);
+        Instant visibleTo = resolveVisibleHistoryEnd(room, membership);
+        boolean visible = chatAttachmentRepository.existsVisibleAttachment(
+                attachment.getId(),
+                room.getId(),
+                currentUser.getId(),
+                visibleFrom != null,
+                visibleFrom != null ? visibleFrom : Instant.EPOCH,
+                visibleTo != null,
+                visibleTo != null ? visibleTo : Instant.EPOCH
+        );
+        if (!visible) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Chat attachment not found");
+        }
+    }
+
+    private Instant resolveVisibleHistoryStart(ChatRoom room, ChatParticipant membership) {
+        if (room.isDirect()) {
+            return membership.getJoinedAt();
+        }
+        if (room.getPrejoinHistoryPolicy() == ChatPrejoinHistoryPolicy.FULL_HISTORY
+                || membership.getPrejoinHistoryAccessGrantedAt() != null) {
+            return null;
+        }
+        return membership.getJoinedAt();
+    }
+
+    private Instant resolveVisibleHistoryEnd(ChatRoom room, ChatParticipant membership) {
+        if (room.isDirect() || membership == null) {
+            return null;
+        }
+
+        Instant visibleTo = membership.getLeftAt();
+        ChatRoomBan ban = chatRoomBanRepository.findByChatIdAndUserId(room.getId(), membership.getUserId()).orElse(null);
+        if (ban == null) {
+            return visibleTo;
+        }
+        if (visibleTo == null) {
+            return ban.getCreatedAt();
+        }
+        return visibleTo.isBefore(ban.getCreatedAt()) ? visibleTo : ban.getCreatedAt();
     }
 
     public boolean hasAttachments(UUID messageId) {

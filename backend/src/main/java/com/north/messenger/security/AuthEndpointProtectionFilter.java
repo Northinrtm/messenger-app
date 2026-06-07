@@ -164,10 +164,21 @@ public class AuthEndpointProtectionFilter extends OncePerRequestFilter {
         }
     }
 
-    private String resolveClientAddress(HttpServletRequest request) {
+    // Visible for testing.
+    static String resolveClientAddress(HttpServletRequest request) {
         String forwardedFor = request.getHeader("X-Forwarded-For");
         if (StringUtils.hasText(forwardedFor)) {
-            return forwardedFor.split(",", 2)[0].trim();
+            // Behind our single trusted reverse proxy (Caddy), the right-most X-Forwarded-For
+            // entry is the address the proxy observed for the direct client. Trusting the
+            // left-most entry would let a client send a forged X-Forwarded-For header and rotate
+            // a fresh value per request to slip past the per-IP authentication rate limits.
+            String[] parts = forwardedFor.split(",");
+            for (int i = parts.length - 1; i >= 0; i--) {
+                String candidate = parts[i].trim();
+                if (!candidate.isEmpty()) {
+                    return candidate;
+                }
+            }
         }
 
         return request.getRemoteAddr();

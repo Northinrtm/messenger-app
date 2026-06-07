@@ -35,6 +35,34 @@ public interface ChatAttachmentRepository extends JpaRepository<ChatAttachment, 
 
     Optional<ChatAttachment> findByIdAndChatId(UUID id, UUID chatId);
 
+    /**
+     * Returns whether the attachment is reachable for the given viewer: it must be linked to a
+     * message in the chat that falls inside the viewer's history-visibility window and has not been
+     * deleted for that viewer. Mirrors the visibility predicate used by {@link #findBrowserItems}.
+     */
+    @Query("""
+            select (count(attachment.id) > 0)
+            from ChatAttachment attachment, ChatMessage message
+            where attachment.id = :attachmentId
+              and attachment.chatId = :chatId
+              and attachment.messageId = message.id
+              and (:applyVisibleFrom = false or message.createdAt >= :visibleFrom)
+              and (:applyVisibleTo = false or message.createdAt <= :visibleTo)
+              and not exists (
+                select 1 from UserDeletedMessage deleted
+                where deleted.userId = :userId and deleted.messageId = message.id
+              )
+            """)
+    boolean existsVisibleAttachment(
+            @Param("attachmentId") UUID attachmentId,
+            @Param("chatId") UUID chatId,
+            @Param("userId") UUID userId,
+            @Param("applyVisibleFrom") boolean applyVisibleFrom,
+            @Param("visibleFrom") Instant visibleFrom,
+            @Param("applyVisibleTo") boolean applyVisibleTo,
+            @Param("visibleTo") Instant visibleTo
+    );
+
     List<ChatAttachment> findAllByMessageId(UUID messageId);
 
     List<ChatAttachment> findAllByMessageIdInOrderByCreatedAtAsc(Collection<UUID> messageIds);
