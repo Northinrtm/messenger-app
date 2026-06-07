@@ -159,6 +159,45 @@ describe("MessageContextMenu", () => {
     expect(container.querySelectorAll(".context-menu-item.is-danger")).toHaveLength(1);
   });
 
+  it("shows delete-for-everyone disabled with a hint when it is not allowed", async () => {
+    const deleteForEveryoneSpy = vi.fn();
+
+    await renderMenu(root!, {
+      contextMenuMessage: message({
+        id: "message-foreign",
+        clientMessageId: "client-message-0",
+        sender: participant({ id: "user-2", username: "guest", displayName: "Guest" }),
+      }),
+      contextMenu: {
+        kind: "message",
+        chatId: "chat-1",
+        messageId: "message-foreign",
+        x: 120,
+        y: 80,
+      },
+      showDeleteContextMenuMessageForEveryone: true,
+      canDeleteContextMenuMessageForEveryone: false,
+      onDeleteForEveryone: deleteForEveryoneSpy,
+    });
+
+    const dangerButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".context-menu-item.is-danger")
+    );
+    expect(dangerButtons).toHaveLength(1);
+    const deleteForEveryoneButton = dangerButtons[0];
+    expect(deleteForEveryoneButton.disabled).toBe(true);
+    expect(container.textContent).toContain(
+      "Удалить для всех можно только свои сообщения"
+    );
+
+    await act(async () => {
+      deleteForEveryoneButton.click();
+      await Promise.resolve();
+    });
+
+    expect(deleteForEveryoneSpy).not.toHaveBeenCalled();
+  });
+
   it("archives a chat from the chat context menu", async () => {
     const toggleArchiveSpy = vi.fn();
 

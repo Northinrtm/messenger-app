@@ -269,7 +269,7 @@ class MessageServiceTest {
     }
 
     @Test
-    void sendMessageShouldPersistForwardedMetadataAndMarkSourceMessage() {
+    void sendMessageShouldPersistForwardedMetadataWithoutMarkingSourceMessage() {
         ChatMessage sourceMessage = new ChatMessage(
                 UUID.randomUUID(),
                 UUID.randomUUID(),
@@ -306,7 +306,8 @@ class MessageServiceTest {
         assertThat(response.forwarded()).isTrue();
         assertThat(response.forwardedFrom()).isNotNull();
         assertThat(response.forwardedFrom().sender().id()).isEqualTo(peerUser.getId());
-        assertThat(sourceMessage.getForwardedAt()).isNotNull();
+        // The source message is the author's original and must not be relabelled as forwarded.
+        assertThat(sourceMessage.getForwardedAt()).isNull();
     }
 
     @Test
@@ -504,6 +505,26 @@ class MessageServiceTest {
         );
         when(chatService.requireChatMembership(chatId, currentUser)).thenReturn(room);
         when(chatService.hasGroupModeratorOrOwnerAccess(room, currentUser)).thenReturn(true);
+        when(chatMessageRepository.findAllById(List.of(foreignMessage.getId()))).thenReturn(List.of(foreignMessage));
+
+        messageService.deleteMessage(chatId, foreignMessage.getId(), "north", "EVERYONE");
+
+        verify(chatMessageRepository).deleteAll(List.of(foreignMessage));
+        verify(chatService).removePinnedMessages(room, List.of(foreignMessage.getId()));
+    }
+
+    @Test
+    void deleteMessageForEveryoneShouldAllowDirectPeerToRemoveAnotherUsersMessage() {
+        // room from setUp() is a direct chat; the message was sent by the peer, not by "north".
+        ChatMessage foreignMessage = new ChatMessage(
+                UUID.randomUUID(),
+                chatId,
+                peerUser.getId(),
+                "foreign",
+                null,
+                null,
+                Instant.parse("2026-04-02T10:00:00Z")
+        );
         when(chatMessageRepository.findAllById(List.of(foreignMessage.getId()))).thenReturn(List.of(foreignMessage));
 
         messageService.deleteMessage(chatId, foreignMessage.getId(), "north", "EVERYONE");

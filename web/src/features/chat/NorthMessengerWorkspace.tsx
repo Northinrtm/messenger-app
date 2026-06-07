@@ -1190,6 +1190,8 @@ export function NorthMessengerWorkspace({
   const canDeleteContextMenuMessageForEveryone = Boolean(
     contextMenuMessage &&
       contextMenuMessage.id !== contextMenuMessage.clientMessageId &&
+      // Mirror the server rule: in a 1:1 chat either participant may delete any message for both
+      // sides; in a group it is your own message, or any message when you moderate the group.
       (activeChat?.direct ||
         isOwnMessage(contextMenuMessage, session.user) ||
         Boolean(activeChat?.capabilities.canModerateMembers))
@@ -1984,6 +1986,17 @@ export function NorthMessengerWorkspace({
         return;
       }
 
+      // Tell the user the link failed. Without this the invite is swallowed silently and the
+      // person is dropped into the workspace with no idea whether the link was wrong, expired or
+      // already used. The transient request banner is unreliable here because the workspace
+      // settling on a chat resets it before it can be read.
+      const invalidOrExpired =
+        error instanceof ApiError && (error.status === 404 || error.status === 410);
+      window.alert(
+        invalidOrExpired
+          ? "Ссылка-приглашение недействительна или истекла."
+          : "Не удалось присоединиться по ссылке. Попробуйте позже."
+      );
       onPendingInviteHandled();
     },
   });

@@ -191,4 +191,19 @@ class InviteLinkServiceTest {
                 .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
                 .hasMessageContaining("Invite code format is invalid");
     }
+
+    @Test
+    void acceptInviteShouldRejectACodeThatWasRotatedAway() {
+        // After the owner/moderator refreshes the link, the single invite row carries a new code,
+        // so the previous code maps to no row. Joining via the stale link must fail — only the
+        // current link works.
+        String rotatedAwayCode = "Abc123xyZ9LmN0pQ";
+        when(inviteLinkRepository.findByCode(rotatedAwayCode)).thenReturn(Optional.empty());
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                inviteLinkService.acceptInvite("north", "+" + rotatedAwayCode)
+        )
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("Invite link was not found");
+    }
 }

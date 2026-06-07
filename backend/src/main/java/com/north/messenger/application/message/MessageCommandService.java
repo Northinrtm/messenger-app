@@ -180,8 +180,9 @@ class MessageCommandService {
                         chatId,
                         persistedMessage.getId()
                 );
-                forwardedContext.sourceMessage().markForwarded(Instant.now());
-                chatMessageRepository.save(forwardedContext.sourceMessage());
+                // Only the new copy is a forward; it carries forwardedFromSenderId. The original
+                // source message must stay untouched, otherwise the author's own message would be
+                // mislabelled as "forwarded" for every participant.
             }
 
             List<MessageReceipt> receipts = participants.stream()
@@ -412,7 +413,9 @@ class MessageCommandService {
 
         boolean deletingForeignMessages = orderedMessages.stream()
                 .anyMatch(message -> !message.getSenderId().equals(currentUser.getId()));
-        if (deletingForeignMessages && (room.isDirect() || !chatService.hasGroupModeratorOrOwnerAccess(room, currentUser))) {
+        // In a 1:1 chat either participant may delete any message for both sides. In a group,
+        // deleting someone else's message for everyone still requires moderator/owner rights.
+        if (deletingForeignMessages && !room.isDirect() && !chatService.hasGroupModeratorOrOwnerAccess(room, currentUser)) {
             throw new ResponseStatusException(
                     HttpStatus.FORBIDDEN,
                     "Delete for everyone is only available for your own messages unless you moderate the group"
