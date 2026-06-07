@@ -118,7 +118,9 @@ export function buildChatListPreviewText(
   message: Pick<ChatMessage, "content" | "replyTo" | "attachments">,
 ) {
   if (message.replyTo) {
-    return `\u21AA ${message.replyTo.sender.displayName}: ${buildMessagePreview(message.replyTo.preview, 56)}`;
+    // Show the reply's own text (prefixed with a reply arrow), not the quoted message \u2014 the chat
+    // list should reflect the latest activity, not the message that was replied to.
+    return `\u21AA ${buildMessageContentPreview(message, 86)}`;
   }
 
   return buildMessageContentPreview(message, 88);
