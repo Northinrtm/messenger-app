@@ -1348,11 +1348,27 @@ export function NorthMessengerWorkspace({
     token: session.token,
   });
 
+  const draftBeforeEditRef = useRef<{ chatId: string; value: string } | null>(null);
   const clearComposerContext = useEffectEvent((mode: "all" | "reply" | "edit" | "forward" = "all") => {
     if (mode === "all" || mode === "reply") {
       setReplyingToMessageId(null);
     }
     if (mode === "all" || mode === "edit") {
+      const preEditDraft = draftBeforeEditRef.current;
+      if (preEditDraft) {
+        // Restore the draft editing temporarily overwrote so abandoning an edit never leaves the
+        // edited message text behind in the composer, where it could be sent as a new message.
+        draftBeforeEditRef.current = null;
+        setDraftsByChatId((current) => ({
+          ...current,
+          [preEditDraft.chatId]: preEditDraft.value,
+        }));
+        if (preEditDraft.value.trim().length > 0) {
+          scheduleDraftSave(preEditDraft.chatId, preEditDraft.value);
+        } else {
+          clearDraftForChat(preEditDraft.chatId);
+        }
+      }
       setEditingMessageId(null);
     }
     if (mode === "all" || mode === "forward") {
@@ -1582,6 +1598,7 @@ export function NorthMessengerWorkspace({
     chats,
     clearComposerContext,
     clearDraftForChat,
+    draftBeforeEditRef,
     currentUser: session.user,
     session,
     deleteChatLocally,

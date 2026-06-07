@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-quer
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   ApiError,
@@ -35,7 +35,7 @@ vi.mock("../../../lib/api", async () => {
 });
 
 import { sendPlainMessage } from "../../../lib/plainMessages";
-import type { AuthResponse, ChatSummary, UserProfile } from "../../../lib/types";
+import type { AuthResponse, ChatMessage, ChatSummary, UserProfile } from "../../../lib/types";
 import { useMessageActions } from "./useMessageActions";
 
 type ReactActEnvironment = typeof globalThis & {
@@ -46,6 +46,10 @@ type HarnessState = {
   draftsByChatId: Record<string, string>;
   deleteMessageForSelf: (chatId: string, messageId: string) => void;
   submitActiveDraft: (draft: string) => boolean | Promise<boolean>;
+  editMessageAction: (message: ChatMessage) => void;
+  replyToMessage: (message: ChatMessage) => void;
+  draftBeforeEditRef: { current: { chatId: string; value: string } | null };
+  clearComposerContextCalls: string[];
   queryClient: QueryClient;
 };
 
@@ -149,6 +153,8 @@ function Harness({
   const [draftsByChatId, setDraftsByChatId] = useState<Record<string, string>>({
     "chat-1": "message that must not come back",
   });
+  const draftBeforeEditRef = useRef<{ chatId: string; value: string } | null>(null);
+  const clearComposerContextCallsRef = useRef<string[]>([]);
   const pendingOutgoingMessagesQuery = useQuery({
     queryKey: ["pending-outgoing-messages", "user-1"],
     queryFn: () => [],
@@ -167,8 +173,11 @@ function Harness({
     applyChatPreviewMessage: (message) => onApplyChatPreviewMessage?.(message),
     applyServerChatPreviewMessage: (message, mode) =>
       onApplyServerChatPreviewMessage?.(message, mode),
-    clearComposerContext: () => undefined,
+    clearComposerContext: (mode = "all") => {
+      clearComposerContextCallsRef.current.push(mode);
+    },
     clearDraftForChat: () => undefined,
+    draftBeforeEditRef,
     deleteChatLocally: () => undefined,
     focusComposer: () => undefined,
     incrementPendingOutgoing: () => undefined,
@@ -196,9 +205,22 @@ function Harness({
       draftsByChatId,
       deleteMessageForSelf: actions.deleteMessageForSelf,
       submitActiveDraft: actions.submitActiveDraft,
+      editMessageAction: actions.editMessageAction,
+      replyToMessage: actions.replyToMessage,
+      draftBeforeEditRef,
+      clearComposerContextCalls: clearComposerContextCallsRef.current,
       queryClient,
     });
-  }, [actions.deleteMessageForSelf, actions.submitActiveDraft, draftsByChatId, onReady, queryClient]);
+  }, [
+    actions.deleteMessageForSelf,
+    actions.editMessageAction,
+    actions.replyToMessage,
+    actions.submitActiveDraft,
+    draftBeforeEditRef,
+    draftsByChatId,
+    onReady,
+    queryClient,
+  ]);
 
   return null;
 }
@@ -824,4 +846,84 @@ describe("useMessageActions send failure recovery", () => {
     confirmSpy.mockRestore();
   });
 
+});
+
+describe("useMessageActions edit lifecycle", () => {
+  let container: HTMLDivElement;
+  let root: Root | null;
+
+  beforeEach(() => {
+    (globalThis as ReactActEnvironment).IS_REACT_ACT_ENVIRONMENT = true;
+    window.localStorage.clear();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = null;
+  });
+
+  afterEach(() => {
+    act(() => {
+      root?.unmount();
+    });
+    root = null;
+    container.remove();
+    window.localStorage.clear();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    (globalThis as ReactActEnvironment).IS_REACT_ACT_ENVIRONMENT = false;
+  });
+
+  async function renderHarness() {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const latestStateRef: { current: HarnessState | null } = { current: null };
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(
+        <QueryClientProvider client={queryClient}>
+          <Harness
+            queryClient={queryClient}
+            onReady={(value) => {
+              latestStateRef.current = value;
+            }}
+          />
+        </QueryClientProvider>
+      );
+      await flushMicrotasks();
+    });
+    return latestStateRef;
+  }
+
+  it("remembers the pre-edit draft and loads the message text when editing starts", async () => {
+    const latestStateRef = await renderHarness();
+    expect(latestStateRef.current?.draftsByChatId["chat-1"]).toBe(
+      "message that must not come back"
+    );
+
+    await act(async () => {
+      latestStateRef.current?.editMessageAction(sentMessage("edit-1") as ChatMessage);
+      await flushMicrotasks();
+    });
+
+    // The draft editing overwrote is stashed so a later cancel can restore it instead of leaving
+    // the edited text behind in the composer.
+    expect(latestStateRef.current?.draftBeforeEditRef.current).toEqual({
+      chatId: "chat-1",
+      value: "message that must not come back",
+    });
+    expect(latestStateRef.current?.draftsByChatId["chat-1"]).toBe("stuck message");
+  });
+
+  it("routes reply-to-message through the composer-context cleanup", async () => {
+    const latestStateRef = await renderHarness();
+
+    await act(async () => {
+      latestStateRef.current?.replyToMessage(sentMessage("reply-1") as ChatMessage);
+      await flushMicrotasks();
+    });
+
+    // Switching to reply must clear edit state via the shared cleanup so the pre-edit draft is
+    // restored rather than left as the edited text.
+    expect(latestStateRef.current?.clearComposerContextCalls).toContain("edit");
+  });
 });

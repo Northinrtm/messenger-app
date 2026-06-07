@@ -107,6 +107,7 @@ type UseMessageActionsOptions = {
   ) => void;
   clearComposerContext: (mode?: "all" | "reply" | "edit" | "forward") => void;
   clearDraftForChat: (chatId: string) => void;
+  draftBeforeEditRef: { current: { chatId: string; value: string } | null };
   deleteChatLocally: (chatId: string) => void;
   focusComposer: () => void;
   incrementPendingOutgoing: (chatId: string) => void;
@@ -137,6 +138,7 @@ export function useMessageActions({
   chats,
   clearComposerContext,
   clearDraftForChat,
+  draftBeforeEditRef,
   currentUser,
   session,
   deleteChatLocally,
@@ -513,7 +515,7 @@ export function useMessageActions({
       setReplyingToMessageId(null);
     }
     if (editingMessage && deletedMessageIdSet.has(editingMessage.id)) {
-      setEditingMessageId(null);
+      clearComposerContext("edit");
     }
     if (forwardingMessages.some((message) => deletedMessageIdSet.has(message.id))) {
       setForwardingMessageIds((current) =>
@@ -900,7 +902,9 @@ export function useMessageActions({
 
   const replyToMessage = (message: ChatMessage) => {
     setContextMenu(null);
-    setEditingMessageId(null);
+    // Leaving edit mode (if active) must restore the pre-edit draft, so route through the
+    // shared composer-context cleanup instead of clearing the editing id directly.
+    clearComposerContext("edit");
     setReplyingToMessageId(message.id);
     focusComposer();
   };
@@ -909,10 +913,20 @@ export function useMessageActions({
     setContextMenu(null);
     setReplyingToMessageId(null);
     setEditingMessageId(message.id);
-    setDraftsByChatId((current) => ({
-      ...current,
-      [message.chatId]: message.content,
-    }));
+    setDraftsByChatId((current) => {
+      // Remember the draft editing is about to overwrite so cancelling restores it instead of
+      // leaving the edited message text behind in the composer.
+      if (!draftBeforeEditRef.current) {
+        draftBeforeEditRef.current = {
+          chatId: message.chatId,
+          value: current[message.chatId] ?? "",
+        };
+      }
+      return {
+        ...current,
+        [message.chatId]: message.content,
+      };
+    });
     scheduleDraftSave(message.chatId, message.content);
     focusComposer();
   };
@@ -992,6 +1006,9 @@ export function useMessageActions({
 
     stopTyping(activeChat.id);
     if (editingMessage) {
+      // The edit is being committed, so the remembered pre-edit draft must not be restored
+      // afterwards; the mutation success path clears the draft instead.
+      draftBeforeEditRef.current = null;
       editMessageMutation.mutate({
         chatId: activeChat.id,
         messageId: editingMessage.id,
