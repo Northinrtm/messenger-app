@@ -199,7 +199,7 @@ describe("AuthCard auth flow", () => {
     expect(container.textContent).toContain("Validation failed. displayName: must not be empty");
 
     const signInButton = Array.from(container.querySelectorAll("button")).find((button) =>
-      button.textContent?.includes("Sign in")
+      button.textContent?.includes("Войти")
     );
     if (!signInButton) {
       throw new Error("Sign in mode button is missing");
@@ -322,10 +322,10 @@ describe("AuthCard auth flow", () => {
     const passwordInput = inputs[3] as HTMLInputElement;
     const passwordConfirmInput = inputs[4] as HTMLInputElement;
     const showPasswordButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.getAttribute("aria-label") === "Show password"
+      (button) => button.getAttribute("aria-label") === "Показать пароль"
     );
     const showConfirmPasswordButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.getAttribute("aria-label") === "Show confirm password"
+      (button) => button.getAttribute("aria-label") === "Показать подтверждение пароля"
     );
 
     if (!showPasswordButton || !showConfirmPasswordButton) {
@@ -356,7 +356,7 @@ describe("AuthCard auth flow", () => {
     });
 
     const signInButton = Array.from(container.querySelectorAll("button")).find((button) =>
-      button.textContent?.includes("Sign in")
+      button.textContent?.includes("Войти")
     );
     if (!signInButton) {
       throw new Error("Sign in mode button is missing");
@@ -391,7 +391,7 @@ describe("AuthCard auth flow", () => {
     });
 
     const signInButton = Array.from(container.querySelectorAll("button")).find((button) =>
-      button.textContent?.includes("Sign in")
+      button.textContent?.includes("Войти")
     );
     if (!signInButton) {
       throw new Error("Sign in mode button is missing");
@@ -452,9 +452,9 @@ describe("AuthCard auth flow", () => {
 
     expect(confirmEmailVerification).toHaveBeenCalledWith({ token: "verify-token" });
     expect(handledSpy).toHaveBeenCalledTimes(1);
-    expect(container.textContent).toContain("Email verified. Sign in to continue.");
-    expect(container.textContent).toContain("Username or email");
-    expect(container.textContent).toContain("Password");
+    expect(container.textContent).toContain("Почта подтверждена. Войдите, чтобы продолжить.");
+    expect(container.textContent).toContain("Юзернейм или почта");
+    expect(container.textContent).toContain("Пароль");
     expect(container.textContent).not.toContain("Continue to sign in");
   });
 
@@ -478,9 +478,9 @@ describe("AuthCard auth flow", () => {
 
     expect(confirmEmailVerification).toHaveBeenCalledWith({ token: "verify-token" });
     expect(handledSpy).toHaveBeenCalledTimes(1);
-    expect(container.textContent).toContain("This email is already verified. You can sign in now.");
-    expect(container.textContent).toContain("Username or email");
-    expect(container.textContent).toContain("Password");
+    expect(container.textContent).toContain("Эта почта уже подтверждена. Можно войти.");
+    expect(container.textContent).toContain("Юзернейм или почта");
+    expect(container.textContent).toContain("Пароль");
   });
 
   it("shows expired verification state for an expired link", async () => {
@@ -501,9 +501,9 @@ describe("AuthCard auth flow", () => {
     });
 
     expect(container.textContent).toContain(
-      "This verification link has expired. Request a new one to continue."
+      "Ссылка подтверждения истекла. Запросите новую, чтобы продолжить."
     );
-    expect(container.textContent).toContain("Resend verification email");
+    expect(container.textContent).toContain("Отправить письмо подтверждения");
   });
 
   it("resends verification email after opening the resend flow", async () => {
@@ -530,7 +530,7 @@ describe("AuthCard auth flow", () => {
     });
 
     const resendButton = Array.from(container.querySelectorAll("button")).find((button) =>
-      button.textContent?.includes("Resend verification email")
+      button.textContent?.includes("Отправить письмо подтверждения")
     );
     if (!resendButton) {
       throw new Error("Resend button is missing");
@@ -556,7 +556,7 @@ describe("AuthCard auth flow", () => {
 
     expect(resendEmailVerification).toHaveBeenCalledWith({ email: "north@example.com" });
     expect(container.textContent).toContain(
-      "If that email can be verified, a new verification link has been sent."
+      "Если почту можно подтвердить, новая ссылка отправлена."
     );
   });
 });

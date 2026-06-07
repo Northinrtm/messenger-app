@@ -88,16 +88,16 @@ export function AuthCard({
   const [showPassword, setShowPassword] = useState(false);
   const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
   const [infoMessage, setInfoMessage] = useState<string | null>(
-    initialPasswordResetToken ? "Choose a new password for this reset link." : null
+    initialPasswordResetToken ? "Выберите новый пароль для этой ссылки сброса." : null
   );
   const [verificationViewState, setVerificationViewState] = useState<VerificationViewState>(() =>
     initialEmailVerificationToken
-      ? { kind: "pending", message: "Checking your verification link." }
+      ? { kind: "pending", message: "Проверяем вашу ссылку подтверждения." }
       : { kind: "idle", message: null }
   );
   const [emailChangeViewState, setEmailChangeViewState] = useState<VerificationViewState>(() =>
     initialEmailChangeToken
-      ? { kind: "pending", message: "Applying your email change." }
+      ? { kind: "pending", message: "Применяем смену почты." }
       : { kind: "idle", message: null }
   );
   const verifiedTokenRef = useRef<string | null>(null);
@@ -125,7 +125,7 @@ export function AuthCard({
       return requestPasswordReset({ email });
     },
     onSuccess: () => {
-      switchMode("login", "If that email exists, reset instructions have been sent.");
+      switchMode("login", "Если такая почта существует, инструкции по сбросу отправлены.");
     },
   });
 
@@ -135,7 +135,7 @@ export function AuthCard({
       return resendEmailVerification({ email });
     },
     onSuccess: () => {
-      switchMode("login", "If that email can be verified, a new verification link has been sent.");
+      switchMode("login", "Если почту можно подтвердить, новая ссылка отправлена.");
     },
   });
 
@@ -148,7 +148,7 @@ export function AuthCard({
       setResetPassword("");
       setResetToken("");
       onPasswordResetHandled?.();
-      switchMode("login", "Password updated. Sign in with your new password.");
+      switchMode("login", "Пароль обновлён. Войдите с новым паролем.");
     },
   });
 
@@ -157,12 +157,12 @@ export function AuthCard({
     onMutate: () => {
       setVerificationViewState({
         kind: "pending",
-        message: "Checking your verification link.",
+        message: "Проверяем вашу ссылку подтверждения.",
       });
       setInfoMessage(null);
     },
     onSuccess: () => {
-      returnToLogin("Email verified. Sign in to continue.");
+      returnToLogin("Почта подтверждена. Войдите, чтобы продолжить.");
     },
     onError: (error) => {
       const nextState = resolveVerificationViewState(error);
@@ -178,12 +178,12 @@ export function AuthCard({
   const confirmEmailChangeMutation = useMutation({
     mutationFn: (token: string) => confirmEmailChange({ token }),
     onMutate: () => {
-      setEmailChangeViewState({ kind: "pending", message: "Applying your email change." });
+      setEmailChangeViewState({ kind: "pending", message: "Применяем смену почты." });
       setInfoMessage(null);
     },
     onSuccess: () => {
       onEmailChangeHandled?.();
-      switchMode("login", "Email address updated. Sign in to continue.");
+      switchMode("login", "Адрес почты обновлён. Войдите, чтобы продолжить.");
     },
     onError: (error) => {
       const nextState = resolveEmailChangeViewState(error);
@@ -215,7 +215,7 @@ export function AuthCard({
 
     setResetToken(initialPasswordResetToken);
     setResetPassword("");
-    switchMode("confirmReset", "Choose a new password for this reset link.");
+    switchMode("confirmReset", "Выберите новый пароль для этой ссылки сброса.");
   }, [initialPasswordResetToken]);
 
   useEffect(() => {
@@ -252,7 +252,7 @@ export function AuthCard({
     setMode("verifyEmail");
     setVerificationViewState({
       kind: "pending",
-      message: "Checking your verification link.",
+      message: "Проверяем вашу ссылку подтверждения.",
     });
     verifyEmailMutation.mutate(initialEmailVerificationToken);
   }, [
@@ -281,7 +281,7 @@ export function AuthCard({
     confirmEmailChangeMutation.reset();
     setInfoMessage(null);
     setMode("confirmEmailChange");
-    setEmailChangeViewState({ kind: "pending", message: "Applying your email change." });
+    setEmailChangeViewState({ kind: "pending", message: "Применяем смену почты." });
     confirmEmailChangeMutation.mutate(initialEmailChangeToken);
   }, [
     authMutation,
@@ -336,24 +336,24 @@ export function AuthCard({
     confirmEmailChangeMutation.isPending;
   const description =
     mode === "requestReset"
-      ? "Enter the email tied to your account. If it exists, the reset link will be sent there."
+      ? "Укажите почту, привязанную к аккаунту. Если она существует, ссылка для сброса придёт туда."
       : mode === "confirmReset"
-        ? "Set a new password for your account. The link can be used only once."
+        ? "Задайте новый пароль для аккаунта. Ссылку можно использовать только один раз."
         : mode === "resendVerification"
-          ? "Enter the email used for registration. If it can be verified, a new link will be sent there."
+          ? "Укажите почту, использованную при регистрации. Если её можно подтвердить, новая ссылка придёт туда."
           : mode === "verifyEmail"
-            ? "Confirming the email verification link for your account."
+            ? "Подтверждаем ссылку проверки почты для вашего аккаунта."
             : mode === "confirmEmailChange"
-              ? "Applying the email address change for your account."
-              : "Java backend, typed web client, direct dialogs and live message delivery.";
+              ? "Применяем смену адреса почты для вашего аккаунта."
+              : "Java-бэкенд, типизированный веб-клиент, личные диалоги и доставка сообщений в реальном времени.";
   const title =
     mode === "confirmReset"
-      ? "Reset your password."
+      ? "Сброс пароля."
       : mode === "resendVerification" || mode === "verifyEmail"
-        ? "Verify your email."
+        ? "Подтверждение почты."
         : mode === "confirmEmailChange"
-          ? "Change your email."
-          : "Realtime chat for serious products.";
+          ? "Смена почты."
+          : "Мессенджер реального времени для серьёзных продуктов.";
 
   function returnToLogin(nextInfoMessage: string | null = null) {
     onEmailVerificationHandled?.();
@@ -363,7 +363,7 @@ export function AuthCard({
 
   function openResendVerification() {
     onEmailVerificationHandled?.();
-    switchMode("resendVerification", "Enter your email to receive a fresh verification link.");
+    switchMode("resendVerification", "Укажите почту, чтобы получить новую ссылку подтверждения.");
   }
 
   function touchField(fieldName: FieldName) {
@@ -440,14 +440,14 @@ export function AuthCard({
               className={mode === "register" ? "mode-button is-active" : "mode-button"}
               onClick={() => switchMode("register")}
             >
-              Register
+              Регистрация
             </button>
             <button
               type="button"
               className={mode === "login" ? "mode-button is-active" : "mode-button"}
               onClick={() => switchMode("login")}
             >
-              Sign in
+              Войти
             </button>
           </div>
         ) : null}
@@ -507,7 +507,7 @@ export function AuthCard({
           mode === "verifyEmail" ||
           mode === "confirmEmailChange" ? null : (
             <label className={usernameFieldError ? "field is-invalid" : "field"}>
-              <span>{mode === "register" ? "Username" : "Username or email"}</span>
+              <span>{mode === "register" ? "Юзернейм" : "Юзернейм или почта"}</span>
               <input
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
@@ -526,7 +526,7 @@ export function AuthCard({
 
           {mode === "register" || mode === "requestReset" || mode === "resendVerification" ? (
             <label className={emailFieldError ? "field is-invalid" : "field"}>
-              <span>Email</span>
+              <span>Почта</span>
               <input
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
@@ -546,7 +546,7 @@ export function AuthCard({
 
           {mode === "register" ? (
             <label className={displayNameFieldError ? "field is-invalid" : "field"}>
-              <span>Display name</span>
+              <span>Отображаемое имя</span>
               <input
                 value={displayName}
                 onChange={(event) => setDisplayName(event.target.value)}
@@ -565,7 +565,7 @@ export function AuthCard({
           {mode === "confirmReset" ? (
             <>
               <label className={resetTokenFieldError ? "field is-invalid" : "field"}>
-                <span>Reset token</span>
+                <span>Токен сброса</span>
                 <input
                   value={resetToken}
                   onChange={(event) => setResetToken(event.target.value)}
@@ -580,7 +580,7 @@ export function AuthCard({
                 {resetTokenFieldError ? <div className="field-error-text">{resetTokenFieldError}</div> : null}
               </label>
               <label className={resetPasswordFieldError ? "field is-invalid" : "field"}>
-                <span>New password</span>
+                <span>Новый пароль</span>
                 <input
                   value={resetPassword}
                   onChange={(event) => setResetPassword(event.target.value)}
@@ -598,7 +598,7 @@ export function AuthCard({
           ) : mode === "requestReset" ? null : (
             <>
               <label className={passwordFieldError ? "field is-invalid" : "field"}>
-                <span>Password</span>
+                <span>Пароль</span>
                 <div className="field-input">
                   <input
                     value={password}
@@ -613,8 +613,8 @@ export function AuthCard({
                   <PasswordVisibilityButton
                     shown={showPassword}
                     onClick={() => setShowPassword((current) => !current)}
-                    labelWhenShown="Hide password"
-                    labelWhenHidden="Show password"
+                    labelWhenShown="Скрыть пароль"
+                    labelWhenHidden="Показать пароль"
                   />
                 </div>
                 {mode === "register" ? <div className="field-help">{AUTH_PASSWORD_HELP}</div> : null}
@@ -622,7 +622,7 @@ export function AuthCard({
               </label>
               {mode === "register" ? (
                 <label className={passwordConfirmFieldError ? "field is-invalid" : "field"}>
-                  <span>Confirm password</span>
+                  <span>Повторите пароль</span>
                   <div className="field-input">
                     <input
                       value={passwordConfirm}
@@ -637,8 +637,8 @@ export function AuthCard({
                     <PasswordVisibilityButton
                       shown={showPasswordConfirm}
                       onClick={() => setShowPasswordConfirm((current) => !current)}
-                      labelWhenShown="Hide confirm password"
-                      labelWhenHidden="Show confirm password"
+                      labelWhenShown="Скрыть подтверждение пароля"
+                      labelWhenHidden="Показать подтверждение пароля"
                     />
                   </div>
                   {passwordConfirmFieldError ? (
@@ -681,21 +681,21 @@ export function AuthCard({
             <button type="submit" className="primary-button" disabled={isBusy || !canSubmit}>
               {mode === "requestReset"
                 ? requestResetMutation.isPending
-                  ? "Sending reset link..."
-                  : "Send reset link"
+                  ? "Отправляем ссылку…"
+                  : "Отправить ссылку для сброса"
                 : mode === "resendVerification"
                   ? resendVerificationMutation.isPending
-                    ? "Sending verification link..."
-                    : "Resend verification email"
+                    ? "Отправляем ссылку…"
+                    : "Отправить письмо подтверждения"
                   : mode === "confirmReset"
                     ? confirmResetMutation.isPending
-                      ? "Updating password..."
-                      : "Reset password"
+                      ? "Обновляем пароль…"
+                      : "Сбросить пароль"
                     : authMutation.isPending
-                      ? "Connecting..."
+                      ? "Подключение…"
                       : mode === "register"
-                        ? "Create account"
-                        : "Sign in"}
+                        ? "Создать аккаунт"
+                        : "Войти"}
             </button>
           )}
 
@@ -707,7 +707,7 @@ export function AuthCard({
                 onClick={() => switchMode("requestReset")}
                 disabled={isBusy}
               >
-                Forgot password?
+                Забыли пароль?
               </button>
             </>
           ) : null}
@@ -726,7 +726,7 @@ export function AuthCard({
               }}
               disabled={isBusy}
             >
-              Back to sign in
+              Назад ко входу
             </button>
           ) : null}
 
@@ -737,7 +737,7 @@ export function AuthCard({
               onClick={() => switchMode("login")}
               disabled={isBusy}
             >
-              Back
+              Назад
             </button>
           ) : null}
 
@@ -750,7 +750,7 @@ export function AuthCard({
                   onClick={openResendVerification}
                   disabled={isBusy}
                 >
-                  Resend verification email
+                  Отправить письмо подтверждения
                 </button>
               ) : null}
               <button
@@ -761,7 +761,7 @@ export function AuthCard({
                 }}
                 disabled={isBusy}
               >
-                Back to sign in
+                Назад ко входу
               </button>
             </>
           ) : null}
@@ -773,7 +773,7 @@ export function AuthCard({
               onClick={() => returnToLogin()}
               disabled={isBusy}
             >
-              Back to sign in
+              Назад ко входу
             </button>
           ) : null}
         </form>
@@ -785,13 +785,13 @@ export function AuthCard({
 function resolveEmailChangeViewState(error: unknown): VerificationViewState {
   if (error instanceof ApiError) {
     if (error.status === 410) {
-      return { kind: "expired", message: "This email change link has expired. Request a new one from your profile settings." };
+      return { kind: "expired", message: "Ссылка для смены почты истекла. Запросите новую в настройках профиля." };
     }
     if (error.status === 409) {
-      return { kind: "invalid", message: "This email address is already in use by another account." };
+      return { kind: "invalid", message: "Этот адрес почты уже используется другим аккаунтом." };
     }
   }
-  return { kind: "invalid", message: "This email change link is invalid or has already been used." };
+  return { kind: "invalid", message: "Ссылка для смены почты недействительна или уже использована." };
 }
 
 function resolveVerificationViewState(error: unknown): VerificationViewState {
@@ -799,20 +799,20 @@ function resolveVerificationViewState(error: unknown): VerificationViewState {
     if (error.status === 409 && error.message === "Email is already verified") {
       return {
         kind: "alreadyVerified",
-        message: "This email is already verified. You can sign in now.",
+        message: "Эта почта уже подтверждена. Можно войти.",
       };
     }
     if (error.status === 410 && error.message === "Email verification token is expired") {
       return {
         kind: "expired",
-        message: "This verification link has expired. Request a new one to continue.",
+        message: "Ссылка подтверждения истекла. Запросите новую, чтобы продолжить.",
       };
     }
   }
 
   return {
     kind: "invalid",
-    message: "This verification link is invalid. Request a new email verification link.",
+    message: "Ссылка подтверждения недействительна. Запросите новую ссылку подтверждения почты.",
   };
 }
 
