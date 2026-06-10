@@ -175,6 +175,12 @@ textarea::placeholder {
   color: #e7ab73;
 }
 
+.auth-tagline {
+  margin-top: 0.3rem;
+  font-size: 0.92rem;
+  color: #9fb0c9;
+}
+
 .auth-card h1,
 .sidebar-header h2,
 .conversation-header h3 {

@@ -372,3 +372,39 @@ export type ApiErrorResponse = {
   path: string;
   details: string[];
 };
+
+/**
+ * Native 1-on-1 WebRTC audio call signaling, relayed peer-to-peer over STOMP.
+ * The server never interprets media — it only routes these between the two users.
+ */
+export type CallSignalType =
+  | "OFFER"
+  | "ANSWER"
+  | "ICE"
+  | "END"
+  | "DECLINE"
+  | "CANCEL"
+  | "BUSY";
+
+/** Sent by a client to `/app/calls/signal`. */
+export type CallSignalRequest = {
+  callId: string;
+  targetUsername: string;
+  type: CallSignalType;
+  /** SDP for OFFER / ANSWER. */
+  sdp?: string | null;
+  /** JSON-encoded RTCIceCandidate for ICE. */
+  candidate?: string | null;
+  /** Attached on OFFER so the callee can show who is calling. */
+  callerDisplayName?: string | null;
+};
+
+/** Delivered to a client on `/user/queue/call-signal`. `fromUsername` is server-stamped. */
+export type CallSignalEvent = {
+  callId: string;
+  fromUsername: string;
+  type: CallSignalType;
+  sdp?: string | null;
+  candidate?: string | null;
+  callerDisplayName?: string | null;
+};

@@ -400,6 +400,12 @@ services:
       APP_PUSH_TTL: ${APP_PUSH_TTL:-PT1M}
       APP_PUSH_FCM_ENABLED: ${APP_PUSH_FCM_ENABLED:-false}
       APP_PUSH_FCM_SERVICE_ACCOUNT_JSON: ${APP_PUSH_FCM_SERVICE_ACCOUNT_JSON:-}
+      # Native (WebRTC) call ICE servers. TURN credentials are minted from TURN_SECRET
+      # (shared with the coturn service, started via the `calls` profile).
+      APP_TURN_ENABLED: ${APP_TURN_ENABLED:-false}
+      APP_TURN_SECRET: ${TURN_SECRET:-}
+      APP_TURN_URLS: ${APP_TURN_URLS:-turn:pishi.ktsf.ru:3478?transport=udp,turn:pishi.ktsf.ru:3478?transport=tcp}
+      APP_TURN_CREDENTIAL_TTL: ${APP_TURN_CREDENTIAL_TTL:-PT1H}
       APP_MAIL_ENABLED: ${APP_MAIL_ENABLED:-false}
       APP_MAIL_DOMAIN: ${APP_MAIL_DOMAIN:-ktsf.ru}
       APP_MAIL_STALWART_URL: ${APP_MAIL_STALWART_URL:-http://stalwart:8080}
@@ -427,6 +433,41 @@ services:
     volumes:
       - conference_recordings_archive:/app/storage/conference-recordings
       - conference_recordings_raw:/jibri-recordings:ro
+
+  # TURN relay for native 1-on-1 WebRTC audio calls (the ~15% behind strict NAT).
+  # Opt-in: `docker compose --profile calls up`. Host networking lets coturn bind
+  # the public IP directly and advertise correct relay candidates. The operator
+  # must open UDP/TCP 3478 and UDP 49160-49200 on the firewall, and set TURN_SECRET
+  # (shared with the backend's APP_TURN_SECRET) plus APP_TURN_ENABLED=true.
+  coturn:
+    image: coturn/coturn:4.6
+    profiles:
+      - calls
+    container_name: messenger-coturn
+    init: true
+    restart: unless-stopped
+    logging: *default-logging
+    network_mode: host
+    cpus: 0.25
+    mem_limit: 96m
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - -n
+      - --no-cli
+      - --no-tls
+      - --no-dtls
+      - --listening-port=3478
+      - --min-port=49160
+      - --max-port=49200
+      - --realm=pishi.ktsf.ru
+      - --use-auth-secret
+      - --static-auth-secret=${TURN_SECRET:-}
+      - --fingerprint
+      - --no-multicast-peers
+      - --no-software-attribute
+      - --log-file=stdout
 
   pgweb:
     image: sosedoff/pgweb:0.15.0

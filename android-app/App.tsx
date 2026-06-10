@@ -31,6 +31,15 @@ import {
   type RunAuthorized,
 } from './src/features/chat/ChatThreadScreen';
 import {ConferenceDetailScreen} from './src/features/conference/ConferenceDetailScreen';
+import {CallOverlay} from './src/features/call/CallOverlay';
+import {
+  displayIncomingCallUi,
+  endCallKeepCall,
+  registerCallKeepHandlers,
+  setCallKeepActive,
+  setupCallKeep,
+} from './src/features/call/callKeep';
+import {useWebRtcCall} from './src/features/call/useWebRtcCall';
 import {WorkspaceHomeScreen} from './src/features/workspace/WorkspaceHomeScreen';
 import {
   addContact,
@@ -58,7 +67,9 @@ import {
   refreshSession,
   resendOwnEmailVerification,
   register,
+  getIceServers,
   revokeSession,
+  ringCall,
   searchWorkspace,
   startVideoConference,
   touchConferencePresence,
@@ -163,6 +174,8 @@ function App() {
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [activeConferenceId, setActiveConferenceId] = useState<string | null>(null);
   const [incomingCall, setIncomingCall] = useState<VideoConference | null>(null);
+  const [callKeepReady, setCallKeepReady] = useState(false);
+  const callKeepIdRef = useRef<string | null>(null);
   const [authPending, setAuthPending] = useState(false);
   const [workspacePending, setWorkspacePending] = useState(false);
   const [realtimeConnected, setRealtimeConnected] = useState(false);
@@ -187,6 +200,27 @@ function App() {
     silentChatIds: [],
   });
   const sessionRef = useRef<ActiveSession | null>(null);
+  const webRtcCall = useWebRtcCall(
+    session?.auth.user.displayName ?? '',
+    (callId, targetUsername, callerDisplayName) => {
+      const token = sessionRef.current?.auth.token;
+      if (token) {
+        ringCall(token, {targetUsername, callId, callerDisplayName}).catch(
+          () => undefined,
+        );
+      }
+    },
+    async () => {
+      const token = sessionRef.current?.auth.token;
+      if (!token) {
+        return [];
+      }
+      const response = await getIceServers(token);
+      return response.iceServers;
+    },
+  );
+  const webRtcCallRef = useRef(webRtcCall);
+  webRtcCallRef.current = webRtcCall;
   const preferencesRef = useRef<AppPreferences>(preferences);
   const soundPlayerRef = useRef<SoundPlayerHandle>(null);
   const fcmCleanupRef = useRef<(() => void) | null>(null);
@@ -235,6 +269,85 @@ function App() {
     }, 3_000);
     return () => clearInterval(intervalId);
   }, [incomingCall]);
+
+  // Ring/ringback while a native WebRTC call is being established.
+  const webRtcCallStatus = webRtcCall.call.status;
+  useEffect(() => {
+    if (webRtcCallStatus !== 'incoming' && webRtcCallStatus !== 'calling') {
+      return;
+    }
+    soundPlayerRef.current?.playRing();
+    const intervalId = setInterval(() => {
+      soundPlayerRef.current?.playRing();
+    }, 3_000);
+    return () => clearInterval(intervalId);
+  }, [webRtcCallStatus]);
+
+  // Register the self-managed ConnectionService for native full-screen calls.
+  useEffect(() => {
+    let mounted = true;
+    setupCallKeep()
+      .then(ready => {
+        if (mounted) {
+          setCallKeepReady(ready);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    return registerCallKeepHandlers({
+      onAnswer: callId => {
+        webRtcCallRef.current.acceptCall();
+        setCallKeepActive(callId);
+      },
+      onEnd: () => {
+        const status = webRtcCallRef.current.call.status;
+        if (status === 'incoming') {
+          webRtcCallRef.current.decline();
+        } else if (
+          status === 'calling' ||
+          status === 'connecting' ||
+          status === 'connected'
+        ) {
+          webRtcCallRef.current.hangUp();
+        }
+      },
+      onMuteChange: muted => {
+        if (webRtcCallRef.current.call.muted !== muted) {
+          webRtcCallRef.current.toggleMute();
+        }
+      },
+    });
+  }, []);
+
+  // Drive the native call UI from the engine's state (incoming calls only;
+  // outgoing calls use the in-app overlay).
+  const webRtcCallId = webRtcCall.call.callId;
+  const webRtcPeerName =
+    webRtcCall.call.peerDisplayName ?? webRtcCall.call.peerUsername ?? '';
+  useEffect(() => {
+    if (!callKeepReady) {
+      return;
+    }
+    if (webRtcCallStatus === 'incoming' && webRtcCallId) {
+      if (callKeepIdRef.current !== webRtcCallId) {
+        callKeepIdRef.current = webRtcCallId;
+        displayIncomingCallUi(webRtcCallId, webRtcPeerName);
+      }
+    } else if (webRtcCallStatus === 'connected' && callKeepIdRef.current) {
+      setCallKeepActive(callKeepIdRef.current);
+    } else if (
+      (webRtcCallStatus === 'idle' || webRtcCallStatus === 'ended') &&
+      callKeepIdRef.current
+    ) {
+      endCallKeepCall(callKeepIdRef.current);
+      callKeepIdRef.current = null;
+    }
+  }, [callKeepReady, webRtcCallStatus, webRtcCallId, webRtcPeerName]);
 
   const resetToSignedOutState = useCallback(async (infoMessage: string) => {
     await clearStoredRefreshToken();
@@ -567,6 +680,9 @@ function App() {
             : currentWorkspace,
         );
         setIncomingCall(conference);
+      },
+      onCallSignal: event => {
+        webRtcCallRef.current.handleSignal(event);
       },
       onAuthFailure: () => {
         handleRealtimeAuthFailure().catch(() => undefined);
@@ -1178,6 +1294,17 @@ function App() {
           onDismiss={() => setIncomingCall(null)}
         />
       ) : null}
+      {session ? (
+        <CallOverlay
+          call={webRtcCall.call}
+          onAccept={webRtcCall.acceptCall}
+          onDecline={webRtcCall.decline}
+          onHangUp={webRtcCall.hangUp}
+          onToggleMute={webRtcCall.toggleMute}
+          onToggleSpeaker={webRtcCall.toggleSpeaker}
+          suppressIncoming={callKeepReady}
+        />
+      ) : null}
       {!appReady ? (
         <View style={styles.loadingScreen}>
           <ActivityIndicator size="large" color={androidTheme.colors.blue} />
@@ -1252,6 +1379,9 @@ function App() {
           onRefreshWorkspace={handleReloadWorkspace}
           onScheduleConference={handleScheduleConference}
           onStartNewConference={handleStartNewConference}
+          onStartCall={(username, displayName) =>
+            webRtcCall.startCall(username, displayName)
+          }
           onListSessions={handleListSessions}
           onRevokeSession={handleRevokeSession}
           onSetFontSize={handleSetFontSize}

@@ -1,7 +1,7 @@
 {
-  "name": "North Messenger",
-  "short_name": "North",
-  "description": "Secure messaging and video conferences in North Messenger.",
+  "name": "Акатосфера ИИ",
+  "short_name": "Акатосфера",
+  "description": "Чат для общения и ИИ сервисы.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
@@ -9,13 +9,13 @@
   "theme_color": "#0e1621",
   "icons": [
     {
-      "src": "/icon-192.png?v=20260408d",
+      "src": "/icon-192.png?v=20260610a",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/icon-512.png?v=20260408d",
+      "src": "/icon-512.png?v=20260610a",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"

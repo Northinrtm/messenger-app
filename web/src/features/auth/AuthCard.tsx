@@ -77,7 +77,7 @@ export function AuthCard({
         ? "verifyEmail"
         : initialEmailChangeToken
           ? "confirmEmailChange"
-          : "register"
+          : "login"
   );
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
@@ -430,8 +430,9 @@ export function AuthCard({
   return (
     <main className="auth-shell">
       <section className="auth-card">
-        <img className="auth-brand-mark" src="/logo-mark.svg?v=20260408d" alt="North Messenger" />
-        <div className="eyebrow">North Messenger</div>
+        <img className="auth-brand-mark" src="/logo-mark.png?v=20260610a" alt={t("auth.brand")} />
+        <div className="eyebrow">{t("auth.brand")}</div>
+        <div className="auth-tagline">{t("auth.tagline")}</div>
         {!isAuthMode ? (
           <>
             <h1>{t(titleKey)}</h1>
@@ -443,17 +444,17 @@ export function AuthCard({
           <div className="mode-switch">
             <button
               type="button"
-              className={mode === "register" ? "mode-button is-active" : "mode-button"}
-              onClick={() => switchMode("register")}
-            >
-              {t("auth.tab.register")}
-            </button>
-            <button
-              type="button"
               className={mode === "login" ? "mode-button is-active" : "mode-button"}
               onClick={() => switchMode("login")}
             >
               {t("auth.tab.login")}
+            </button>
+            <button
+              type="button"
+              className={mode === "register" ? "mode-button is-active" : "mode-button"}
+              onClick={() => switchMode("register")}
+            >
+              {t("auth.tab.register")}
             </button>
           </div>
         ) : null}

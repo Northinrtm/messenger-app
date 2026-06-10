@@ -7,6 +7,8 @@ import {
 } from '@stomp/stompjs';
 import type {
   ApiChatMessage,
+  CallSignalEvent,
+  CallSignalRequest,
   ChatMessage,
   ChatSummary,
   MessageReactionEvent,
@@ -31,6 +33,7 @@ type SubscriptionOptions = {
   onTyping?: (event: TypingEvent) => void;
   onSessionEvent: (event: SessionEvent) => void;
   onIncomingCall?: (conference: VideoConference) => void;
+  onCallSignal?: (event: CallSignalEvent) => void;
   onAuthFailure?: () => void;
   onConnectionChange?: (connected: boolean) => void;
 };
@@ -45,6 +48,7 @@ type RealtimeConnection = {
   onTyping?: (event: TypingEvent) => void;
   onSessionEvent: (event: SessionEvent) => void;
   onIncomingCall?: (conference: VideoConference) => void;
+  onCallSignal?: (event: CallSignalEvent) => void;
   onAuthFailure?: () => void;
   onConnectionChange?: (connected: boolean) => void;
   userSubscriptions: StompSubscription[];
@@ -88,6 +92,7 @@ export function subscribeToChats({
   onTyping,
   onSessionEvent,
   onIncomingCall,
+  onCallSignal,
   onAuthFailure,
   onConnectionChange,
 }: SubscriptionOptions) {
@@ -106,6 +111,7 @@ export function subscribeToChats({
     onTyping,
     onSessionEvent,
     onIncomingCall,
+    onCallSignal,
     onAuthFailure,
     onConnectionChange,
     userSubscriptions: [],
@@ -207,6 +213,14 @@ export function subscribeToChats({
       );
     }
 
+    if (connection.onCallSignal) {
+      connection.userSubscriptions.push(
+        client.subscribe('/user/queue/call-signal', (frame: IFrame) => {
+          connection.onCallSignal?.(JSON.parse(frame.body) as CallSignalEvent);
+        }),
+      );
+    }
+
     syncTypingSubscriptions(connection);
     flushPendingSendRequests(connection);
   };
@@ -262,6 +276,29 @@ export function publishTypingEvent(chatId: string, typing: boolean) {
     connection.client.publish({
       destination: `/app/chats/${chatId}/typing`,
       body: JSON.stringify({typing}),
+    });
+  } catch {
+    handleConnectionFailure(connection);
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Publishes a WebRTC call-signaling frame (offer/answer/ICE/end) to the server,
+ * which relays it to the target user. Returns false if the realtime link is down.
+ */
+export function sendCallSignal(request: CallSignalRequest): boolean {
+  const connection = activeConnection;
+  if (!connection || !isRealtimeClientReady(connection.client)) {
+    return false;
+  }
+
+  try {
+    connection.client.publish({
+      destination: '/app/calls/signal',
+      body: JSON.stringify(request),
     });
   } catch {
     handleConnectionFailure(connection);

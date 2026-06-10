@@ -34,6 +34,13 @@ export const JITSI_BASE_URL = __DEV__
   ? devJitsiBaseUrl
   : remoteJitsiBaseUrl;
 
+// ICE servers for native 1-on-1 WebRTC calls. Public STUN covers most NATs;
+// add a TURN entry here (coturn) later for the ~15% of calls behind strict NAT.
+export const CALL_ICE_SERVERS: ReadonlyArray<{urls: string | string[]}> = [
+  {urls: 'stun:stun.l.google.com:19302'},
+  {urls: 'stun:stun1.l.google.com:19302'},
+];
+
 export const APP_CONFIG_NOTE = __DEV__
   ? devTarget === 'remote'
     ? 'Dev mode is pointed at the shared server https://pishi.ktsf.ru so you can sign in with real accounts.'

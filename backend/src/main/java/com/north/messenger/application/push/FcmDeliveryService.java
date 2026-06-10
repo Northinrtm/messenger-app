@@ -86,6 +86,16 @@ public class FcmDeliveryService {
         return send(buildCallMessage(fcmToken, conferenceId, callerName), "conferenceId=" + conferenceId);
     }
 
+    /**
+     * Sends a background incoming native (WebRTC) call push. The data payload lets
+     * the app wake up; the live offer arrives separately over the realtime channel.
+     *
+     * @return true if delivered, false if the token is permanently invalid and should be removed
+     */
+    public boolean sendWebRtcCallNotification(String fcmToken, String callId, String callerName) {
+        return send(buildWebRtcCallMessage(fcmToken, callId, callerName), "callId=" + callId);
+    }
+
     private boolean send(ObjectNode message, String logContext) {
         try {
             String accessToken = getAccessToken();
@@ -217,6 +227,27 @@ public class FcmDeliveryService {
         ObjectNode data = objectMapper.createObjectNode();
         data.put("type", "call");
         data.put("conferenceId", conferenceId);
+        data.put("caller", callerName);
+        message.set("data", data);
+
+        return message;
+    }
+
+    private ObjectNode buildWebRtcCallMessage(String fcmToken, String callId, String callerName) {
+        ObjectNode message = objectMapper.createObjectNode();
+        message.put("token", fcmToken);
+
+        // Data-only, high priority: this must reach the app's background message
+        // handler (even when killed) so it can raise the native ConnectionService
+        // full-screen incoming-call UI. A notification block would make Android show
+        // its own notification instead and skip the handler.
+        ObjectNode android = objectMapper.createObjectNode();
+        android.put("priority", "high");
+        message.set("android", android);
+
+        ObjectNode data = objectMapper.createObjectNode();
+        data.put("type", "webrtc-call");
+        data.put("callId", callId);
         data.put("caller", callerName);
         message.set("data", data);
 

@@ -107,6 +107,8 @@ export const en: Record<TranslationKey, TranslationValue> = {
   "auth.passwordHelp":
     "At least 8 characters, with at least one letter. The password must not be too simple, contain the username/name or simple sequences.",
 
+  "auth.brand": "Akatosfera AI",
+  "auth.tagline": "Chat and AI services",
   "auth.tab.register": "Sign up",
   "auth.tab.login": "Sign in",
   "auth.field.username": "Username",

@@ -71,6 +71,7 @@ type Props = {
   onRefreshWorkspace: () => Promise<void>;
   onScheduleConference: (title: string, scheduledAt: string, participantUsernames?: string[]) => Promise<VideoConference>;
   onStartNewConference: (title: string, participantUsernames?: string[]) => Promise<VideoConference>;
+  onStartCall: (username: string, displayName: string) => void;
   onListSessions: () => Promise<UserSessionInfo[]>;
   onRevokeSession: (sessionId: string) => Promise<void>;
   onSetFontSize: (size: 'small' | 'medium' | 'large') => Promise<void>;
@@ -104,6 +105,7 @@ export function WorkspaceHomeScreen({
   onRefreshWorkspace,
   onScheduleConference,
   onStartNewConference,
+  onStartCall,
   onListSessions,
   onRevokeSession,
   onSetFontSize,
@@ -1144,10 +1146,7 @@ export function WorkspaceHomeScreen({
                       {
                         label: '📞',
                         onPress: () => {
-                          onStartNewConference(
-                            t('ws.callWith', {name: profile.displayName}),
-                            [profile.username],
-                          ).catch(() => undefined);
+                          onStartCall(profile.username, profile.displayName);
                         },
                         testID: `call-contact-${profile.username}`,
                         tone: 'primary',

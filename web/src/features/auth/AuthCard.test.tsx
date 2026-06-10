@@ -127,6 +127,20 @@ describe("AuthCard auth flow", () => {
     (globalThis as ReactActEnvironment).IS_REACT_ACT_ENVIRONMENT = false;
   });
 
+  // The card now opens on sign in, so registration tests switch tabs first.
+  async function switchToRegistration() {
+    const registerTab = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Регистрация"
+    );
+    if (!registerTab) {
+      throw new Error("Registration tab is missing");
+    }
+    await act(async () => {
+      registerTab.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await flushMicrotasks();
+    });
+  }
+
   it("logs the user in immediately after successful registration", async () => {
     const response = sessionResponse();
     const authenticatedSpy = vi.fn();
@@ -136,6 +150,7 @@ describe("AuthCard auth flow", () => {
       renderAuthCard(root!, <AuthCard onAuthenticated={authenticatedSpy} />);
       await flushMicrotasks();
     });
+    await switchToRegistration();
 
     const inputs = container.querySelectorAll("input");
     const usernameInput = inputs[0] as HTMLInputElement;
@@ -176,6 +191,7 @@ describe("AuthCard auth flow", () => {
       renderAuthCard(root!, <AuthCard onAuthenticated={vi.fn()} />);
       await flushMicrotasks();
     });
+    await switchToRegistration();
 
     const inputs = container.querySelectorAll("input");
     const usernameInput = inputs[0] as HTMLInputElement;
@@ -218,6 +234,7 @@ describe("AuthCard auth flow", () => {
       renderAuthCard(root!, <AuthCard onAuthenticated={vi.fn()} />);
       await flushMicrotasks();
     });
+    await switchToRegistration();
 
     const inputs = container.querySelectorAll("input");
     const usernameInput = inputs[0] as HTMLInputElement;
@@ -247,6 +264,7 @@ describe("AuthCard auth flow", () => {
       renderAuthCard(root!, <AuthCard onAuthenticated={vi.fn()} />);
       await flushMicrotasks();
     });
+    await switchToRegistration();
 
     const inputs = container.querySelectorAll("input");
     const usernameInput = inputs[0] as HTMLInputElement;
@@ -317,6 +335,7 @@ describe("AuthCard auth flow", () => {
       renderAuthCard(root!, <AuthCard onAuthenticated={vi.fn()} />);
       await flushMicrotasks();
     });
+    await switchToRegistration();
 
     const inputs = container.querySelectorAll("input");
     const passwordInput = inputs[3] as HTMLInputElement;

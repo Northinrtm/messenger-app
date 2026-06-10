@@ -215,6 +215,36 @@ export function login(input: {username: string; password: string}) {
   });
 }
 
+/**
+ * Wakes a callee's devices for an incoming native call (best-effort, single attempt).
+ * The live SDP offer is delivered separately over the realtime channel.
+ */
+export function ringCall(
+  token: string,
+  input: {targetUsername: string; callId: string; callerDisplayName: string},
+) {
+  return request<void>('/api/mobile/calls/ring', {
+    method: 'POST',
+    token,
+    body: input,
+    timeoutMs: 5000,
+  });
+}
+
+export type IceServerConfig = {
+  urls: string | string[];
+  username?: string | null;
+  credential?: string | null;
+};
+
+/** Fetches STUN/TURN ICE servers (TURN creds are ephemeral) for a native call. */
+export function getIceServers(token: string) {
+  return request<{iceServers: IceServerConfig[]}>('/api/mobile/calls/ice-servers', {
+    token,
+    timeoutMs: 5000,
+  });
+}
+
 export function refreshSession(input: MobileRefreshRequest) {
   return request<MobileAuthResponse>('/api/mobile/auth/refresh', {
     method: 'POST',

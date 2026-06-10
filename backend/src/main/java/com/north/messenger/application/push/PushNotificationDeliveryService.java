@@ -129,6 +129,31 @@ public class PushNotificationDeliveryService {
         });
     }
 
+    /**
+     * Wakes a single user's devices for an incoming native (WebRTC) call. The push
+     * only alerts/launches the app; the live SDP offer is delivered over realtime.
+     */
+    @Async("pushNotificationExecutor")
+    @Transactional
+    public void notifyIncomingWebRtcCall(UUID targetUserId, String callId, String callerName) {
+        if (!properties.enabled()) {
+            return;
+        }
+
+        fcmDeliveryService.ifPresent(fcm ->
+                devicePushTokenRepository.findAllByUserIdIn(Set.of(targetUserId))
+                        .forEach(deviceToken -> {
+                            boolean valid = fcm.sendWebRtcCallNotification(
+                                    deviceToken.getToken(),
+                                    callId,
+                                    callerName
+                            );
+                            if (!valid) {
+                                devicePushTokenRepository.deleteByToken(deviceToken.getToken());
+                            }
+                        }));
+    }
+
     private void sendGenericMessageNotification(UserPushSubscription subscription, ChatMessage message) {
         if (subscription.getExpirationTime() != null
                 && subscription.getExpirationTime().isBefore(Instant.now())) {

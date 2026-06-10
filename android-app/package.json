@@ -20,9 +20,12 @@
     "fast-text-encoding": "^1.0.6",
     "react": "19.2.3",
     "react-native": "0.85.3",
+    "react-native-callkeep": "^4.3.16",
     "react-native-image-picker": "^8.2.1",
+    "react-native-incall-manager": "^4.2.1",
     "react-native-keychain": "^10.0.0",
     "react-native-safe-area-context": "^5.5.2",
+    "react-native-webrtc": "^124.0.7",
     "react-native-webview": "^13.16.1"
   },
   "devDependencies": {
