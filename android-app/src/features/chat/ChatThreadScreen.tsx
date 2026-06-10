@@ -2987,7 +2987,7 @@ function buildInitials(name: string) {
     .split(/\s+/)
     .filter(Boolean);
   if (words.length === 0) {
-    return 'NM';
+    return 'АИ';
   }
   const first = words[0]?.slice(0, 1) ?? '';
   const second = (words[1] ?? words[0] ?? '').slice(0, 1);

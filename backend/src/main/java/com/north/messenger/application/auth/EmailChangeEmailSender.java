@@ -33,9 +33,9 @@ public class EmailChangeEmailSender {
         SimpleMailMessage message = new SimpleMailMessage();
         message.setTo(recipientEmail);
         message.setFrom(properties.fromAddress());
-        message.setSubject("Confirm your new North Messenger email");
+        message.setSubject("Confirm your new Akatosfera AI email");
         message.setText("""
-                You requested to change your North Messenger email address to this address.
+                You requested to change your Akatosfera AI email address to this address.
 
                 Open this link to confirm the change:
                 %s

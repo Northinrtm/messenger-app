@@ -2339,7 +2339,7 @@ function getTabLabel(activeTab: WorkspaceTab) {
     case 'profile':
       return tActive('ws.tab.profile');
     default:
-      return 'North Messenger';
+      return 'Акатосфера ИИ';
   }
 }
 
@@ -3145,7 +3145,7 @@ function buildInitials(name: string) {
     .filter(Boolean);
 
   if (words.length === 0) {
-    return 'NM';
+    return 'АИ';
   }
 
   const first = words[0]?.slice(0, 1) ?? '';

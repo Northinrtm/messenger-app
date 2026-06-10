@@ -33,9 +33,9 @@ public class EmailVerificationEmailSender {
         SimpleMailMessage message = new SimpleMailMessage();
         message.setTo(recipientEmail);
         message.setFrom(properties.fromAddress());
-        message.setSubject("Verify your North Messenger email");
+        message.setSubject("Verify your Akatosfera AI email");
         message.setText("""
-                Welcome to North Messenger.
+                Welcome to Akatosfera AI.
 
                 Open this link to verify your email address:
                 %s

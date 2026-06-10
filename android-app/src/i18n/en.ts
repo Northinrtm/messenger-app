@@ -43,6 +43,8 @@ export const en: Record<TranslationKey, TranslationValue> = {
   'api.fileUnreadable': 'Attachment file could not be read on this device.',
   'api.fileEmpty': 'Attachment file is empty or unavailable.',
 
+  'auth.brand': 'Akatosfera AI',
+  'auth.tagline': 'Chat and AI services',
   'auth.signInTitle': 'Sign in',
   'auth.createAccountTitle': 'Create account',
   'auth.signInCopy': 'Use your email or username to open the mobile workspace.',

@@ -33,9 +33,9 @@ public class PasswordResetEmailSender {
         SimpleMailMessage message = new SimpleMailMessage();
         message.setTo(recipientEmail);
         message.setFrom(properties.fromAddress());
-        message.setSubject("North Messenger password reset");
+        message.setSubject("Akatosfera AI password reset");
         message.setText("""
-                You requested a password reset for your North Messenger account.
+                You requested a password reset for your Akatosfera AI account.
 
                 Open this link to set a new password:
                 %s

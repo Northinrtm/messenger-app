@@ -56,9 +56,9 @@ public class OpenApiConfig {
 
         return new OpenAPI()
                 .info(new Info()
-                        .title("North Messenger HTTP API")
+                        .title("Akatosfera AI HTTP API")
                         .version("v1")
-                        .description("REST API for North Messenger. Realtime WebSocket/STOMP message commands are not described in this OpenAPI document."))
+                        .description("REST API for Akatosfera AI. Realtime WebSocket/STOMP message commands are not described in this OpenAPI document."))
                 .components(components);
     }
 

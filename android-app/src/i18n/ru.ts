@@ -43,6 +43,8 @@ export const ru = {
   'api.fileEmpty': 'Файл вложения пуст или недоступен.',
 
   // Auth screen.
+  'auth.brand': 'Акатосфера ИИ',
+  'auth.tagline': 'Чат для общения и ИИ сервисы',
   'auth.signInTitle': 'Вход',
   'auth.createAccountTitle': 'Создать аккаунт',
   'auth.signInCopy': 'Войдите по email или имени пользователя, чтобы открыть мобильное рабочее пространство.',

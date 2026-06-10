@@ -22,7 +22,7 @@ async function showGenericMessageNotification() {
     if (await hasVisibleNorthMessengerClient()) {
       return;
     }
-    await self.registration.showNotification("North Messenger", {
+    await self.registration.showNotification("Акатосфера ИИ", {
       body: "Новое сообщение",
       icon: "/icon-192.png",
       badge: "/favicon-32.png",

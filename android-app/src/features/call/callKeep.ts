@@ -16,7 +16,7 @@ export async function setupCallKeep(): Promise<boolean> {
   }
   try {
     await RNCallKeep.setup({
-      ios: {appName: 'North Messenger'},
+      ios: {appName: 'Акатосфера ИИ'},
       android: {
         alertTitle: tActive('call.permTitle'),
         alertDescription: tActive('call.permDesc'),

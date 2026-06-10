@@ -81,9 +81,9 @@ export function AuthScreen({
         keyboardShouldPersistTaps="handled">
         <View style={styles.hero}>
           <View style={styles.logo}>
-            <Text style={styles.logoLabel}>NM</Text>
+            <Text style={styles.logoLabel}>АИ</Text>
           </View>
-          <Text style={styles.brand}>North Messenger</Text>
+          <Text style={styles.brand}>{t('auth.brand')}</Text>
           <Text style={styles.title}>
             {mode === 'login' ? t('auth.signInTitle') : t('auth.createAccountTitle')}
           </Text>

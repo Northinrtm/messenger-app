@@ -34,7 +34,7 @@ class EmailVerificationEmailSenderTest {
         SimpleMailMessage message = messageCaptor.getValue();
         assertThat(message.getTo()).containsExactly("user@example.com");
         assertThat(message.getFrom()).isEqualTo("no-reply@example.com");
-        assertThat(message.getSubject()).isEqualTo("Verify your North Messenger email");
+        assertThat(message.getSubject()).isEqualTo("Verify your Akatosfera AI email");
         assertThat(message.getText()).contains("https://app.example/?verifyEmailToken=token-123");
         assertThat(message.getText()).contains("This link expires in 1440 minutes.");
     }

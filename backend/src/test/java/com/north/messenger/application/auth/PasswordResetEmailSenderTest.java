@@ -34,7 +34,7 @@ class PasswordResetEmailSenderTest {
         SimpleMailMessage message = messageCaptor.getValue();
         assertThat(message.getTo()).containsExactly("user@example.com");
         assertThat(message.getFrom()).isEqualTo("no-reply@example.com");
-        assertThat(message.getSubject()).isEqualTo("North Messenger password reset");
+        assertThat(message.getSubject()).isEqualTo("Akatosfera AI password reset");
         assertThat(message.getText()).contains("https://app.example/reset-password?resetToken=token-123");
         assertThat(message.getText()).contains("This link expires in 30 minutes.");
     }
