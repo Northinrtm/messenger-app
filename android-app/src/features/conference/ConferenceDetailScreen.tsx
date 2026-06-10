@@ -17,6 +17,8 @@ import {
 import {WebView} from 'react-native-webview';
 import {API_URL, JITSI_BASE_URL} from '../../config';
 import {androidTheme} from '../../theme';
+import {useI18n} from '../../i18n/I18nProvider';
+import {getActiveLocale, tActive, tpActive} from '../../i18n';
 
 type Props = {
   session: AuthResponse;
@@ -46,6 +48,7 @@ export function ConferenceDetailScreen({
   onTouchConferencePresence,
   onClearConferencePresence,
 }: Props) {
+  const {t} = useI18n();
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<
     'start' | 'join' | 'leave' | 'cancel' | 'end' | 'invite' | 'share' | null
@@ -181,10 +184,10 @@ export function ConferenceDetailScreen({
         keyboardShouldPersistTaps="handled">
       <View style={styles.header}>
         <Pressable onPress={onBack} style={styles.headerButton}>
-          <Text style={styles.headerButtonLabel}>Back</Text>
+          <Text style={styles.headerButtonLabel}>{t('common.back')}</Text>
         </Pressable>
         <View style={styles.headerCopy}>
-          <Text style={styles.headerEyebrow}>Conference</Text>
+          <Text style={styles.headerEyebrow}>{t('cd.eyebrow')}</Text>
           <Text style={styles.headerTitle}>{conference.title}</Text>
           <Text style={styles.headerSubtitle}>{statusLabel}</Text>
         </View>
@@ -193,33 +196,33 @@ export function ConferenceDetailScreen({
       {actionError ? <Text style={styles.error}>{actionError}</Text> : null}
 
       <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Overview</Text>
+        <Text style={styles.sectionTitle}>{t('cd.overview')}</Text>
         <MetaRow
-          label="Organizer"
+          label={t('cd.organizer')}
           value={formatOrganizerLabel(conference, session)}
         />
-        <MetaRow label="Role" value={isOrganizer ? 'Organizer' : 'Participant'} />
+        <MetaRow label={t('cd.role')} value={isOrganizer ? t('cd.organizer') : t('cd.participant')} />
         <MetaRow
-          label="Scheduled"
+          label={t('cd.scheduled')}
           value={formatConferenceSchedule(conference.scheduledAt)}
         />
         <MetaRow
-          label="Participants"
+          label={t('cd.participants')}
           value={formatParticipantCount(conference.participants.length)}
         />
         <MetaRow
-          label="Room"
+          label={t('cd.room')}
           value={
             conference.roomName
-              ? 'Available to invited participants'
-              : 'Not open yet'
+              ? t('cd.roomAvailable')
+              : t('cd.roomNotOpen')
           }
         />
         <Text style={styles.helper}>{stageHint}</Text>
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Actions</Text>
+        <Text style={styles.sectionTitle}>{t('cd.actions')}</Text>
         <View style={styles.actionStack}>
           {canStart ? (
             <Pressable
@@ -234,7 +237,7 @@ export function ConferenceDetailScreen({
               }
               testID="conference-start-button">
               <Text style={styles.actionPrimaryLabel}>
-                {pendingAction === 'start' ? 'Starting...' : 'Start conference'}
+                {pendingAction === 'start' ? t('cd.starting') : t('cd.startConference')}
               </Text>
             </Pressable>
           ) : null}
@@ -250,7 +253,7 @@ export function ConferenceDetailScreen({
               }
               testID="conference-join-button">
               <Text style={styles.actionPrimaryLabel}>
-                {pendingAction === 'join' ? 'Открываю...' : 'Открыть'}
+                {pendingAction === 'join' ? t('cd.opening') : t('cd.open')}
               </Text>
             </Pressable>
           ) : null}
@@ -264,7 +267,7 @@ export function ConferenceDetailScreen({
               style={pendingAction ? styles.actionDisabled : styles.actionMuted}
               testID="conference-leave-button">
               <Text style={styles.actionMutedLabel}>
-                {pendingAction === 'leave' ? 'Clearing...' : 'Mark left'}
+                {pendingAction === 'leave' ? t('cd.clearing') : t('cd.markLeft')}
               </Text>
             </Pressable>
           ) : null}
@@ -276,24 +279,21 @@ export function ConferenceDetailScreen({
               }}
               style={styles.actionMuted}
               testID="conference-open-chat-button">
-              <Text style={styles.actionMutedLabel}>Open group chat</Text>
+              <Text style={styles.actionMutedLabel}>{t('cd.openGroupChat')}</Text>
             </Pressable>
           ) : null}
 
           {canShareInviteLink ? (
             <View style={styles.invitePanel}>
-              <Text style={styles.inviteTitle}>Invite link</Text>
-              <Text style={styles.helper}>
-                Share a short link that opens this conference for invited
-                participants.
-              </Text>
+              <Text style={styles.inviteTitle}>{t('cd.inviteLink')}</Text>
+              <Text style={styles.helper}>{t('cd.inviteDesc')}</Text>
               {inviteUrl ? (
                 <Text selectable style={styles.inviteValue}>
                   {inviteUrl}
                 </Text>
               ) : (
                 <Text style={styles.invitePlaceholder}>
-                  Invite link has not been generated yet.
+                  {t('cd.inviteNotGenerated')}
                 </Text>
               )}
               <View style={styles.inviteActions}>
@@ -312,10 +312,10 @@ export function ConferenceDetailScreen({
                   testID="conference-generate-invite-button">
                   <Text style={styles.actionMutedLabel}>
                     {pendingAction === 'invite'
-                      ? 'Generating...'
+                      ? t('cd.generating')
                       : inviteUrl
-                        ? 'Refresh link'
-                        : 'Generate link'}
+                        ? t('cd.refreshLink')
+                        : t('cd.generateLink')}
                   </Text>
                 </Pressable>
                 <Pressable
@@ -330,7 +330,7 @@ export function ConferenceDetailScreen({
                   }
                   testID="conference-share-invite-button">
                   <Text style={styles.actionPrimaryLabel}>
-                    {pendingAction === 'share' ? 'Sharing...' : 'Share link'}
+                    {pendingAction === 'share' ? t('cd.sharing') : t('cd.shareLink')}
                   </Text>
                 </Pressable>
               </View>
@@ -349,8 +349,8 @@ export function ConferenceDetailScreen({
               testID="conference-cancel-button">
               <Text style={styles.actionDangerLabel}>
                 {pendingAction === 'cancel'
-                  ? 'Cancelling...'
-                  : 'Cancel schedule'}
+                  ? t('cd.cancelling')
+                  : t('cd.cancelSchedule')}
               </Text>
             </Pressable>
           ) : null}
@@ -366,7 +366,7 @@ export function ConferenceDetailScreen({
               style={pendingAction ? styles.actionDisabled : styles.actionDanger}
               testID="conference-end-button">
               <Text style={styles.actionDangerLabel}>
-                {pendingAction === 'end' ? 'Ending...' : 'End for everyone'}
+                {pendingAction === 'end' ? t('cd.ending') : t('cd.endForEveryone')}
               </Text>
             </Pressable>
           ) : null}
@@ -374,17 +374,17 @@ export function ConferenceDetailScreen({
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Participants</Text>
+        <Text style={styles.sectionTitle}>{t('cd.participants')}</Text>
         <View style={styles.participantList}>
           {conference.participants.map(participant => (
             <View key={participant.id} style={styles.participantPill}>
               <Text style={styles.participantName}>
                 {participant.displayName}
-                {participant.id === conference.createdBy.id ? ' (org.)' : ''}
+                {participant.id === conference.createdBy.id ? t('cd.orgSuffix') : ''}
               </Text>
               <Text style={styles.participantMeta}>
                 @{participant.username}
-                {participant.online ? ' | online' : ''}
+                {participant.online ? t('cd.onlineSuffix') : ''}
               </Text>
             </View>
           ))}
@@ -393,25 +393,25 @@ export function ConferenceDetailScreen({
 
       {conference.recordingCreatedAt ? (
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Recording</Text>
+          <Text style={styles.sectionTitle}>{t('cd.recording')}</Text>
           <MetaRow
-            label="Created"
+            label={t('cd.created')}
             value={formatConferenceSchedule(conference.recordingCreatedAt)}
           />
           <MetaRow
-            label="Size"
+            label={t('cd.size')}
             value={
               conference.recordingSizeBytes != null
                 ? formatFileSize(conference.recordingSizeBytes)
-                : 'Unknown'
+                : t('cd.unknown')
             }
           />
           <MetaRow
-            label="Type"
-            value={conference.recordingMimeType ?? 'Unknown'}
+            label={t('cd.type')}
+            value={conference.recordingMimeType ?? t('cd.unknown')}
           />
           <Text style={styles.helper}>
-            Recording download is not wired on Android yet.
+            {t('cd.recordingNotWired')}
           </Text>
         </View>
       ) : null}
@@ -430,7 +430,7 @@ export function ConferenceDetailScreen({
             <Pressable
               onPress={() => setJitsiOpen(false)}
               style={styles.jitsiCloseButton}>
-              <Text style={styles.jitsiCloseLabel}>✕ Выйти</Text>
+              <Text style={styles.jitsiCloseLabel}>{t('cd.jitsiExit')}</Text>
             </Pressable>
             <Text style={styles.jitsiTitle} numberOfLines={1}>
               {conference.title}
@@ -487,32 +487,34 @@ function formatOrganizerLabel(
   session: AuthResponse,
 ) {
   return conference.createdBy.id === session.user.id
-    ? `${conference.createdBy.displayName} (you)`
+    ? tActive('cd.organizerYou', {name: conference.createdBy.displayName})
     : conference.createdBy.displayName;
 }
 
 function formatParticipantCount(count: number) {
-  return count === 1 ? '1 participant' : `${count} participants`;
+  return tpActive('cd.participantCount', count);
 }
 
 function formatConferenceStatusLabel(conference: VideoConference) {
   if (conference.endedAt) {
-    return `Ended ${formatConferenceSchedule(conference.endedAt)}`;
+    return tActive('cd.statusEndedAt', {time: formatConferenceSchedule(conference.endedAt)});
   }
 
   if (conference.startedAt) {
     return conference.activeParticipantCount > 0
-      ? `Live now | ${conference.activeParticipantCount} on stage`
-      : 'Live now';
+      ? tActive('cd.statusLiveCount', {count: conference.activeParticipantCount})
+      : tActive('cd.statusLive');
   }
 
   if (conference.roomName || conference.activatedAt) {
-    return 'Room is open for invited participants';
+    return tActive('cd.statusRoomOpen');
   }
 
-  return `Opens ${formatConferenceSchedule(
-    getConferenceActivationTime(conference.scheduledAt).toISOString(),
-  )}`;
+  return tActive('cd.statusOpensAt', {
+    time: formatConferenceSchedule(
+      getConferenceActivationTime(conference.scheduledAt).toISOString(),
+    ),
+  });
 }
 
 function formatConferenceStageHint(
@@ -523,30 +525,32 @@ function formatConferenceStageHint(
   const scheduledTime = new Date(conference.scheduledAt).getTime();
 
   if (conference.endedAt) {
-    return `Conference ended ${formatConferenceSchedule(conference.endedAt)}.`;
+    return tActive('cd.hintEndedAt', {time: formatConferenceSchedule(conference.endedAt)});
   }
 
   if (conference.startedAt) {
-    return 'Conference is already running.';
+    return tActive('cd.hintRunning');
   }
 
   if (conference.roomName || conference.activatedAt) {
     if (scheduledTime <= now) {
-      return 'Room is already open for invited participants.';
+      return tActive('cd.hintRoomOpen');
     }
 
     return isOrganizer
-      ? `Room is prepared. Participants can join automatically at ${formatConferenceSchedule(
-          conference.scheduledAt,
-        )}.`
-      : `Join will open automatically at ${formatConferenceSchedule(
-          conference.scheduledAt,
-        )}.`;
+      ? tActive('cd.hintRoomPrepared', {
+          time: formatConferenceSchedule(conference.scheduledAt),
+        })
+      : tActive('cd.hintJoinOpens', {
+          time: formatConferenceSchedule(conference.scheduledAt),
+        });
   }
 
-  return `Room becomes available 5 minutes before start: ${formatConferenceSchedule(
-    getConferenceActivationTime(conference.scheduledAt).toISOString(),
-  )}.`;
+  return tActive('cd.hintAvailableBefore', {
+    time: formatConferenceSchedule(
+      getConferenceActivationTime(conference.scheduledAt).toISOString(),
+    ),
+  });
 }
 
 function getConferenceActivationTime(value: string) {
@@ -554,7 +558,7 @@ function getConferenceActivationTime(value: string) {
 }
 
 function formatConferenceSchedule(value: string) {
-  return new Date(value).toLocaleString(undefined, {
+  return new Date(value).toLocaleString(getActiveLocale(), {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
@@ -583,7 +587,7 @@ function toErrorText(error: unknown) {
     return error.message;
   }
 
-  return 'Unexpected error';
+  return tActive('common.unexpectedError');
 }
 
 const styles = StyleSheet.create({

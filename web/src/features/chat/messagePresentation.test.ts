@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 
+import { translate } from "../../i18n";
 import {
   buildChatListPreviewText,
   getMessageStatusGlyph,
-  getMessageStatusLabel,
+  getMessageStatusLabelKey,
 } from "./messagePresentation";
 
 describe("messagePresentation status indicators", () => {
@@ -27,24 +28,24 @@ describe("messagePresentation status indicators", () => {
     ).toBe("\u2713\u2713");
   });
 
-  it("includes receipt counts in delivered and read labels", () => {
-    expect(
-      getMessageStatusLabel({
-        state: "DELIVERED",
-        recipientCount: 3,
-        deliveredCount: 2,
-        readCount: 0,
-      })
-    ).toContain("(2/3)");
+  it("maps states to label keys and renders receipt counts via translation", () => {
+    const deliveredKey = getMessageStatusLabelKey({
+      state: "DELIVERED",
+      recipientCount: 3,
+      deliveredCount: 2,
+      readCount: 0,
+    });
+    expect(deliveredKey).toBe("msgstatus.delivered");
+    expect(translate("ru", deliveredKey, { delivered: 2, total: 3 })).toContain("(2/3)");
 
-    expect(
-      getMessageStatusLabel({
-        state: "READ",
-        recipientCount: 3,
-        deliveredCount: 3,
-        readCount: 1,
-      })
-    ).toContain("(1/3)");
+    const readKey = getMessageStatusLabelKey({
+      state: "READ",
+      recipientCount: 3,
+      deliveredCount: 3,
+      readCount: 1,
+    });
+    expect(readKey).toBe("msgstatus.read");
+    expect(translate("ru", readKey, { read: 1, total: 3 })).toContain("(1/3)");
   });
 });
 

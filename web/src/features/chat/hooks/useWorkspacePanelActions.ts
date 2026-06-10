@@ -1,6 +1,8 @@
 import { type QueryClient } from "@tanstack/react-query";
 import { useEffectEvent, type Dispatch, type SetStateAction } from "react";
 
+import { useI18n } from "../../../i18n/I18nProvider";
+
 import type { ChatSummary, Participant, UserProfile, VideoConference } from "../../../lib/types";
 import { removeVideoConference } from "../chatPresentation";
 import type { MenuActionId, SidebarSheet } from "../chatUi";
@@ -56,6 +58,7 @@ export function useWorkspacePanelActions({
   setIsMenuOpen,
   signOut,
 }: UseWorkspacePanelActionsOptions) {
+  const { t } = useI18n();
   const handleConferenceStageExit = useEffectEvent(() => {
     closeActiveConference();
   });
@@ -83,7 +86,7 @@ export function useWorkspacePanelActions({
       return;
     }
 
-    if (!window.confirm(`Завершить встречу "${activeConference.title}" для всех участников?`)) {
+    if (!window.confirm(t("actions.endMeetingConfirm", { title: activeConference.title }))) {
       return;
     }
 
@@ -162,7 +165,7 @@ export function useWorkspacePanelActions({
       return;
     }
 
-    if (!window.confirm(`Отменить встречу "${activeConference.title}"?`)) {
+    if (!window.confirm(t("actions.cancelMeetingConfirm", { title: activeConference.title }))) {
       return;
     }
 

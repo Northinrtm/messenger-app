@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
+import { tActive } from "../../i18n";
+
 export type ConferenceParticipantRole = "moderator" | "participant";
 export type ConferenceRecordingState = "idle" | "starting" | "recording" | "stopping" | "failed";
 export type ConferenceJoinSettings = {
@@ -178,7 +180,7 @@ export function ManagedConferenceStage({
     };
 
     renderConferencePlaceholder(host, {
-      message: "Подключаем видеоконференцию...",
+      message: tActive("conf.connecting"),
     });
     roleChangeRef.current?.(null);
     updateRecordingState("idle");
@@ -295,9 +297,9 @@ export function ManagedConferenceStage({
 
       if (!cancelled && hostRef.current) {
         renderConferencePlaceholder(hostRef.current, {
-          title: "Видеоконференция завершена.",
-          message: "Можно снова подключиться к этой комнате без перехода на страницу Jitsi.",
-          actionLabel: "Подключиться снова",
+          title: tActive("conf.endedTitle"),
+          message: tActive("conf.endedMessage"),
+          actionLabel: tActive("conf.reconnect"),
           onAction: retryConference,
         });
       }
@@ -473,9 +475,9 @@ export function ManagedConferenceStage({
         requestConferenceExitRef.current = requestConferenceExit;
       } catch {
         renderConferencePlaceholder(host, {
-          title: "Не удалось открыть видеоконференцию.",
-          message: "Проверьте доступность Jitsi и повторите попытку.",
-          actionLabel: "Повторить",
+          title: tActive("conf.openFailedTitle"),
+          message: tActive("conf.openFailedMessage"),
+          actionLabel: tActive("chat.retry"),
           onAction: retryConference,
         });
         roleChangeRef.current?.(null);

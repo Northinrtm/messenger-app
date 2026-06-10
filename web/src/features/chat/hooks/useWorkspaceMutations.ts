@@ -1,4 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+
+import { useI18n } from "../../../i18n/I18nProvider";
 import {
   addContact as addContactRequest,
   addConferenceParticipants as addConferenceParticipantsRequest,
@@ -143,6 +145,7 @@ export function useWorkspaceMutations({
   setProfileProfession,
   setSidebarSheet,
 }: UseWorkspaceMutationsOptions) {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const { token } = currentSession;
   const syncProfile = (nextProfile: UserProfile) => {
@@ -586,7 +589,7 @@ export function useWorkspaceMutations({
       (passwordChangeCurrent &&
       passwordChangeNext &&
       passwordChangeCurrent === passwordChangeNext
-        ? "\u041d\u043e\u0432\u044b\u0439 \u043f\u0430\u0440\u043e\u043b\u044c \u0434\u043e\u043b\u0436\u0435\u043d \u043e\u0442\u043b\u0438\u0447\u0430\u0442\u044c\u0441\u044f \u043e\u0442 \u0442\u0435\u043a\u0443\u0449\u0435\u0433\u043e"
+        ? t("settings.password.sameAsCurrent")
         : null);
     if (
       validateRequiredField(passwordChangeCurrent) ||
@@ -667,7 +670,9 @@ export function useWorkspaceMutations({
   const submitCreateConference = (formatClock: (value: string) => string) => {
     const parsedDate = new Date(conferenceScheduledAt);
     const scheduledAt = Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
-    const title = conferenceTitle.trim() || `Встреча ${formatClock(scheduledAt.toISOString())}`;
+    const title =
+      conferenceTitle.trim() ||
+      t("conf.defaultTitleTime", { time: formatClock(scheduledAt.toISOString()) });
     if (conferenceEditingId) {
       if (updateConferenceMutation.isPending) return;
       updateConferenceMutation.mutate({
@@ -690,7 +695,8 @@ export function useWorkspaceMutations({
   const submitCreateConferenceNow = (formatClock: (value: string) => string) => {
     if (createConferenceMutation.isPending) return;
     const now = new Date();
-    const title = conferenceTitle.trim() || `Встреча ${formatClock(now.toISOString())}`;
+    const title =
+      conferenceTitle.trim() || t("conf.defaultTitleTime", { time: formatClock(now.toISOString()) });
     createConferenceMutation.mutate({
       title,
       scheduledAt: now.toISOString(),

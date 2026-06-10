@@ -1,4 +1,6 @@
 import type { MouseEvent as ReactMouseEvent } from "react";
+
+import { useI18n } from "../../../i18n/I18nProvider";
 import type {
   ChatMessage,
   ChatMessageAttachment,
@@ -109,6 +111,7 @@ export function SidebarUtilitySheets({
   formatMemberCount,
   getDirectParticipant,
 }: Props) {
+  const { t } = useI18n();
   if (sheet === "conference") {
     const isEditingConference = Boolean(conferenceEditingId);
     const isGroupConferenceComposer = Boolean(conferenceChatId);
@@ -120,19 +123,17 @@ export function SidebarUtilitySheets({
           <div>
             {isEditingConference ? (
               <>
-                <div className="section-title">Редактирование встречи</div>
-                <p className="sheet-copy">Измени название или время запланированной встречи.</p>
+                <div className="section-title">{t("sheet.editMeeting")}</div>
+                <p className="sheet-copy">{t("sheet.editMeetingDesc")}</p>
               </>
             ) : null}
-            {!isEditingConference ? <div className="section-title">Видеоконференции</div> : null}
+            {!isEditingConference ? <div className="section-title">{t("menu.conferences")}</div> : null}
             {!isEditingConference ? (
-              <p className="sheet-copy">
-                Запусти встречу сразу или запланируй ее на удобное время.
-              </p>
+              <p className="sheet-copy">{t("sheet.conferencesDesc")}</p>
             ) : null}
           </div>
           <button type="button" className="ghost-button compact" onClick={onClose}>
-            Закрыть
+            {t("common.close")}
           </button>
         </div>
 
@@ -147,7 +148,7 @@ export function SidebarUtilitySheets({
               }
               onClick={() => onOpenConferenceComposer("instant")}
             >
-              Начать сейчас
+              {t("sheet.startNowBtn")}
             </button>
             <button
               type="button"
@@ -158,7 +159,7 @@ export function SidebarUtilitySheets({
               }
               onClick={() => onOpenConferenceComposer("scheduled")}
             >
-              Запланировать
+              {t("sheet.scheduleBtn")}
             </button>
           </div>
         ) : null}
@@ -182,7 +183,7 @@ export function SidebarUtilitySheets({
             <input
               value={conferenceTitle}
               onChange={(event) => onConferenceTitleChange(event.target.value)}
-              placeholder="Название встречи"
+              placeholder={t("sheet.meetingNamePlaceholder")}
               maxLength={120}
             />
 
@@ -199,11 +200,9 @@ export function SidebarUtilitySheets({
             {!isEditingConference && !isGroupConferenceComposer ? (
               <div className="group-picker-list conference-picker-list">
                 {contactsLoading && conferenceCandidates.length === 0 ? (
-                  <div className="empty-list">Загружаем контакты...</div>
+                  <div className="empty-list">{t("sheet.loadingContacts")}</div>
                 ) : conferenceCandidates.length === 0 ? (
-                  <div className="empty-list">
-                    Пока некого добавлять. Создайте группу или добавьте контакты.
-                  </div>
+                  <div className="empty-list">{t("sheet.noContactsToAdd")}</div>
                 ) : (
                   conferenceCandidates.map((contact) => {
                     const selected = conferenceParticipantUsernames.includes(contact.username);
@@ -228,7 +227,7 @@ export function SidebarUtilitySheets({
                           <strong>{contact.displayName}</strong>
                           <span>@{contact.username}</span>
                         </div>
-                        <span className="member-pill">{selected ? "Выбран" : "Выбрать"}</span>
+                        <span className="member-pill">{selected ? t("sheet.selected") : t("sheet.select")}</span>
                       </button>
                     );
                   })
@@ -237,25 +236,23 @@ export function SidebarUtilitySheets({
             ) : null}
 
             {!isEditingConference && isGroupConferenceComposer ? (
-              <div className="empty-list">
-                Участники этой встречи берутся из текущего состава группы.
-              </div>
+              <div className="empty-list">{t("sheet.meetingParticipantsFromGroup")}</div>
             ) : null}
 
             <div className="conference-browser-actions">
               <button type="button" className="ghost-button compact" onClick={onCloseConferenceComposer}>
-                Закрыть
+                {t("common.close")}
               </button>
               <button type="submit" className="secondary-button" disabled={conferenceSubmitPending}>
                 {conferenceSubmitPending
                   ? isEditingConference
-                    ? "Сохраняем..."
-                    : "Создаем..."
+                    ? t("common.saving")
+                    : t("sheet.creating")
                   : isEditingConference
-                    ? "Сохранить изменения"
+                    ? t("sheet.saveChanges")
                     : conferenceComposerMode === "instant"
-                      ? "Создать сейчас"
-                      : "Запланировать"}
+                      ? t("sheet.createNow")
+                      : t("sheet.scheduleBtn")}
               </button>
             </div>
           </form>
@@ -269,22 +266,22 @@ export function SidebarUtilitySheets({
       <div className="sheet-card">
         <div className="sheet-head">
           <div>
-            <div className="section-title">Архив</div>
-            <p className="sheet-copy">Здесь лежат архивированные чаты и группы.</p>
+            <div className="section-title">{t("menu.archive")}</div>
+            <p className="sheet-copy">{t("sheet.archiveDesc")}</p>
           </div>
           <button type="button" className="ghost-button compact" onClick={onCloseConferenceComposer}>
-            Закрыть
+            {t("common.close")}
           </button>
         </div>
 
         <div className="sheet-list">
           {archivedChatsLoading ? (
-            <div className="empty-list">Загружаем архив...</div>
+            <div className="empty-list">{t("sheet.loadingArchive")}</div>
           ) : archivedChats.length === 0 ? (
-            <div className="empty-list">Архив пока пуст.</div>
+            <div className="empty-list">{t("sheet.archiveEmpty")}</div>
           ) : (
             <>
-              {archivedChats.length > 0 ? <div className="section-title">Чаты</div> : null}
+              {archivedChats.length > 0 ? <div className="section-title">{t("sidebar.tabChats")}</div> : null}
               {archivedChats.map((chat) => (
                 <div
                   key={chat.id}
@@ -305,14 +302,14 @@ export function SidebarUtilitySheets({
                       className="ghost-button compact"
                       onClick={() => onOpenChat(chat.id)}
                     >
-                      Открыть
+                      {t("workspace.open")}
                     </button>
                     <button
                       type="button"
                       className="ghost-button compact"
                       onClick={() => onToggleArchiveChat(chat.id)}
                     >
-                      Вернуть
+                      {t("sheet.restore")}
                     </button>
                   </div>
                 </div>
@@ -343,23 +340,21 @@ export function SidebarUtilitySheets({
       <div className="sheet-card">
         <div className="sheet-head">
           <div>
-            <div className="section-title">Переслать</div>
-            <p className="sheet-copy">
-              Выберите чат, группу или контакт для пересылки сообщения.
-            </p>
+            <div className="section-title">{t("msgmenu.forward")}</div>
+            <p className="sheet-copy">{t("sheet.forwardDesc")}</p>
           </div>
           <button type="button" className="ghost-button compact" onClick={onCloseForward}>
-            Закрыть
+            {t("common.close")}
           </button>
         </div>
 
         {forwardingMessages.length === 0 ? (
-          <div className="empty-list">Сообщение для пересылки не найдено.</div>
+          <div className="empty-list">{t("sheet.forwardNotFound")}</div>
         ) : (
           <div className="sheet-list" aria-busy={forwardPending}>
             {forwardPending ? (
               <div className="forward-status" role="status" aria-live="polite">
-                {"\u041f\u0435\u0440\u0435\u0441\u044B\u043B\u0430\u0435\u043C \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F..."}
+                {t("sheet.forwarding")}
               </div>
             ) : null}
             {!forwardPending && forwardErrorText ? (
@@ -368,7 +363,7 @@ export function SidebarUtilitySheets({
               </div>
             ) : null}
             <div className="forward-preview-card">
-              <span className="forward-preview-label">Сообщение</span>
+              <span className="forward-preview-label">{t("sheet.message")}</span>
               {forwardingMessage?.replyTo ? (
                 <button
                   type="button"
@@ -394,9 +389,9 @@ export function SidebarUtilitySheets({
             </div>
 
             <div className="forward-target-section">
-              <div className="section-title">Чаты и группы</div>
+              <div className="section-title">{t("sheet.chatsAndGroups")}</div>
               {forwardableChats.length === 0 ? (
-                <div className="empty-list">Нет других открытых чатов для пересылки.</div>
+                <div className="empty-list">{t("sheet.noOtherChats")}</div>
               ) : (
                 forwardableChats.map((chat) => {
                   const directParticipant = getDirectParticipant(chat, sessionUser);
@@ -430,9 +425,9 @@ export function SidebarUtilitySheets({
             </div>
 
             <div className="forward-target-section">
-              <div className="section-title">Контакты</div>
+              <div className="section-title">{t("menu.contacts")}</div>
               {forwardContactOptions.length === 0 ? (
-                <div className="empty-list">Нет контактов без личного чата.</div>
+                <div className="empty-list">{t("sheet.noContactsWithoutChat")}</div>
               ) : (
                 forwardContactOptions.map((contact) => (
                   <button

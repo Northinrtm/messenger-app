@@ -92,12 +92,12 @@ describe("useWorkspaceStatus helpers", () => {
   });
 
   it("uses merged chat empty text for the chats section", () => {
-    expect(resolveTabChatsEmptyText("chats", "")).toBe("\u041F\u043E\u043A\u0430 \u043D\u0435\u0442 \u0430\u043A\u0442\u0438\u0432\u043D\u044B\u0445 \u0447\u0430\u0442\u043E\u0432.");
-    expect(resolveTabChatsEmptyText("chats", "north")).toBe("\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E.");
+    expect(resolveTabChatsEmptyText("chats", "")).toBe("list.emptyChats");
+    expect(resolveTabChatsEmptyText("chats", "north")).toBe("list.notFound");
   });
 
   it("uses mailbox empty text for the mail section", () => {
-    expect(resolveTabChatsEmptyText("mail", "")).toBe("\u041F\u043E\u0447\u0442\u043E\u0432\u044B\u0435 \u044F\u0449\u0438\u043A\u0438 \u043F\u043E\u043A\u0430 \u043D\u0435 \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u044B.");
-    expect(resolveTabChatsEmptyText("mail", "north")).toBe("\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E.");
+    expect(resolveTabChatsEmptyText("mail", "")).toBe("list.emptyMail");
+    expect(resolveTabChatsEmptyText("mail", "north")).toBe("list.notFound");
   });
 });

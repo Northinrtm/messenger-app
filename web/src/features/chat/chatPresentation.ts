@@ -1,3 +1,4 @@
+import { getActiveLocale, tActive, tpActive } from "../../i18n";
 import type { ChatSummary, Participant, UserProfile, VideoConference } from "../../lib/types";
 
 const CONFERENCE_ACTIVATION_LEAD_MS = 5 * 60 * 1000;
@@ -17,24 +18,14 @@ export function describeChat(chat: ChatSummary, currentUser: UserProfile) {
     const otherParticipant = chat.members.find(
       (member) => !isCurrentUserParticipant(member, currentUser),
     );
-    return otherParticipant ? otherParticipant.username : "\u041B\u0438\u0447\u043D\u044B\u0439 \u0447\u0430\u0442";
+    return otherParticipant ? otherParticipant.username : tActive("pres.directChat");
   }
 
-  return "\u0413\u0440\u0443\u043F\u043F\u0430";
+  return tActive("pres.group");
 }
 
 export function formatMemberCount(count: number) {
-  const mod10 = count % 10;
-  const mod100 = count % 100;
-  if (mod10 === 1 && mod100 !== 11) {
-    return `${count} \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A`;
-  }
-
-  if ([2, 3, 4].includes(mod10) && ![12, 13, 14].includes(mod100)) {
-    return `${count} \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A\u0430`;
-  }
-
-  return `${count} \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A\u043E\u0432`;
+  return tpActive("members.count", count);
 }
 
 export function formatChatTimestamp(value: string) {
@@ -51,24 +42,24 @@ export function formatChatTimestamp(value: string) {
 
   const withinWeek = now.getTime() - target.getTime() < 6 * 24 * 60 * 60 * 1000;
   if (withinWeek) {
-    return new Intl.DateTimeFormat("ru-RU", { weekday: "short" }).format(target);
+    return new Intl.DateTimeFormat(getActiveLocale(), { weekday: "short" }).format(target);
   }
 
-  return new Intl.DateTimeFormat("ru-RU", {
+  return new Intl.DateTimeFormat(getActiveLocale(), {
     day: "2-digit",
     month: "2-digit",
   }).format(target);
 }
 
 export function formatClock(value: string) {
-  return new Intl.DateTimeFormat("ru-RU", {
+  return new Intl.DateTimeFormat(getActiveLocale(), {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
 }
 
 export function formatSessionTime(value: string) {
-  return new Intl.DateTimeFormat("ru-RU", {
+  return new Intl.DateTimeFormat(getActiveLocale(), {
     day: "2-digit",
     month: "2-digit",
     hour: "2-digit",
@@ -77,7 +68,7 @@ export function formatSessionTime(value: string) {
 }
 
 export function formatProfileDate(value: string) {
-  return new Intl.DateTimeFormat("ru-RU", {
+  return new Intl.DateTimeFormat(getActiveLocale(), {
     day: "2-digit",
     month: "long",
     year: "numeric",
@@ -94,7 +85,7 @@ export function formatTimelineDay(value: string) {
     date.getMonth() === now.getMonth() &&
     date.getDate() === now.getDate();
   if (sameDay) {
-    return "\u0421\u0435\u0433\u043E\u0434\u043D\u044F";
+    return tActive("calendar.today");
   }
 
   const yesterday = new Date(now);
@@ -104,10 +95,10 @@ export function formatTimelineDay(value: string) {
     date.getMonth() === yesterday.getMonth() &&
     date.getDate() === yesterday.getDate();
   if (isYesterday) {
-    return "\u0412\u0447\u0435\u0440\u0430";
+    return tActive("calendar.yesterday");
   }
 
-  return new Intl.DateTimeFormat("ru-RU", {
+  return new Intl.DateTimeFormat(getActiveLocale(), {
     day: "numeric",
     month: "long",
   }).format(date);
@@ -152,7 +143,7 @@ export function mergeConferenceCandidates(
   });
 
   return [...candidates.values()].sort((left, right) =>
-    left.displayName.localeCompare(right.displayName, "ru-RU"),
+    left.displayName.localeCompare(right.displayName, getActiveLocale()),
   );
 }
 
@@ -185,22 +176,22 @@ export function removeVideoConference(
 
 export function formatConferenceStatusLabel(conference: VideoConference) {
   if (conference.endedAt) {
-    return `\u0417\u0430\u0432\u0435\u0440\u0448\u0435\u043D\u0430 ${formatConferenceSchedule(conference.endedAt)}`;
+    return tActive("conf.statusEndedAt", { time: formatConferenceSchedule(conference.endedAt) });
   }
 
   if (conference.startedAt) {
     return conference.activeParticipantCount > 0
-      ? `Встреча идет • ${conference.activeParticipantCount} в эфире`
-      : "\u0412\u0441\u0442\u0440\u0435\u0447\u0430 \u0438\u0434\u0435\u0442";
+      ? tActive("conf.statusOngoingCount", { count: conference.activeParticipantCount })
+      : tActive("conf.statusOngoing");
   }
 
   if (conference.roomName || conference.activatedAt) {
-    return "\u041A\u043E\u043C\u043D\u0430\u0442\u0430 \u043E\u0442\u043A\u0440\u044B\u0442\u0430 \u0434\u043B\u044F \u043F\u0440\u0438\u0433\u043B\u0430\u0448\u0435\u043D\u043D\u044B\u0445";
+    return tActive("conf.statusRoomOpen");
   }
 
-  return `\u041E\u0442\u043A\u0440\u043E\u0435\u0442\u0441\u044F ${formatConferenceSchedule(
-    getConferenceActivationTime(conference.scheduledAt).toISOString(),
-  )}`;
+  return tActive("conf.statusOpensAt", {
+    time: formatConferenceSchedule(getConferenceActivationTime(conference.scheduledAt).toISOString()),
+  });
 }
 
 export function formatConferenceListPreview(
@@ -211,21 +202,21 @@ export function formatConferenceListPreview(
   const scheduledTime = new Date(conference.scheduledAt).getTime();
 
   if (conference.endedAt) {
-    return "\u0412\u0441\u0442\u0440\u0435\u0447\u0430 \u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043D\u0430.";
+    return tActive("conf.previewEnded");
   }
 
   if (!conference.roomName && !conference.activatedAt) {
-    return `\u041A\u043E\u043C\u043D\u0430\u0442\u0430 \u043E\u0442\u043A\u0440\u043E\u0435\u0442\u0441\u044F ${formatConferenceSchedule(
-      getConferenceActivationTime(conference.scheduledAt).toISOString(),
-    )}.`;
+    return tActive("conf.previewOpensAt", {
+      time: formatConferenceSchedule(getConferenceActivationTime(conference.scheduledAt).toISOString()),
+    });
   }
 
   if (!conference.startedAt) {
     return scheduledTime <= now
-      ? "\u041A\u043E\u043C\u043D\u0430\u0442\u0430 \u0443\u0436\u0435 \u043E\u0442\u043A\u0440\u044B\u0442\u0430 \u0434\u043B\u044F \u043F\u0440\u0438\u0433\u043B\u0430\u0448\u0435\u043D\u043D\u044B\u0445."
-      : `\u041F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435 \u043E\u0442\u043A\u0440\u043E\u0435\u0442\u0441\u044F \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 ${formatConferenceSchedule(
-          conference.scheduledAt,
-        )}.`;
+      ? tActive("conf.previewRoomOpen")
+      : tActive("conf.previewAutoConnect", {
+          time: formatConferenceSchedule(conference.scheduledAt),
+        });
   }
 
   const participantPreview = conference.participants
@@ -234,10 +225,10 @@ export function formatConferenceListPreview(
     .join(", ");
 
   if (conference.activeParticipantCount > 0) {
-    return `Встреча уже идет, в эфире ${conference.activeParticipantCount}.`;
+    return tActive("conf.previewOngoingCount", { count: conference.activeParticipantCount });
   }
 
-  return participantPreview || "\u0412\u0441\u0442\u0440\u0435\u0447\u0430 \u0443\u0436\u0435 \u0438\u0434\u0435\u0442.";
+  return participantPreview || tActive("conf.previewOngoing");
 }
 
 export function formatConferenceStageHint(
@@ -248,35 +239,35 @@ export function formatConferenceStageHint(
   const scheduledTime = new Date(conference.scheduledAt).getTime();
 
   if (conference.endedAt) {
-    return `\u0412\u0441\u0442\u0440\u0435\u0447\u0430 \u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043D\u0430 ${formatConferenceSchedule(conference.endedAt)}.`;
+    return tActive("conf.hintEndedAt", { time: formatConferenceSchedule(conference.endedAt) });
   }
 
   if (conference.startedAt) {
-    return "\u0412\u0441\u0442\u0440\u0435\u0447\u0430 \u0443\u0436\u0435 \u0437\u0430\u043F\u0443\u0449\u0435\u043D\u0430.";
+    return tActive("conf.hintStarted");
   }
 
   if (conference.roomName || conference.activatedAt) {
     if (scheduledTime <= now) {
-      return "\u041A\u043E\u043C\u043D\u0430\u0442\u0430 \u0443\u0436\u0435 \u043E\u0442\u043A\u0440\u044B\u0442\u0430. \u0412\u043E\u0439\u0442\u0438 \u043C\u043E\u0433\u0443\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u043F\u0440\u0438\u0433\u043B\u0430\u0448\u0451\u043D\u043D\u044B\u0435 \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A\u0438.";
+      return tActive("conf.hintRoomOpenInvitedOnly");
     }
 
     return isOrganizer
-      ? `\u041A\u043E\u043C\u043D\u0430\u0442\u0430 \u043F\u043E\u0434\u0433\u043E\u0442\u043E\u0432\u043B\u0435\u043D\u0430. \u0412\u0445\u043E\u0434 \u0434\u043B\u044F \u043F\u0440\u0438\u0433\u043B\u0430\u0448\u0451\u043D\u043D\u044B\u0445 \u043E\u0442\u043A\u0440\u043E\u0435\u0442\u0441\u044F \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 ${formatConferenceSchedule(
-          conference.scheduledAt,
-        )}.`
-      : `\u041F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435 \u043E\u0442\u043A\u0440\u043E\u0435\u0442\u0441\u044F \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 ${formatConferenceSchedule(
-          conference.scheduledAt,
-        )}.`;
+      ? tActive("conf.hintRoomReadyOrganizer", {
+          time: formatConferenceSchedule(conference.scheduledAt),
+        })
+      : tActive("conf.hintRoomReadyParticipant", {
+          time: formatConferenceSchedule(conference.scheduledAt),
+        });
   }
 
   const activationAt = formatConferenceSchedule(
     getConferenceActivationTime(conference.scheduledAt).toISOString(),
   );
-  return `\u041A\u043E\u043C\u043D\u0430\u0442\u0430 \u0441\u0442\u0430\u043D\u0435\u0442 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u0430 \u0437\u0430 5 \u043C\u0438\u043D\u0443\u0442 \u0434\u043E \u0441\u0442\u0430\u0440\u0442\u0430: ${activationAt}.`;
+  return tActive("conf.hintAvailableBeforeStart", { time: activationAt });
 }
 
 export function formatConferenceSchedule(value: string) {
-  return new Intl.DateTimeFormat("ru-RU", {
+  return new Intl.DateTimeFormat(getActiveLocale(), {
     day: "numeric",
     month: "long",
     hour: "2-digit",
@@ -296,7 +287,7 @@ export function formatConferenceTileTime(value: string) {
     return formatClock(value);
   }
 
-  return new Intl.DateTimeFormat("ru-RU", {
+  return new Intl.DateTimeFormat(getActiveLocale(), {
     day: "2-digit",
     month: "2-digit",
   }).format(date);
@@ -320,12 +311,12 @@ export function formatConferenceOrganizerLabel(
   currentUser: UserProfile,
 ) {
   return organizer.id === currentUser.id
-    ? `${organizer.displayName} (\u0432\u044B)`
+    ? tActive("pres.organizerYou", { name: organizer.displayName })
     : organizer.displayName;
 }
 
 export function describeConferenceRole(isOrganizer: boolean) {
-  return isOrganizer ? "\u041E\u0440\u0433\u0430\u043D\u0438\u0437\u0430\u0442\u043E\u0440" : "\u0423\u0447\u0430\u0441\u0442\u043D\u0438\u043A";
+  return isOrganizer ? tActive("conf.roleOrganizer") : tActive("conf.roleParticipant");
 }
 
 function getConferenceActivationTime(value: string) {

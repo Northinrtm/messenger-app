@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { ApiError } from "../../../lib/api";
+import type { TranslationKey } from "../../../i18n";
 import type { ChatSummary } from "../../../lib/types";
 import type { ConversationListTab } from "../chatUi";
 
@@ -65,22 +66,16 @@ export function sortChatsByDraftActivity(
 export function resolveTabChatsEmptyText(
   activeListTab: ConversationListTab,
   normalizedSearch: string
-) {
+): TranslationKey {
   if (activeListTab === "conferences") {
-    return normalizedSearch
-      ? "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E."
-      : "\u041F\u043E\u043A\u0430 \u043D\u0435\u0442 \u0430\u043A\u0442\u0438\u0432\u043D\u044B\u0445 \u0432\u0438\u0434\u0435\u043E\u043A\u043E\u043D\u0444\u0435\u0440\u0435\u043D\u0446\u0438\u0439.";
+    return normalizedSearch ? "list.notFound" : "list.emptyConferences";
   }
 
   if (activeListTab === "mail") {
-    return normalizedSearch
-      ? "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E."
-      : "\u041F\u043E\u0447\u0442\u043E\u0432\u044B\u0435 \u044F\u0449\u0438\u043A\u0438 \u043F\u043E\u043A\u0430 \u043D\u0435 \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u044B.";
+    return normalizedSearch ? "list.notFound" : "list.emptyMail";
   }
 
-  return normalizedSearch
-    ? "\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E."
-    : "\u041F\u043E\u043A\u0430 \u043D\u0435\u0442 \u0430\u043A\u0442\u0438\u0432\u043D\u044B\u0445 \u0447\u0430\u0442\u043E\u0432.";
+  return normalizedSearch ? "list.notFound" : "list.emptyChats";
 }
 
 export function useWorkspaceStatus({

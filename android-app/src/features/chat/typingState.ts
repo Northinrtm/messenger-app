@@ -1,5 +1,7 @@
 import type {Participant, TypingEvent} from '@north/shared';
 
+import {tActive} from '../../i18n';
+
 export function applyTypingEvent(
   currentParticipants: Participant[],
   event: TypingEvent,
@@ -36,16 +38,19 @@ export function formatTypingParticipants(participants: Participant[]) {
   ].filter(Boolean);
 
   if (uniqueNames.length === 0) {
-    return 'Typing...';
+    return tActive('typing.one');
   }
 
   if (uniqueNames.length === 1) {
-    return `${uniqueNames[0]} is typing...`;
+    return tActive('typing.named', {name: uniqueNames[0]});
   }
 
   if (uniqueNames.length === 2) {
-    return `${uniqueNames[0]} and ${uniqueNames[1]} are typing...`;
+    return tActive('typing.two', {name1: uniqueNames[0], name2: uniqueNames[1]});
   }
 
-  return `${uniqueNames[0]} and ${uniqueNames.length - 1} others are typing...`;
+  return tActive('typing.more', {
+    name: uniqueNames[0],
+    count: uniqueNames.length - 1,
+  });
 }

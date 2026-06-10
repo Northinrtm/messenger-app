@@ -12,16 +12,18 @@ import {
 } from 'react-native';
 import {getChatAttachmentBrowserPage, downloadChatAttachment} from '../../lib/api';
 import {androidTheme} from '../../theme';
-import type {RunAuthorized} from './ChatThreadScreen';
+import {useI18n} from '../../i18n/I18nProvider';
+import {tActive, type TranslationKey} from '../../i18n';
+import type {RunAuthorized} from './chatTypes';
 import {Linking} from 'react-native';
 
 const PAGE_SIZE = 40;
 
-type Tab = {kind: ChatAttachmentBrowserKind; label: string};
+type Tab = {kind: ChatAttachmentBrowserKind; labelKey: TranslationKey};
 const TABS: Tab[] = [
-  {kind: 'ALL', label: 'Все'},
-  {kind: 'PHOTOS', label: 'Фото'},
-  {kind: 'DOCUMENTS', label: 'Документы'},
+  {kind: 'ALL', labelKey: 'cmb.filterAll'},
+  {kind: 'PHOTOS', labelKey: 'cmb.filterPhotos'},
+  {kind: 'DOCUMENTS', labelKey: 'cmb.filterDocuments'},
 ];
 
 type Props = {
@@ -42,6 +44,7 @@ function isPhoto(mimeType: string) {
 }
 
 export function ChatMediaBrowserSheet({visible, chatId, runAuthorized, onClose}: Props) {
+  const {t} = useI18n();
   const [activeKind, setActiveKind] = useState<ChatAttachmentBrowserKind>('ALL');
   const [items, setItems] = useState<ChatAttachmentBrowserItem[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -71,7 +74,7 @@ export function ChatMediaBrowserSheet({visible, chatId, runAuthorized, onClose}:
         setItems(prev => (isFirstPage ? page.items : [...prev, ...page.items]));
         setNextCursor(page.nextCursor);
       } catch {
-        if (activeKindRef.current === kind) setError('Не удалось загрузить файлы');
+        if (activeKindRef.current === kind) setError(tActive('cmb.loadError'));
       } finally {
         setLoading(false);
         setLoadingMore(false);
@@ -109,7 +112,7 @@ export function ChatMediaBrowserSheet({visible, chatId, runAuthorized, onClose}:
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.sheet}>
         <View style={styles.header}>
-          <Text style={styles.title}>Медиафайлы</Text>
+          <Text style={styles.title}>{t('cmb.title')}</Text>
           <Pressable onPress={onClose} style={styles.closeButton}>
             <Text style={styles.closeLabel}>✕</Text>
           </Pressable>
@@ -122,7 +125,7 @@ export function ChatMediaBrowserSheet({visible, chatId, runAuthorized, onClose}:
               style={[styles.tab, activeKind === tab.kind && styles.tabActive]}
               onPress={() => handleTabChange(tab.kind)}>
               <Text style={[styles.tabLabel, activeKind === tab.kind && styles.tabLabelActive]}>
-                {tab.label}
+                {t(tab.labelKey)}
               </Text>
             </Pressable>
           ))}
@@ -138,7 +141,7 @@ export function ChatMediaBrowserSheet({visible, chatId, runAuthorized, onClose}:
           </View>
         ) : items.length === 0 ? (
           <View style={styles.center}>
-            <Text style={styles.emptyText}>Файлов нет</Text>
+            <Text style={styles.emptyText}>{t('cmb.empty')}</Text>
           </View>
         ) : (
           <ScrollView contentContainerStyle={styles.list}>
@@ -196,7 +199,7 @@ export function ChatMediaBrowserSheet({visible, chatId, runAuthorized, onClose}:
                 {loadingMore ? (
                   <ActivityIndicator color={androidTheme.colors.blue} />
                 ) : (
-                  <Text style={styles.loadMoreLabel}>Загрузить ещё</Text>
+                  <Text style={styles.loadMoreLabel}>{t('cmb.loadMore')}</Text>
                 )}
               </Pressable>
             ) : null}

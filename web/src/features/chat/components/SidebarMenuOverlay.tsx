@@ -1,5 +1,6 @@
 import type { RefObject } from "react";
 
+import { useI18n } from "../../../i18n/I18nProvider";
 import type { UserProfile } from "../../../lib/types";
 import type { MenuAction, MenuActionId } from "../chatUi";
 import { AvatarCircle } from "./AvatarCircle";
@@ -21,6 +22,7 @@ export function SidebarMenuOverlay({
   onClose,
   onAction,
 }: Props) {
+  const { t } = useI18n();
   return (
     <div className="sidebar-menu-overlay notranslate" ref={menuPanelRef} translate="no">
       <div className="sidebar-menu-profile">
@@ -37,17 +39,17 @@ export function SidebarMenuOverlay({
           type="button"
           className="sidebar-menu-collapse"
           onClick={onClose}
-          aria-label="Скрыть меню"
+          aria-label={t("menu.collapse")}
         >
           ^
         </button>
       </div>
       <div className="menu-section menu-item-list">
-        {menuActions.map(({ id, label, symbol, badge }) => (
+        {menuActions.map(({ id, labelKey, symbol, badge }) => (
           <button type="button" key={id} className="menu-row" onClick={() => onAction(id)}>
             <span className="menu-row-icon">{symbol}</span>
             <span className="menu-row-label">
-              {id === "logout" && isSigningOut ? "Выход..." : label}
+              {id === "logout" && isSigningOut ? t("menu.loggingOut") : t(labelKey)}
             </span>
             {badge ? <span className="menu-badge-new">{badge}</span> : null}
           </button>

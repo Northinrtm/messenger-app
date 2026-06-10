@@ -39,6 +39,8 @@ import {
   View,
 } from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {useI18n} from '../../i18n/I18nProvider';
+import type {RunAuthorized} from './chatTypes';
 import {
   acknowledgeRead,
   deleteMessage,
@@ -81,9 +83,7 @@ const REACTION_OPTIONS: Array<{
   {key: 'OK', emoji: '\u{1F44C}'},
 ];
 
-export type RunAuthorized = <T>(
-  operation: (token: string) => Promise<T>,
-) => Promise<T>;
+export type {RunAuthorized} from './chatTypes';
 
 type RealtimeMessageEnvelope = {
   message: ChatMessage;
@@ -176,6 +176,7 @@ export function ChatThreadScreen({
   onBlockUser,
   onUnblockUser,
 }: Props) {
+  const {t, tp} = useI18n();
   const msgFontSize = FONT_SIZE_MAP[preferences?.fontSize ?? 'medium'];
   const chatBg = preferences?.chatBackground ?? '#0f1720';
   const insets = useSafeAreaInsets();
@@ -843,7 +844,7 @@ export function ChatThreadScreen({
       return;
     }
     if (composerAttachments.length > 0) {
-      setError('Send or remove selected attachments before editing a message.');
+      setError(t('ct.err.attachmentsBeforeEdit'));
       return;
     }
 
@@ -1285,7 +1286,7 @@ export function ChatThreadScreen({
       currentChat => currentChat.id === targetChatId,
     );
     if (!targetChat) {
-      setError('Forward target is unavailable.');
+      setError(t('ct.err.forwardUnavailable'));
       return;
     }
 
@@ -1493,12 +1494,12 @@ export function ChatThreadScreen({
     : chat?.direct
       ? null
       : chat
-        ? `${chat.members.length} members`
-        : 'Opening chat';
+        ? tp('ct.membersCount', chat.members.length)
+        : t('ct.openingChat');
   const headerMemberOnline = activeConversationMember?.online ?? false;
   const isSelectionMode = selectedMessageIds.size > 0;
   const peerName =
-    activeConversationMember?.displayName ?? chat?.title ?? 'собеседника';
+    activeConversationMember?.displayName ?? chat?.title ?? t('ct.peerFallback');
   const isContact = activeConversationMember
     ? contacts.some(c => c.username === activeConversationMember.username)
     : false;
@@ -1582,7 +1583,7 @@ export function ChatThreadScreen({
                 online={headerMemberOnline}
               />
               <View style={styles.headerCopy}>
-                <Text style={styles.headerTitle}>{chat?.title ?? 'Loading chat'}</Text>
+                <Text style={styles.headerTitle}>{chat?.title ?? t('ct.loadingChat')}</Text>
                 {headerStatusText ? (
                   <Text style={styles.headerSubtitle}>{headerStatusText}</Text>
                 ) : null}
@@ -1611,11 +1612,11 @@ export function ChatThreadScreen({
           <View style={styles.pinnedAccent} />
           <View style={styles.pinnedCopy}>
             <Text style={styles.pinnedLabel}>
-              {'Закреплено'}
+              {t('ct.pinned')}
               {pinnedCount > 1 ? ` ${clampedPinnedIndex + 1}/${pinnedCount}` : ''}
             </Text>
             <Text numberOfLines={1} style={styles.pinnedPreview}>
-              {visiblePinnedMessage.preview || 'Открыть закреплённое'}
+              {visiblePinnedMessage.preview || t('ct.openPinned')}
             </Text>
           </View>
           {pinnedCount > 1 ? (
@@ -1652,18 +1653,18 @@ export function ChatThreadScreen({
             disabled={loadingOlder}
             style={loadingOlder ? styles.loadOlderDisabled : styles.loadOlderButton}>
             <Text style={styles.loadOlderLabel}>
-              {loadingOlder ? 'Loading older messages...' : 'Load older messages'}
+              {loadingOlder ? t('ct.loadingOlder') : t('ct.loadOlder')}
             </Text>
           </Pressable>
         ) : null}
 
         {loading ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyLabel}>Loading conversation...</Text>
+            <Text style={styles.emptyLabel}>{t('ct.loadingConversation')}</Text>
           </View>
         ) : messages.length === 0 ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyLabel}>No messages yet.</Text>
+            <Text style={styles.emptyLabel}>{t('ct.noMessages')}</Text>
           </View>
         ) : (
           messages.map((message, msgIndex) => {
@@ -1681,13 +1682,13 @@ export function ChatThreadScreen({
               clientMessageId.trim().length > 0
                 ? messageErrors[clientMessageId] ??
                   (ownMessage && message.status?.state === 'FAILED'
-                    ? 'Message was not delivered. Retry.'
+                    ? t('ct.notDelivered')
                     : null)
                 : null;
             const forwardedLabel = message.forwardedFrom
-              ? `Forwarded from ${message.forwardedFrom.sender.displayName}`
+              ? t('ct.forwardedFrom', {name: message.forwardedFrom.sender.displayName})
               : message.forwarded
-                ? 'Forwarded'
+                ? t('ct.forwarded')
                 : null;
 
             const isSelected = selectedMessageIds.has(message.id);
@@ -1753,7 +1754,7 @@ export function ChatThreadScreen({
                 {message.replyTo ? (
                   <View style={styles.replyCard}>
                     <Text style={styles.replyLabel}>
-                      Reply to {message.replyTo.sender.displayName}
+                      {t('ct.replyTo', {name: message.replyTo.sender.displayName})}
                     </Text>
                     <Text style={styles.replySnippet}>{message.replyTo.preview}</Text>
                   </View>
@@ -1762,7 +1763,7 @@ export function ChatThreadScreen({
                   <Text style={styles.forwardedLabel}>{forwardedLabel}</Text>
                 ) : null}
                 <Text style={[styles.messageBody, {fontSize: msgFontSize}]}>
-                  {message.content || 'Attachment-only message'}
+                  {message.content || t('ct.attachmentOnly')}
                 </Text>
                 {attachments.length > 0 ? (
                   <View style={styles.messageAttachmentList}>
@@ -1815,11 +1816,11 @@ export function ChatThreadScreen({
                               <Text style={styles.messageAttachmentAction}>
                                 {openingAttachment
                                   ? isImageAttachment(attachment)
-                                    ? 'Previewing...'
-                                    : 'Opening...'
+                                    ? t('ct.previewing')
+                                    : t('ct.opening')
                                   : isImageAttachment(attachment)
-                                    ? 'Preview'
-                                    : 'Open'}
+                                    ? t('ct.preview')
+                                    : t('ct.open')}
                               </Text>
                             </Pressable>
                             <Pressable
@@ -1836,7 +1837,7 @@ export function ChatThreadScreen({
                               }
                               testID={`share-attachment-${message.id}-${attachment.id}`}>
                               <Text style={styles.messageAttachmentAction}>
-                                {sharingAttachment ? 'Sharing...' : 'Share'}
+                                {sharingAttachment ? t('ct.sharing') : t('ct.share')}
                               </Text>
                             </Pressable>
                           </View>
@@ -1847,7 +1848,7 @@ export function ChatThreadScreen({
                 ) : null}
                 <View style={styles.messageMetaRow}>
                   {message.editedAt ? (
-                    <Text style={styles.messageMetaEdited}>edited</Text>
+                    <Text style={styles.messageMetaEdited}>{t('ct.edited')}</Text>
                   ) : null}
                   <Text style={styles.messageMeta}>
                     {formatTimestamp(message.editedAt ?? message.createdAt)}
@@ -1889,7 +1890,7 @@ export function ChatThreadScreen({
                     <Pressable
                       onPress={() => handleRetryMessage(message)}
                       style={styles.retryButton}>
-                      <Text style={styles.retryButtonLabel}>Retry</Text>
+                      <Text style={styles.retryButtonLabel}>{t('common.retry')}</Text>
                     </Pressable>
                   </View>
                 ) : null}
@@ -1905,7 +1906,7 @@ export function ChatThreadScreen({
           style={styles.jumpToUnreadButton}
           onPress={() => scrollMessagesToEnd(true)}>
           <Text style={styles.jumpToUnreadLabel}>
-            ↓ {chat!.unreadCount} {chat!.unreadCount === 1 ? 'новое' : 'новых'}
+            ↓ {tp('ct.unreadCount', chat!.unreadCount)}
           </Text>
         </Pressable>
       ) : null}
@@ -1923,7 +1924,7 @@ export function ChatThreadScreen({
         {replyingToMessage ? (
           <View style={styles.composerContext} testID="reply-context">
             <View style={styles.composerContextCopy}>
-              <Text style={styles.composerContextLabel}>Reply</Text>
+              <Text style={styles.composerContextLabel}>{t('ct.reply')}</Text>
               <Text style={styles.composerContextTitle}>
                 {replyingToMessage.sender.displayName}
               </Text>
@@ -1935,14 +1936,14 @@ export function ChatThreadScreen({
               onPress={handleCancelReply}
               style={styles.composerContextClose}
               testID="cancel-reply-button">
-              <Text style={styles.composerContextCloseLabel}>Cancel</Text>
+              <Text style={styles.composerContextCloseLabel}>{t('common.cancel')}</Text>
             </Pressable>
           </View>
         ) : null}
         {editingMessage ? (
           <View style={styles.composerContext} testID="edit-context">
             <View style={styles.composerContextCopy}>
-              <Text style={styles.composerContextLabel}>Editing</Text>
+              <Text style={styles.composerContextLabel}>{t('ct.editing')}</Text>
               <Text style={styles.composerContextTitle}>
                 {editingMessage.sender.displayName}
               </Text>
@@ -1954,7 +1955,7 @@ export function ChatThreadScreen({
               onPress={handleCancelEdit}
               style={styles.composerContextClose}
               testID="cancel-edit-button">
-              <Text style={styles.composerContextCloseLabel}>Cancel</Text>
+              <Text style={styles.composerContextCloseLabel}>{t('common.cancel')}</Text>
             </Pressable>
           </View>
         ) : null}
@@ -1962,7 +1963,7 @@ export function ChatThreadScreen({
           <View style={styles.forwardContext} testID="forward-context">
             <View style={styles.composerContext}>
               <View style={styles.composerContextCopy}>
-                <Text style={styles.composerContextLabel}>Forward</Text>
+                <Text style={styles.composerContextLabel}>{t('ct.forward')}</Text>
                 <Text style={styles.composerContextTitle}>
                   {forwardingMessage.sender.displayName}
                 </Text>
@@ -1974,7 +1975,7 @@ export function ChatThreadScreen({
                 onPress={handleCancelForward}
                 style={styles.composerContextClose}
                 testID="cancel-forward-button">
-                <Text style={styles.composerContextCloseLabel}>Cancel</Text>
+                <Text style={styles.composerContextCloseLabel}>{t('common.cancel')}</Text>
               </Pressable>
             </View>
             <ScrollView
@@ -2002,7 +2003,7 @@ export function ChatThreadScreen({
                           ? styles.forwardTargetTitleActive
                           : styles.forwardTargetTitle
                       }>
-                      {targetChat.id === chatId ? 'This chat' : targetChat.title}
+                      {targetChat.id === chatId ? t('ct.thisChat') : targetChat.title}
                     </Text>
                     <Text
                       style={
@@ -2011,8 +2012,8 @@ export function ChatThreadScreen({
                           : styles.forwardTargetMeta
                       }>
                       {targetChat.direct
-                        ? 'Direct chat'
-                        : `${targetChat.members.length} members`}
+                        ? t('ct.directChat')
+                        : tp('ct.membersCount', targetChat.members.length)}
                     </Text>
                   </Pressable>
                 );
@@ -2036,7 +2037,7 @@ export function ChatThreadScreen({
                   <Text style={styles.composerAttachmentMeta}>
                     {attachment.sizeBytes != null
                       ? formatFileSize(attachment.sizeBytes)
-                      : 'Ready to upload'}
+                      : t('ct.readyToUpload')}
                   </Text>
                 </View>
                 <Pressable
@@ -2074,10 +2075,10 @@ export function ChatThreadScreen({
               onFocus={() => scrollMessagesToEnd(false)}
               placeholder={
                 editingMessage
-                  ? 'Edit your message'
+                  ? t('ct.editPlaceholder')
                   : replyingToMessage
-                    ? 'Write a reply'
-                    : 'Write a message'
+                    ? t('ct.replyPlaceholder')
+                    : t('ct.messagePlaceholder')
               }
               placeholderTextColor={androidTheme.colors.textMuted}
               selectionColor={androidTheme.colors.blue}
@@ -2098,10 +2099,10 @@ export function ChatThreadScreen({
                 {editingMessage
                   ? sendingCount > 0
                     ? '...'
-                    : 'Save'
+                    : t('common.save')
                   : sendingCount > 0
                     ? '...'
-                    : 'Send'}
+                    : t('ct.send')}
               </Text>
             </Pressable>
           </View>
@@ -2129,7 +2130,7 @@ export function ChatThreadScreen({
                 }}
                 style={styles.imagePreviewActionButton}
                 testID="image-preview-open-external">
-                <Text style={styles.imagePreviewActionLabel}>Open externally</Text>
+                <Text style={styles.imagePreviewActionLabel}>{t('ct.openExternally')}</Text>
               </Pressable>
               <Pressable
                 onPress={() => {
@@ -2137,7 +2138,7 @@ export function ChatThreadScreen({
                 }}
                 style={styles.imagePreviewCloseButton}
                 testID="image-preview-close">
-                <Text style={styles.imagePreviewCloseLabel}>Close</Text>
+                <Text style={styles.imagePreviewCloseLabel}>{t('common.close')}</Text>
               </Pressable>
             </View>
           </View>
@@ -2151,12 +2152,12 @@ export function ChatThreadScreen({
         onRequestClose={() => setDeleteConfirm(null)}>
         <View style={styles.confirmOverlay}>
           <View style={styles.confirmCard}>
-            <Text style={styles.confirmTitle}>Удалить сообщение</Text>
+            <Text style={styles.confirmTitle}>{t('ct.deleteTitle')}</Text>
             <Text style={styles.confirmBody}>
-              Вы точно хотите удалить{' '}
+              {t('ct.deleteConfirmPrefix')}
               {deleteConfirm && deleteConfirm.messageIds.length > 1
-                ? `эти ${deleteConfirm.messageIds.length} сообщения`
-                : 'это сообщение'}
+                ? t('ct.deleteThese', {count: deleteConfirm.messageIds.length})
+                : t('ct.deleteThis')}
               ?
             </Text>
             {chat?.direct ? (
@@ -2177,7 +2178,7 @@ export function ChatThreadScreen({
                   ) : null}
                 </View>
                 <Text style={styles.confirmCheckLabel}>
-                  Также удалить для {peerName}
+                  {t('ct.deleteForPeer', {name: peerName})}
                 </Text>
               </Pressable>
             ) : null}
@@ -2185,12 +2186,12 @@ export function ChatThreadScreen({
               <Pressable
                 onPress={() => setDeleteConfirm(null)}
                 style={styles.confirmCancel}>
-                <Text style={styles.confirmCancelLabel}>Отмена</Text>
+                <Text style={styles.confirmCancelLabel}>{t('common.cancel')}</Text>
               </Pressable>
               <Pressable
                 onPress={handleConfirmDelete}
                 style={styles.confirmDelete}>
-                <Text style={styles.confirmDeleteLabel}>Удалить</Text>
+                <Text style={styles.confirmDeleteLabel}>{t('common.delete')}</Text>
               </Pressable>
             </View>
           </View>
@@ -2247,7 +2248,7 @@ export function ChatThreadScreen({
                       setContextMenuMessage(null);
                     }}>
                     <Text style={styles.menuItemIcon}>↩</Text>
-                    <Text style={styles.menuItemLabel}>Ответить</Text>
+                    <Text style={styles.menuItemLabel}>{t('ct.menu.reply')}</Text>
                   </Pressable>
                   <View style={styles.menuDivider} />
                 </>
@@ -2256,7 +2257,7 @@ export function ChatThreadScreen({
                 style={styles.menuItem}
                 onPress={() => handleCopyMessage(contextMenuMessage!)}>
                 <Text style={styles.menuItemIcon}>⎘</Text>
-                <Text style={styles.menuItemLabel}>Копировать</Text>
+                <Text style={styles.menuItemLabel}>{t('common.copy')}</Text>
               </Pressable>
               {contextMenuMessage && canForwardMessage(contextMenuMessage) ? (
                 <>
@@ -2269,7 +2270,7 @@ export function ChatThreadScreen({
                       setContextMenuMessage(null);
                     }}>
                     <Text style={styles.menuItemIcon}>↪</Text>
-                    <Text style={styles.menuItemLabel}>Переслать</Text>
+                    <Text style={styles.menuItemLabel}>{t('ct.menu.forward')}</Text>
                   </Pressable>
                 </>
               ) : null}
@@ -2285,7 +2286,7 @@ export function ChatThreadScreen({
                       setContextMenuMessage(null);
                     }}>
                     <Text style={styles.menuItemIcon}>✎</Text>
-                    <Text style={styles.menuItemLabel}>Редактировать</Text>
+                    <Text style={styles.menuItemLabel}>{t('ct.menu.edit')}</Text>
                   </Pressable>
                 </>
               ) : null}
@@ -2294,7 +2295,7 @@ export function ChatThreadScreen({
                 style={styles.menuItem}
                 onPress={() => handlePinMessage(contextMenuMessage!)}>
                 <Text style={styles.menuItemIcon}>📌</Text>
-                <Text style={styles.menuItemLabel}>Закрепить</Text>
+                <Text style={styles.menuItemLabel}>{t('ct.menu.pin')}</Text>
               </Pressable>
               <View style={styles.menuDivider} />
               <Pressable
@@ -2302,7 +2303,7 @@ export function ChatThreadScreen({
                 onPress={() => handleDeleteMessage(contextMenuMessage!)}>
                 <Text style={[styles.menuItemIcon, styles.menuItemIconDanger]}>🗑</Text>
                 <Text style={[styles.menuItemLabel, styles.menuItemLabelDanger]}>
-                  Удалить
+                  {t('common.delete')}
                 </Text>
               </Pressable>
             </View>
@@ -2337,9 +2338,9 @@ export function ChatThreadScreen({
             <Text style={styles.profileHeroStatus}>
               {activeConversationMember
                 ? activeConversationMember.online
-                  ? 'В сети'
-                  : 'был(а) недавно'
-                : `${chat?.members.length ?? 0} участников`}
+                  ? t('ct.profile.online')
+                  : t('ct.profile.recently')
+                : tp('ct.membersCount', chat?.members.length ?? 0)}
             </Text>
           </View>
 
@@ -2349,7 +2350,7 @@ export function ChatThreadScreen({
               style={styles.profileActionBtn}
               onPress={() => setProfileSheetOpen(false)}>
               <Text style={styles.profileActionIcon}>💬</Text>
-              <Text style={styles.profileActionLabel}>Чат</Text>
+              <Text style={styles.profileActionLabel}>{t('ct.profile.chat')}</Text>
             </Pressable>
             {(onAddContact || onRemoveContact) ? (
               <Pressable
@@ -2363,8 +2364,8 @@ export function ChatThreadScreen({
                   {profileActionPending === 'contact'
                     ? '...'
                     : isContact
-                      ? 'Контакт'
-                      : 'Добавить'}
+                      ? t('ct.profile.contact')
+                      : t('ct.profile.add')}
                 </Text>
               </Pressable>
             ) : null}
@@ -2387,8 +2388,8 @@ export function ChatThreadScreen({
                   {profileActionPending === 'block'
                     ? '...'
                     : isBlocked
-                      ? 'Разблок.'
-                      : 'Блок.'}
+                      ? t('ct.profile.unblock')
+                      : t('ct.profile.block')}
                 </Text>
               </Pressable>
             ) : null}
@@ -2401,7 +2402,7 @@ export function ChatThreadScreen({
                 <Text style={styles.profileInfoValue}>
                   @{activeConversationMember.username}
                 </Text>
-                <Text style={styles.profileInfoLabel}>Имя пользователя</Text>
+                <Text style={styles.profileInfoLabel}>{t('ct.profile.username')}</Text>
               </View>
             ) : null}
             {activeConversationMember?.profession?.trim() ? (
@@ -2411,7 +2412,7 @@ export function ChatThreadScreen({
                   <Text style={styles.profileInfoValue}>
                     {activeConversationMember.profession}
                   </Text>
-                  <Text style={styles.profileInfoLabel}>О себе</Text>
+                  <Text style={styles.profileInfoLabel}>{t('ct.profile.about')}</Text>
                 </View>
               </>
             ) : null}
@@ -2420,9 +2421,9 @@ export function ChatThreadScreen({
                 {activeConversationMember ? <View style={styles.profileInfoDivider} /> : null}
                 <View style={styles.profileInfoRow}>
                   <Text style={styles.profileInfoValue}>
-                    {chat.members.length} участников
+                    {tp('ct.membersCount', chat.members.length)}
                   </Text>
-                  <Text style={styles.profileInfoLabel}>Участники группы</Text>
+                  <Text style={styles.profileInfoLabel}>{t('ct.profile.groupMembers')}</Text>
                 </View>
               </>
             ) : null}
@@ -2880,26 +2881,6 @@ function formatTimestamp(value: string) {
   return date.toLocaleTimeString(undefined, {
     hour: '2-digit',
     minute: '2-digit',
-  });
-}
-
-function formatRelativeMessageTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  const now = new Date();
-  if (date.toDateString() === now.toDateString()) {
-    return date.toLocaleTimeString(undefined, {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  }
-
-  return date.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
   });
 }
 

@@ -8,7 +8,6 @@ import type {
   MobileAuthResponse,
   PendingOutgoingMessage,
   UserProfile,
-  UserSessionInfo,
   VideoConference,
   WorkspaceBootstrap,
 } from '@north/shared';
@@ -96,6 +95,8 @@ import {
   setupFcmNotificationOpenedHandler,
 } from './src/lib/fcm';
 import {androidTheme} from './src/theme';
+import {I18nProvider, useI18n} from './src/i18n/I18nProvider';
+import {tActive} from './src/i18n';
 
 type AuthMode = 'login' | 'register';
 
@@ -152,6 +153,7 @@ async function refreshActiveSession(refreshToken: string) {
 }
 
 function App() {
+  const {t} = useI18n();
   const [authMode, setAuthMode] = useState<AuthMode>('login');
   const [appReady, setAppReady] = useState(false);
   const [session, setSession] = useState<ActiveSession | null>(null);
@@ -172,7 +174,7 @@ function App() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [authInfo, setAuthInfo] = useState<string | null>(
-    'Secure session restore runs through the new mobile refresh endpoint.',
+    tActive('app.info.secureRestore'),
   );
   const [preferences, setPreferences] = useState<AppPreferences>({
     fontSize: 'medium',
@@ -283,7 +285,7 @@ function App() {
           const refreshedSession = await refreshSessionState();
           return await operation(refreshedSession.auth.token);
         } catch (refreshError) {
-          await resetToSignedOutState('Session expired. Sign in again.');
+          await resetToSignedOutState(tActive('app.info.sessionExpired'));
           throw refreshError;
         }
       }
@@ -385,7 +387,7 @@ function App() {
     try {
       await refreshSessionState();
     } catch {
-      await resetToSignedOutState('Session expired. Sign in again.');
+      await resetToSignedOutState(tActive('app.info.sessionExpired'));
     }
   }, [refreshSessionState, resetToSignedOutState]);
 
@@ -435,14 +437,14 @@ function App() {
           persistRecoveredPendingOutgoingFailures(
             preparedWorkspace.recoveredFailedMessages,
           );
-          setAuthInfo('Session restored from secure storage.');
+          setAuthInfo(tActive('app.info.sessionRestored'));
         } catch (workspaceLoadError) {
           if (cancelled) {
             return;
           }
           setWorkspace(null);
           setWorkspaceError(describeError(workspaceLoadError));
-          setAuthInfo('Session restored. Workspace sync needs retry.');
+          setAuthInfo(tActive('app.info.sessionRestoredRetry'));
         }
       } catch (error) {
         await clearStoredRefreshToken();
@@ -526,7 +528,7 @@ function App() {
       },
       onSessionEvent: event => {
         if (event.type === 'SESSION_REVOKED' && event.sessionId === realtimeSessionId) {
-          resetToSignedOutState('Session revoked. Sign in again.').catch(
+          resetToSignedOutState(tActive('app.info.sessionRevoked')).catch(
             () => undefined,
           );
         }
@@ -588,11 +590,11 @@ function App() {
           persistRecoveredPendingOutgoingFailures(
             preparedWorkspace.recoveredFailedMessages,
           );
-          setAuthInfo('Login succeeded.');
+          setAuthInfo(tActive('app.info.loginSucceeded'));
         } catch (workspaceLoadError) {
           setWorkspace(null);
           setWorkspaceError(describeError(workspaceLoadError));
-          setAuthInfo('Login succeeded. Workspace sync needs retry.');
+          setAuthInfo(tActive('app.info.loginSucceededRetry'));
         }
       } catch (error) {
         sessionRef.current = null;
@@ -637,11 +639,11 @@ function App() {
           persistRecoveredPendingOutgoingFailures(
             preparedWorkspace.recoveredFailedMessages,
           );
-          setAuthInfo('Account created and session established.');
+          setAuthInfo(tActive('app.info.accountCreated'));
         } catch (workspaceLoadError) {
           setWorkspace(null);
           setWorkspaceError(describeError(workspaceLoadError));
-          setAuthInfo('Account created. Workspace sync needs retry.');
+          setAuthInfo(tActive('app.info.accountCreatedRetry'));
         }
       } catch (error) {
         sessionRef.current = null;
@@ -716,7 +718,7 @@ function App() {
     } catch {
       // Local session clearing should still win if remote logout fails.
     } finally {
-      await resetToSignedOutState('Signed out on this device.');
+      await resetToSignedOutState(tActive('app.info.signedOut'));
     }
   }, [resetToSignedOutState]);
 
@@ -1115,7 +1117,7 @@ function App() {
       {!appReady ? (
         <View style={styles.loadingScreen}>
           <ActivityIndicator size="large" color={androidTheme.colors.blue} />
-          <Text style={styles.loadingLabel}>Restoring secure session...</Text>
+          <Text style={styles.loadingLabel}>{t('app.restoringSession')}</Text>
         </View>
       ) : session && workspace && activeConferenceId && activeConference ? (
         <ConferenceDetailScreen
@@ -1229,26 +1231,24 @@ function WorkspaceRecoveryScreen({
   onRetry,
   onLogout,
 }: WorkspaceRecoveryScreenProps) {
+  const {t} = useI18n();
   return (
     <View style={styles.recoveryScreen}>
       <View style={styles.recoveryCard}>
-        <Text style={styles.recoveryEyebrow}>Workspace sync</Text>
-        <Text style={styles.recoveryTitle}>Session is active</Text>
-        <Text style={styles.recoveryCopy}>
-          Mobile auth succeeded, but the workspace bootstrap still needs a clean
-          retry.
-        </Text>
+        <Text style={styles.recoveryEyebrow}>{t('app.recoveryEyebrow')}</Text>
+        <Text style={styles.recoveryTitle}>{t('app.recoveryTitle')}</Text>
+        <Text style={styles.recoveryCopy}>{t('app.recoveryCopy')}</Text>
         {error ? <Text style={styles.recoveryError}>{error}</Text> : null}
         <Pressable
           onPress={onRetry}
           disabled={loading}
           style={loading ? styles.recoveryPrimaryDisabled : styles.recoveryPrimary}>
           <Text style={styles.recoveryPrimaryLabel}>
-            {loading ? 'Retrying...' : 'Retry workspace sync'}
+            {loading ? t('app.recoveryRetrying') : t('app.recoveryRetry')}
           </Text>
         </Pressable>
         <Pressable onPress={onLogout} style={styles.recoveryGhost}>
-          <Text style={styles.recoveryGhostLabel}>Logout</Text>
+          <Text style={styles.recoveryGhostLabel}>{t('app.logout')}</Text>
         </Pressable>
       </View>
     </View>
@@ -1457,12 +1457,12 @@ class AppErrorBoundary extends Component<
     if (this.state.hasError) {
       return (
         <View style={errorBoundaryStyles.screen}>
-          <Text style={errorBoundaryStyles.title}>Что-то пошло не так</Text>
+          <Text style={errorBoundaryStyles.title}>{tActive('app.errorTitle')}</Text>
           <Text style={errorBoundaryStyles.body}>{this.state.message}</Text>
           <Pressable
             style={errorBoundaryStyles.button}
             onPress={() => this.setState({hasError: false, message: ''})}>
-            <Text style={errorBoundaryStyles.buttonLabel}>Попробовать снова</Text>
+            <Text style={errorBoundaryStyles.buttonLabel}>{tActive('app.errorRetry')}</Text>
           </Pressable>
         </View>
       );
@@ -1599,9 +1599,11 @@ const styles = StyleSheet.create({
 
 function AppWithBoundary() {
   return (
-    <AppErrorBoundary>
-      <App />
-    </AppErrorBoundary>
+    <I18nProvider>
+      <AppErrorBoundary>
+        <App />
+      </AppErrorBoundary>
+    </I18nProvider>
   );
 }
 

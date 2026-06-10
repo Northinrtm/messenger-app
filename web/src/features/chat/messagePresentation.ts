@@ -1,3 +1,5 @@
+import { tActive } from "../../i18n";
+import type { TranslationKey } from "../../i18n";
 import type {
   ChatMessage,
   ChatMessageAttachment,
@@ -11,12 +13,12 @@ import type {
 export const MESSAGE_REACTION_OPTIONS: Array<{
   key: MessageReaction["key"];
   emoji: string;
-  label: string;
+  labelKey: TranslationKey;
 }> = [
-  { key: "LIKE", emoji: "\uD83D\uDC4D", label: "\u041B\u0430\u0439\u043A" },
-  { key: "DISLIKE", emoji: "\uD83D\uDC4E", label: "\u0414\u0438\u0437\u043B\u0430\u0439\u043A" },
-  { key: "EYES", emoji: "\uD83D\uDC40", label: "\u0413\u043B\u0430\u0437\u0430" },
-  { key: "OK", emoji: "\uD83D\uDC4C", label: "\u041E\u043A\u0435\u0439" },
+  { key: "LIKE", emoji: "\uD83D\uDC4D", labelKey: "reaction.like" },
+  { key: "DISLIKE", emoji: "\uD83D\uDC4E", labelKey: "reaction.dislike" },
+  { key: "EYES", emoji: "\uD83D\uDC40", labelKey: "reaction.eyes" },
+  { key: "OK", emoji: "\uD83D\uDC4C", labelKey: "reaction.ok" },
 ];
 
 type SendMessageInput = {
@@ -96,10 +98,10 @@ export function buildAttachmentOnlyMessageText(attachments: ChatMessageAttachmen
   }
 
   if (attachments.length === 1) {
-    return `\u0424\u0430\u0439\u043B: ${attachments[0].fileName}`;
+    return tActive("preview.file", { name: attachments[0].fileName });
   }
 
-  return `\u0424\u0430\u0439\u043B\u044B: ${attachments.length}`;
+  return tActive("preview.files", { count: attachments.length });
 }
 
 export function buildMessageContentPreview(
@@ -177,18 +179,18 @@ export function getMessageStatusGlyph(status: MessageStatus | null) {
   }
 }
 
-export function getMessageStatusLabel(status: MessageStatus | null) {
+export function getMessageStatusLabelKey(status: MessageStatus | null): TranslationKey {
   switch (status?.state) {
     case "FAILED":
-      return "\u041D\u0435 \u043E\u0442\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u043E";
+      return "msgstatus.failed";
     case "SENDING":
-      return "\u041E\u0442\u043F\u0440\u0430\u0432\u043B\u044F\u0435\u0442\u0441\u044F";
+      return "msgstatus.sending";
     case "READ":
-      return `\u041F\u0440\u043E\u0447\u0438\u0442\u0430\u043D\u043E (${status.readCount}/${status.recipientCount})`;
+      return "msgstatus.read";
     case "DELIVERED":
-      return `\u0414\u043E\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u043E (${status.deliveredCount}/${status.recipientCount})`;
+      return "msgstatus.delivered";
     case "SENT":
     default:
-      return "\u041E\u0442\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u043E";
+      return "msgstatus.sent";
   }
 }

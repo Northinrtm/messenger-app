@@ -1,6 +1,9 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getChatAttachmentBrowserPage, getChatLinkBrowserPage } from "../../../lib/api";
+import { useI18n } from "../../../i18n/I18nProvider";
+import { tActive } from "../../../i18n";
+import type { TranslationKey } from "../../../i18n/ru";
 import type {
   ChatAttachmentBrowserItem,
   ChatAttachmentBrowserKind,
@@ -17,11 +20,11 @@ const PHOTO_VIEWER_ZOOM_STEP = 0.25;
 
 type ChatBrowserTab = ChatAttachmentBrowserKind | "LINKS";
 
-const FILTERS: Array<{ kind: ChatBrowserTab; label: string }> = [
-  { kind: "ALL", label: "Все" },
-  { kind: "PHOTOS", label: "Фото" },
-  { kind: "DOCUMENTS", label: "Документы" },
-  { kind: "LINKS", label: "Ссылки" },
+const FILTERS: Array<{ kind: ChatBrowserTab; labelKey: TranslationKey }> = [
+  { kind: "ALL", labelKey: "browser.filterAll" },
+  { kind: "PHOTOS", labelKey: "browser.filterPhotos" },
+  { kind: "DOCUMENTS", labelKey: "browser.filterDocuments" },
+  { kind: "LINKS", labelKey: "browser.filterLinks" },
 ];
 
 type Props = {
@@ -97,6 +100,7 @@ export function ChatAttachmentBrowserSheet({
   onLoadAttachmentPreview,
   onJumpToSourceMessage,
 }: Props) {
+  const { t } = useI18n();
   const [kind, setKind] = useState<ChatBrowserTab>("ALL");
   const [photoViewerItemId, setPhotoViewerItemId] = useState<string | null>(null);
 
@@ -178,21 +182,21 @@ export function ChatAttachmentBrowserSheet({
     <div className="sheet-card chat-attachment-browser-sheet">
       <div className="sheet-head">
         <div>
-          <div className="section-title">Медиа и файлы</div>
+          <div className="section-title">{t("chatmenu.mediaBrowser")}</div>
           <p className="sheet-copy">
             {activeChat
-              ? `Все вложения чата "${activeChat.title}" в одном месте.`
-              : "Откройте чат, чтобы посмотреть вложения."}
+              ? t("browser.descWith", { title: activeChat.title })
+              : t("browser.descEmpty")}
           </p>
         </div>
         <button type="button" className="ghost-button compact" onClick={onClose}>
-          Закрыть
+          {t("common.close")}
         </button>
       </div>
 
       {activeChat ? (
         <>
-          <div className="chat-attachment-browser-filters" role="tablist" aria-label="Фильтр медиа и файлов">
+          <div className="chat-attachment-browser-filters" role="tablist" aria-label={t("browser.filterAria")}>
             {FILTERS.map((filter) => (
               <button
                 type="button"
@@ -206,16 +210,16 @@ export function ChatAttachmentBrowserSheet({
                 }
                 onClick={() => setKind(filter.kind)}
               >
-                {filter.label}
+                {t(filter.labelKey)}
               </button>
             ))}
           </div>
 
           {isAllMode ? (
             allModeLoading ? (
-              <div className="empty-list">Loading media, files and links...</div>
+              <div className="empty-list">{t("browser.loadingAll")}</div>
             ) : allModeError ? (
-              <div className="empty-list">Could not load media, files and links.</div>
+              <div className="empty-list">{t("browser.loadAllError")}</div>
             ) : allItems.length === 0 ? (
               <div className="empty-list">{buildEmptyStateLabel(kind)}</div>
             ) : (
@@ -253,12 +257,12 @@ export function ChatAttachmentBrowserSheet({
               </div>
             )
           ) : activeQuery.isLoading ? (
-            <div className="empty-list">{isLinksMode ? "Загружаем ссылки..." : "Загружаем вложения..."}</div>
+            <div className="empty-list">{isLinksMode ? t("browser.loadingLinks") : t("browser.loadingAttachments")}</div>
           ) : activeQuery.isError ? (
             <div className="empty-list">
               {isLinksMode
-                ? "Не удалось загрузить ссылки. Попробуйте еще раз."
-                : "Не удалось загрузить вложения. Попробуйте еще раз."}
+                ? t("browser.loadLinksError")
+                : t("browser.loadAttachmentsError")}
             </div>
           ) : isLinksMode && linkItems.length === 0 ? (
             <div className="empty-list">{buildEmptyStateLabel(kind)}</div>
@@ -336,7 +340,7 @@ export function ChatAttachmentBrowserSheet({
               }}
               disabled={isAllMode ? allModeFetchingNextPage : activeQuery.isFetchingNextPage}
             >
-              {activeQuery.isFetchingNextPage ? "Загружаем..." : "Показать еще"}
+              {activeQuery.isFetchingNextPage ? t("chat.loadingShort") : t("browser.showMore")}
             </button>
           ) : null}
 
@@ -355,7 +359,7 @@ export function ChatAttachmentBrowserSheet({
           ) : null}
         </>
       ) : (
-        <div className="empty-list">Чат не выбран.</div>
+        <div className="empty-list">{t("browser.noChatSelected")}</div>
       )}
     </div>
   );
@@ -369,6 +373,7 @@ function PhotoBrowserCard({
   onJumpToSourceMessage,
   onOpenPhotoViewer,
 }: BrowserItemProps) {
+  const { t } = useI18n();
   const { previewUrl, previewError } = useAttachmentPreviewUrl(
     chatId,
     item,
@@ -383,7 +388,7 @@ function PhotoBrowserCard({
         type="button"
         className="chat-attachment-browser-photo-card-main"
         onClick={() => onJumpToSourceMessage(chatId, item)}
-        title={`Перейти к сообщению с ${item.fileName}`}
+        title={t("browser.jumpToMessage", { name: item.fileName })}
       >
         {previewUrl && !previewError ? (
           <img
@@ -399,7 +404,7 @@ function PhotoBrowserCard({
           />
         ) : (
           <span className="chat-attachment-browser-photo-placeholder">
-            {previewError ? "Превью недоступно" : "Загружаем изображение..."}
+            {previewError ? t("chat.previewUnavailable") : t("chat.loadingImage")}
           </span>
         )}
         <span className="chat-attachment-browser-photo-meta">
@@ -419,7 +424,7 @@ function PhotoBrowserCard({
             onOpenPhotoViewer(item.id);
           }}
         >
-          Открыть
+          {t("workspace.open")}
         </button>
         <button
           type="button"
@@ -429,7 +434,7 @@ function PhotoBrowserCard({
             onDownloadAttachment(chatId, attachment);
           }}
         >
-          Скачать
+          {t("chat.download")}
         </button>
       </div>
     </div>
@@ -444,6 +449,7 @@ function MixedImageBrowserRow({
   onJumpToSourceMessage,
   onOpenPhotoViewer,
 }: BrowserItemProps) {
+  const { t } = useI18n();
   const { previewUrl, previewError } = useAttachmentPreviewUrl(
     chatId,
     item,
@@ -457,7 +463,7 @@ function MixedImageBrowserRow({
         type="button"
         className="chat-attachment-browser-row-main"
         onClick={() => onJumpToSourceMessage(chatId, item)}
-        title={`Перейти к сообщению с ${item.fileName}`}
+        title={t("browser.jumpToMessage", { name: item.fileName })}
       >
         <div className="chat-attachment-browser-row-identity">
           <div className="chat-attachment-browser-thumb-shell">
@@ -468,7 +474,7 @@ function MixedImageBrowserRow({
                 alt={item.fileName}
               />
             ) : (
-              <span className="chat-attachment-browser-thumb-placeholder">Фото</span>
+              <span className="chat-attachment-browser-thumb-placeholder">{t("browser.filterPhotos")}</span>
             )}
           </div>
           <div className="sheet-row-copy">
@@ -489,7 +495,7 @@ function MixedImageBrowserRow({
             onOpenPhotoViewer(item.id);
           }}
         >
-          Открыть
+          {t("workspace.open")}
         </button>
         <button
           type="button"
@@ -499,7 +505,7 @@ function MixedImageBrowserRow({
             onDownloadAttachment(chatId, attachment);
           }}
         >
-          Скачать
+          {t("chat.download")}
         </button>
       </div>
     </div>
@@ -512,6 +518,7 @@ function DocumentBrowserRow({
   onDownloadAttachment,
   onJumpToSourceMessage,
 }: BrowserItemProps) {
+  const { t } = useI18n();
   const attachment = toAttachment(item);
 
   return (
@@ -520,7 +527,7 @@ function DocumentBrowserRow({
         type="button"
         className="chat-attachment-browser-row-main"
         onClick={() => onJumpToSourceMessage(chatId, item)}
-        title={`Перейти к сообщению с ${item.fileName}`}
+        title={t("browser.jumpToMessage", { name: item.fileName })}
       >
         <div className="chat-attachment-browser-row-identity">
           <span className="message-attachment-icon chat-attachment-browser-doc-icon" aria-hidden="true">
@@ -559,7 +566,7 @@ function DocumentBrowserRow({
             onDownloadAttachment(chatId, attachment);
           }}
         >
-          Скачать
+          {t("chat.download")}
         </button>
       </div>
     </div>
@@ -567,13 +574,14 @@ function DocumentBrowserRow({
 }
 
 function LinkBrowserRow({ item, chatId, onJumpToSourceMessage }: LinkRowProps) {
+  const { t } = useI18n();
   return (
     <div className="sheet-row chat-attachment-browser-row">
       <button
         type="button"
         className="chat-attachment-browser-row-main"
         onClick={() => onJumpToSourceMessage(chatId, item)}
-        title={`Перейти к сообщению со ссылкой ${item.url}`}
+        title={t("browser.jumpToLinkMessage", { url: item.url })}
       >
         <div className="chat-attachment-browser-row-identity">
           <span className="message-attachment-icon chat-attachment-browser-doc-icon" aria-hidden="true">
@@ -597,7 +605,7 @@ function LinkBrowserRow({ item, chatId, onJumpToSourceMessage }: LinkRowProps) {
             openExternalLink(item.url);
           }}
         >
-          Открыть
+          {t("workspace.open")}
         </button>
         <button
           type="button"
@@ -607,7 +615,7 @@ function LinkBrowserRow({ item, chatId, onJumpToSourceMessage }: LinkRowProps) {
             void navigator.clipboard.writeText(item.url);
           }}
         >
-          Копировать
+          {t("conf.copy")}
         </button>
       </div>
     </div>
@@ -625,6 +633,7 @@ function PhotoViewerOverlay({
   onJumpToSourceMessage,
   onOpenPhotoViewerItem,
 }: PhotoViewerProps) {
+  const { t } = useI18n();
   const currentIndex = items.findIndex((item) => item.id === currentItemId);
   const currentItem = currentIndex >= 0 ? items[currentIndex] ?? null : null;
   const { previewUrl, previewError, previewPending } = useAttachmentPreviewUrl(
@@ -708,7 +717,7 @@ function PhotoViewerOverlay({
       className="chat-attachment-browser-photo-viewer-backdrop"
       role="dialog"
       aria-modal="true"
-      aria-label={`Просмотр изображения ${currentItem.fileName}`}
+      aria-label={t("browser.imageViewerAria", { name: currentItem.fileName })}
       onClick={onClose}
     >
       <div
@@ -751,17 +760,17 @@ function PhotoViewerOverlay({
                 onJumpToSourceMessage(chatId, currentItem);
               }}
             >
-              К сообщению
+              {t("browser.toMessage")}
             </button>
             <button
               type="button"
               className="ghost-button compact"
               onClick={() => onDownloadAttachment(chatId, attachment)}
             >
-              Скачать
+              {t("chat.download")}
             </button>
             <button type="button" className="ghost-button compact" onClick={onClose}>
-              Закрыть
+              {t("common.close")}
             </button>
           </div>
         </div>
@@ -772,7 +781,7 @@ function PhotoViewerOverlay({
             className="chat-attachment-browser-photo-viewer-nav"
             onClick={() => previousIndex !== null && onOpenPhotoViewerItem(items[previousIndex]!.id)}
             disabled={previousIndex === null}
-            aria-label="Предыдущее фото"
+            aria-label={t("browser.prevPhoto")}
           >
             ‹
           </button>
@@ -790,8 +799,8 @@ function PhotoViewerOverlay({
             ) : (
               <div className="chat-attachment-browser-photo-viewer-empty">
                 {previewPending
-                  ? "Загружаем изображение..."
-                  : "Не удалось загрузить изображение. Можно скачать файл или перейти к сообщению."}
+                  ? t("chat.loadingImage")
+                  : t("browser.imageLoadError")}
               </div>
             )}
           </div>
@@ -801,7 +810,7 @@ function PhotoViewerOverlay({
             className="chat-attachment-browser-photo-viewer-nav"
             onClick={() => nextIndex !== null && onOpenPhotoViewerItem(items[nextIndex]!.id)}
             disabled={nextIndex === null}
-            aria-label="Следующее фото"
+            aria-label={t("browser.nextPhoto")}
           >
             ›
           </button>
@@ -912,13 +921,13 @@ function useAttachmentPreviewUrl(
 function buildEmptyStateLabel(kind: ChatBrowserTab) {
   switch (kind) {
     case "PHOTOS":
-      return "В этом чате пока нет фотографий.";
+      return tActive("browser.emptyPhotos");
     case "DOCUMENTS":
-      return "В этом чате пока нет документов.";
+      return tActive("browser.emptyDocuments");
     case "LINKS":
-      return "В этом чате пока нет ссылок.";
+      return tActive("browser.emptyLinks");
     default:
-      return "В этом чате пока нет вложений.";
+      return tActive("browser.emptyAttachments");
   }
 }
 

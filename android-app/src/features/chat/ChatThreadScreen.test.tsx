@@ -958,6 +958,6 @@ describe('ChatThreadScreen', () => {
     const typingIndicator = renderer!.root.findByProps({
       testID: 'typing-indicator',
     });
-    expect(typingIndicator.findByProps({children: 'Alex is typing...'})).toBeTruthy();
+    expect(typingIndicator.findByProps({children: 'Alex печатает...'})).toBeTruthy();
   });
 });

@@ -31,6 +31,8 @@ import {
 } from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {androidTheme} from '../../theme';
+import {useI18n} from '../../i18n/I18nProvider';
+import {getActiveLocale, tActive, type Locale} from '../../i18n';
 
 const ARCHIVE_ROW_H = 64;
 const UNARCHIVE_BTN_W = 92;
@@ -110,6 +112,7 @@ export function WorkspaceHomeScreen({
   onMuteChat,
   onSetChatSilent,
 }: Props) {
+  const {t, tp, locale, setLocale} = useI18n();
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('chats');
   const [activeChatFilter, _setActiveChatFilter] = useState<ChatFilter>('all');
@@ -301,7 +304,7 @@ export function WorkspaceHomeScreen({
 
     if (normalizedSearchQuery.length < 2) {
       setSearchResults(null);
-      setSearchError('Type at least 2 characters to search.');
+      setSearchError(t('ws.err.searchMin'));
       return;
     }
 
@@ -421,10 +424,12 @@ export function WorkspaceHomeScreen({
   const handleConfirmConferenceModal = async () => {
     const now = new Date();
     const pad = (n: number) => String(n).padStart(2, '0');
-    const defaultTitle = `Встреча ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    const defaultTitle = t('ws.conf.defaultTitle', {
+      time: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
+    });
     const title = confTitle.trim() || (conferenceModal === 'start' ? defaultTitle : '');
     if (!title) {
-      setConfError('Введите название конференции');
+      setConfError(t('ws.conf.errEmptyTitle'));
       return;
     }
     setConfPending(true);
@@ -513,7 +518,7 @@ export function WorkspaceHomeScreen({
 
   const handleCreateGroup = () => {
     setMenuOpen(false);
-    setActionError('Create group: coming soon.');
+    setActionError(t('ws.err.createGroupSoon'));
   };
 
   const handleBlock = async (username: string) => {
@@ -673,7 +678,7 @@ export function WorkspaceHomeScreen({
     const lastName = editLastName.trim();
     const displayName = lastName ? `${firstName} ${lastName}` : firstName;
     if (!displayName) {
-      setEditError('Имя не может быть пустым');
+      setEditError(t('ws.edit.errEmptyName'));
       return;
     }
     setEditPending(true);
@@ -709,7 +714,7 @@ export function WorkspaceHomeScreen({
     setEmailChangeError(null);
     try {
       await onRequestEmailChange(newEmail);
-      setEmailChangeInfo(`Письмо отправлено на ${newEmail}. Перейдите по ссылке для подтверждения.`);
+      setEmailChangeInfo(t('ws.edit.emailSent', {email: newEmail}));
       setEmailChangeInput('');
     } catch (err) {
       setEmailChangeError(toErrorText(err));
@@ -728,7 +733,7 @@ export function WorkspaceHomeScreen({
     setUsernameChangeError(null);
     try {
       await onChangeUsername(newUsername);
-      setUsernameChangeInfo('Юзернейм успешно изменён.');
+      setUsernameChangeInfo(t('ws.edit.usernameChanged'));
       setUsernameChangeInput('');
     } catch (err) {
       setUsernameChangeError(toErrorText(err));
@@ -765,7 +770,7 @@ export function WorkspaceHomeScreen({
               autoFocus
               value={searchQuery}
               onChangeText={setSearchQuery}
-              placeholder="Search…"
+              placeholder={t('ws.searchPlaceholder')}
               placeholderTextColor={androidTheme.colors.textMuted}
               selectionColor={androidTheme.colors.blue}
               style={styles.appBarSearchInput}
@@ -839,7 +844,7 @@ export function WorkspaceHomeScreen({
                 onPress={handleCreateGroup}
                 style={styles.menuItem}
                 testID="menu-create-group">
-                <Text style={styles.menuItemLabel}>Создать группу</Text>
+                <Text style={styles.menuItemLabel}>{t('ws.menu.createGroup')}</Text>
               </Pressable>
             </View>
           </Pressable>
@@ -856,7 +861,7 @@ export function WorkspaceHomeScreen({
             keyboardShouldPersistTaps="handled">
             {normalizedSearchQuery.length < 2 ? (
               workspace.chats.length === 0 ? (
-                <EmptyState label="No chats yet." />
+                <EmptyState label={t('ws.empty.noChats')} />
               ) : (
                 workspace.chats.map(chat => (
                   <ChatListItem
@@ -876,11 +881,11 @@ export function WorkspaceHomeScreen({
                 ))
               )
             ) : searchPending ? (
-              <EmptyState label="Searching…" />
+              <EmptyState label={t('ws.empty.searching')} />
             ) : searchResults ? (
               <>
                 {searchResults.chats.length > 0 ? (
-                  <SearchResultGroup title="Чаты и группы">
+                  <SearchResultGroup title={t('ws.search.chatsGroups')}>
                     {searchResults.chats.map(chat => (
                       <ChatListItem
                         key={chat.id}
@@ -901,14 +906,14 @@ export function WorkspaceHomeScreen({
                 ) : null}
 
                 {searchResults.contacts.length > 0 ? (
-                  <SearchResultGroup title="Контакты">
+                  <SearchResultGroup title={t('ws.search.contacts')}>
                     {searchResults.contacts.map(profile => (
                       <ProfileListItem
                         key={profile.id}
                         profile={profile}
                         actions={[
                           {
-                            label: 'Написать',
+                            label: t('ws.action.write'),
                             pending: Boolean(
                               pendingUserActions[
                                 buildUserActionKey('message', profile.username)
@@ -927,7 +932,7 @@ export function WorkspaceHomeScreen({
                 ) : null}
 
                 {searchResults.users.length > 0 ? (
-                  <SearchResultGroup title="Пользователи">
+                  <SearchResultGroup title={t('ws.search.users')}>
                     {searchResults.users.map(profile => {
                       const normalizedUsername = profile.username.trim().toLowerCase();
                       const blocked = blockedUsernames.has(normalizedUsername);
@@ -944,7 +949,7 @@ export function WorkspaceHomeScreen({
                               : blocked
                                 ? [
                                     {
-                                      label: 'Разблокировать',
+                                      label: t('ws.action.unblock'),
                                       pending: Boolean(
                                         pendingUserActions[
                                           buildUserActionKey('unblock', profile.username)
@@ -958,7 +963,7 @@ export function WorkspaceHomeScreen({
                                   ]
                                 : [
                                     {
-                                      label: 'Написать',
+                                      label: t('ws.action.write'),
                                       pending: Boolean(
                                         pendingUserActions[
                                           buildUserActionKey('message', profile.username)
@@ -973,7 +978,7 @@ export function WorkspaceHomeScreen({
                                     ...(!alreadyContact
                                       ? [
                                           {
-                                            label: 'Добавить',
+                                            label: t('ws.action.add'),
                                             pending: Boolean(
                                               pendingUserActions[
                                                 buildUserActionKey('add-contact', profile.username)
@@ -987,7 +992,7 @@ export function WorkspaceHomeScreen({
                                         ]
                                       : []),
                                     {
-                                      label: 'Block',
+                                      label: t('ws.action.block'),
                                       pending: Boolean(
                                         pendingUserActions[
                                           buildUserActionKey('block', profile.username)
@@ -1008,11 +1013,11 @@ export function WorkspaceHomeScreen({
                 ) : null}
 
                 {searchResultCount === 0 ? (
-                  <EmptyState label="Ничего не найдено." />
+                  <EmptyState label={t('ws.empty.nothingFound')} />
                 ) : null}
               </>
             ) : (
-              <EmptyState label="Введите от 2 символов для поиска." />
+              <EmptyState label={t('ws.empty.searchMin')} />
             )}
           </ScrollView>
         ) : null}
@@ -1025,7 +1030,7 @@ export function WorkspaceHomeScreen({
                 contentContainerStyle={styles.chatListContent}
                 keyboardShouldPersistTaps="handled">
                 {archivedChats.length === 0 ? (
-                  <EmptyState label="Архив пуст." />
+                  <EmptyState label={t('ws.archive.empty')} />
                 ) : (
                   archivedChats.map(chat => (
                     <SwipeableChatItem
@@ -1039,7 +1044,7 @@ export function WorkspaceHomeScreen({
                       onOpen={() => onOpenChat(chat.id)}
                       onLongPress={() => handleLongPressChat(chat.id)}
                       onSelect={() => handleToggleSelectChat(chat.id)}
-                      swipeLabel="Вернуть"
+                      swipeLabel={t('ws.archive.restore')}
                       swipeIcon="⬆"
                       swipeBgColor={androidTheme.colors.blueStrong}
                       swipeLabelColor="#fff"
@@ -1088,14 +1093,14 @@ export function WorkspaceHomeScreen({
                       </View>
                       <Text style={styles.archiveRevealLabel}>
                         {archivedChats.length > 0
-                          ? `Архив · ${archivedChats.length}`
-                          : 'Архив'}
+                          ? t('ws.archive.titleCount', {count: archivedChats.length})
+                          : t('ws.archive.title')}
                       </Text>
                     </Pressable>
                   </Animated.View>
                 </View>
                 {filteredActiveChats.length === 0 ? (
-                  <EmptyState label="No active chats yet." />
+                  <EmptyState label={t('ws.empty.noActiveChats')} />
                 ) : (
                   filteredActiveChats.map(chat => (
                     <SwipeableChatItem
@@ -1109,7 +1114,7 @@ export function WorkspaceHomeScreen({
                       onOpen={() => onOpenChat(chat.id)}
                       onLongPress={() => handleLongPressChat(chat.id)}
                       onSelect={() => handleToggleSelectChat(chat.id)}
-                      swipeLabel="Архив"
+                      swipeLabel={t('ws.archive.swipe')}
                       swipeIcon="📥"
                       swipeBgColor={androidTheme.colors.surfaceMuted}
                       swipeLabelColor={androidTheme.colors.textPrimary}
@@ -1129,7 +1134,7 @@ export function WorkspaceHomeScreen({
               contentContainerStyle={styles.tabContent}
               keyboardShouldPersistTaps="handled">
               {workspace.contacts.length === 0 ? (
-                <EmptyState label="No contacts yet." />
+                <EmptyState label={t('ws.empty.noContacts')} />
               ) : (
                 workspace.contacts.map(profile => (
                   <ProfileListItem
@@ -1137,7 +1142,7 @@ export function WorkspaceHomeScreen({
                     profile={profile}
                     actions={[
                       {
-                        label: 'Message',
+                        label: t('ws.action.write'),
                         pending: Boolean(
                           pendingUserActions[
                             buildUserActionKey('message', profile.username)
@@ -1150,7 +1155,7 @@ export function WorkspaceHomeScreen({
                         tone: 'primary',
                       },
                       {
-                        label: 'Remove',
+                        label: t('ws.action.remove'),
                         pending: Boolean(
                           pendingUserActions[
                             buildUserActionKey('remove-contact', profile.username)
@@ -1164,7 +1169,7 @@ export function WorkspaceHomeScreen({
                         testID: `remove-contact-${profile.username}`,
                       },
                       {
-                        label: 'Block',
+                        label: t('ws.action.block'),
                         pending: Boolean(
                           pendingUserActions[
                             buildUserActionKey('block', profile.username)
@@ -1185,7 +1190,7 @@ export function WorkspaceHomeScreen({
                 <>
                   <View style={styles.archivedDivider}>
                     <Text style={styles.archivedDividerLabel}>
-                      Blocked · {workspace.blockedUsers.length}
+                      {t('ws.blockedCount', {count: workspace.blockedUsers.length})}
                     </Text>
                   </View>
                   {workspace.blockedUsers.map(profile => (
@@ -1194,7 +1199,7 @@ export function WorkspaceHomeScreen({
                       profile={profile}
                       actions={[
                         {
-                          label: 'Unblock',
+                          label: t('ws.action.unblock'),
                           pending: Boolean(
                             pendingUserActions[
                               buildUserActionKey('unblock', profile.username)
@@ -1240,7 +1245,7 @@ export function WorkspaceHomeScreen({
                     setCalendarSelectedDay(null);
                     setCalendarOpen(true);
                   }}>
-                  <Text style={styles.confToolbarBtnLabel}>📅 Календарь</Text>
+                  <Text style={styles.confToolbarBtnLabel}>{t('ws.conf.calendarBtn')}</Text>
                 </Pressable>
               </View>
 
@@ -1261,7 +1266,7 @@ export function WorkspaceHomeScreen({
                         openConferenceModal('start');
                       }}>
                       <Text style={styles.confMenuItemIcon}>▶</Text>
-                      <Text style={styles.confMenuItemLabel}>Начать сейчас</Text>
+                      <Text style={styles.confMenuItemLabel}>{t('ws.conf.startNow')}</Text>
                     </Pressable>
                     <View style={styles.confMenuDivider} />
                     <Pressable
@@ -1271,7 +1276,7 @@ export function WorkspaceHomeScreen({
                         openConferenceModal('schedule');
                       }}>
                       <Text style={styles.confMenuItemIcon}>+</Text>
-                      <Text style={styles.confMenuItemLabel}>Запланировать</Text>
+                      <Text style={styles.confMenuItemLabel}>{t('ws.conf.schedule')}</Text>
                     </Pressable>
                   </View>
                 </Pressable>
@@ -1295,7 +1300,7 @@ export function WorkspaceHomeScreen({
                   ))}
                 </>
               ) : (
-                <EmptyState label="Пока нет запланированных видеоконференций." />
+                <EmptyState label={t('ws.conf.emptyList')} />
               )}
 
               <Modal
@@ -1308,15 +1313,15 @@ export function WorkspaceHomeScreen({
                   onPress={() => setConferenceModal(null)}>
                   <Pressable style={styles.confModalCard} onPress={() => {}}>
                     <Text style={styles.confModalTitle}>
-                      {conferenceModal === 'start' ? 'Начать конференцию' : 'Запланировать конференцию'}
+                      {conferenceModal === 'start' ? t('ws.conf.startTitle') : t('ws.conf.scheduleTitle')}
                     </Text>
 
                     <Text style={styles.confModalLabel}>
-                      {conferenceModal === 'start' ? 'Название (необязательно)' : 'Название'}
+                      {conferenceModal === 'start' ? t('ws.conf.titleOptional') : t('ws.conf.titleLabel')}
                     </Text>
                     <TextInput
                       style={styles.confModalInput}
-                      placeholder={conferenceModal === 'start' ? 'Встреча ЧЧ:ММ' : 'Введите название…'}
+                      placeholder={conferenceModal === 'start' ? t('ws.conf.titlePlaceholderStart') : t('ws.conf.titlePlaceholderSchedule')}
                       placeholderTextColor={androidTheme.colors.textMuted}
                       value={confTitle}
                       onChangeText={setConfTitle}
@@ -1328,7 +1333,7 @@ export function WorkspaceHomeScreen({
                       style={styles.confModalParticipantsBtn}
                       onPress={() => setConfShowContacts(v => !v)}>
                       <Text style={styles.confModalParticipantsBtnLabel}>
-                        👥 Участники{confParticipants.length > 0 ? ` (${confParticipants.length})` : ''}
+                        {t('ws.conf.participants')}{confParticipants.length > 0 ? ` (${confParticipants.length})` : ''}
                       </Text>
                       <Text style={styles.confModalParticipantsChevron}>
                         {confShowContacts ? '▲' : '▼'}
@@ -1338,7 +1343,7 @@ export function WorkspaceHomeScreen({
                     {confShowContacts ? (
                       <View style={styles.confContactList}>
                         {workspace.contacts.length === 0 ? (
-                          <Text style={styles.confContactEmpty}>Нет контактов</Text>
+                          <Text style={styles.confContactEmpty}>{t('ws.conf.noContacts')}</Text>
                         ) : (
                           workspace.contacts.map(contact => {
                             const selected = confParticipants.includes(contact.username);
@@ -1372,7 +1377,7 @@ export function WorkspaceHomeScreen({
 
                     {conferenceModal === 'schedule' ? (
                       <>
-                        <Text style={styles.confModalLabel}>Дата (ДД.ММ.ГГГГ)</Text>
+                        <Text style={styles.confModalLabel}>{t('ws.conf.dateLabel')}</Text>
                         <TextInput
                           style={styles.confModalInput}
                           placeholder="19.05.2026"
@@ -1382,7 +1387,7 @@ export function WorkspaceHomeScreen({
                           keyboardType="numeric"
                           returnKeyType="next"
                         />
-                        <Text style={styles.confModalLabel}>Время (ЧЧ:ММ)</Text>
+                        <Text style={styles.confModalLabel}>{t('ws.conf.timeLabel')}</Text>
                         <TextInput
                           style={styles.confModalInput}
                           placeholder="14:00"
@@ -1403,7 +1408,7 @@ export function WorkspaceHomeScreen({
                       <Pressable
                         style={styles.confModalCancelBtn}
                         onPress={() => setConferenceModal(null)}>
-                        <Text style={styles.confModalCancelLabel}>Отмена</Text>
+                        <Text style={styles.confModalCancelLabel}>{t('common.cancel')}</Text>
                       </Pressable>
                       <Pressable
                         style={confPending ? styles.confModalSubmitDisabled : styles.confModalSubmitBtn}
@@ -1411,10 +1416,10 @@ export function WorkspaceHomeScreen({
                         onPress={() => handleConfirmConferenceModal().catch(() => undefined)}>
                         <Text style={styles.confModalSubmitLabel}>
                           {confPending
-                            ? 'Создаю…'
+                            ? t('ws.conf.creating')
                             : conferenceModal === 'start'
-                              ? 'Начать'
-                              : 'Запланировать'}
+                              ? t('ws.conf.startBtn')
+                              : t('ws.conf.scheduleBtn')}
                         </Text>
                       </Pressable>
                     </View>
@@ -1485,7 +1490,7 @@ export function WorkspaceHomeScreen({
                 </Pressable>
                 <Text style={styles.profileNameNew}>{session.user.displayName}</Text>
                 <Text style={styles.profileOnlineStatus}>
-                  {session.user.online ? 'в сети' : 'не в сети'}
+                  {session.user.online ? t('ws.profile.online') : t('ws.profile.offline')}
                 </Text>
               </View>
 
@@ -1498,7 +1503,7 @@ export function WorkspaceHomeScreen({
                   <View style={styles.profileActionIconWrap}>
                     <Text style={styles.profileActionIconText}>📷</Text>
                   </View>
-                  <Text style={styles.profileActionLabel}>Выбрать фото</Text>
+                  <Text style={styles.profileActionLabel}>{t('ws.profile.choosePhoto')}</Text>
                 </Pressable>
                 <Pressable
                   testID="edit-profile-button"
@@ -1507,7 +1512,7 @@ export function WorkspaceHomeScreen({
                   <View style={styles.profileActionIconWrap}>
                     <Text style={styles.profileActionIconText}>✏️</Text>
                   </View>
-                  <Text style={styles.profileActionLabel}>Изменить</Text>
+                  <Text style={styles.profileActionLabel}>{t('ws.profile.edit')}</Text>
                 </Pressable>
                 <Pressable
                   style={styles.profileActionItem}
@@ -1515,7 +1520,7 @@ export function WorkspaceHomeScreen({
                   <View style={styles.profileActionIconWrap}>
                     <Text style={styles.profileActionIconText}>⚙️</Text>
                   </View>
-                  <Text style={styles.profileActionLabel}>Настройки</Text>
+                  <Text style={styles.profileActionLabel}>{t('settings.title')}</Text>
                 </Pressable>
               </View>
 
@@ -1525,14 +1530,14 @@ export function WorkspaceHomeScreen({
                   <>
                     <View style={styles.profileInfoRow}>
                       <Text style={styles.profileInfoValue}>{session.user.profession}</Text>
-                      <Text style={styles.profileInfoMeta}>О себе</Text>
+                      <Text style={styles.profileInfoMeta}>{t('ws.profile.about')}</Text>
                     </View>
                     <View style={styles.profileInfoDivider} />
                   </>
                 ) : null}
                 <View style={styles.profileInfoRow}>
                   <Text style={styles.profileInfoValue}>@{session.user.username}</Text>
-                  <Text style={styles.profileInfoMeta}>Имя пользователя</Text>
+                  <Text style={styles.profileInfoMeta}>{t('ws.profile.username')}</Text>
                 </View>
                 {session.user.email ? (
                   <>
@@ -1564,7 +1569,7 @@ export function WorkspaceHomeScreen({
                     setProfileMenuOpen(false);
                     onLogout().catch(() => undefined);
                   }}>
-                  <Text style={settingsStyles.menuItemTextDanger}>Выйти</Text>
+                  <Text style={settingsStyles.menuItemTextDanger}>{t('ws.profile.logout')}</Text>
                 </Pressable>
               </View>
             </Pressable>
@@ -1579,9 +1584,9 @@ export function WorkspaceHomeScreen({
             <View style={settingsStyles.modalScreen}>
               <View style={settingsStyles.modalHeader}>
                 <Pressable onPress={() => setSettingsScreenOpen(false)} style={settingsStyles.modalBackBtn}>
-                  <Text style={settingsStyles.modalBackText}>‹ Назад</Text>
+                  <Text style={settingsStyles.modalBackText}>{t('nav.back')}</Text>
                 </Pressable>
-                <Text style={settingsStyles.modalTitle}>Настройки</Text>
+                <Text style={settingsStyles.modalTitle}>{t('settings.title')}</Text>
                 <View style={settingsStyles.modalBackBtn} />
               </View>
               <ScrollView contentContainerStyle={settingsStyles.modalContent}>
@@ -1618,8 +1623,8 @@ export function WorkspaceHomeScreen({
                       <Text style={settingsStyles.settingsIconText}>👤</Text>
                     </View>
                     <View style={settingsStyles.settingsRowContent}>
-                      <Text style={settingsStyles.settingsRowTitle}>Аккаунт</Text>
-                      <Text style={settingsStyles.settingsRowSub}>Имя, пользователь, почта</Text>
+                      <Text style={settingsStyles.settingsRowTitle}>{t('settings.account')}</Text>
+                      <Text style={settingsStyles.settingsRowSub}>{t('settings.accountSub')}</Text>
                     </View>
                     <Text style={settingsStyles.settingsChevron}>›</Text>
                   </Pressable>
@@ -1635,11 +1640,11 @@ export function WorkspaceHomeScreen({
                       </Text>
                     </View>
                     <View style={settingsStyles.settingsRowContent}>
-                      <Text style={settingsStyles.settingsRowTitle}>Уведомления</Text>
+                      <Text style={settingsStyles.settingsRowTitle}>{t('settings.notifications')}</Text>
                       <Text style={settingsStyles.settingsRowSub}>
-                        {preferences.notificationsEnabled ? 'Включены' : 'Отключены'}
+                        {preferences.notificationsEnabled ? t('settings.on') : t('settings.off')}
                         {preferences.mutedChatIds.length > 0
-                          ? ` · ${preferences.mutedChatIds.length} чат${preferences.mutedChatIds.length === 1 ? '' : 'а/ов'} без звука`
+                          ? ` · ${tp('settings.mutedCount', preferences.mutedChatIds.length)}`
                           : ''}
                       </Text>
                     </View>
@@ -1655,8 +1660,8 @@ export function WorkspaceHomeScreen({
                       <Text style={settingsStyles.settingsIconText}>💬</Text>
                     </View>
                     <View style={settingsStyles.settingsRowContent}>
-                      <Text style={settingsStyles.settingsRowTitle}>Настройки чатов</Text>
-                      <Text style={settingsStyles.settingsRowSub}>Размер текста, фон чата</Text>
+                      <Text style={settingsStyles.settingsRowTitle}>{t('settings.chatSettings')}</Text>
+                      <Text style={settingsStyles.settingsRowSub}>{t('settings.chatSettingsSub')}</Text>
                     </View>
                     <Text style={settingsStyles.settingsChevron}>›</Text>
                   </Pressable>
@@ -1670,8 +1675,8 @@ export function WorkspaceHomeScreen({
                       <Text style={settingsStyles.settingsIconText}>💾</Text>
                     </View>
                     <View style={settingsStyles.settingsRowContent}>
-                      <Text style={settingsStyles.settingsRowTitle}>Данные и память</Text>
-                      <Text style={settingsStyles.settingsRowSub}>Кэш приложения</Text>
+                      <Text style={settingsStyles.settingsRowTitle}>{t('settings.dataStorage')}</Text>
+                      <Text style={settingsStyles.settingsRowSub}>{t('settings.dataStorageSub')}</Text>
                     </View>
                     <Text style={settingsStyles.settingsChevron}>›</Text>
                   </Pressable>
@@ -1685,11 +1690,36 @@ export function WorkspaceHomeScreen({
                       <Text style={settingsStyles.settingsIconText}>📱</Text>
                     </View>
                     <View style={settingsStyles.settingsRowContent}>
-                      <Text style={settingsStyles.settingsRowTitle}>Устройства</Text>
-                      <Text style={settingsStyles.settingsRowSub}>Активные сеансы</Text>
+                      <Text style={settingsStyles.settingsRowTitle}>{t('settings.devices')}</Text>
+                      <Text style={settingsStyles.settingsRowSub}>{t('settings.devicesSub')}</Text>
                     </View>
                     <Text style={settingsStyles.settingsChevron}>›</Text>
                   </Pressable>
+                </View>
+
+                <Text style={settingsStyles.sectionLabel}>
+                  {t('settings.language.label').toUpperCase()}
+                </Text>
+                <View style={settingsStyles.sectionCard}>
+                  {(['ru', 'en'] as const).map((option, idx, arr) => (
+                    <View key={option}>
+                      <Pressable
+                        style={settingsStyles.settingsRow}
+                        onPress={() => setLocale(option)}>
+                        <Text style={settingsStyles.settingsRowTitle}>
+                          {option === 'ru'
+                            ? t('settings.language.ru')
+                            : t('settings.language.en')}
+                        </Text>
+                        {locale === option ? (
+                          <Text style={settingsStyles.checkmark}>✓</Text>
+                        ) : null}
+                      </Pressable>
+                      {idx < arr.length - 1 ? (
+                        <View style={settingsStyles.rowDivider} />
+                      ) : null}
+                    </View>
+                  ))}
                 </View>
               </ScrollView>
             </View>
@@ -1706,13 +1736,13 @@ export function WorkspaceHomeScreen({
                 <Pressable
                   onPress={() => setNotificationsOpen(false)}
                   style={settingsStyles.modalBackBtn}>
-                  <Text style={settingsStyles.modalBackText}>‹ Назад</Text>
+                  <Text style={settingsStyles.modalBackText}>{t('nav.back')}</Text>
                 </Pressable>
-                <Text style={settingsStyles.modalTitle}>Уведомления</Text>
+                <Text style={settingsStyles.modalTitle}>{t('settings.notifications')}</Text>
                 <View style={settingsStyles.modalBackBtn} />
               </View>
               <ScrollView contentContainerStyle={settingsStyles.modalContent}>
-                <Text style={settingsStyles.sectionLabel}>УВЕДОМЛЕНИЯ</Text>
+                <Text style={settingsStyles.sectionLabel}>{t('notif.captionNotifications')}</Text>
                 <View style={settingsStyles.sectionCard}>
                   <View style={[settingsStyles.settingsRow, notifStyles.toggleRow]}>
                     <View style={[settingsStyles.settingsIcon, {backgroundColor: '#c46a2e'}]}>
@@ -1721,9 +1751,9 @@ export function WorkspaceHomeScreen({
                       </Text>
                     </View>
                     <View style={settingsStyles.settingsRowContent}>
-                      <Text style={settingsStyles.settingsRowTitle}>Получать уведомления</Text>
+                      <Text style={settingsStyles.settingsRowTitle}>{t('notif.receive')}</Text>
                       <Text style={settingsStyles.settingsRowSub}>
-                        Push-уведомления и звуки
+                        {t('notif.pushAndSounds')}
                       </Text>
                     </View>
                     <Switch
@@ -1742,7 +1772,7 @@ export function WorkspaceHomeScreen({
 
                 {workspace.chats.length > 0 ? (
                   <>
-                    <Text style={settingsStyles.sectionLabel}>ЧАТЫ И ГРУППЫ</Text>
+                    <Text style={settingsStyles.sectionLabel}>{t('notif.captionChatsGroups')}</Text>
                     <View style={settingsStyles.sectionCard}>
                       {workspace.chats.map((chat, idx, arr) => {
                         const isMuted = mutedChatIdSet.has(chat.id);
@@ -1764,7 +1794,7 @@ export function WorkspaceHomeScreen({
                                 <View style={notifStyles.togglesRow}>
                                   <View style={notifStyles.toggleItem}>
                                     <Text style={notifStyles.toggleLabel}>
-                                      Уведомления
+                                      {t('settings.notifications')}
                                     </Text>
                                     <Switch
                                       value={!isMuted}
@@ -1787,7 +1817,7 @@ export function WorkspaceHomeScreen({
                                         notifStyles.toggleLabel,
                                         isMuted && notifStyles.toggleLabelDisabled,
                                       ]}>
-                                      Звук
+                                      {t('notif.sound')}
                                     </Text>
                                     <Switch
                                       value={!isSilent && !isMuted}
@@ -1830,13 +1860,13 @@ export function WorkspaceHomeScreen({
             <View style={settingsStyles.modalScreen}>
               <View style={settingsStyles.modalHeader}>
                 <Pressable onPress={() => setChatSettingsOpen(false)} style={settingsStyles.modalBackBtn}>
-                  <Text style={settingsStyles.modalBackText}>‹ Назад</Text>
+                  <Text style={settingsStyles.modalBackText}>{t('nav.back')}</Text>
                 </Pressable>
-                <Text style={settingsStyles.modalTitle}>Настройки чатов</Text>
+                <Text style={settingsStyles.modalTitle}>{t('settings.chatSettings')}</Text>
                 <View style={settingsStyles.modalBackBtn} />
               </View>
               <ScrollView contentContainerStyle={settingsStyles.modalContent}>
-                <Text style={settingsStyles.sectionLabel}>РАЗМЕР ТЕКСТА</Text>
+                <Text style={settingsStyles.sectionLabel}>{t('chatset.captionTextSize')}</Text>
                 <View style={settingsStyles.sectionCard}>
                   {(['small', 'medium', 'large'] as const).map((size, idx, arr) => (
                     <View key={size}>
@@ -1844,7 +1874,7 @@ export function WorkspaceHomeScreen({
                         style={settingsStyles.settingsRow}
                         onPress={() => onSetFontSize(size).catch(() => undefined)}>
                         <Text style={settingsStyles.settingsRowTitle}>
-                          {size === 'small' ? 'Маленький' : size === 'medium' ? 'Средний' : 'Крупный'}
+                          {size === 'small' ? t('chatset.small') : size === 'medium' ? t('chatset.medium') : t('chatset.large')}
                         </Text>
                         {preferences.fontSize === size ? (
                           <Text style={settingsStyles.checkmark}>✓</Text>
@@ -1855,15 +1885,15 @@ export function WorkspaceHomeScreen({
                   ))}
                 </View>
 
-                <Text style={settingsStyles.sectionLabel}>ФОН ЧАТА</Text>
+                <Text style={settingsStyles.sectionLabel}>{t('chatset.captionChatBg')}</Text>
                 <View style={settingsStyles.bgGrid}>
                   {[
-                    {label: 'Тёмный', value: '#0f1720'},
-                    {label: 'Чёрный', value: '#000000'},
-                    {label: 'Синий', value: '#0d1f3c'},
-                    {label: 'Зелёный', value: '#0d2118'},
-                    {label: 'Фиолетовый', value: '#1a0d2e'},
-                    {label: 'Серый', value: '#1a1a1a'},
+                    {label: t('chatset.bgDark'), value: '#0f1720'},
+                    {label: t('chatset.bgBlack'), value: '#000000'},
+                    {label: t('chatset.bgBlue'), value: '#0d1f3c'},
+                    {label: t('chatset.bgGreen'), value: '#0d2118'},
+                    {label: t('chatset.bgPurple'), value: '#1a0d2e'},
+                    {label: t('chatset.bgGray'), value: '#1a1a1a'},
                   ].map(opt => (
                     <Pressable
                       key={opt.value}
@@ -1893,13 +1923,13 @@ export function WorkspaceHomeScreen({
             <View style={settingsStyles.modalScreen}>
               <View style={settingsStyles.modalHeader}>
                 <Pressable onPress={() => setDataStorageOpen(false)} style={settingsStyles.modalBackBtn}>
-                  <Text style={settingsStyles.modalBackText}>‹ Назад</Text>
+                  <Text style={settingsStyles.modalBackText}>{t('nav.back')}</Text>
                 </Pressable>
-                <Text style={settingsStyles.modalTitle}>Данные и память</Text>
+                <Text style={settingsStyles.modalTitle}>{t('settings.dataStorage')}</Text>
                 <View style={settingsStyles.modalBackBtn} />
               </View>
               <ScrollView contentContainerStyle={settingsStyles.modalContent}>
-                <Text style={settingsStyles.sectionLabel}>КЭШ</Text>
+                <Text style={settingsStyles.sectionLabel}>{t('settings.captionCache')}</Text>
                 <View style={settingsStyles.sectionCard}>
                   <Pressable
                     style={settingsStyles.settingsRow}
@@ -1909,10 +1939,10 @@ export function WorkspaceHomeScreen({
                     }}>
                     <View style={settingsStyles.settingsRowContent}>
                       <Text style={settingsStyles.settingsRowTitle}>
-                        {cacheCleared ? 'Кэш очищен ✓' : 'Очистить кэш'}
+                        {cacheCleared ? t('ws.data.cacheCleared') : t('ws.data.clearCache')}
                       </Text>
                       <Text style={settingsStyles.settingsRowSub}>
-                        Временные файлы и данные приложения
+                        {t('ws.data.cacheSub')}
                       </Text>
                     </View>
                   </Pressable>
@@ -1930,14 +1960,14 @@ export function WorkspaceHomeScreen({
             <View style={settingsStyles.modalScreen}>
               <View style={settingsStyles.modalHeader}>
                 <Pressable onPress={() => setDevicesOpen(false)} style={settingsStyles.modalBackBtn}>
-                  <Text style={settingsStyles.modalBackText}>‹ Назад</Text>
+                  <Text style={settingsStyles.modalBackText}>{t('nav.back')}</Text>
                 </Pressable>
-                <Text style={settingsStyles.modalTitle}>Устройства</Text>
+                <Text style={settingsStyles.modalTitle}>{t('settings.devices')}</Text>
                 <View style={settingsStyles.modalBackBtn} />
               </View>
               <ScrollView contentContainerStyle={settingsStyles.modalContent}>
                 {sessionsPending ? (
-                  <Text style={settingsStyles.emptyText}>Загрузка...</Text>
+                  <Text style={settingsStyles.emptyText}>{t('ws.devices.loading')}</Text>
                 ) : sessionsError ? (
                   <Text style={settingsStyles.errorText}>{sessionsError}</Text>
                 ) : (
@@ -1948,10 +1978,10 @@ export function WorkspaceHomeScreen({
                           style={settingsStyles.dangerButton}
                           onPress={handleRevokeOtherSessions}>
                           <Text style={settingsStyles.dangerButtonLabel}>
-                            Завершить все другие сеансы
+                            {t('ws.devices.endAllOthers')}
                           </Text>
                         </Pressable>
-                        <Text style={settingsStyles.sectionLabel}>ДРУГИЕ СЕАНСЫ</Text>
+                        <Text style={settingsStyles.sectionLabel}>{t('ws.devices.captionOther')}</Text>
                         <View style={settingsStyles.sectionCard}>
                           {sessions
                             .filter(s => s.id !== session.sessionId)
@@ -1959,9 +1989,9 @@ export function WorkspaceHomeScreen({
                               <View key={s.id}>
                                 <View style={settingsStyles.sessionRow}>
                                   <View style={settingsStyles.sessionInfo}>
-                                    <Text style={settingsStyles.sessionDevice}>{s.deviceName || 'Устройство'}</Text>
+                                    <Text style={settingsStyles.sessionDevice}>{s.deviceName || t('ws.devices.device')}</Text>
                                     <Text style={settingsStyles.sessionMeta}>
-                                      {new Date(s.lastUsedAt).toLocaleDateString('ru-RU', {
+                                      {new Date(s.lastUsedAt).toLocaleDateString(getActiveLocale(), {
                                         day: 'numeric', month: 'long', year: 'numeric',
                                       })}
                                     </Text>
@@ -1974,7 +2004,7 @@ export function WorkspaceHomeScreen({
                                     disabled={revokingSessionIds.has(s.id)}
                                     onPress={() => handleRevokeSession(s.id)}>
                                     <Text style={settingsStyles.revokeBtnText}>
-                                      {revokingSessionIds.has(s.id) ? '...' : 'Завершить'}
+                                      {revokingSessionIds.has(s.id) ? '...' : t('ws.devices.end')}
                                     </Text>
                                   </Pressable>
                                 </View>
@@ -1985,14 +2015,14 @@ export function WorkspaceHomeScreen({
                       </>
                     ) : null}
 
-                    <Text style={settingsStyles.sectionLabel}>ТЕКУЩИЙ СЕАНС</Text>
+                    <Text style={settingsStyles.sectionLabel}>{t('ws.devices.captionCurrent')}</Text>
                     <View style={settingsStyles.sectionCard}>
                       {sessions.filter(s => s.id === session.sessionId).map(s => (
                         <View key={s.id} style={settingsStyles.sessionRow}>
                           <View style={settingsStyles.sessionInfo}>
-                            <Text style={settingsStyles.sessionDevice}>{s.deviceName || 'Текущее устройство'}</Text>
+                            <Text style={settingsStyles.sessionDevice}>{s.deviceName || t('ws.devices.currentDevice')}</Text>
                             <Text style={settingsStyles.sessionMeta}>
-                              Активен · {new Date(s.lastUsedAt).toLocaleDateString('ru-RU', {
+                              {t('ws.devices.activePrefix')}{new Date(s.lastUsedAt).toLocaleDateString(getActiveLocale(), {
                                 day: 'numeric', month: 'long', year: 'numeric',
                               })}
                             </Text>
@@ -2017,15 +2047,15 @@ export function WorkspaceHomeScreen({
             <View style={editStyles.screen}>
               <View style={editStyles.header}>
                 <Pressable onPress={() => setEditProfileOpen(false)} style={editStyles.headerBtn}>
-                  <Text style={editStyles.headerBtnText}>{'Назад'}</Text>
+                  <Text style={editStyles.headerBtnText}>{t('common.back')}</Text>
                 </Pressable>
-                <Text style={editStyles.headerTitle}>{'Редактировать профиль'}</Text>
+                <Text style={editStyles.headerTitle}>{t('ws.edit.title')}</Text>
                 <Pressable
                   onPress={() => { handleSaveProfile().catch(() => undefined); }}
                   disabled={editPending}
                   style={editStyles.headerBtn}>
                   <Text style={[editStyles.headerBtnText, editStyles.headerBtnAccent]}>
-                    {editPending ? '...' : 'Готово'}
+                    {editPending ? '...' : t('ws.edit.done')}
                   </Text>
                 </Pressable>
               </View>
@@ -2043,13 +2073,13 @@ export function WorkspaceHomeScreen({
                   />
                 </View>
 
-                <Text style={editStyles.sectionLabel}>{'ВАШЕ ИМЯ'}</Text>
+                <Text style={editStyles.sectionLabel}>{t('ws.edit.captionYourName')}</Text>
                 <View style={editStyles.inputCard}>
                   <TextInput
                     style={editStyles.input}
                     value={editFirstName}
                     onChangeText={setEditFirstName}
-                    placeholder={'Имя'}
+                    placeholder={t('ws.edit.firstName')}
                     placeholderTextColor={androidTheme.colors.textMuted}
                     autoCapitalize="words"
                     returnKeyType="next"
@@ -2060,7 +2090,7 @@ export function WorkspaceHomeScreen({
                     style={editStyles.input}
                     value={editLastName}
                     onChangeText={setEditLastName}
-                    placeholder={'Фамилия'}
+                    placeholder={t('ws.edit.lastName')}
                     placeholderTextColor={androidTheme.colors.textMuted}
                     autoCapitalize="words"
                     returnKeyType="next"
@@ -2068,13 +2098,13 @@ export function WorkspaceHomeScreen({
                   />
                 </View>
 
-                <Text style={editStyles.sectionLabel}>{'О СЕБЕ'}</Text>
+                <Text style={editStyles.sectionLabel}>{t('ws.edit.captionAbout')}</Text>
                 <View style={editStyles.inputCard}>
                   <TextInput
                     style={[editStyles.input, editStyles.inputMultiline]}
                     value={editBio}
                     onChangeText={setEditBio}
-                    placeholder={'Напишите о себе…'}
+                    placeholder={t('ws.edit.aboutPlaceholder')}
                     placeholderTextColor={androidTheme.colors.textMuted}
                     multiline
                     maxLength={160}
@@ -2084,13 +2114,13 @@ export function WorkspaceHomeScreen({
                 </View>
                 <Text style={editStyles.inputHint}>{`${editBio.length}/160`}</Text>
 
-                <Text style={editStyles.sectionLabel}>{'ИМЯ ПОЛЬЗОВАТЕЛЯ'}</Text>
+                <Text style={editStyles.sectionLabel}>{t('ws.edit.captionUsername')}</Text>
                 <View style={editStyles.inputCard}>
                   <View style={editStyles.readonlyRow}>
                     <Text style={editStyles.readonlyValue}>{`@${session.user.username}`}</Text>
                   </View>
                 </View>
-                <Text style={editStyles.inputHint}>{'Текущий юзернейм. После смены все сессии будут сброшены.'}</Text>
+                <Text style={editStyles.inputHint}>{t('ws.edit.usernameHint')}</Text>
                 <View style={editStyles.inputCard}>
                   <TextInput
                     style={editStyles.input}
@@ -2100,7 +2130,7 @@ export function WorkspaceHomeScreen({
                       setUsernameChangeInfo(null);
                       setUsernameChangeError(null);
                     }}
-                    placeholder={'Новый юзернейм (3–24 символа)'}
+                    placeholder={t('ws.edit.newUsernamePlaceholder')}
                     placeholderTextColor={androidTheme.colors.textMuted}
                     autoCapitalize="none"
                     autoCorrect={false}
@@ -2117,7 +2147,7 @@ export function WorkspaceHomeScreen({
                       (!usernameChangeInput.trim() || usernameChangePending) && {opacity: 0.5},
                     ]}>
                     <Text style={editStyles.resendBtnText}>
-                      {usernameChangePending ? 'Меняем...' : 'Сменить юзернейм'}
+                      {usernameChangePending ? t('ws.edit.changingUsername') : t('ws.edit.changeUsername')}
                     </Text>
                   </Pressable>
                 ) : null}
@@ -2138,7 +2168,7 @@ export function WorkspaceHomeScreen({
                       setEmailChangeInfo(null);
                       setEmailChangeError(null);
                     }}
-                    placeholder={'Email адрес'}
+                    placeholder={t('ws.edit.emailPlaceholder')}
                     placeholderTextColor={androidTheme.colors.textSecondary}
                     keyboardType="email-address"
                     autoCapitalize="none"
@@ -2148,7 +2178,7 @@ export function WorkspaceHomeScreen({
                 </View>
                 {session.user.email && emailChangeInput.trim() === session.user.email ? (
                   <Text style={session.user.emailVerified ? editStyles.verifiedHint : editStyles.unverifiedHint}>
-                    {session.user.emailVerified ? '✓ подтверждён' : 'не подтверждён'}
+                    {session.user.emailVerified ? t('ws.edit.emailVerified') : t('ws.edit.emailUnverified')}
                   </Text>
                 ) : null}
                 {emailChangeInput.trim() !== (session.user.email ?? '') ? (
@@ -2160,7 +2190,7 @@ export function WorkspaceHomeScreen({
                       (!emailChangeInput.trim() || emailChangePending) && {opacity: 0.5},
                     ]}>
                     <Text style={editStyles.resendBtnText}>
-                      {emailChangePending ? 'Отправляем...' : 'Отправить ссылку'}
+                      {emailChangePending ? t('ws.edit.sendingLink') : t('ws.edit.sendLink')}
                     </Text>
                   </Pressable>
                 ) : !session.user.emailVerified && session.user.email ? (
@@ -2170,7 +2200,7 @@ export function WorkspaceHomeScreen({
                     disabled={verificationPending}
                     style={editStyles.resendBtn}>
                     <Text style={editStyles.resendBtnText}>
-                      {verificationPending ? 'Отправка...' : 'Отправить письмо подтверждения'}
+                      {verificationPending ? t('ws.edit.sendingVerification') : t('ws.edit.sendVerification')}
                     </Text>
                   </Pressable>
                 ) : null}
@@ -2200,21 +2230,21 @@ export function WorkspaceHomeScreen({
           <View style={styles.bottomNav}>
             <BottomTabButton
               icon="💬"
-              label="Чаты"
+              label={t('ws.tab.chats')}
               active={activeTab === 'chats'}
               onPress={() => handleTabChange('chats')}
               testID="tab-chats"
             />
             <BottomTabButton
               icon="👥"
-              label="Контакты"
+              label={t('ws.tab.contacts')}
               active={activeTab === 'contacts'}
               onPress={() => handleTabChange('contacts')}
               testID="tab-contacts"
             />
             <BottomTabButton
               icon="📹"
-              label="Звонки"
+              label={t('ws.tab.calls')}
               active={activeTab === 'settings'}
               onPress={() => handleTabChange('settings')}
               testID="tab-settings"
@@ -2223,7 +2253,7 @@ export function WorkspaceHomeScreen({
               icon={null}
               avatarName={session.user.displayName}
               avatarUrl={session.user.avatarUrl}
-              label="Профиль"
+              label={t('ws.tab.profile')}
               active={activeTab === 'profile'}
               onPress={() => handleTabChange('profile')}
               testID="tab-profile"
@@ -2261,7 +2291,7 @@ function toErrorText(error: unknown) {
     return error.message;
   }
 
-  return 'Unexpected error';
+  return tActive('common.unexpectedError');
 }
 
 function buildUserActionKey(
@@ -2292,13 +2322,13 @@ function omitRecordKey(
 function getTabLabel(activeTab: WorkspaceTab) {
   switch (activeTab) {
     case 'chats':
-      return 'Чаты';
+      return tActive('ws.tab.chats');
     case 'contacts':
-      return 'Контакты';
+      return tActive('ws.tab.contacts');
     case 'settings':
-      return 'Звонки';
+      return tActive('ws.tab.calls');
     case 'profile':
-      return 'Профиль';
+      return tActive('ws.tab.profile');
     default:
       return 'North Messenger';
   }
@@ -2454,12 +2484,13 @@ function ChatListItem({
   onLongPress,
   onSelect,
 }: ChatListItemProps) {
+  const {t} = useI18n();
   const unreadCount = Math.max(0, chat.unreadCount);
   const snippet = draft
-    ? draft.content || 'Empty draft'
+    ? draft.content || t('ws.chat.emptyDraft')
     : chat.lastMessage ||
       chat.pinnedMessage?.preview ||
-      'Open the conversation to start messaging.';
+      t('ws.chat.startMessaging');
 
   return (
     <Pressable
@@ -2498,7 +2529,7 @@ function ChatListItem({
         <View style={styles.chatCardBottomRow}>
           <View style={styles.chatCardSnippetRow}>
             {draft ? (
-              <Text style={styles.chatCardDraftPrefix}>Draft: </Text>
+              <Text style={styles.chatCardDraftPrefix}>{t('ws.chat.draftPrefix')}</Text>
             ) : pendingCount > 0 ? (
               <Text style={styles.chatCardPendingPrefix}>⏳ </Text>
             ) : chat.pinnedMessage ? (
@@ -2618,6 +2649,7 @@ type ProfileListItemProps = {
 };
 
 function ProfileListItem({profile, actions = []}: ProfileListItemProps) {
+  const {t} = useI18n();
   return (
     <View style={styles.profileListCard}>
       <Avatar
@@ -2630,7 +2662,7 @@ function ProfileListItem({profile, actions = []}: ProfileListItemProps) {
         <Text style={styles.profileListMeta}>@{profile.username}</Text>
         <Text numberOfLines={2} style={styles.profileListSubtitle}>
           {profile.profession?.trim() ||
-            (profile.online ? 'Online now' : 'No additional details')}
+            (profile.online ? t('ws.profile.onlineNow') : t('ws.profile.noDetails'))}
         </Text>
       </View>
       {actions.length > 0 ? (
@@ -2670,11 +2702,28 @@ function ProfileListItem({profile, actions = []}: ProfileListItemProps) {
 
 // ─── Conference Calendar ──────────────────────────────────────────────────────
 
-const WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
-const MONTH_NAMES = [
-  'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
-  'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь',
-];
+const WEEKDAYS_BY_LOCALE: Record<Locale, string[]> = {
+  ru: ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'],
+  en: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+};
+const MONTH_NAMES_BY_LOCALE: Record<Locale, string[]> = {
+  ru: [
+    'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+    'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь',
+  ],
+  en: [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
+  ],
+};
+
+function getWeekdays(): string[] {
+  return WEEKDAYS_BY_LOCALE[getActiveLocale()] ?? WEEKDAYS_BY_LOCALE.ru;
+}
+
+function getMonthNames(): string[] {
+  return MONTH_NAMES_BY_LOCALE[getActiveLocale()] ?? MONTH_NAMES_BY_LOCALE.ru;
+}
 
 function toLocalDateKey(isoString: string) {
   const d = new Date(isoString);
@@ -2698,6 +2747,7 @@ function ConferenceCalendar({
   year, month, selectedDay, conferences,
   onPrevMonth, onNextMonth, onSelectDay, onOpenConference, onClose,
 }: ConferenceCalendarProps) {
+  const {t} = useI18n();
   const today = new Date();
   const todayKey = toLocalDateKey(today.toISOString());
 
@@ -2737,7 +2787,7 @@ function ConferenceCalendar({
         <Pressable onPress={onClose} style={calStyles.closeBtn}>
           <Text style={calStyles.closeBtnLabel}>✕</Text>
         </Pressable>
-        <Text style={calStyles.headerTitle}>Календарь конференций</Text>
+        <Text style={calStyles.headerTitle}>{t('ws.cal.title')}</Text>
       </View>
 
       {/* Month navigation */}
@@ -2746,7 +2796,7 @@ function ConferenceCalendar({
           <Text style={calStyles.navBtnLabel}>‹</Text>
         </Pressable>
         <Text style={calStyles.monthLabel}>
-          {MONTH_NAMES[month]} {year}
+          {getMonthNames()[month]} {year}
         </Text>
         <Pressable onPress={onNextMonth} style={calStyles.navBtn}>
           <Text style={calStyles.navBtnLabel}>›</Text>
@@ -2755,7 +2805,7 @@ function ConferenceCalendar({
 
       {/* Weekday headers */}
       <View style={calStyles.weekRow}>
-        {WEEKDAYS.map(w => (
+        {getWeekdays().map(w => (
           <Text key={w} style={calStyles.weekDay}>{w}</Text>
         ))}
       </View>
@@ -2800,9 +2850,9 @@ function ConferenceCalendar({
       {/* Selected day conferences */}
       <ScrollView style={calStyles.dayList} contentContainerStyle={calStyles.dayListContent}>
         {selectedDay === null ? (
-          <Text style={calStyles.dayListHint}>Выберите день чтобы увидеть конференции</Text>
+          <Text style={calStyles.dayListHint}>{t('ws.cal.pickDay')}</Text>
         ) : selectedConferences.length === 0 ? (
-          <Text style={calStyles.dayListHint}>Нет конференций в этот день</Text>
+          <Text style={calStyles.dayListHint}>{t('ws.cal.noConfThatDay')}</Text>
         ) : (
           selectedConferences.map(c => (
             <Pressable
@@ -2814,7 +2864,7 @@ function ConferenceCalendar({
                 <Text style={calStyles.confItemTitle}>{c.title}</Text>
                 <Text style={calStyles.confItemTime}>
                   {new Date(c.scheduledAt).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}
-                  {c.endedAt ? ' · Завершена' : c.startedAt ? ' · Идёт сейчас' : ' · Запланирована'}
+                  {c.endedAt ? t('ws.cal.statusEnded') : c.startedAt ? t('ws.cal.statusOngoing') : t('ws.cal.statusScheduled')}
                 </Text>
               </View>
               <Text style={calStyles.confItemArrow}>›</Text>
@@ -3004,29 +3054,30 @@ type ConferenceListItemProps = {
 };
 
 function ConferenceListItem({conference, onOpen}: ConferenceListItemProps) {
+  const {t, tp} = useI18n();
   return (
     <View style={styles.conferenceCard}>
       <View style={styles.conferenceCardCopy}>
         <Text style={styles.conferenceCardTitle}>{conference.title}</Text>
         <Text style={styles.conferenceCardMeta}>
-          {conference.participants.length} participants •{' '}
+          {tp('ws.confItem.participants', conference.participants.length)} •{' '}
           {formatRelativeMessageTime(conference.scheduledAt)}
         </Text>
         <Text style={styles.conferenceCardHint}>
           {conference.endedAt
-            ? 'Завершено'
+            ? t('ws.confItem.ended')
             : conference.startedAt
-              ? 'Идёт сейчас'
+              ? t('ws.confItem.ongoing')
               : conference.chatId
-                ? 'Связано с группой'
-                : 'Ожидает начала'}
+                ? t('ws.confItem.linkedGroup')
+                : t('ws.confItem.awaiting')}
         </Text>
       </View>
       <Pressable
         onPress={onOpen}
         style={styles.inlineActionPrimary}
         testID={`open-conference-${conference.id}`}>
-        <Text style={styles.inlineActionPrimaryLabel}>Open</Text>
+        <Text style={styles.inlineActionPrimaryLabel}>{t('ws.open')}</Text>
       </Pressable>
     </View>
   );

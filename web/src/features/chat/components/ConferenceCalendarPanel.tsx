@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 
 import type { VideoConference } from "../../../lib/types";
+import { useI18n } from "../../../i18n/I18nProvider";
+import { getActiveLocale, tActive, tpActive } from "../../../i18n";
 import { AvatarCircle } from "./AvatarCircle";
 
 const CALENDAR_PAGE_DAYS = 14;
@@ -38,6 +40,7 @@ export function ConferenceCalendarPanel({
   formatConferenceSchedule,
   formatMemberCount,
 }: Props) {
+  const { t } = useI18n();
   const startDayRef = useRef(startOfDay(new Date()));
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const [visibleDayCount, setVisibleDayCount] = useState(CALENDAR_PAGE_DAYS);
@@ -121,7 +124,7 @@ export function ConferenceCalendarPanel({
       <div className="conference-calendar">
         {header}
         <div className="empty-list conference-calendar-empty">
-          {normalizedSearch ? "По этому фильтру запланированных встреч нет." : "На ближайшее время встреч нет."}
+          {normalizedSearch ? t("calendar.noMeetingsFilter") : t("calendar.noMeetingsSoon")}
         </div>
       </div>
     );
@@ -140,13 +143,13 @@ export function ConferenceCalendarPanel({
             </div>
             <span className="conference-calendar-day-count">
               {section.conferences.length === 0
-                ? "Свободно"
+                ? t("calendar.free")
                 : formatConferenceCount(section.conferences.length)}
             </span>
           </header>
 
           {section.conferences.length === 0 ? (
-            <div className="conference-calendar-day-empty">Запланированных встреч нет.</div>
+            <div className="conference-calendar-day-empty">{t("calendar.dayEmpty")}</div>
           ) : (
             <div className="conference-calendar-day-list">
               {section.conferences.map((conference) => {
@@ -181,7 +184,7 @@ export function ConferenceCalendarPanel({
                         <span className="conference-calendar-event-separator" />
                         <span>{formatConferenceSchedule(conference.scheduledAt)}</span>
                       </div>
-                      <p>{preview || "Участники будут видны после приглашения."}</p>
+                      <p>{preview || t("chatList.membersAfterInvite")}</p>
                     </div>
                   </button>
                 );
@@ -193,7 +196,7 @@ export function ConferenceCalendarPanel({
 
       {visibleDayCount < maxVisibleDayCount ? (
         <div ref={sentinelRef} className="conference-calendar-load-more">
-          Прокрутите дальше, чтобы загрузить ещё две недели расписания.
+          {t("calendar.loadMore")}
         </div>
       ) : null}
     </div>
@@ -226,47 +229,37 @@ function formatCalendarDayLabel(value: Date) {
   const target = startOfDay(value);
   const diff = differenceInDays(now, target);
   if (diff === 0) {
-    return "Сегодня";
+    return tActive("calendar.today");
   }
 
   if (diff === 1) {
-    return "Завтра";
+    return tActive("calendar.tomorrow");
   }
 
-  return new Intl.DateTimeFormat("ru-RU", {
+  return new Intl.DateTimeFormat(getActiveLocale(), {
     weekday: "long",
   }).format(value);
 }
 
 function formatCalendarDaySecondaryLabel(value: Date) {
-  return new Intl.DateTimeFormat("ru-RU", {
+  return new Intl.DateTimeFormat(getActiveLocale(), {
     day: "numeric",
     month: "long",
   }).format(value);
 }
 
 function formatConferenceCount(count: number) {
-  const mod10 = count % 10;
-  const mod100 = count % 100;
-  if (mod10 === 1 && mod100 !== 11) {
-    return `${count} встреча`;
-  }
-
-  if ([2, 3, 4].includes(mod10) && ![12, 13, 14].includes(mod100)) {
-    return `${count} встречи`;
-  }
-
-  return `${count} встреч`;
+  return tpActive("calendar.meetingsCount", count);
 }
 
 function describeCalendarConferenceStatus(conference: VideoConference) {
   if (conference.startedAt) {
-    return "Идет";
+    return tActive("calendar.statusOngoing");
   }
 
   if (conference.roomName || conference.activatedAt) {
-    return "Скоро";
+    return tActive("calendar.statusSoon");
   }
 
-  return "Запланирована";
+  return tActive("calendar.statusScheduled");
 }

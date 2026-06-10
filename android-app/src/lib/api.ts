@@ -21,6 +21,7 @@ import type {
   WorkspaceSearch,
 } from '@north/shared';
 import {API_URL} from '../config';
+import {tActive} from '../i18n';
 
 type QueryValue = string | number | undefined | null;
 
@@ -121,10 +122,10 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       const isTimeout = error instanceof Error && error.name === 'AbortError';
       if (isTimeout) {
         // Explicit timeout — do not retry.
-        throw new ApiError('Request timed out', 0);
+        throw new ApiError(tActive('api.timeout'), 0);
       }
       // Pure network error — retry.
-      lastError = new ApiError('Cannot reach backend. Check API URL and device connectivity.', 0);
+      lastError = new ApiError(tActive('api.unreachable'), 0);
       if (attempt < maxAttempts - 1) continue;
       throw lastError;
     }
@@ -134,7 +135,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     if (!response.ok) {
       // 503 Service Unavailable: server temporarily overloaded — retry.
       if (response.status === 503 && attempt < maxAttempts - 1) {
-        lastError = new ApiError('Service temporarily unavailable', 503);
+        lastError = new ApiError(tActive('api.unavailable'), 503);
         continue;
       }
       throw await parseApiError(response);
@@ -152,7 +153,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     return JSON.parse(rawBody) as T;
   }
 
-  throw lastError ?? new ApiError('Request failed', 0);
+  throw lastError ?? new ApiError(tActive('api.requestFailed'), 0);
 }
 
 async function parseApiError(response: Response) {
@@ -162,15 +163,24 @@ async function parseApiError(response: Response) {
       const payload = (await response.json()) as ApiErrorResponse;
       return new ApiError(payload.error, response.status, payload.details ?? []);
     } catch {
-      return new ApiError(`Request failed (${response.status})`, response.status);
+      return new ApiError(
+        tActive('api.requestFailedCode', {status: response.status}),
+        response.status,
+      );
     }
   }
 
   try {
     const text = (await response.text()).trim();
-    return new ApiError(text || `Request failed (${response.status})`, response.status);
+    return new ApiError(
+      text || tActive('api.requestFailedCode', {status: response.status}),
+      response.status,
+    );
   } catch {
-    return new ApiError(`Request failed (${response.status})`, response.status);
+    return new ApiError(
+      tActive('api.requestFailedCode', {status: response.status}),
+      response.status,
+    );
   }
 }
 
@@ -183,7 +193,7 @@ export function describeError(error: unknown) {
     return error.message;
   }
 
-  return 'Unexpected error';
+  return tActive('common.unexpectedError');
 }
 
 export function register(input: {
@@ -418,7 +428,7 @@ export async function uploadChatAttachment(
   });
 
   if (!response.ok) {
-    throw new ApiError('Attachment upload failed', response.status);
+    throw new ApiError(tActive('api.uploadFailed'), response.status);
   }
 
   return {
@@ -722,11 +732,11 @@ function readLocalFileBlob(uri: string) {
   return new Promise<Blob>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.onerror = () => {
-      reject(new ApiError('Attachment file could not be read on this device.', 0));
+      reject(new ApiError(tActive('api.fileUnreadable'), 0));
     };
     xhr.onload = () => {
       if (!xhr.response) {
-        reject(new ApiError('Attachment file is empty or unavailable.', 0));
+        reject(new ApiError(tActive('api.fileEmpty'), 0));
         return;
       }
       resolve(xhr.response as Blob);

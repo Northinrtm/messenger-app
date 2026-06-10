@@ -1,3 +1,5 @@
+import { useI18n } from "../../../i18n/I18nProvider";
+import { tpActive } from "../../../i18n";
 import type { ChatSummary, Participant, UserProfile } from "../../../lib/types";
 import { AvatarCircle } from "./AvatarCircle";
 
@@ -36,13 +38,7 @@ type Props = {
 };
 
 function renderMemberCount(count: number) {
-  if (count % 10 === 1 && count % 100 !== 11) {
-    return `${count} участник`;
-  }
-  if (count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14)) {
-    return `${count} участника`;
-  }
-  return `${count} участников`;
+  return tpActive("members.count", count);
 }
 
 export function ChatMembersPanel({
@@ -78,6 +74,7 @@ export function ChatMembersPanel({
   onRevokeModerator,
   onTransferOwnership,
 }: Props) {
+  const { t } = useI18n();
   const ownerUserId = activeChat.ownerUserId;
   const moderatorUserIdSet = new Set(activeChat.moderatorUserIds);
   const activeConferenceParticipantIdSet = new Set(activeConferenceParticipantUserIds);
@@ -93,21 +90,21 @@ export function ChatMembersPanel({
             badge="GR"
           />
           <div className="chat-menu-copy">
-            <strong>Участники</strong>
+            <strong>{t("conf.participants")}</strong>
             <span>{renderMemberCount(activeChat.members.length)}</span>
           </div>
         </div>
         <div className="chat-menu-head-actions">
           {canAddMembers ? (
             <button type="button" className="ghost-button compact" onClick={onToggleGroupInvitePicker}>
-              {isGroupInvitePickerOpen ? "Скрыть" : "Добавить"}
+              {isGroupInvitePickerOpen ? t("common.hide") : t("sheet.add")}
             </button>
           ) : null}
           <button
             type="button"
             className="sidebar-menu-collapse"
             onClick={onClose}
-            aria-label="Закрыть участников"
+            aria-label={t("members.closeAria")}
           >
             ×
           </button>
@@ -128,7 +125,7 @@ export function ChatMembersPanel({
 
           <div className="group-picker-list">
             {availableGroupInviteContacts.length === 0 ? (
-              <div className="empty-list">Все контакты уже в этой группе или список пуст.</div>
+              <div className="empty-list">{t("sheet.allContactsInGroupOrEmpty")}</div>
             ) : (
               availableGroupInviteContacts.map((contact) => {
                 const selected = groupInviteUsernames.includes(contact.username);
@@ -153,7 +150,7 @@ export function ChatMembersPanel({
                       <strong>{contact.displayName}</strong>
                       <span>@{contact.username}</span>
                     </div>
-                    <span className="member-pill">{selected ? "Выбран" : "Выбрать"}</span>
+                    <span className="member-pill">{selected ? t("sheet.selected") : t("sheet.select")}</span>
                   </button>
                 );
               })
@@ -166,7 +163,7 @@ export function ChatMembersPanel({
             disabled={addGroupParticipantsPending || !groupInviteUsernames.length}
             onClick={onSubmitAddGroupParticipants}
           >
-            {addGroupParticipantsPending ? "Добавляем..." : "Добавить в группу"}
+            {addGroupParticipantsPending ? t("sheet.adding") : t("sheet.addToGroup")}
           </button>
         </div>
       ) : null}
@@ -183,15 +180,15 @@ export function ChatMembersPanel({
           const rolePills: string[] = [];
 
           if (isCurrentUser) {
-            rolePills.push("Вы");
+            rolePills.push(t("chat.you"));
           }
           if (isOwner) {
-            rolePills.push("Владелец");
+            rolePills.push(t("members.owner"));
           } else if (isModerator) {
-            rolePills.push("Модератор");
+            rolePills.push(t("members.moderator"));
           }
           if (rolePills.length === 0) {
-            rolePills.push("В группе");
+            rolePills.push(t("sheet.inGroup"));
           }
 
           return (
@@ -215,7 +212,7 @@ export function ChatMembersPanel({
                     disabled={createChatPending}
                     onClick={() => onCreateChat(member.username)}
                   >
-                    Чат
+                    {t("sheet.chat")}
                   </button>
                 ) : null}
                 {canOwnerManageRole && !isModerator ? (
@@ -225,7 +222,7 @@ export function ChatMembersPanel({
                     disabled={assignModeratorPending}
                     onClick={() => onAssignModerator(member)}
                   >
-                    Модератор
+                    {t("members.moderator")}
                   </button>
                 ) : null}
                 {canOwnerManageRole && isModerator ? (
@@ -235,7 +232,7 @@ export function ChatMembersPanel({
                     disabled={transferOwnershipPending}
                     onClick={() => onTransferOwnership(member)}
                   >
-                    Передать права
+                    {t("members.transferOwnership")}
                   </button>
                 ) : null}
                 {canOwnerManageRole && isModerator ? (
@@ -245,7 +242,7 @@ export function ChatMembersPanel({
                     disabled={revokeModeratorPending}
                     onClick={() => onRevokeModerator(member)}
                   >
-                    Снять роль
+                    {t("members.revokeRole")}
                   </button>
                 ) : null}
                 {canModerateThisMember ? (
@@ -255,7 +252,7 @@ export function ChatMembersPanel({
                     disabled={removeGroupParticipantPending}
                     onClick={() => onRemoveParticipant(member)}
                   >
-                    Исключить
+                    {t("members.remove")}
                   </button>
                 ) : null}
                 {canModerateThisMember ? (
@@ -265,7 +262,7 @@ export function ChatMembersPanel({
                     disabled={banGroupParticipantPending}
                     onClick={() => onBanParticipant(member)}
                   >
-                    Бан
+                    {t("members.ban")}
                   </button>
                 ) : null}
                 <div className="member-pill-stack">
@@ -283,11 +280,11 @@ export function ChatMembersPanel({
       {canModerateMembers ? (
         <div className="chat-members-panel-list">
           <div className="sheet-section">
-            <div className="section-title">Заблокированные участники</div>
+            <div className="section-title">{t("sheet.bannedMembers")}</div>
             {groupBansLoading ? (
-              <div className="empty-list">Загружаем список банов...</div>
+              <div className="empty-list">{t("sheet.loadingBans")}</div>
             ) : bannedParticipants.length === 0 ? (
-              <div className="empty-list">Список банов пуст.</div>
+              <div className="empty-list">{t("sheet.bansEmpty")}</div>
             ) : (
               bannedParticipants.map((participant) => (
                 <div key={participant.id} className="sheet-row sheet-row-with-avatar">
@@ -308,9 +305,9 @@ export function ChatMembersPanel({
                       disabled={unbanGroupParticipantPending}
                       onClick={() => onUnbanParticipant(participant)}
                     >
-                      Разбанить
+                      {t("sheet.unban")}
                     </button>
-                    <span className="member-pill">В бане</span>
+                    <span className="member-pill">{t("sheet.banned")}</span>
                   </div>
                 </div>
               ))

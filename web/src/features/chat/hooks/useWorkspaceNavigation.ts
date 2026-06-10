@@ -1,5 +1,7 @@
 import { useEffectEvent, type Dispatch, type SetStateAction } from "react";
 
+import { useI18n } from "../../../i18n/I18nProvider";
+
 import type { ChatSummary, VideoConference } from "../../../lib/types";
 import {
   createInitialConferenceDateTime,
@@ -81,6 +83,7 @@ export function useWorkspaceNavigation({
   setSidebarSheet,
   stopTyping,
 }: UseWorkspaceNavigationParams): UseWorkspaceNavigationResult {
+  const { t } = useI18n();
   const openSidebarSheet = useEffectEvent((sheet: Exclude<SidebarSheet, null>) => {
     setDeleteAccountConfirmation("");
     setSidebarSheet(sheet);
@@ -138,7 +141,7 @@ export function useWorkspaceNavigation({
     setConferenceEditingId(null);
     setConferenceComposerMode(mode);
     setConferenceParticipantUsernames([]);
-    setConferenceTitle(`Встреча ${activeChat.title}`);
+    setConferenceTitle(t("conf.defaultTitleNamed", { title: activeChat.title }));
     setConferenceParticipantUsernames(
       activeChat.members
         .filter((member) => member.username !== currentUsername)

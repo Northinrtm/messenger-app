@@ -1,6 +1,7 @@
 import { Component, Suspense, lazy, useEffect, useEffectEvent, useRef, useState } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 import { AuthCard } from "../features/auth/AuthCard";
+import { tActive } from "../i18n";
 import { ApiError, refreshSession } from "../lib/api";
 import {
   getSessionRefreshDelay,
@@ -32,15 +33,15 @@ class WorkspaceErrorBoundary extends Component<
       return (
         <main className="auth-shell">
           <section className="auth-card">
-            <div className="eyebrow">Ошибка</div>
-            <h1>Что-то пошло не так.</h1>
-            <p className="auth-copy">Попробуйте обновить страницу.</p>
+            <div className="eyebrow">{tActive("app.errorEyebrow")}</div>
+            <h1>{tActive("app.errorTitle")}</h1>
+            <p className="auth-copy">{tActive("app.errorBody")}</p>
             <button
               type="button"
               className="auth-submit"
               onClick={() => window.location.reload()}
             >
-              Обновить
+              {tActive("workspace.updateButton")}
             </button>
           </section>
         </main>

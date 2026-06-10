@@ -2,7 +2,7 @@ import type {AuthResponse, VideoConference} from '@north/shared';
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
 import {Linking, Share} from 'react-native';
-import {API_URL, JITSI_BASE_URL} from '../../config';
+import {API_URL} from '../../config';
 import {ConferenceDetailScreen} from './ConferenceDetailScreen';
 
 const openUrlSpy = jest
@@ -11,13 +11,6 @@ const openUrlSpy = jest
 const shareSpy = jest
   .spyOn(Share, 'share')
   .mockImplementation(async () => ({action: 'sharedAction'}));
-
-function buildExpectedJoinUrl(roomName: string) {
-  const normalizedBaseUrl = JITSI_BASE_URL.endsWith('/')
-    ? JITSI_BASE_URL
-    : `${JITSI_BASE_URL}/`;
-  return new URL(encodeURIComponent(roomName), normalizedBaseUrl).toString();
-}
 
 function buildExpectedInviteUrl(code: string) {
   return new URL(`/j/${encodeURIComponent(code)}`, API_URL).toString();

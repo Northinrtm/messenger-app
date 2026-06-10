@@ -5,6 +5,8 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { type Dispatch, type SetStateAction, useEffect, useRef } from "react";
+
+import { useI18n } from "../../../i18n/I18nProvider";
 import {
   ApiError,
   createDirectChat,
@@ -166,6 +168,7 @@ export function useMessageActions({
   syncChatPinnedMessage,
   syncChatPreviewFromCache,
 }: UseMessageActionsOptions) {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const nextLocalMessageOrderRef = useRef(0);
   const inFlightSendClientMessageIdsRef = useRef(new Set<string>());
@@ -731,8 +734,8 @@ export function useMessageActions({
   const deleteChatForSelf = (chatId: string) => {
     setContextMenu(null);
     const chat = chats.find((item) => item.id === chatId);
-    const title = chat?.title ?? "\u044d\u0442\u043e\u0442 \u0447\u0430\u0442";
-    if (!window.confirm(`\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0447\u0430\u0442 "${title}" \u0442\u043e\u043b\u044c\u043a\u043e \u0443 \u0432\u0430\u0441?`)) {
+    const title = chat?.title ?? t("actions.thisChat");
+    if (!window.confirm(t("actions.deleteChatForSelfConfirm", { title }))) {
       return;
     }
 
@@ -748,7 +751,7 @@ export function useMessageActions({
     if (
       !skipConfirm &&
       !window.confirm(
-        "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435 \u0434\u043b\u044f \u0432\u0441\u0435\u0445 \u0443\u0447\u0430\u0441\u0442\u043d\u0438\u043a\u043e\u0432 \u0447\u0430\u0442\u0430?"
+        t("actions.deleteForEveryoneConfirm")
       )
     ) {
       return false;
@@ -757,7 +760,7 @@ export function useMessageActions({
     try {
       await deleteMessageMutation.mutateAsync({ chatId, messageId, scope: "EVERYONE" });
     } catch {
-      window.alert("Не удалось удалить сообщение. Вы можете удалять для всех только свои сообщения.");
+      window.alert(t("actions.deleteFailed"));
       return false;
     }
     return true;
@@ -777,7 +780,7 @@ export function useMessageActions({
       if (
         !skipConfirm &&
         !window.confirm(
-          "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u043d\u0435\u043e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u043d\u043e\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435 \u0442\u043e\u043b\u044c\u043a\u043e \u0443 \u0432\u0430\u0441?"
+          t("actions.deleteUnsentForSelfConfirm")
         )
       ) {
         return false;
@@ -797,7 +800,7 @@ export function useMessageActions({
     if (
       !skipConfirm &&
       !window.confirm(
-        "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435 \u0442\u043e\u043b\u044c\u043a\u043e \u0443 \u0432\u0430\u0441?"
+        t("actions.deleteForSelfConfirm")
       )
     ) {
       return false;
@@ -810,7 +813,7 @@ export function useMessageActions({
   const deleteMessageForEveryone = (chatId: string, messageId: string) => {
     if (
       !window.confirm(
-        "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435 \u0434\u043b\u044f \u0432\u0441\u0435\u0445 \u0443\u0447\u0430\u0441\u0442\u043d\u0438\u043a\u043e\u0432 \u0447\u0430\u0442\u0430?"
+        t("actions.deleteForEveryoneConfirm")
       )
     ) {
       return;
@@ -826,8 +829,8 @@ export function useMessageActions({
       (message) => message.clientMessageId === messageId
     );
     const confirmationText = localPendingMessage
-      ? "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u043d\u0435\u043e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u043d\u043e\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435 \u0442\u043e\u043b\u044c\u043a\u043e \u0443 \u0432\u0430\u0441?"
-      : "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435 \u0442\u043e\u043b\u044c\u043a\u043e \u0443 \u0432\u0430\u0441?";
+      ? t("actions.deleteUnsentForSelfConfirm")
+      : t("actions.deleteForSelfConfirm");
     if (!window.confirm(confirmationText)) {
       return;
     }
@@ -958,7 +961,7 @@ export function useMessageActions({
   const copyMessageText = (message: ChatMessage) => {
     setContextMenu(null);
     void navigator.clipboard.writeText(message.content).catch(() => {
-      window.alert("\u041d\u0435 \u043f\u043e\u043b\u0443\u0447\u0438\u043b\u043e\u0441\u044c \u0441\u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0442\u0435\u043a\u0441\u0442 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u044f.");
+      window.alert(t("actions.copyFailed"));
     });
   };
 
@@ -995,12 +998,12 @@ export function useMessageActions({
     }
 
     if (trimmed.length > MAX_MESSAGE_LENGTH) {
-      window.alert(`\u0421\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435 \u0441\u043b\u0438\u0448\u043a\u043e\u043c \u0434\u043b\u0438\u043d\u043d\u043e\u0435. \u041c\u0430\u043a\u0441\u0438\u043c\u0443\u043c ${MAX_MESSAGE_LENGTH.toLocaleString()} \u0441\u0438\u043c\u0432\u043e\u043b\u043e\u0432 (\u0441\u0435\u0439\u0447\u0430\u0441 ${trimmed.length.toLocaleString()}).`);
+      window.alert(t("actions.messageTooLong", { max: MAX_MESSAGE_LENGTH.toLocaleString(), current: trimmed.length.toLocaleString() }));
       return false;
     }
 
     if (files.length > MAX_ATTACHMENT_COUNT) {
-      window.alert(`\u041c\u043e\u0436\u043d\u043e \u043e\u0442\u043f\u0440\u0430\u0432\u0438\u0442\u044c \u043d\u0435 \u0431\u043e\u043b\u0435\u0435 ${MAX_ATTACHMENT_COUNT} \u0444\u0430\u0439\u043b\u043e\u0432 \u0432 \u043e\u0434\u043d\u043e\u043c \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0438.`);
+      window.alert(t("actions.tooManyFiles", { count: MAX_ATTACHMENT_COUNT }));
       return false;
     }
 
@@ -1023,7 +1026,7 @@ export function useMessageActions({
       const oversizedFile = files.find((file) => file.size > MAX_ATTACHMENT_SIZE_BYTES);
       if (oversizedFile) {
         window.alert(
-          `\u0424\u0430\u0439\u043b "${oversizedFile.name}" \u0431\u043e\u043b\u044c\u0448\u0435 25 MB. \u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0444\u0430\u0439\u043b \u043c\u0435\u043d\u044c\u0448\u0435\u0433\u043e \u0440\u0430\u0437\u043c\u0435\u0440\u0430.`
+          t("actions.fileTooLarge", { name: oversizedFile.name })
         );
         return false;
       }

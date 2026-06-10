@@ -35,6 +35,8 @@ import {
   type RefObject,
 } from "react";
 import type { TimelineItem } from "../chatWorkspaceUtils";
+import { useI18n } from "../../../i18n/I18nProvider";
+import { tActive } from "../../../i18n";
 
 import { AvatarCircle } from "./AvatarCircle";
 
@@ -50,65 +52,8 @@ type HistoryAccessNotice = {
   isPending: boolean;
 };
 
-const MESSAGE_SELECTION_COPY = {
-  toolbarForward: "\u041F\u0415\u0420\u0415\u0421\u041B\u0410\u0422\u042C",
-  toolbarDelete: "\u0423\u0414\u0410\u041B\u0418\u0422\u042C",
-  toolbarCancel: "\u041E\u0422\u041C\u0415\u041D\u0410",
-  dialogTitle:
-    "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F",
-  dialogPromptSingle:
-    "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435, \u0433\u0434\u0435 \u0443\u0434\u0430\u043B\u0438\u0442\u044C \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435.",
-  dialogPromptManyPrefix:
-    "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435, \u0433\u0434\u0435 \u0443\u0434\u0430\u043B\u0438\u0442\u044C \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F",
-  dialogDeleteForSelf:
-    "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0443 \u0441\u0435\u0431\u044F",
-  dialogDeleteForSelfHint:
-    "\u0421\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F \u0438\u0441\u0447\u0435\u0437\u043D\u0443\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u0443 \u0432\u0430\u0441.",
-  dialogDeleteForEveryone:
-    "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0434\u043B\u044F \u0432\u0441\u0435\u0445",
-  dialogDeleteForEveryoneHint:
-    "\u0421\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F \u0438\u0441\u0447\u0435\u0437\u043D\u0443\u0442 \u0443 \u0432\u0441\u0435\u0445 \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A\u043E\u0432 \u0447\u0430\u0442\u0430.",
-  dialogDeleteForEveryoneDisabled:
-    "\u0414\u043B\u044F \u0432\u0441\u0435\u0445 \u043C\u043E\u0436\u043D\u043E \u0443\u0434\u0430\u043B\u0438\u0442\u044C \u0442\u043E\u043B\u044C\u043A\u043E \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u044D\u0442\u043E \u043F\u043E\u0437\u0432\u043E\u043B\u044F\u044E\u0442.",
-  dialogDeleteForEveryoneOnlySingle:
-    "\u041F\u043E\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u0435 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F \u0434\u043B\u044F \u0432\u0441\u0435\u0445 \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A\u043E\u0432.",
-  dialogDeleteForEveryoneOnlyManyPrefix:
-    "\u041F\u043E\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u0435 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0439 \u0434\u043B\u044F \u0432\u0441\u0435\u0445 \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A\u043E\u0432",
-  dialogCancel: "\u041E\u0442\u043C\u0435\u043D\u0430",
-  selectMessage: "\u0412\u044B\u0434\u0435\u043B\u0438\u0442\u044C \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435",
-  deselectMessage:
-    "\u0421\u043D\u044F\u0442\u044C \u0432\u044B\u0434\u0435\u043B\u0435\u043D\u0438\u0435",
-};
-
-const COMPOSER_COPY = {
-  blockedPlaceholder: "\u041F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044C \u0437\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D",
-  refreshPlaceholder:
-    "\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u0435 \u0447\u0430\u0442, \u0447\u0442\u043E\u0431\u044B \u043F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C",
-  editPlaceholder: "\u0418\u0437\u043C\u0435\u043D\u0438\u0442\u0435 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435",
-  replyPlaceholder: "\u041D\u0430\u043F\u0438\u0448\u0438\u0442\u0435 \u043E\u0442\u0432\u0435\u0442",
-  messagePlaceholder: "\u041D\u0430\u043F\u0438\u0448\u0438\u0442\u0435 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435",
-  replyLabel: "\u041E\u0442\u0432\u0435\u0442",
-  editLabel: "\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435",
-  cancelReplyAria: "\u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C \u043E\u0442\u0432\u0435\u0442",
-  cancelEditAria:
-    "\u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435",
-  refreshing: "\u041E\u0431\u043D\u043E\u0432\u043B\u044F\u0435\u043C...",
-  attachmentsAria:
-    "\u041F\u0440\u0438\u043A\u0440\u0435\u043F\u043B\u0435\u043D\u043D\u044B\u0435 \u0444\u0430\u0439\u043B\u044B",
-  removeAttachmentAria: "\u0423\u0431\u0440\u0430\u0442\u044C \u0444\u0430\u0439\u043B",
-  cancelUpload: "\u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C",
-  attachFile: "\u041F\u0440\u0438\u043A\u0440\u0435\u043F\u0438\u0442\u044C \u0444\u0430\u0439\u043B",
-  startVoiceRecording: "\u0417\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0433\u043E\u043B\u043E\u0441\u043E\u0432\u043E\u0435",
-  stopVoiceRecording: "\u041E\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C \u0437\u0430\u043F\u0438\u0441\u044C",
-  voiceRecordingActive: "\u0418\u0434\u0435\u0442 \u0437\u0430\u043F\u0438\u0441\u044C",
-  voiceRecordingPreparing: "\u0413\u043E\u0442\u043E\u0432\u0438\u043C \u0433\u043E\u043B\u043E\u0441\u043E\u0432\u043E\u0435...",
-  voiceRecordingUnsupported:
-    "\u0412 \u044D\u0442\u043E\u043C \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0435 \u043D\u0435\u0442 \u043F\u043E\u0434\u0434\u0435\u0440\u0436\u043A\u0438 \u0437\u0430\u043F\u0438\u0441\u0438 \u0433\u043E\u043B\u043E\u0441\u0430.",
-  voiceRecordingFailed:
-    "\u041D\u0435 \u043F\u043E\u043B\u0443\u0447\u0438\u043B\u043E\u0441\u044C \u043D\u0430\u0447\u0430\u0442\u044C \u0437\u0430\u043F\u0438\u0441\u044C \u0433\u043E\u043B\u043E\u0441\u043E\u0432\u043E\u0433\u043E \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F.",
-  closeGlyph: "\u00D7",
-  submitEditGlyph: "\u2713",
-} as const;
+// UI copy lives in the i18n dictionaries; each component builds its localized
+// MESSAGE_SELECTION_COPY / COMPOSER_COPY via useMemo(t).
 
 type Props = {
   activeChat: ChatSummary;
@@ -257,10 +202,32 @@ export function ActiveChatConversation({
   getReactionOption,
   buildMessagePreview,
 }: Props) {
+  const { t } = useI18n();
+  const MESSAGE_SELECTION_COPY = useMemo(
+    () => ({
+      toolbarForward: t("chat.toolbarForward"),
+      toolbarDelete: t("chat.toolbarDelete"),
+      toolbarCancel: t("chat.toolbarCancel"),
+      dialogTitle: t("chat.deleteDialogTitle"),
+      dialogPromptSingle: t("chat.deletePromptSingle"),
+      dialogPromptManyPrefix: t("chat.deletePromptManyPrefix"),
+      dialogDeleteForSelf: t("chat.deleteForSelf"),
+      dialogDeleteForSelfHint: t("chat.deleteForSelfHint"),
+      dialogDeleteForEveryone: t("chat.deleteForEveryone"),
+      dialogDeleteForEveryoneHint: t("chat.deleteForEveryoneHint"),
+      dialogDeleteForEveryoneDisabled: t("chat.deleteForEveryoneDisabled"),
+      dialogDeleteForEveryoneOnlySingle: t("chat.deleteForEveryoneOnlySingle"),
+      dialogDeleteForEveryoneOnlyManyPrefix: t("chat.deleteForEveryoneOnlyManyPrefix"),
+      dialogCancel: t("common.cancel"),
+      selectMessage: t("chat.selectMessage"),
+      deselectMessage: t("chat.deselectMessage"),
+    }),
+    [t],
+  );
   const [activeMentionProfile, setActiveMentionProfile] = useState<Participant | null>(null);
   const allowDeleteSelectedMessagesForSelf = activeChat.direct;
   const activeGroupConferenceLabel = activeGroupConference
-    ? `Идет созвон • ${activeGroupConference.activeParticipantCount} в эфире`
+    ? t("chatList.liveCall", { count: activeGroupConference.activeParticipantCount })
     : null;
   const canSelectPreviousPinned =
     activePinnedMessageCount > 1 && activePinnedMessageIndex > 0;
@@ -312,7 +279,7 @@ export function ActiveChatConversation({
         <>
         <div className="conversation-heading">
           <button type="button" className="ghost-button compact mobile-back" onClick={onBack}>
-            Чаты
+            {t("sidebar.tabChats")}
           </button>
 
           {activeChat.direct ? (
@@ -377,7 +344,7 @@ export function ActiveChatConversation({
                     : "conversation-subtitle-button"
                 }
                 onClick={onOpenMembers}
-                aria-label="Открыть участников группы"
+                aria-label={t("chat.openMembersAria")}
               >
                 {activeGroupConferenceLabel ?? conversationSubtitle}
               </button>
@@ -391,14 +358,14 @@ export function ActiveChatConversation({
               className="ghost-button compact conversation-call-button"
               onClick={onStartOrJoinGroupConference}
             >
-              {activeGroupConference ? "Войти" : "Созвон"}
+              {activeGroupConference ? t("chat.joinCall") : t("chatList.call")}
             </button>
           ) : null}
           <button
             type="button"
             className="conversation-close-button"
             onClick={onCloseChat}
-            aria-label="Закрыть чат"
+            aria-label={t("chat.closeChatAria")}
           >
             {"\u00D7"}
           </button>
@@ -412,17 +379,20 @@ export function ActiveChatConversation({
           <div className="pinned-message-banner-head">
             <span className="pinned-message-label">
               {activePinnedMessageCount > 1
-                ? `Закрепленное сообщение ${activePinnedMessageIndex + 1}/${activePinnedMessageCount}`
-                : "Закрепленное сообщение"}
+                ? t("chat.pinnedMessageN", {
+                    index: activePinnedMessageIndex + 1,
+                    total: activePinnedMessageCount,
+                  })
+                : t("chat.pinnedMessage")}
             </span>
             {activePinnedMessageCount > 1 ? (
-              <div className="pinned-message-nav" aria-label="Навигация по закрепленным сообщениям">
+              <div className="pinned-message-nav" aria-label={t("chat.pinnedNavAria")}>
                 <button
                   type="button"
                   className="ghost-button compact pinned-message-nav-button"
                   onClick={onSelectPreviousPinned}
                   disabled={!canSelectPreviousPinned}
-                  aria-label="Показать предыдущее закрепленное сообщение"
+                  aria-label={t("chat.showPrevPinnedAria")}
                 >
                   {"<"}
                 </button>
@@ -431,7 +401,7 @@ export function ActiveChatConversation({
                   className="ghost-button compact pinned-message-nav-button"
                   onClick={onSelectNextPinned}
                   disabled={!canSelectNextPinned}
-                  aria-label="Показать следующее закрепленное сообщение"
+                  aria-label={t("chat.showNextPinnedAria")}
                 >
                   {">"}
                 </button>
@@ -447,13 +417,13 @@ export function ActiveChatConversation({
           </button>
           <div className="pinned-message-actions">
             <button type="button" className="ghost-button compact" onClick={onJumpToPinned}>
-              Перейти
+              {t("chat.goTo")}
             </button>
             <button
               type="button"
               className="ghost-button compact pinned-message-close"
               onClick={onUnpin}
-              aria-label="Открепить сообщение"
+              aria-label={t("chat.unpinAria")}
             >
               ×
             </button>
@@ -464,15 +434,18 @@ export function ActiveChatConversation({
       {showReactionTour ? (
         <div className="reaction-tour-banner" role="status" aria-live="polite">
           <span className="reaction-tour-label">
-            {`Реакции на ваши сообщения ${reactionTourIndex + 1}/${reactionTourCount}`}
+            {t("chat.reactionTourLabel", {
+              index: reactionTourIndex + 1,
+              total: reactionTourCount,
+            })}
           </span>
-          <div className="reaction-tour-nav" aria-label="Навигация по сообщениям с реакциями">
+          <div className="reaction-tour-nav" aria-label={t("chat.reactionTourNavAria")}>
             <button
               type="button"
               className="ghost-button compact reaction-tour-nav-button"
               onClick={onReactionTourPrevious}
               disabled={!canSelectPreviousReaction}
-              aria-label="Предыдущее сообщение с реакцией"
+              aria-label={t("chat.prevReactedAria")}
             >
               {"<"}
             </button>
@@ -481,7 +454,7 @@ export function ActiveChatConversation({
               className="ghost-button compact reaction-tour-nav-button"
               onClick={onReactionTourNext}
               disabled={!canSelectNextReaction}
-              aria-label="Следующее сообщение с реакцией"
+              aria-label={t("chat.nextReactedAria")}
             >
               {">"}
             </button>
@@ -489,7 +462,7 @@ export function ActiveChatConversation({
               type="button"
               className="ghost-button compact reaction-tour-close"
               onClick={onReactionTourClose}
-              aria-label="Закрыть навигацию по реакциям"
+              aria-label={t("chat.closeReactionTourAria")}
             >
               ×
             </button>
@@ -522,19 +495,17 @@ export function ActiveChatConversation({
             onClick={onLoadOlderMessages}
             disabled={isFetchingNextPage}
           >
-            {isFetchingNextPage ? "Загружаем..." : "Показать более ранние"}
+            {isFetchingNextPage ? t("chat.loadingShort") : t("chat.showEarlier")}
           </button>
         ) : null}
 
         {messagesLoading ? (
           <div className="conversation-empty north-message-stream-empty">
-            <div className="empty-state north-empty-state">Загружаем сообщения...</div>
+            <div className="empty-state north-empty-state">{t("chat.loadingMessages")}</div>
           </div>
         ) : timelineItems.length === 0 ? (
           <div className="conversation-empty north-message-stream-empty">
-            <div className="empty-state north-empty-state">
-              Начните переписку. Сообщения появятся здесь.
-            </div>
+            <div className="empty-state north-empty-state">{t("chat.startConversation")}</div>
           </div>
         ) : (
           <ConversationTimeline
@@ -692,6 +663,34 @@ const ConversationComposer = memo(function ConversationComposer({
   mentionParticipants,
   sessionUser,
 }: ConversationComposerProps) {
+  const { t } = useI18n();
+  const COMPOSER_COPY = useMemo(
+    () => ({
+      blockedPlaceholder: t("chat.blockedPlaceholder"),
+      refreshPlaceholder: t("chat.refreshPlaceholder"),
+      editPlaceholder: t("chat.editPlaceholder"),
+      replyPlaceholder: t("chat.replyPlaceholder"),
+      messagePlaceholder: t("chat.messagePlaceholder"),
+      replyLabel: t("chat.replyLabel"),
+      editLabel: t("chat.editLabel"),
+      cancelReplyAria: t("chat.cancelReplyAria"),
+      cancelEditAria: t("chat.cancelEditAria"),
+      refreshing: t("chat.loadingShort"),
+      attachmentsAria: t("chat.attachmentsAria"),
+      removeAttachmentAria: t("chat.removeAttachmentAria"),
+      cancelUpload: t("chat.cancelUpload"),
+      attachFile: t("chat.attachFile"),
+      startVoiceRecording: t("chat.startVoiceRecording"),
+      stopVoiceRecording: t("chat.stopVoiceRecording"),
+      voiceRecordingActive: t("chat.voiceRecordingActive"),
+      voiceRecordingPreparing: t("chat.voiceRecordingPreparing"),
+      voiceRecordingUnsupported: t("chat.voiceRecordingUnsupported"),
+      voiceRecordingFailed: t("chat.voiceRecordingFailed"),
+      closeGlyph: "×",
+      submitEditGlyph: "✓",
+    }),
+    [t],
+  );
   const [hasComposerText, setHasComposerText] = useState(activeDraft.trim().length > 0);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isSubmittingComposer, setIsSubmittingComposer] = useState(false);
@@ -1491,6 +1490,7 @@ const MessageRow = memo(function MessageRow({
   getMessageStatusLabel,
   getReactionOption,
 }: MessageRowProps) {
+  const { t } = useI18n();
   const ownMessage = message.sender.id === sessionUser.id;
   const metaTimestamp = formatClock(message.editedAt ?? message.createdAt);
   const failedSendSummary =
@@ -1504,7 +1504,7 @@ const MessageRow = memo(function MessageRow({
   const showSenderAvatar = !ownMessage && !directChat;
   const messageMetaTrailing = (
     <div className="message-meta-trailing">
-      {message.editedAt ? <span className="message-edited-label">изменено</span> : null}
+      {message.editedAt ? <span className="message-edited-label">{t("chat.edited")}</span> : null}
       <span>{metaTimestamp}</span>
       {ownMessage ? (
         <span
@@ -1536,9 +1536,9 @@ const MessageRow = memo(function MessageRow({
   const shouldShowMessageText =
     message.content.trim().length > 0 && !isAttachmentOnlyFallback(message.content, attachments);
   const forwardedLabel = message.forwardedFrom
-    ? `Переслано от ${message.forwardedFrom.sender.displayName}`
+    ? t("chat.forwardedFrom", { name: message.forwardedFrom.sender.displayName })
     : message.forwarded
-      ? "Переслано"
+      ? t("chat.forwarded")
       : null;
   const resolveMentionParticipant = (username: string) => {
     const normalizedUsername = normalizeMentionUsername(username);
@@ -1577,14 +1577,14 @@ const MessageRow = memo(function MessageRow({
             type="button"
             className="message-selection-overlay"
             onClick={() => onToggleSelectedMessage(message.id)}
-            aria-label={selected ? "Снять выделение" : "Выделить сообщение"}
+            aria-label={selected ? t("chat.deselectMessage") : t("chat.selectMessage")}
             aria-pressed={selected}
           />
         ) : null}
         <div className={directChat ? "message-meta is-compact" : "message-meta"}>
-          {!directChat ? <strong>{ownMessage ? "Вы" : message.sender.displayName}</strong> : <span />}
+          {!directChat ? <strong>{ownMessage ? t("chat.you") : message.sender.displayName}</strong> : <span />}
           <div className="message-meta-trailing">
-            {message.editedAt ? <span className="message-edited-label">изменено</span> : null}
+            {message.editedAt ? <span className="message-edited-label">{t("chat.edited")}</span> : null}
             <span>{metaTimestamp}</span>
             {ownMessage ? (
               <span
@@ -1617,7 +1617,7 @@ const MessageRow = memo(function MessageRow({
           </div>
         ) : null}
         {attachments.length > 0 ? (
-          <div className="message-attachments" aria-label="Вложения">
+          <div className="message-attachments" aria-label={t("chat.attachmentsLabel")}>
             {attachments.map((attachment) => (
               <MessageAttachmentView
                 key={attachment.id}
@@ -1656,7 +1656,7 @@ const MessageRow = memo(function MessageRow({
           </div>
         ) : null}
         {message.reactions.length > 0 ? (
-          <div className="message-reactions" aria-label="Реакции на сообщение">
+          <div className="message-reactions" aria-label={t("msgmenu.reactionsAria")}>
             {message.reactions.map((reaction) => {
               const reactionOption = getReactionOption(reaction.key);
               return (
@@ -1688,7 +1688,7 @@ const MessageRow = memo(function MessageRow({
           type="button"
           className={selected ? "message-select-toggle is-selected" : "message-select-toggle"}
           onClick={() => onToggleSelectedMessage(message.id)}
-          aria-label={selected ? "Снять выделение" : "Выделить сообщение"}
+          aria-label={selected ? t("chat.deselectMessage") : t("chat.selectMessage")}
           aria-pressed={selected}
         >
           <span className="message-select-toggle-ring" aria-hidden="true" />
@@ -1713,6 +1713,7 @@ const MessageAttachmentView = memo(function MessageAttachmentView({
   onDownloadAttachment,
   onLoadAttachmentPreview,
 }: MessageAttachmentViewProps) {
+  const { t } = useI18n();
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState(false);
   const [previewImageLoaded, setPreviewImageLoaded] = useState(false);
@@ -1948,7 +1949,7 @@ const MessageAttachmentView = memo(function MessageAttachmentView({
       previewWindow.document.body.style.display = "grid";
       previewWindow.document.body.style.placeItems = "center";
       previewWindow.document.body.style.minHeight = "100vh";
-      previewWindow.document.body.textContent = "Загружаем изображение...";
+      previewWindow.document.body.textContent = t("chat.loadingImage");
     }
 
     setIsOpeningPreview(true);
@@ -1984,8 +1985,8 @@ const MessageAttachmentView = memo(function MessageAttachmentView({
             : "message-image-attachment is-placeholder"
         }
         onClick={openImageAttachment}
-        title="Открыть изображение"
-        aria-label={`Открыть изображение ${attachment.fileName}`}
+        title={t("chat.openImage")}
+        aria-label={t("chat.openImageAria", { name: attachment.fileName })}
       >
         {previewUrl && !previewError ? (
           <>
@@ -2002,18 +2003,18 @@ const MessageAttachmentView = memo(function MessageAttachmentView({
             />
             {!previewImageLoaded ? (
               <span className="message-image-placeholder message-image-loading-overlay">
-                Загружаем изображение...
+                {t("chat.loadingImage")}
               </span>
             ) : null}
           </>
         ) : (
           <span className="message-image-placeholder">
-            {previewError ? "Превью недоступно" : "Загружаем изображение..."}
+            {previewError ? t("chat.previewUnavailable") : t("chat.loadingImage")}
           </span>
         )}
         <span className="message-image-caption">
           <span className="message-image-name">{attachment.fileName}</span>
-          <span>{formatFileSize(attachment.sizeBytes)} · {isOpeningPreview ? "Открываем..." : "Открыть"}</span>
+          <span>{formatFileSize(attachment.sizeBytes)} · {isOpeningPreview ? t("chat.opening") : t("workspace.open")}</span>
         </span>
       </button>
     );
@@ -2031,7 +2032,7 @@ const MessageAttachmentView = memo(function MessageAttachmentView({
           type="button"
           className="audio-play-btn"
           onClick={handlePlayPause}
-          aria-label={isPlaying ? "Пауза" : audioPreviewError ? "Повторить" : "Воспроизвести"}
+          aria-label={isPlaying ? t("chat.pause") : audioPreviewError ? t("chat.retry") : t("chat.play")}
         >
           {audioPreviewLoading ? (
             <span className="audio-loading-ring" aria-hidden="true" />
@@ -2103,7 +2104,7 @@ const MessageAttachmentView = memo(function MessageAttachmentView({
         <strong>{attachment.fileName}</strong>
         <span>{formatFileSize(attachment.sizeBytes)}</span>
       </span>
-      <span className="message-attachment-action">Скачать</span>
+      <span className="message-attachment-action">{t("chat.download")}</span>
     </button>
   );
 });
@@ -2191,11 +2192,11 @@ function normalizeLinkHref(value: string) {
 function isAttachmentOnlyFallback(content: string, attachments: ChatMessageAttachment[]) {
   const trimmedContent = content.trim();
   if (attachments.length === 1) {
-    return trimmedContent === `Файл: ${attachments[0].fileName}`;
+    return trimmedContent === tActive("preview.file", { name: attachments[0].fileName });
   }
 
   if (attachments.length > 1) {
-    return trimmedContent === `Файлы: ${attachments.length}`;
+    return trimmedContent === tActive("preview.files", { count: attachments.length });
   }
 
   return false;
@@ -2262,7 +2263,7 @@ function buildInitialAttachmentUploadProgress(files: File[]): AttachmentUploadPr
 }
 
 function formatAttachmentUploadProgress(progress: AttachmentUploadProgress) {
-  const phase = "Загружаем";
+  const phase = tActive("chat.uploadingPhase");
   const percent = Math.round(progress.ratio * 100);
   const filePosition =
     progress.fileCount > 1 ? ` ${progress.fileIndex + 1}/${progress.fileCount}` : "";
@@ -2292,6 +2293,7 @@ type MentionProfileDialogProps = {
 };
 
 function MentionProfileDialog({ participant, onClose }: MentionProfileDialogProps) {
+  const { t } = useI18n();
   return (
     <div
       className="message-selection-dialog-backdrop mention-profile-dialog-backdrop"
@@ -2302,14 +2304,14 @@ function MentionProfileDialog({ participant, onClose }: MentionProfileDialogProp
         className="mention-profile-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label={`Профиль ${participant.displayName}`}
+        aria-label={t("chat.profileAria", { name: participant.displayName })}
         onClick={(event) => event.stopPropagation()}
       >
         <button
           type="button"
           className="mention-profile-close"
           onClick={onClose}
-          aria-label="Закрыть профиль"
+          aria-label={t("chat.closeProfileAria")}
         >
           ×
         </button>
@@ -2322,7 +2324,7 @@ function MentionProfileDialog({ participant, onClose }: MentionProfileDialogProp
         <div className="mention-profile-copy">
           <strong>{participant.displayName}</strong>
           <span>@{participant.username}</span>
-          <span>{participant.profession?.trim() ? participant.profession : "Без статуса"}</span>
+          <span>{participant.profession?.trim() ? participant.profession : t("chat.noStatus")}</span>
         </div>
       </div>
     </div>

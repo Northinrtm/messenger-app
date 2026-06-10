@@ -7,6 +7,8 @@ import type {
   UserProfile,
   VideoConference,
 } from "../../../lib/types";
+import { useI18n } from "../../../i18n/I18nProvider";
+import type { TranslationKey } from "../../../i18n";
 import type { ConversationListTab } from "../chatUi";
 import { AvatarCircle } from "./AvatarCircle";
 import { ConferenceCalendarPanel } from "./ConferenceCalendarPanel";
@@ -40,7 +42,7 @@ type Props = {
   mailComposing: boolean;
   userMailAddress: string;
   tabChats: ChatSummary[];
-  tabChatsEmptyText: string;
+  tabChatsEmptyText: TranslationKey;
   activeChatId: string | null;
   liveGroupConferencesByChatId: Map<string, VideoConference>;
   typingByChatId: Record<string, Participant[]>;
@@ -112,6 +114,7 @@ export const ChatListPanel = memo(function ChatListPanel({
   describeChat,
   formatMemberCount,
 }: Props) {
+  const { t } = useI18n();
   if (activeListTab === "conferences") {
     const conferenceBrowserToggle = (
       <div className="conference-list-inline-toolbar">
@@ -124,21 +127,21 @@ export const ChatListPanel = memo(function ChatListPanel({
           }
           onClick={onToggleConferenceViewMode}
         >
-          {conferenceViewMode === "calendar" ? "\u0421\u043f\u0438\u0441\u043e\u043a" : "\u041a\u0430\u043b\u0435\u043d\u0434\u0430\u0440\u044c"}
+          {conferenceViewMode === "calendar" ? t("chatList.viewList") : t("chatList.viewCalendar")}
         </button>
         <button
           type="button"
           className="conference-list-action-btn"
           onClick={onOpenScheduleConference}
         >
-          {"+ \u0417\u0430\u043f\u043b\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u0442\u044c"}
+          {t("chatList.schedule")}
         </button>
         <button
           type="button"
           className="conference-list-action-btn conference-list-action-btn--accent"
           onClick={onOpenStartConferenceNow}
         >
-          {"\u25b6 \u041d\u0430\u0447\u0430\u0442\u044c \u0441\u0435\u0439\u0447\u0430\u0441"}
+          {t("chatList.startNow")}
         </button>
       </div>
     );
@@ -147,9 +150,7 @@ export const ChatListPanel = memo(function ChatListPanel({
       return (
         <>
           {conferenceBrowserToggle}
-          <div className="empty-list">
-            {"\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u0432\u0438\u0434\u0435\u043e\u043a\u043e\u043d\u0444\u0435\u0440\u0435\u043d\u0446\u0438\u0438..."}
-          </div>
+          <div className="empty-list">{t("chatList.loadingConferences")}</div>
         </>
       );
     }
@@ -178,9 +179,7 @@ export const ChatListPanel = memo(function ChatListPanel({
         <>
           {conferenceBrowserToggle}
           <div className="empty-list">
-            {normalizedSearch
-              ? "\u041d\u0438\u0447\u0435\u0433\u043e \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u043e."
-              : "\u041f\u043e\u043a\u0430 \u043d\u0435\u0442 \u0437\u0430\u043f\u043b\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u043d\u043d\u044b\u0445 \u0432\u0438\u0434\u0435\u043e\u043a\u043e\u043d\u0444\u0435\u0440\u0435\u043d\u0446\u0438\u0439."}
+            {normalizedSearch ? t("list.notFound") : t("chatList.emptyScheduledConferences")}
           </div>
         </>
       );
@@ -226,8 +225,7 @@ export const ChatListPanel = memo(function ChatListPanel({
                 <div className="chat-preview-line">
                   <p className="chat-preview-copy">
                     {trimPreview(
-                      participantPreview ||
-                        "\u0423\u0447\u0430\u0441\u0442\u043d\u0438\u043a\u0438 \u0431\u0443\u0434\u0443\u0442 \u0432\u0438\u0434\u043d\u044b \u043f\u043e\u0441\u043b\u0435 \u043f\u0440\u0438\u0433\u043b\u0430\u0448\u0435\u043d\u0438\u044f.",
+                      participantPreview || t("chatList.membersAfterInvite"),
                       88
                     )}
                   </p>
@@ -259,15 +257,11 @@ export const ChatListPanel = memo(function ChatListPanel({
   }
 
   if (chatsLoading) {
-    return (
-      <div className="empty-list">
-        {"\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u0447\u0430\u0442\u044b..."}
-      </div>
-    );
+    return <div className="empty-list">{t("chatList.loadingChats")}</div>;
   }
 
   if (tabChats.length === 0) {
-    return <div className="empty-list">{tabChatsEmptyText}</div>;
+    return <div className="empty-list">{t(tabChatsEmptyText)}</div>;
   }
 
   return (
@@ -289,9 +283,9 @@ export const ChatListPanel = memo(function ChatListPanel({
           ? formatTypingParticipants(chatTypingParticipants)
           : draftPreview ||
             chat.lastMessage ||
-            "\u041d\u0435\u0442 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0439";
+            t("chatList.noMessages");
         const finalPreview = liveGroupConference
-          ? `\u0418\u0434\u0435\u0442 \u0441\u043e\u0437\u0432\u043e\u043d \u2022 ${liveGroupConference.activeParticipantCount} \u0432 \u044d\u0444\u0438\u0440\u0435`
+          ? t("chatList.liveCall", { count: liveGroupConference.activeParticipantCount })
           : preview;
         const previewTimestamp = chat.lastMessageAt ?? chat.updatedAt;
 
@@ -331,18 +325,14 @@ export const ChatListPanel = memo(function ChatListPanel({
                 {!chat.direct ? <span className="chat-detail-dot">|</span> : null}
                 {!chat.direct ? <span>{formatMemberCount(chat.members.length)}</span> : null}
                 {liveGroupConference ? (
-                  <span className="chat-live-indicator">
-                    {"\u0421\u043e\u0437\u0432\u043e\u043d"}
-                  </span>
+                  <span className="chat-live-indicator">{t("chatList.call")}</span>
                 ) : null}
               </div>
 
               <div className={isChatTyping ? "chat-preview-line is-typing" : "chat-preview-line"}>
                 <p className={isChatTyping ? "chat-preview-copy is-typing" : "chat-preview-copy"}>
                   {draftPreview && !isChatTyping ? (
-                    <span className="chat-draft">
-                      {"\u0427\u0435\u0440\u043d\u043e\u0432\u0438\u043a: "}
-                    </span>
+                    <span className="chat-draft">{t("chatList.draftPrefix")}</span>
                   ) : null}
                   {trimPreview(finalPreview, 88)}
                 </p>
@@ -355,13 +345,13 @@ export const ChatListPanel = memo(function ChatListPanel({
                         className={chat.reactionAttention ? "chat-preview-reaction is-attention" : "chat-preview-reaction"}
                         title={
                           chat.reactionAttention
-                            ? "\u0415\u0441\u0442\u044c \u043d\u043e\u0432\u0430\u044f \u0440\u0435\u0430\u043a\u0446\u0438\u044f \u043d\u0430 \u0432\u0430\u0448\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435"
-                            : "\u041d\u0430 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0435\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435 \u0435\u0441\u0442\u044c \u0440\u0435\u0430\u043a\u0446\u0438\u0438"
+                            ? t("chatList.reactionNewToYours")
+                            : t("chatList.reactionsOnLast")
                         }
                         aria-label={
                           chat.reactionAttention
-                            ? "\u0415\u0441\u0442\u044c \u043d\u043e\u0432\u0430\u044f \u0440\u0435\u0430\u043a\u0446\u0438\u044f \u043d\u0430 \u0432\u0430\u0448\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435"
-                            : "\u041d\u0430 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0435\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435 \u0435\u0441\u0442\u044c \u0440\u0435\u0430\u043a\u0446\u0438\u0438"
+                            ? t("chatList.reactionNewToYours")
+                            : t("chatList.reactionsOnLast")
                         }
                         onClick={(event) => {
                           event.stopPropagation();
@@ -385,8 +375,8 @@ export const ChatListPanel = memo(function ChatListPanel({
                         role="button"
                         tabIndex={0}
                         className="chat-preview-error"
-                        title={"\u0415\u0441\u0442\u044c \u043d\u0435\u043e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u043d\u043e\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435"}
-                        aria-label={"\u041f\u0435\u0440\u0435\u0439\u0442\u0438 \u043a \u043d\u0435\u043e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u043d\u043e\u043c\u0443 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u044e"}
+                        title={t("chatList.unsentTitle")}
+                        aria-label={t("chatList.goToUnsent")}
                         onClick={(event) => {
                           event.stopPropagation();
                           openChatAtFailedMessage(chat.id);

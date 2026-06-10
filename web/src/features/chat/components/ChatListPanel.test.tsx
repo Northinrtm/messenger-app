@@ -88,7 +88,7 @@ function renderPanel(
         mailComposing={false}
         userMailAddress="north@ktsf.ru"
         tabChats={[chat]}
-        tabChatsEmptyText="Empty"
+        tabChatsEmptyText="list.emptyChats"
         activeChatId={null}
         liveGroupConferencesByChatId={new Map()}
         typingByChatId={{}}

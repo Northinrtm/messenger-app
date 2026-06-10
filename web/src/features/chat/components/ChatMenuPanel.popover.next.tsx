@@ -1,4 +1,8 @@
+import { useMemo } from "react";
+
 import type { ChatPrejoinHistoryPolicy, ChatSummary, Participant, UserProfile, VideoConference } from "../../../lib/types";
+import { useI18n } from "../../../i18n/I18nProvider";
+import { tpActive } from "../../../i18n";
 import { AvatarCircle } from "./AvatarCircle";
 
 type Props = {
@@ -55,46 +59,8 @@ type Props = {
   onToggleBlocked: () => void;
 };
 
-const COPY = {
-  closeMenu: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C \u043C\u0435\u043D\u044E",
-  addToContacts: "\u0412 \u043A\u043E\u043D\u0442\u0430\u043A\u0442\u044B",
-  call: "\u0421\u043E\u0437\u0432\u043E\u043D",
-  schedule: "\u0417\u0430\u043F\u043B\u0430\u043D\u0438\u0440\u043E\u0432\u0430\u0442\u044C",
-  mediaBrowser: "\u041C\u0435\u0434\u0438\u0430 \u0438 \u0444\u0430\u0439\u043B\u044B",
-  participants: "\u0423\u0447\u0430\u0441\u0442\u043D\u0438\u043A\u0438",
-  inviteLink: "\u0421\u0441\u044B\u043B\u043A\u0430-\u043F\u0440\u0438\u0433\u043B\u0430\u0448\u0435\u043D\u0438\u0435",
-  copy: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C",
-  refreshLink: "\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u044C \u0441\u0441\u044B\u043B\u043A\u0443",
-  generateLink: "\u0421\u0433\u0435\u043D\u0435\u0440\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0441\u0441\u044B\u043B\u043A\u0443",
-  refreshingLink: "\u041E\u0431\u043D\u043E\u0432\u043B\u044F\u0435\u043C \u0441\u0441\u044B\u043B\u043A\u0443...",
-  groupAvatar: "\u0410\u0432\u0430\u0442\u0430\u0440 \u0433\u0440\u0443\u043F\u043F\u044B",
-  pickPhoto: "\u0412\u044B\u0431\u0440\u0430\u0442\u044C \u0444\u043E\u0442\u043E",
-  removePhoto: "\u0423\u0431\u0440\u0430\u0442\u044C \u0444\u043E\u0442\u043E",
-  groupTitle: "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0433\u0440\u0443\u043F\u043F\u044B",
-  historyToggleLabel:
-    "\u0420\u0430\u0437\u0440\u0435\u0448\u0438\u0442\u044C \u043D\u043E\u0432\u044B\u043C \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A\u0430\u043C \u0433\u0440\u0443\u043F\u043F\u044B \u0432\u0438\u0434\u0435\u0442\u044C \u0441\u0442\u0430\u0440\u0443\u044E \u0438\u0441\u0442\u043E\u0440\u0438\u044E \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0439",
-  historyToggleOnHelp:
-    "\u041D\u043E\u0432\u044B\u0435 \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A\u0438 \u0443\u0432\u0438\u0434\u044F\u0442 \u0438\u0441\u0442\u043E\u0440\u0438\u044E \u0433\u0440\u0443\u043F\u043F\u044B \u043F\u043E\u043B\u043D\u043E\u0441\u0442\u044C\u044E.",
-  historyToggleOffHelp:
-    "\u041D\u043E\u0432\u044B\u0435 \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A\u0438 \u0443\u0432\u0438\u0434\u044F\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F \u043F\u043E\u0441\u043B\u0435 \u0432\u0441\u0442\u0443\u043F\u043B\u0435\u043D\u0438\u044F \u0432 \u0433\u0440\u0443\u043F\u043F\u0443.",
-  save: "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C",
-  saving: "\u0421\u043E\u0445\u0440\u0430\u043D\u044F\u0435\u043C...",
-  leaveGroup: "\u0412\u044B\u0439\u0442\u0438 \u0438\u0437 \u0433\u0440\u0443\u043F\u043F\u044B",
-  deleteGroup: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0433\u0440\u0443\u043F\u043F\u0443",
-  unblock: "\u0420\u0430\u0437\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u0442\u044C",
-  block: "\u0417\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u0442\u044C",
-  about: "\u041E \u0441\u0435\u0431\u0435",
-  selected: "\u0412\u044B\u0431\u0440\u0430\u043D\u043E",
-} as const;
-
 function renderMemberCount(count: number) {
-  if (count % 10 === 1 && count % 100 !== 11) {
-    return `${count} \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A`;
-  }
-  if (count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14)) {
-    return `${count} \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A\u0430`;
-  }
-  return `${count} \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A\u043E\u0432`;
+  return tpActive("members.count", count);
 }
 
 export function ChatMenuPanel({
@@ -133,6 +99,38 @@ export function ChatMenuPanel({
   onStartDirectConference,
   onToggleBlocked,
 }: Props) {
+  const { t } = useI18n();
+  const COPY = useMemo(
+    () => ({
+      closeMenu: t("chatmenu.closeMenu"),
+      addToContacts: t("chatmenu.addToContacts"),
+      call: t("chatmenu.call"),
+      schedule: t("sheet.scheduleBtn"),
+      mediaBrowser: t("chatmenu.mediaBrowser"),
+      participants: t("conf.participants"),
+      inviteLink: t("sheet.inviteLink"),
+      copy: t("conf.copy"),
+      refreshLink: t("conf.refreshLink"),
+      generateLink: t("conf.generateLink"),
+      refreshingLink: t("chatmenu.refreshingLink"),
+      groupAvatar: t("sheet.groupAvatar"),
+      pickPhoto: t("sheet.chooseProfilePhoto"),
+      removePhoto: t("sheet.removePhoto"),
+      groupTitle: t("sheet.groupNamePlaceholder"),
+      historyToggleLabel: t("sheet.allowHistory"),
+      historyToggleOnHelp: t("sheet.historyFull"),
+      historyToggleOffHelp: t("sheet.historyAfterJoin"),
+      save: t("common.save"),
+      saving: t("common.saving"),
+      leaveGroup: t("chatmenu.leaveGroup"),
+      deleteGroup: t("chatmenu.deleteGroup"),
+      unblock: t("chatmenu.unblock"),
+      block: t("chatmenu.block"),
+      about: t("chatmenu.about"),
+      selected: t("chatmenu.selected"),
+    }),
+    [t],
+  );
   if (activeChat.direct && activeDirectParticipant) {
     return (
       <div className="chat-menu-panel">
@@ -241,7 +239,7 @@ export function ChatMenuPanel({
       <div className="chat-menu-primary-actions">
         <div className="chat-menu-actions">
           <button type="button" className="ghost-button compact" onClick={onStartOrJoinGroupConference}>
-            {activeGroupConference ? "Войти" : COPY.call}
+            {activeGroupConference ? t("chatmenu.join") : COPY.call}
           </button>
           <button type="button" className="ghost-button compact" onClick={onOpenMediaBrowser}>
             {COPY.mediaBrowser}

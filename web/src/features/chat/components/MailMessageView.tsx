@@ -1,3 +1,4 @@
+import { useI18n } from "../../../i18n/I18nProvider";
 import type { MailMessageDetail } from "../../../lib/types";
 
 type Props = {
@@ -19,10 +20,11 @@ export function MailMessageView({
   onReply,
   formatMailTimestamp,
 }: Props) {
+  const { t } = useI18n();
   if (loading) {
     return (
       <div className="mail-message-view">
-        <div className="empty-state large north-empty-state">{"Загружаем письмо..."}</div>
+        <div className="empty-state large north-empty-state">{t("mail.loadingMessage")}</div>
       </div>
     );
   }
@@ -30,7 +32,7 @@ export function MailMessageView({
   if (!message) {
     return (
       <div className="mail-message-view">
-        <div className="empty-state large north-empty-state">{"Письмо не найдено."}</div>
+        <div className="empty-state large north-empty-state">{t("mail.notFound")}</div>
       </div>
     );
   }
@@ -39,24 +41,24 @@ export function MailMessageView({
     <div className="mail-message-view">
       <div className="mail-message-view-header">
         <div className="mail-message-view-subject">
-          <h2>{message.subject || "(без темы)"}</h2>
+          <h2>{message.subject || t("mail.noSubject")}</h2>
         </div>
         <div className="mail-message-view-meta">
-          <span className="mail-meta-label">{"От:"}</span>
+          <span className="mail-meta-label">{t("mail.from")}</span>
           <span>{message.from}</span>
         </div>
         <div className="mail-message-view-meta">
-          <span className="mail-meta-label">{"Кому:"}</span>
+          <span className="mail-meta-label">{t("mail.to")}</span>
           <span>{message.to.join(", ")}</span>
         </div>
         <div className="mail-message-view-meta">
-          <span className="mail-meta-label">{"Дата:"}</span>
+          <span className="mail-meta-label">{t("mail.date")}</span>
           <span>{formatMailTimestamp(message.sentAt)}</span>
         </div>
         <div className="mail-message-view-actions">
           {folder === "inbox" ? (
             <button type="button" className="secondary-button compact" onClick={onReply}>
-              {"Ответить"}
+              {t("mail.reply")}
             </button>
           ) : null}
           <button
@@ -65,7 +67,7 @@ export function MailMessageView({
             disabled={deletePending}
             onClick={onDelete}
           >
-            {deletePending ? "Удаляем..." : "Удалить"}
+            {deletePending ? t("mail.deleting") : t("mail.delete")}
           </button>
         </div>
       </div>

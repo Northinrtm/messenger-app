@@ -1,3 +1,4 @@
+import { useI18n } from "../../../i18n/I18nProvider";
 import type { MailMessageSummary } from "../../../lib/types";
 
 type MailFolder = "inbox" | "sent";
@@ -29,6 +30,7 @@ export function MailInboxPanel({
   onCompose,
   formatMailTimestamp,
 }: Props) {
+  const { t } = useI18n();
   const messages = folder === "inbox" ? inbox : sent;
 
   return (
@@ -36,7 +38,7 @@ export function MailInboxPanel({
       <div className="mail-panel-header">
         <div className="mail-panel-address">{userEmail}</div>
         <button type="button" className="secondary-button compact" onClick={onCompose}>
-          {"+ Написать"}
+          {t("mail.compose")}
         </button>
       </div>
 
@@ -46,22 +48,22 @@ export function MailInboxPanel({
           className={folder === "inbox" ? "mail-folder-tab is-active" : "mail-folder-tab"}
           onClick={() => onSwitchFolder("inbox")}
         >
-          {"Входящие"}
+          {t("mail.inbox")}
         </button>
         <button
           type="button"
           className={folder === "sent" ? "mail-folder-tab is-active" : "mail-folder-tab"}
           onClick={() => onSwitchFolder("sent")}
         >
-          {"Отправленные"}
+          {t("mail.sent")}
         </button>
       </div>
 
       {loading ? (
-        <div className="empty-list">{"Загружаем письма..."}</div>
+        <div className="empty-list">{t("mail.loadingList")}</div>
       ) : messages.length === 0 ? (
         <div className="empty-list">
-          {folder === "inbox" ? "Входящих писем нет." : "Отправленных писем нет."}
+          {folder === "inbox" ? t("mail.emptyInbox") : t("mail.emptySent")}
         </div>
       ) : (
         <div className="mail-message-list">
@@ -80,7 +82,7 @@ export function MailInboxPanel({
             >
               <div className="mail-message-from">{msg.from}</div>
               <div className="mail-message-subject-row">
-                <span className="mail-message-subject">{msg.subject || "(без темы)"}</span>
+                <span className="mail-message-subject">{msg.subject || t("mail.noSubject")}</span>
                 <span className="mail-message-time">{formatMailTimestamp(msg.sentAt)}</span>
               </div>
             </button>

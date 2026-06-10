@@ -12,6 +12,8 @@ import {
   resendEmailVerification,
 } from "../../lib/api";
 import type { AuthResponse } from "../../lib/types";
+import { useI18n } from "../../i18n/I18nProvider";
+import type { TranslationKey } from "../../i18n";
 import {
   AUTH_PASSWORD_HELP,
   isLoginFormValid,
@@ -43,11 +45,11 @@ type Mode =
   | "confirmEmailChange";
 
 type VerificationViewState =
-  | { kind: "idle"; message: null }
-  | { kind: "pending"; message: string }
-  | { kind: "invalid"; message: string }
-  | { kind: "expired"; message: string }
-  | { kind: "alreadyVerified"; message: string };
+  | { kind: "idle"; messageKey: null }
+  | { kind: "pending"; messageKey: TranslationKey }
+  | { kind: "invalid"; messageKey: TranslationKey }
+  | { kind: "expired"; messageKey: TranslationKey }
+  | { kind: "alreadyVerified"; messageKey: TranslationKey };
 
 type FieldName =
   | "username"
@@ -67,6 +69,7 @@ export function AuthCard({
   initialEmailChangeToken = null,
   onEmailChangeHandled,
 }: Props) {
+  const { t } = useI18n();
   const [mode, setMode] = useState<Mode>(
     initialPasswordResetToken
       ? "confirmReset"
@@ -87,18 +90,18 @@ export function AuthCard({
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
-  const [infoMessage, setInfoMessage] = useState<string | null>(
-    initialPasswordResetToken ? "Выберите новый пароль для этой ссылки сброса." : null
+  const [infoMessage, setInfoMessage] = useState<TranslationKey | null>(
+    initialPasswordResetToken ? "auth.info.chooseNewPassword" : null
   );
   const [verificationViewState, setVerificationViewState] = useState<VerificationViewState>(() =>
     initialEmailVerificationToken
-      ? { kind: "pending", message: "Проверяем вашу ссылку подтверждения." }
-      : { kind: "idle", message: null }
+      ? { kind: "pending", messageKey: "auth.view.checkingVerification" }
+      : { kind: "idle", messageKey: null }
   );
   const [emailChangeViewState, setEmailChangeViewState] = useState<VerificationViewState>(() =>
     initialEmailChangeToken
-      ? { kind: "pending", message: "Применяем смену почты." }
-      : { kind: "idle", message: null }
+      ? { kind: "pending", messageKey: "auth.view.applyingEmailChange" }
+      : { kind: "idle", messageKey: null }
   );
   const verifiedTokenRef = useRef<string | null>(null);
   const emailChangeTokenRef = useRef<string | null>(null);
@@ -125,7 +128,7 @@ export function AuthCard({
       return requestPasswordReset({ email });
     },
     onSuccess: () => {
-      switchMode("login", "Если такая почта существует, инструкции по сбросу отправлены.");
+      switchMode("login", "auth.info.resetSentIfExists");
     },
   });
 
@@ -135,7 +138,7 @@ export function AuthCard({
       return resendEmailVerification({ email });
     },
     onSuccess: () => {
-      switchMode("login", "Если почту можно подтвердить, новая ссылка отправлена.");
+      switchMode("login", "auth.info.verificationResentIfPossible");
     },
   });
 
@@ -148,7 +151,7 @@ export function AuthCard({
       setResetPassword("");
       setResetToken("");
       onPasswordResetHandled?.();
-      switchMode("login", "Пароль обновлён. Войдите с новым паролем.");
+      switchMode("login", "auth.info.passwordUpdated");
     },
   });
 
@@ -157,17 +160,17 @@ export function AuthCard({
     onMutate: () => {
       setVerificationViewState({
         kind: "pending",
-        message: "Проверяем вашу ссылку подтверждения.",
+        messageKey: "auth.view.checkingVerification",
       });
       setInfoMessage(null);
     },
     onSuccess: () => {
-      returnToLogin("Почта подтверждена. Войдите, чтобы продолжить.");
+      returnToLogin("auth.info.emailVerified");
     },
     onError: (error) => {
       const nextState = resolveVerificationViewState(error);
       if (nextState.kind === "alreadyVerified") {
-        returnToLogin(nextState.message);
+        returnToLogin(nextState.messageKey);
         return;
       }
 
@@ -178,12 +181,12 @@ export function AuthCard({
   const confirmEmailChangeMutation = useMutation({
     mutationFn: (token: string) => confirmEmailChange({ token }),
     onMutate: () => {
-      setEmailChangeViewState({ kind: "pending", message: "Применяем смену почты." });
+      setEmailChangeViewState({ kind: "pending", messageKey: "auth.view.applyingEmailChange" });
       setInfoMessage(null);
     },
     onSuccess: () => {
       onEmailChangeHandled?.();
-      switchMode("login", "Адрес почты обновлён. Войдите, чтобы продолжить.");
+      switchMode("login", "auth.info.emailChanged");
     },
     onError: (error) => {
       const nextState = resolveEmailChangeViewState(error);
@@ -191,7 +194,7 @@ export function AuthCard({
     },
   });
 
-  function switchMode(nextMode: Mode, nextInfoMessage: string | null = null) {
+  function switchMode(nextMode: Mode, nextInfoMessage: TranslationKey | null = null) {
     authMutation.reset();
     requestResetMutation.reset();
     resendVerificationMutation.reset();
@@ -203,8 +206,8 @@ export function AuthCard({
     setShowPassword(false);
     setShowPasswordConfirm(false);
     setInfoMessage(nextInfoMessage);
-    setVerificationViewState({ kind: "idle", message: null });
-    setEmailChangeViewState({ kind: "idle", message: null });
+    setVerificationViewState({ kind: "idle", messageKey: null });
+    setEmailChangeViewState({ kind: "idle", messageKey: null });
     setMode(nextMode);
   }
 
@@ -215,7 +218,7 @@ export function AuthCard({
 
     setResetToken(initialPasswordResetToken);
     setResetPassword("");
-    switchMode("confirmReset", "Выберите новый пароль для этой ссылки сброса.");
+    switchMode("confirmReset", "auth.info.chooseNewPassword");
   }, [initialPasswordResetToken]);
 
   useEffect(() => {
@@ -252,7 +255,7 @@ export function AuthCard({
     setMode("verifyEmail");
     setVerificationViewState({
       kind: "pending",
-      message: "Проверяем вашу ссылку подтверждения.",
+      messageKey: "auth.view.checkingVerification",
     });
     verifyEmailMutation.mutate(initialEmailVerificationToken);
   }, [
@@ -281,7 +284,7 @@ export function AuthCard({
     confirmEmailChangeMutation.reset();
     setInfoMessage(null);
     setMode("confirmEmailChange");
-    setEmailChangeViewState({ kind: "pending", message: "Применяем смену почты." });
+    setEmailChangeViewState({ kind: "pending", messageKey: "auth.view.applyingEmailChange" });
     confirmEmailChangeMutation.mutate(initialEmailChangeToken);
   }, [
     authMutation,
@@ -334,28 +337,28 @@ export function AuthCard({
     confirmResetMutation.isPending ||
     verifyEmailMutation.isPending ||
     confirmEmailChangeMutation.isPending;
-  const description =
+  const descriptionKey: TranslationKey =
     mode === "requestReset"
-      ? "Укажите почту, привязанную к аккаунту. Если она существует, ссылка для сброса придёт туда."
+      ? "auth.desc.requestReset"
       : mode === "confirmReset"
-        ? "Задайте новый пароль для аккаунта. Ссылку можно использовать только один раз."
+        ? "auth.desc.confirmReset"
         : mode === "resendVerification"
-          ? "Укажите почту, использованную при регистрации. Если её можно подтвердить, новая ссылка придёт туда."
+          ? "auth.desc.resendVerification"
           : mode === "verifyEmail"
-            ? "Подтверждаем ссылку проверки почты для вашего аккаунта."
+            ? "auth.desc.verifyEmail"
             : mode === "confirmEmailChange"
-              ? "Применяем смену адреса почты для вашего аккаунта."
-              : "Java-бэкенд, типизированный веб-клиент, личные диалоги и доставка сообщений в реальном времени.";
-  const title =
+              ? "auth.desc.confirmEmailChange"
+              : "auth.desc.default";
+  const titleKey: TranslationKey =
     mode === "confirmReset"
-      ? "Сброс пароля."
+      ? "auth.title.resetPassword"
       : mode === "resendVerification" || mode === "verifyEmail"
-        ? "Подтверждение почты."
+        ? "auth.title.verifyEmail"
         : mode === "confirmEmailChange"
-          ? "Смена почты."
-          : "Мессенджер реального времени для серьёзных продуктов.";
+          ? "auth.title.changeEmail"
+          : "auth.title.default";
 
-  function returnToLogin(nextInfoMessage: string | null = null) {
+  function returnToLogin(nextInfoMessage: TranslationKey | null = null) {
     onEmailVerificationHandled?.();
     onEmailChangeHandled?.();
     switchMode("login", nextInfoMessage);
@@ -363,7 +366,7 @@ export function AuthCard({
 
   function openResendVerification() {
     onEmailVerificationHandled?.();
-    switchMode("resendVerification", "Укажите почту, чтобы получить новую ссылку подтверждения.");
+    switchMode("resendVerification", "auth.info.enterEmailForVerification");
   }
 
   function touchField(fieldName: FieldName) {
@@ -382,7 +385,10 @@ export function AuthCard({
     });
   }
 
-  function visibleFieldError(fieldName: FieldName, errorMessage: string | null) {
+  function visibleFieldError(
+    fieldName: FieldName,
+    errorMessage: TranslationKey | null,
+  ): TranslationKey | null {
     if (!errorMessage) {
       return null;
     }
@@ -428,8 +434,8 @@ export function AuthCard({
         <div className="eyebrow">North Messenger</div>
         {!isAuthMode ? (
           <>
-            <h1>{title}</h1>
-            <p className="auth-copy">{description}</p>
+            <h1>{t(titleKey)}</h1>
+            <p className="auth-copy">{t(descriptionKey)}</p>
           </>
         ) : null}
 
@@ -440,14 +446,14 @@ export function AuthCard({
               className={mode === "register" ? "mode-button is-active" : "mode-button"}
               onClick={() => switchMode("register")}
             >
-              Регистрация
+              {t("auth.tab.register")}
             </button>
             <button
               type="button"
               className={mode === "login" ? "mode-button is-active" : "mode-button"}
               onClick={() => switchMode("login")}
             >
-              Войти
+              {t("auth.tab.login")}
             </button>
           </div>
         ) : null}
@@ -507,7 +513,7 @@ export function AuthCard({
           mode === "verifyEmail" ||
           mode === "confirmEmailChange" ? null : (
             <label className={usernameFieldError ? "field is-invalid" : "field"}>
-              <span>{mode === "register" ? "Юзернейм" : "Юзернейм или почта"}</span>
+              <span>{mode === "register" ? t("auth.field.username") : t("auth.field.usernameOrEmail")}</span>
               <input
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
@@ -520,13 +526,13 @@ export function AuthCard({
                 aria-invalid={usernameFieldError ? "true" : undefined}
                 required
               />
-              {usernameFieldError ? <div className="field-error-text">{usernameFieldError}</div> : null}
+              {usernameFieldError ? <div className="field-error-text">{t(usernameFieldError)}</div> : null}
             </label>
           )}
 
           {mode === "register" || mode === "requestReset" || mode === "resendVerification" ? (
             <label className={emailFieldError ? "field is-invalid" : "field"}>
-              <span>Почта</span>
+              <span>{t("auth.field.email")}</span>
               <input
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
@@ -540,13 +546,13 @@ export function AuthCard({
                 aria-invalid={emailFieldError ? "true" : undefined}
                 required
               />
-              {emailFieldError ? <div className="field-error-text">{emailFieldError}</div> : null}
+              {emailFieldError ? <div className="field-error-text">{t(emailFieldError)}</div> : null}
             </label>
           ) : null}
 
           {mode === "register" ? (
             <label className={displayNameFieldError ? "field is-invalid" : "field"}>
-              <span>Отображаемое имя</span>
+              <span>{t("auth.field.displayName")}</span>
               <input
                 value={displayName}
                 onChange={(event) => setDisplayName(event.target.value)}
@@ -558,14 +564,14 @@ export function AuthCard({
                 aria-invalid={displayNameFieldError ? "true" : undefined}
                 required
               />
-              {displayNameFieldError ? <div className="field-error-text">{displayNameFieldError}</div> : null}
+              {displayNameFieldError ? <div className="field-error-text">{t(displayNameFieldError)}</div> : null}
             </label>
           ) : null}
 
           {mode === "confirmReset" ? (
             <>
               <label className={resetTokenFieldError ? "field is-invalid" : "field"}>
-                <span>Токен сброса</span>
+                <span>{t("auth.field.resetToken")}</span>
                 <input
                   value={resetToken}
                   onChange={(event) => setResetToken(event.target.value)}
@@ -577,10 +583,10 @@ export function AuthCard({
                   aria-invalid={resetTokenFieldError ? "true" : undefined}
                   required
                 />
-                {resetTokenFieldError ? <div className="field-error-text">{resetTokenFieldError}</div> : null}
+                {resetTokenFieldError ? <div className="field-error-text">{t(resetTokenFieldError)}</div> : null}
               </label>
               <label className={resetPasswordFieldError ? "field is-invalid" : "field"}>
-                <span>Новый пароль</span>
+                <span>{t("auth.field.newPassword")}</span>
                 <input
                   value={resetPassword}
                   onChange={(event) => setResetPassword(event.target.value)}
@@ -591,14 +597,14 @@ export function AuthCard({
                   aria-invalid={resetPasswordFieldError ? "true" : undefined}
                   required
                 />
-                <div className="field-help">{AUTH_PASSWORD_HELP}</div>
-                {resetPasswordFieldError ? <div className="field-error-text">{resetPasswordFieldError}</div> : null}
+                <div className="field-help">{t(AUTH_PASSWORD_HELP)}</div>
+                {resetPasswordFieldError ? <div className="field-error-text">{t(resetPasswordFieldError)}</div> : null}
               </label>
             </>
           ) : mode === "requestReset" ? null : (
             <>
               <label className={passwordFieldError ? "field is-invalid" : "field"}>
-                <span>Пароль</span>
+                <span>{t("auth.field.password")}</span>
                 <div className="field-input">
                   <input
                     value={password}
@@ -613,16 +619,16 @@ export function AuthCard({
                   <PasswordVisibilityButton
                     shown={showPassword}
                     onClick={() => setShowPassword((current) => !current)}
-                    labelWhenShown="Скрыть пароль"
-                    labelWhenHidden="Показать пароль"
+                    labelWhenShown={t("auth.password.hide")}
+                    labelWhenHidden={t("auth.password.show")}
                   />
                 </div>
-                {mode === "register" ? <div className="field-help">{AUTH_PASSWORD_HELP}</div> : null}
-                {passwordFieldError ? <div className="field-error-text">{passwordFieldError}</div> : null}
+                {mode === "register" ? <div className="field-help">{t(AUTH_PASSWORD_HELP)}</div> : null}
+                {passwordFieldError ? <div className="field-error-text">{t(passwordFieldError)}</div> : null}
               </label>
               {mode === "register" ? (
                 <label className={passwordConfirmFieldError ? "field is-invalid" : "field"}>
-                  <span>Повторите пароль</span>
+                  <span>{t("auth.field.passwordConfirm")}</span>
                   <div className="field-input">
                     <input
                       value={passwordConfirm}
@@ -637,21 +643,21 @@ export function AuthCard({
                     <PasswordVisibilityButton
                       shown={showPasswordConfirm}
                       onClick={() => setShowPasswordConfirm((current) => !current)}
-                      labelWhenShown="Скрыть подтверждение пароля"
-                      labelWhenHidden="Показать подтверждение пароля"
+                      labelWhenShown={t("auth.password.hideConfirm")}
+                      labelWhenHidden={t("auth.password.showConfirm")}
                     />
                   </div>
                   {passwordConfirmFieldError ? (
-                    <div className="field-error-text">{passwordConfirmFieldError}</div>
+                    <div className="field-error-text">{t(passwordConfirmFieldError)}</div>
                   ) : null}
                 </label>
               ) : null}
             </>
           )}
 
-          {infoMessage ? <div className="form-note">{infoMessage}</div> : null}
+          {infoMessage ? <div className="form-note">{t(infoMessage)}</div> : null}
 
-          {mode === "verifyEmail" && verificationViewState.message ? (
+          {mode === "verifyEmail" && verificationViewState.messageKey ? (
             <div
               className={
                 verificationViewState.kind === "invalid" || verificationViewState.kind === "expired"
@@ -659,11 +665,11 @@ export function AuthCard({
                   : "form-note"
               }
             >
-              {verificationViewState.message}
+              {t(verificationViewState.messageKey)}
             </div>
           ) : null}
 
-          {mode === "confirmEmailChange" && emailChangeViewState.message ? (
+          {mode === "confirmEmailChange" && emailChangeViewState.messageKey ? (
             <div
               className={
                 emailChangeViewState.kind === "invalid" || emailChangeViewState.kind === "expired"
@@ -671,7 +677,7 @@ export function AuthCard({
                   : "form-note"
               }
             >
-              {emailChangeViewState.message}
+              {t(emailChangeViewState.messageKey)}
             </div>
           ) : null}
 
@@ -681,21 +687,21 @@ export function AuthCard({
             <button type="submit" className="primary-button" disabled={isBusy || !canSubmit}>
               {mode === "requestReset"
                 ? requestResetMutation.isPending
-                  ? "Отправляем ссылку…"
-                  : "Отправить ссылку для сброса"
+                  ? t("auth.button.sendingLink")
+                  : t("auth.button.sendResetLink")
                 : mode === "resendVerification"
                   ? resendVerificationMutation.isPending
-                    ? "Отправляем ссылку…"
-                    : "Отправить письмо подтверждения"
+                    ? t("auth.button.sendingLink")
+                    : t("auth.button.sendVerification")
                   : mode === "confirmReset"
                     ? confirmResetMutation.isPending
-                      ? "Обновляем пароль…"
-                      : "Сбросить пароль"
+                      ? t("auth.button.updatingPassword")
+                      : t("auth.button.resetPassword")
                     : authMutation.isPending
-                      ? "Подключение…"
+                      ? t("auth.button.connecting")
                       : mode === "register"
-                        ? "Создать аккаунт"
-                        : "Войти"}
+                        ? t("auth.button.createAccount")
+                        : t("auth.button.login")}
             </button>
           )}
 
@@ -707,7 +713,7 @@ export function AuthCard({
                 onClick={() => switchMode("requestReset")}
                 disabled={isBusy}
               >
-                Забыли пароль?
+                {t("auth.button.forgotPassword")}
               </button>
             </>
           ) : null}
@@ -726,7 +732,7 @@ export function AuthCard({
               }}
               disabled={isBusy}
             >
-              Назад ко входу
+              {t("auth.button.backToLogin")}
             </button>
           ) : null}
 
@@ -737,7 +743,7 @@ export function AuthCard({
               onClick={() => switchMode("login")}
               disabled={isBusy}
             >
-              Назад
+              {t("auth.button.back")}
             </button>
           ) : null}
 
@@ -750,7 +756,7 @@ export function AuthCard({
                   onClick={openResendVerification}
                   disabled={isBusy}
                 >
-                  Отправить письмо подтверждения
+                  {t("auth.button.sendVerification")}
                 </button>
               ) : null}
               <button
@@ -761,7 +767,7 @@ export function AuthCard({
                 }}
                 disabled={isBusy}
               >
-                Назад ко входу
+                {t("auth.button.backToLogin")}
               </button>
             </>
           ) : null}
@@ -773,7 +779,7 @@ export function AuthCard({
               onClick={() => returnToLogin()}
               disabled={isBusy}
             >
-              Назад ко входу
+              {t("auth.button.backToLogin")}
             </button>
           ) : null}
         </form>
@@ -785,13 +791,13 @@ export function AuthCard({
 function resolveEmailChangeViewState(error: unknown): VerificationViewState {
   if (error instanceof ApiError) {
     if (error.status === 410) {
-      return { kind: "expired", message: "Ссылка для смены почты истекла. Запросите новую в настройках профиля." };
+      return { kind: "expired", messageKey: "auth.view.emailChangeExpired" };
     }
     if (error.status === 409) {
-      return { kind: "invalid", message: "Этот адрес почты уже используется другим аккаунтом." };
+      return { kind: "invalid", messageKey: "auth.view.emailInUse" };
     }
   }
-  return { kind: "invalid", message: "Ссылка для смены почты недействительна или уже использована." };
+  return { kind: "invalid", messageKey: "auth.view.emailChangeInvalid" };
 }
 
 function resolveVerificationViewState(error: unknown): VerificationViewState {
@@ -799,20 +805,20 @@ function resolveVerificationViewState(error: unknown): VerificationViewState {
     if (error.status === 409 && error.message === "Email is already verified") {
       return {
         kind: "alreadyVerified",
-        message: "Эта почта уже подтверждена. Можно войти.",
+        messageKey: "auth.view.alreadyVerified",
       };
     }
     if (error.status === 410 && error.message === "Email verification token is expired") {
       return {
         kind: "expired",
-        message: "Ссылка подтверждения истекла. Запросите новую, чтобы продолжить.",
+        messageKey: "auth.view.verificationExpired",
       };
     }
   }
 
   return {
     kind: "invalid",
-    message: "Ссылка подтверждения недействительна. Запросите новую ссылку подтверждения почты.",
+    messageKey: "auth.view.verificationInvalid",
   };
 }
 

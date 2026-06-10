@@ -179,7 +179,7 @@ describe("ProfileSettingsCard password change form", () => {
     expect(submitButton.disabled).toBe(true);
 
     const showNewPasswordButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.getAttribute("aria-label") === "Show new password"
+      (button) => button.getAttribute("aria-label") === "Показать новый пароль"
     );
     if (!showNewPasswordButton) {
       throw new Error("New password visibility button is missing");
@@ -194,7 +194,7 @@ describe("ProfileSettingsCard password change form", () => {
     expect(newPasswordInput.type).toBe("text");
     expect(
       Array.from(container.querySelectorAll("button")).some(
-        (button) => button.getAttribute("aria-label") === "Hide new password"
+        (button) => button.getAttribute("aria-label") === "Скрыть новый пароль"
       )
     ).toBe(true);
 

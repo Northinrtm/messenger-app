@@ -1,3 +1,4 @@
+import { tActive } from "../../i18n";
 import type { Participant, TypingEvent } from "../../lib/types";
 
 export function applyTypingEvent(
@@ -56,16 +57,16 @@ export function formatTypingParticipants(participants: Participant[]) {
   );
 
   if (!uniqueNames.length) {
-    return "Печатает...";
+    return tActive("typing.one");
   }
 
   if (uniqueNames.length === 1) {
-    return `${uniqueNames[0]} печатает...`;
+    return tActive("typing.named", { name: uniqueNames[0] });
   }
 
   if (uniqueNames.length === 2) {
-    return `${uniqueNames[0]} и ${uniqueNames[1]} печатают...`;
+    return tActive("typing.two", { name1: uniqueNames[0], name2: uniqueNames[1] });
   }
 
-  return `${uniqueNames[0]} и еще ${uniqueNames.length - 1} печатают...`;
+  return tActive("typing.more", { name: uniqueNames[0], count: uniqueNames.length - 1 });
 }

@@ -1,3 +1,5 @@
+import type { TranslationKey } from "../../i18n";
+
 export type SidebarSheet =
   | "archive"
   | "chatMedia"
@@ -26,20 +28,20 @@ export type MenuActionId =
 
 export type MenuAction = {
   id: MenuActionId;
-  label: string;
+  labelKey: TranslationKey;
   symbol: string;
   badge?: string;
 };
 
 export const MENU_ACTIONS: MenuAction[] = [
-  { id: "profile", label: "\u041C\u043E\u0439 \u043F\u0440\u043E\u0444\u0438\u043B\u044C", symbol: "ME" },
-  { id: "archive", label: "\u0410\u0440\u0445\u0438\u0432", symbol: "AR" },
-  { id: "group", label: "\u0413\u0440\u0443\u043F\u043F\u044B", symbol: "GR" },
-  { id: "conference", label: "\u0412\u0438\u0434\u0435\u043E\u043A\u043E\u043D\u0444\u0435\u0440\u0435\u043D\u0446\u0438\u0438", symbol: "VC" },
-  { id: "contacts", label: "\u041A\u043E\u043D\u0442\u0430\u043A\u0442\u044B", symbol: "CT" },
-  { id: "sessions", label: "\u0410\u043A\u0442\u0438\u0432\u043D\u044B\u0435 \u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u0430", symbol: "DV" },
-  { id: "download-apk", label: "\u0421\u043A\u0430\u0447\u0430\u0442\u044C Android \u043F\u0440\u0438\u043B\u043E\u0436\u0435\u043D\u0438\u0435", symbol: "AN" },
-  { id: "logout", label: "\u0412\u044B\u0439\u0442\u0438", symbol: "EX" },
+  { id: "profile", labelKey: "menu.profile", symbol: "ME" },
+  { id: "archive", labelKey: "menu.archive", symbol: "AR" },
+  { id: "group", labelKey: "menu.groups", symbol: "GR" },
+  { id: "conference", labelKey: "menu.conferences", symbol: "VC" },
+  { id: "contacts", labelKey: "menu.contacts", symbol: "CT" },
+  { id: "sessions", labelKey: "menu.devices", symbol: "DV" },
+  { id: "download-apk", labelKey: "menu.downloadApk", symbol: "AN" },
+  { id: "logout", labelKey: "menu.logout", symbol: "EX" },
 ];
 
 export type ContextMenuState =

@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import {androidTheme} from '../../theme';
+import {useI18n} from '../../i18n/I18nProvider';
 
 type AuthMode = 'login' | 'register';
 
@@ -38,6 +39,7 @@ export function AuthScreen({
   onLogin,
   onRegister,
 }: Props) {
+  const {t} = useI18n();
   const [loginIdentifier, setLoginIdentifier] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -83,12 +85,10 @@ export function AuthScreen({
           </View>
           <Text style={styles.brand}>North Messenger</Text>
           <Text style={styles.title}>
-            {mode === 'login' ? 'Sign in' : 'Create account'}
+            {mode === 'login' ? t('auth.signInTitle') : t('auth.createAccountTitle')}
           </Text>
           <Text style={styles.copy}>
-            {mode === 'login'
-              ? 'Use your email or username to open the mobile workspace.'
-              : 'Registration keeps email login enabled and sends a verification email for the account address.'}
+            {mode === 'login' ? t('auth.signInCopy') : t('auth.registerCopy')}
           </Text>
         </View>
 
@@ -103,7 +103,7 @@ export function AuthScreen({
                     ? styles.modeTabActiveLabel
                     : styles.modeTabLabel
                 }>
-                Login
+                {t('auth.tabLogin')}
               </Text>
             </Pressable>
             <Pressable
@@ -115,14 +115,14 @@ export function AuthScreen({
                     ? styles.modeTabActiveLabel
                     : styles.modeTabLabel
                 }>
-                Register
+                {t('auth.tabRegister')}
               </Text>
             </Pressable>
           </View>
 
           <View style={styles.form}>
             <Field
-              label={mode === 'login' ? 'Email or username' : 'Username'}
+              label={mode === 'login' ? t('auth.emailOrUsername') : t('auth.username')}
               value={loginIdentifier}
               onChangeText={setLoginIdentifier}
               autoCapitalize="none"
@@ -131,34 +131,34 @@ export function AuthScreen({
               keyboardType={mode === 'login' ? 'email-address' : 'default'}
               placeholder={
                 mode === 'login'
-                  ? 'name@example.com or username'
-                  : 'Choose a username'
+                  ? t('auth.loginPlaceholder')
+                  : t('auth.usernamePlaceholder')
               }
             />
             {mode === 'register' ? (
               <>
                 <Field
-                  label="Display name"
+                  label={t('auth.displayName')}
                   value={displayName}
                   onChangeText={setDisplayName}
                   autoCapitalize="words"
                   autoComplete="name"
-                  placeholder="How others will see you"
+                  placeholder={t('auth.displayNamePlaceholder')}
                 />
                 <Field
-                  label="Email"
+                  label={t('auth.email')}
                   value={email}
                   onChangeText={setEmail}
                   autoCapitalize="none"
                   autoCorrect={false}
                   autoComplete="email"
                   keyboardType="email-address"
-                  placeholder="name@example.com"
+                  placeholder={t('auth.emailPlaceholder')}
                 />
               </>
             ) : null}
             <Field
-              label="Password"
+              label={t('auth.password')}
               value={password}
               onChangeText={setPassword}
               autoCapitalize="none"
@@ -166,7 +166,9 @@ export function AuthScreen({
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
               secureTextEntry
               placeholder={
-                mode === 'login' ? 'Enter your password' : 'Create a password'
+                mode === 'login'
+                  ? t('auth.passwordPlaceholderLogin')
+                  : t('auth.passwordPlaceholderRegister')
               }
             />
           </View>
@@ -194,7 +196,7 @@ export function AuthScreen({
               <ActivityIndicator color={androidTheme.colors.textInverse} />
             ) : (
               <Text style={styles.submitLabel}>
-                {mode === 'login' ? 'Open workspace' : 'Create account'}
+                {mode === 'login' ? t('auth.submitLogin') : t('auth.submitRegister')}
               </Text>
             )}
           </Pressable>
@@ -238,6 +240,7 @@ function Field({
   keyboardType = 'default',
   secureTextEntry = false,
 }: FieldProps) {
+  const {t} = useI18n();
   const [passwordVisible, setPasswordVisible] = useState(false);
   const resolvedSecureTextEntry = secureTextEntry && !passwordVisible;
 
@@ -264,7 +267,7 @@ function Field({
             style={styles.inputActionButton}
             hitSlop={8}>
             <Text style={styles.inputActionLabel}>
-              {passwordVisible ? 'Hide' : 'Show'}
+              {passwordVisible ? t('common.hide') : t('common.show')}
             </Text>
           </Pressable>
         ) : null}

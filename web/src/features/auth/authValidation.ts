@@ -1,25 +1,19 @@
-const REQUIRED_FIELD_ERROR =
-  "\u041f\u043e\u043b\u0435 \u043e\u0431\u044f\u0437\u0430\u0442\u0435\u043b\u044c\u043d\u043e\u0435 \u0434\u043b\u044f \u0437\u0430\u043f\u043e\u043b\u043d\u0435\u043d\u0438\u044f";
-const USERNAME_FORMAT_ERROR =
-  "\u042e\u0437\u0435\u0440\u043d\u0435\u0439\u043c: 3\u201324 \u0441\u0438\u043c\u0432\u043e\u043b\u0430, \u043d\u0430\u0447\u0438\u043d\u0430\u0435\u0442\u0441\u044f \u0441 \u043b\u0430\u0442\u0438\u043d\u0441\u043a\u043e\u0439 \u0431\u0443\u043a\u0432\u044b, \u0442\u043e\u043b\u044c\u043a\u043e \u043b\u0430\u0442\u0438\u043d\u0441\u043a\u0438\u0435 \u0431\u0443\u043a\u0432\u044b, \u0446\u0438\u0444\u0440\u044b \u0438 _";
-const EMAIL_FORMAT_ERROR =
-  "\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043a\u043e\u0440\u0440\u0435\u043a\u0442\u043d\u044b\u0439 email";
-const DISPLAY_NAME_FORMAT_ERROR =
-  "\u0418\u043c\u044f: 2-40 \u0441\u0438\u043c\u0432\u043e\u043b\u043e\u0432, \u0431\u0443\u043a\u0432\u044b/\u0446\u0438\u0444\u0440\u044b \u0438 \u043f\u0440\u043e\u0431\u0435\u043b\u044b, ., _, ', -";
-const PASSWORD_MIN_LENGTH_ERROR =
-  "\u041f\u0430\u0440\u043e\u043b\u044c \u0434\u043e\u043b\u0436\u0435\u043d \u0441\u043e\u0434\u0435\u0440\u0436\u0430\u0442\u044c \u043c\u0438\u043d\u0438\u043c\u0443\u043c 8 \u0441\u0438\u043c\u0432\u043e\u043b\u043e\u0432";
-const PASSWORD_LETTER_ERROR =
-  "\u041f\u0430\u0440\u043e\u043b\u044c \u0434\u043e\u043b\u0436\u0435\u043d \u0441\u043e\u0434\u0435\u0440\u0436\u0430\u0442\u044c \u0445\u043e\u0442\u044f \u0431\u044b \u043e\u0434\u043d\u0443 \u0431\u0443\u043a\u0432\u0443";
-const PASSWORD_COMMON_ERROR =
-  "\u041f\u0430\u0440\u043e\u043b\u044c \u0441\u043b\u0438\u0448\u043a\u043e\u043c \u043f\u0440\u043e\u0441\u0442\u043e\u0439 \u0438\u043b\u0438 \u0441\u043b\u0438\u0448\u043a\u043e\u043c \u0440\u0430\u0441\u043f\u0440\u043e\u0441\u0442\u0440\u0430\u043d\u0435\u043d\u043d\u044b\u0439";
-const PASSWORD_PERSONAL_INFO_ERROR =
-  "\u041f\u0430\u0440\u043e\u043b\u044c \u043d\u0435 \u0434\u043e\u043b\u0436\u0435\u043d \u0441\u043e\u0434\u0435\u0440\u0436\u0430\u0442\u044c username \u0438\u043b\u0438 \u0438\u043c\u044f";
-const PASSWORD_REPEAT_ERROR =
-  "\u041f\u0430\u0440\u043e\u043b\u044c \u043d\u0435 \u0434\u043e\u043b\u0436\u0435\u043d \u0441\u043e\u0441\u0442\u043e\u044f\u0442\u044c \u0438\u0437 \u043e\u0434\u043d\u043e\u0433\u043e \u043f\u043e\u0432\u0442\u043e\u0440\u044f\u044e\u0449\u0435\u0433\u043e\u0441\u044f \u0441\u0438\u043c\u0432\u043e\u043b\u0430";
-const PASSWORD_SEQUENTIAL_ERROR =
-  "\u041f\u0430\u0440\u043e\u043b\u044c \u043d\u0435 \u0434\u043e\u043b\u0436\u0435\u043d \u0441\u043e\u0434\u0435\u0440\u0436\u0430\u0442\u044c \u043f\u0440\u043e\u0441\u0442\u044b\u0435 \u043f\u043e\u0441\u043b\u0435\u0434\u043e\u0432\u0430\u0442\u0435\u043b\u044c\u043d\u043e\u0441\u0442\u0438";
-const PASSWORD_CONFIRM_MISMATCH_ERROR =
-  "\u041f\u0430\u0440\u043e\u043b\u0438 \u043d\u0435 \u0441\u043e\u0432\u043f\u0430\u0434\u0430\u044e\u0442.";
+import type { TranslationKey } from "../../i18n";
+
+// Validation helpers return translation keys (not localized text) so the calling
+// component can render them in the active locale via t(). Validity checks only
+// look at null-vs-non-null, so they keep working unchanged.
+const REQUIRED_FIELD_ERROR: TranslationKey = "auth.validation.required";
+const USERNAME_FORMAT_ERROR: TranslationKey = "auth.validation.usernameFormat";
+const EMAIL_FORMAT_ERROR: TranslationKey = "auth.validation.emailFormat";
+const DISPLAY_NAME_FORMAT_ERROR: TranslationKey = "auth.validation.displayNameFormat";
+const PASSWORD_MIN_LENGTH_ERROR: TranslationKey = "auth.validation.passwordMinLength";
+const PASSWORD_LETTER_ERROR: TranslationKey = "auth.validation.passwordLetter";
+const PASSWORD_COMMON_ERROR: TranslationKey = "auth.validation.passwordCommon";
+const PASSWORD_PERSONAL_INFO_ERROR: TranslationKey = "auth.validation.passwordPersonalInfo";
+const PASSWORD_REPEAT_ERROR: TranslationKey = "auth.validation.passwordRepeat";
+const PASSWORD_SEQUENTIAL_ERROR: TranslationKey = "auth.validation.passwordSequential";
+const PASSWORD_CONFIRM_MISMATCH_ERROR: TranslationKey = "auth.validation.passwordMismatch";
 
 const USERNAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]{2,23}$/;
 const EMAIL_PATTERN =
@@ -86,10 +80,9 @@ export type LoginValues = {
   password: string;
 };
 
-export const AUTH_PASSWORD_HELP =
-  "\u041c\u0438\u043d\u0438\u043c\u0443\u043c 8 \u0441\u0438\u043c\u0432\u043e\u043b\u043e\u0432, \u0445\u043e\u0442\u044f \u0431\u044b \u043e\u0434\u043d\u0430 \u0431\u0443\u043a\u0432\u0430. \u041f\u0430\u0440\u043e\u043b\u044c \u043d\u0435 \u0434\u043e\u043b\u0436\u0435\u043d \u0431\u044b\u0442\u044c \u0441\u043b\u0438\u0448\u043a\u043e\u043c \u043f\u0440\u043e\u0441\u0442\u044b\u043c, \u0441\u043e\u0434\u0435\u0440\u0436\u0430\u0442\u044c username/\u0438\u043c\u044f \u0438\u043b\u0438 \u043f\u0440\u043e\u0441\u0442\u044b\u0435 \u043f\u043e\u0441\u043b\u0435\u0434\u043e\u0432\u0430\u0442\u0435\u043b\u044c\u043d\u043e\u0441\u0442\u0438.";
+export const AUTH_PASSWORD_HELP: TranslationKey = "auth.passwordHelp";
 
-export function validateRequiredField(value: string) {
+export function validateRequiredField(value: string): TranslationKey | null {
   return value.trim().length > 0 ? null : REQUIRED_FIELD_ERROR;
 }
 

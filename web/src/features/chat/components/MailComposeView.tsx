@@ -1,5 +1,7 @@
 import { useState } from "react";
 
+import { useI18n } from "../../../i18n/I18nProvider";
+
 type Props = {
   sendPending: boolean;
   sendError: string | null;
@@ -17,6 +19,7 @@ export function MailComposeView({
   onSend,
   onClose,
 }: Props) {
+  const { t } = useI18n();
   const [to, setTo] = useState(initialTo);
   const [subject, setSubject] = useState(initialSubject);
   const [body, setBody] = useState("");
@@ -32,15 +35,15 @@ export function MailComposeView({
   return (
     <div className="mail-compose-view">
       <div className="mail-compose-header">
-        <h2>{"Новое письмо"}</h2>
+        <h2>{t("mail.newEmail")}</h2>
         <button type="button" className="ghost-button compact" onClick={onClose}>
-          {"Отмена"}
+          {t("common.cancel")}
         </button>
       </div>
 
       <form className="mail-compose-form" onSubmit={handleSubmit}>
         <label className="mail-compose-field">
-          <span className="mail-meta-label">{"Кому"}</span>
+          <span className="mail-meta-label">{t("mail.toLabel")}</span>
           <input
             type="email"
             value={to}
@@ -55,12 +58,12 @@ export function MailComposeView({
         </label>
 
         <label className="mail-compose-field">
-          <span className="mail-meta-label">{"Тема"}</span>
+          <span className="mail-meta-label">{t("mail.subjectLabel")}</span>
           <input
             type="text"
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
-            placeholder="Тема письма"
+            placeholder={t("mail.subjectPlaceholder")}
             disabled={sendPending}
           />
         </label>
@@ -70,7 +73,7 @@ export function MailComposeView({
             className="mail-compose-body"
             value={body}
             onChange={(e) => setBody(e.target.value)}
-            placeholder="Текст письма..."
+            placeholder={t("mail.bodyPlaceholder")}
             disabled={sendPending}
             rows={16}
           />
@@ -80,7 +83,7 @@ export function MailComposeView({
 
         <div className="mail-compose-footer">
           <button type="submit" className="primary-button" disabled={!canSend}>
-            {sendPending ? "Отправляем..." : "Отправить"}
+            {sendPending ? t("common.sending") : t("mail.send")}
           </button>
         </div>
       </form>

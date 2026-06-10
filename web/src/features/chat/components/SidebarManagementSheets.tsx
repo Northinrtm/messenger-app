@@ -1,4 +1,5 @@
 ﻿import { useEffect, useState } from "react";
+import { useI18n } from "../../../i18n/I18nProvider";
 import type { PushNotificationPermission } from "../../../lib/pushNotifications";
 import { useRef, type FocusEvent } from "react";
 import type {
@@ -262,6 +263,7 @@ export function SidebarManagementSheets({
   formatProfileDate,
   formatSessionTime,
 }: Props) {
+  const { t, tp } = useI18n();
   const [isPasswordFormOpen, setIsPasswordFormOpen] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isContactSearchFocused, setIsContactSearchFocused] = useState(false);
@@ -383,11 +385,11 @@ export function SidebarManagementSheets({
       <div className="sheet-card">
         <div className="sheet-head">
           <div>
-            <div className="section-title">Мой профиль</div>
-            <p className="sheet-copy">Настройки текущего аккаунта.</p>
+            <div className="section-title">{t("settings.title")}</div>
+            <p className="sheet-copy">{t("sheet.accountSettings")}</p>
           </div>
           <button type="button" className="ghost-button compact" onClick={onClose}>
-            Закрыть
+            {t("common.close")}
           </button>
         </div>
 
@@ -403,7 +405,7 @@ export function SidebarManagementSheets({
                 online={profile.online}
               />
               <span className="profile-avatar-badge">
-                {avatarPending ? "Загружаем..." : "Изменить фото"}
+                {avatarPending ? t("chat.loadingShort") : t("settings.avatar.change")}
               </span>
               <input
                 className="profile-avatar-input"
@@ -433,12 +435,12 @@ export function SidebarManagementSheets({
               onSubmitProfileDisplayName();
             }}
           >
-            <span className="profile-label">Имя</span>
+            <span className="profile-label">{t("settings.name.label")}</span>
             <div className="profile-inline-row">
               <input
                 value={profileDisplayName}
                 onChange={(event) => onProfileDisplayNameChange(event.target.value)}
-                placeholder="Ваше имя"
+                placeholder={t("settings.name.placeholder")}
                 maxLength={40}
               />
               {profileChanged ? (
@@ -447,16 +449,16 @@ export function SidebarManagementSheets({
                   className="ghost-button compact profile-inline-save"
                   disabled={updateProfilePending || normalizedProfileDisplayName.length < 2}
                 >
-                  {updateProfilePending ? "Сохраняем..." : "Сохранить"}
+                  {updateProfilePending ? t("common.saving") : t("common.save")}
                 </button>
               ) : null}
             </div>
 
-            <span className="profile-label">Профессия</span>
+            <span className="profile-label">{t("sheet.profession")}</span>
             <input
               value={profileProfession}
               onChange={(event) => onProfileProfessionChange(event.target.value)}
-              placeholder="Например: продуктовый менеджер"
+              placeholder={t("sheet.professionPlaceholder")}
               maxLength={80}
             />
           </form>
@@ -464,8 +466,8 @@ export function SidebarManagementSheets({
           <div className="profile-line profile-action-panel">
             <div className="profile-action-row">
               <div className="profile-action-copy">
-                <span className="profile-label">Безопасность</span>
-                <strong>Пароль</strong>
+                <span className="profile-label">{t("settings.security.label")}</span>
+                <strong>{t("settings.security.password")}</strong>
               </div>
               <button
                 type="button"
@@ -480,7 +482,7 @@ export function SidebarManagementSheets({
                   setIsPasswordFormOpen(true);
                 }}
               >
-                {isPasswordFormOpen ? "Скрыть" : "Сменить пароль"}
+                {isPasswordFormOpen ? t("common.hide") : t("settings.password.changeButton")}
               </button>
             </div>
 
@@ -495,48 +497,48 @@ export function SidebarManagementSheets({
                 <input
                   value={passwordChangeCurrent}
                   onChange={(event) => onPasswordChangeCurrentChange(event.target.value)}
-                  placeholder="Текущий пароль"
+                  placeholder={t("settings.password.current")}
                   type="password"
                   autoComplete="current-password"
                 />
                 <input
                   value={passwordChangeNext}
                   onChange={(event) => onPasswordChangeNextChange(event.target.value)}
-                  placeholder="Новый пароль"
+                  placeholder={t("settings.password.next")}
                   type="password"
                   autoComplete="new-password"
                 />
                 <input
                   value={passwordChangeConfirm}
                   onChange={(event) => onPasswordChangeConfirmChange(event.target.value)}
-                  placeholder="Повторите новый пароль"
+                  placeholder={t("settings.password.confirm")}
                   type="password"
                   autoComplete="new-password"
                 />
                 {!passwordChangeMatches && passwordChangeConfirm.length > 0 ? (
-                  <div className="form-error">Пароли не совпадают.</div>
+                  <div className="form-error">{t("auth.validation.passwordMismatch")}</div>
                 ) : null}
                 <button
                   type="submit"
                   className="secondary-button"
                   disabled={changePasswordPending || !passwordChangeReady}
                 >
-                  {changePasswordPending ? "Меняем пароль..." : "Обновить пароль"}
+                  {changePasswordPending ? t("settings.password.changing") : t("sheet.updatePassword")}
                 </button>
               </form>
             ) : null}
           </div>
 
           <div className="profile-line">
-            <span className="profile-label">Создан</span>
+            <span className="profile-label">{t("sheet.created")}</span>
             <span>{formatProfileDate(profile.createdAt)}</span>
           </div>
 
           <div className="profile-line profile-action-panel profile-danger-panel">
             <div className="profile-action-row">
               <div className="profile-action-copy">
-                <span className="profile-label">Аккаунт</span>
-                <strong>Удаление аккаунта</strong>
+                <span className="profile-label">{t("settings.account.label")}</span>
+                <strong>{t("settings.account.deleteTitle")}</strong>
               </div>
               <button
                 type="button"
@@ -551,14 +553,14 @@ export function SidebarManagementSheets({
                   setIsDeleteConfirmOpen(true);
                 }}
               >
-                Удалить аккаунт
+                {t("settings.account.deleteButton")}
               </button>
             </div>
 
             {isDeleteConfirmOpen ? (
               <div className="profile-delete-confirm">
                 <p>
-                  Введите username <strong>{profile.username}</strong>, чтобы подтвердить удаление аккаунта.
+                  {t("sheet.deleteConfirmPrefix")}<strong>{profile.username}</strong>{t("sheet.deleteConfirmSuffix")}
                 </p>
                 <input
                   value={deleteAccountConfirmation}
@@ -574,7 +576,7 @@ export function SidebarManagementSheets({
                   disabled={deleteAccountPending || !deleteAccountRequiresMatch}
                   onClick={onDeleteAccount}
                 >
-                  {deleteAccountPending ? "Удаляем аккаунт..." : "Подтвердить удаление"}
+                  {deleteAccountPending ? t("settings.account.deleting") : t("settings.account.confirmDelete")}
                 </button>
               </div>
             ) : null}
@@ -589,11 +591,11 @@ export function SidebarManagementSheets({
       <div className="sheet-card">
         <div className="sheet-head">
           <div>
-            <div className="section-title">Группы</div>
-            <p className="sheet-copy">Создайте новую группу и добавляйте участников из контактов.</p>
+            <div className="section-title">{t("menu.groups")}</div>
+            <p className="sheet-copy">{t("sheet.groupsDesc")}</p>
           </div>
           <button type="button" className="ghost-button compact" onClick={onClose}>
-            Закрыть
+            {t("common.close")}
           </button>
         </div>
 
@@ -607,11 +609,11 @@ export function SidebarManagementSheets({
           <input
             value={groupTitle}
             onChange={(event) => onGroupTitleChange(event.target.value)}
-            placeholder="Название группы"
+            placeholder={t("sheet.groupNamePlaceholder")}
           />
           <div className="sheet-section">
             <button type="button" className="ghost-button" onClick={onToggleGroupCreatePicker}>
-              {isGroupCreatePickerOpen ? "Скрыть список контактов" : "Добавить участника"}
+              {isGroupCreatePickerOpen ? t("sheet.hideContactList") : t("sheet.addParticipant")}
             </button>
             {selectedGroupContacts.length > 0 ? (
               <div className="sheet-chip-list">
@@ -625,10 +627,10 @@ export function SidebarManagementSheets({
             {isGroupCreatePickerOpen ? (
               <div className="group-picker-list">
                 {contactsLoading ? (
-                  <div className="empty-list">Загружаем контакты...</div>
+                  <div className="empty-list">{t("sheet.loadingContacts")}</div>
                 ) : groupContacts.length === 0 ? (
                   <div className="empty-list">
-                    Сначала добавьте контакты, чтобы собрать группу.
+                    {t("sheet.addContactsFirst")}
                   </div>
                 ) : (
                   groupContacts.map((contact) => {
@@ -654,7 +656,7 @@ export function SidebarManagementSheets({
                           <strong>{contact.displayName}</strong>
                           <span>@{contact.username}</span>
                         </div>
-                        <span className="member-pill">{selected ? "Выбран" : "Выбрать"}</span>
+                        <span className="member-pill">{selected ? t("sheet.selected") : t("sheet.select")}</span>
                       </button>
                     );
                   })
@@ -667,7 +669,7 @@ export function SidebarManagementSheets({
             className="secondary-button"
             disabled={createGroupPending || !groupTitle.trim()}
           >
-            {createGroupPending ? "Создаем..." : "Создать"}
+            {createGroupPending ? t("sheet.creating") : t("sheet.create")}
           </button>
         </form>
       </div>
@@ -686,11 +688,11 @@ export function SidebarManagementSheets({
       <div className="sheet-card">
         <div className="sheet-head">
           <div>
-            <div className="section-title">Группа</div>
-            <p className="sheet-copy">Информация о группе, история для новых участников и управление участниками.</p>
+            <div className="section-title">{t("sheet.group")}</div>
+            <p className="sheet-copy">{t("sheet.groupInfoDesc")}</p>
           </div>
           <button type="button" className="ghost-button compact" onClick={onClose}>
-            Закрыть
+            {t("common.close")}
           </button>
         </div>
 
@@ -704,20 +706,18 @@ export function SidebarManagementSheets({
           />
           <div className="profile-avatar-copy">
             <strong>{normalizedGroupTitle || activeChat.title}</strong>
-            <span>{activeChat.members.length} участников</span>
+            <span>{tp("members.count", activeChat.members.length)}</span>
           </div>
         </div>
 
         {groupCapabilities.canEditGroup ? (
           <>
             <div className="profile-line">
-              <span className="profile-label">Аватар группы</span>
-              <p className="profile-avatar-hint">
-                Измените название и аватар группы, затем сохраните изменения.
-              </p>
+              <span className="profile-label">{t("sheet.groupAvatar")}</span>
+              <p className="profile-avatar-hint">{t("sheet.groupAvatarDesc")}</p>
               <div className="profile-avatar-actions">
                 <label htmlFor="group-avatar-input" className="ghost-button compact">
-                  Выбрать фото
+                  {t("sheet.chooseProfilePhoto")}
                 </label>
                 <input
                   id="group-avatar-input"
@@ -738,7 +738,7 @@ export function SidebarManagementSheets({
                     className="ghost-button compact"
                     onClick={onRemoveGroupAvatar}
                   >
-                    Убрать фото
+                    {t("sheet.removePhoto")}
                   </button>
                 ) : null}
               </div>
@@ -751,11 +751,11 @@ export function SidebarManagementSheets({
                 onSubmitUpdateGroup();
               }}
             >
-              <span className="profile-label">Название группы</span>
+              <span className="profile-label">{t("sheet.groupNamePlaceholder")}</span>
               <input
                 value={groupDetailsTitle}
                 onChange={(event) => onGroupDetailsTitleChange(event.target.value)}
-                placeholder="Название группы"
+                placeholder={t("sheet.groupNamePlaceholder")}
                 maxLength={120}
               />
               <button
@@ -763,23 +763,23 @@ export function SidebarManagementSheets({
                 className="secondary-button"
                 disabled={updateGroupPending || normalizedGroupTitle.length < 2 || !groupDetailsChanged}
               >
-                {updateGroupPending ? "Сохраняем..." : "Сохранить"}
+                {updateGroupPending ? t("common.saving") : t("common.save")}
               </button>
               <div className="profile-line group-history-setting">
                 <div className="group-history-setting-row">
                   <div className="group-history-setting-copy">
-                    <strong>Разрешить новым участникам группы видеть старую историю сообщений</strong>
+                    <strong>{t("sheet.allowHistory")}</strong>
                     <span>
                       {isFullHistoryEnabled
-                        ? "Новые участники увидят историю группы полностью."
-                        : "Новые участники увидят только сообщения после вступления в группу."}
+                        ? t("sheet.historyFull")
+                        : t("sheet.historyAfterJoin")}
                     </span>
                   </div>
                   <button
                     type="button"
                     role="switch"
                     aria-checked={isFullHistoryEnabled}
-                    aria-label="Разрешить новым участникам группы видеть старую историю сообщений"
+                    aria-label={t("sheet.allowHistory")}
                     className={isFullHistoryEnabled ? "group-history-switch is-on" : "group-history-switch"}
                     disabled={updateGroupPending || !groupCapabilities.canTogglePrejoinHistory}
                     onClick={() =>
@@ -803,8 +803,8 @@ export function SidebarManagementSheets({
             onClick={() => onOpenGroupMembers()}
           >
             <div className="sheet-row-copy">
-              <strong>Участники</strong>
-              <span>Открыть список участников группы.</span>
+              <strong>{t("conf.participants")}</strong>
+              <span>{t("sheet.openMembersList")}</span>
             </div>
             <span className="member-pill">{activeChat.members.length}</span>
           </button>
@@ -815,15 +815,15 @@ export function SidebarManagementSheets({
               onClick={() => onOpenGroupMembers({ openInvitePicker: true })}
             >
               <div className="sheet-row-copy">
-                <strong>Добавить из контактов</strong>
+                <strong>{t("sheet.addFromContacts")}</strong>
                 <span>
                   {availableGroupInviteContacts.length > 0
-                    ? "Выберите людей из контактов и добавьте их в группу."
-                    : "Все контакты уже добавлены в эту группу."}
+                    ? t("sheet.pickFromContacts")
+                    : t("sheet.allContactsAdded")}
                 </span>
               </div>
               <span className="member-pill">
-                {availableGroupInviteContacts.length > 0 ? "Добавить" : "Готово"}
+                {availableGroupInviteContacts.length > 0 ? t("sheet.add") : t("sheet.done")}
               </span>
             </button>
           ) : null}
@@ -832,7 +832,7 @@ export function SidebarManagementSheets({
         {groupCapabilities.canManageInviteLink ? (
           <div className="invite-link-panel">
           <div className="invite-link-copy">
-            <strong>Ссылка-приглашение</strong>
+            <strong>{t("sheet.inviteLink")}</strong>
           </div>
           {groupInviteLinkUrl ? (
             <div className="invite-link-row">
@@ -847,7 +847,7 @@ export function SidebarManagementSheets({
                 className="ghost-button compact"
                 onClick={() => onCopyGroupInviteLink(groupInviteLinkUrl)}
               >
-                Копировать
+                {t("conf.copy")}
               </button>
             </div>
           ) : null}
@@ -858,10 +858,10 @@ export function SidebarManagementSheets({
             onClick={onGenerateGroupInviteLink}
           >
             {groupInviteLinkPending
-              ? "Генерируем ссылку..."
+              ? t("conf.generatingLink")
               : groupInviteLinkUrl
-                ? "Обновить ссылку"
-                : "Сгенерировать ссылку"}
+                ? t("conf.refreshLink")
+                : t("conf.generateLink")}
           </button>
           </div>
         ) : null}
@@ -875,13 +875,11 @@ export function SidebarManagementSheets({
       <div className="sheet-card">
         <div className="sheet-head">
           <div>
-            <div className="section-title">Участники группы</div>
-            <p className="sheet-copy">
-              Посмотрите, кто уже состоит в {activeChat.title}, и добавьте новых людей из контактов.
-            </p>
+            <div className="section-title">{t("sheet.groupMembers")}</div>
+            <p className="sheet-copy">{t("sheet.groupMembersDesc", { title: activeChat.title })}</p>
           </div>
           <button type="button" className="ghost-button compact" onClick={onClose}>
-            Закрыть
+            {t("common.close")}
           </button>
         </div>
 
@@ -893,7 +891,7 @@ export function SidebarManagementSheets({
           }}
         >
           <div className="sheet-section">
-            <div className="section-title">В этой группе</div>
+            <div className="section-title">{t("sheet.inThisGroup")}</div>
             <div className="sheet-list">
               {activeChat.members.map((member) => {
                 const current = member.id === sessionUser.id;
@@ -906,7 +904,7 @@ export function SidebarManagementSheets({
                       online={member.online}
                     />
                     <div className="sheet-row-copy">
-                      <strong>{member.displayName}{current ? " (Вы)" : ""}</strong>
+                      <strong>{member.displayName}{current ? t("sheet.youSuffix") : ""}</strong>
                       <span>@{member.username}</span>
                     </div>
                     <div className="sheet-row-actions">
@@ -917,10 +915,10 @@ export function SidebarManagementSheets({
                           disabled={createChatPending}
                           onClick={() => onCreateChat(member.username)}
                         >
-                          {"\u0427\u0430\u0442"}
+                          {t("sheet.chat")}
                         </button>
                       ) : null}
-                      <span className="member-pill">{current ? "Вы" : "В группе"}</span>
+                      <span className="member-pill">{current ? t("chat.you") : t("sheet.inGroup")}</span>
                     </div>
                   </div>
                 );
@@ -930,7 +928,7 @@ export function SidebarManagementSheets({
           <div className="sheet-section">
             {groupCapabilities.canAddMembers ? (
               <button type="button" className="ghost-button" onClick={onToggleGroupInvitePicker}>
-                {isGroupInvitePickerOpen ? "Скрыть список контактов" : "Добавить участника"}
+                {isGroupInvitePickerOpen ? t("sheet.hideContactList") : t("sheet.addParticipant")}
               </button>
             ) : null}
             {selectedGroupInviteContacts.length > 0 ? (
@@ -947,7 +945,7 @@ export function SidebarManagementSheets({
                 <div className="group-picker-list">
                   {availableGroupInviteContacts.length === 0 ? (
                     <div className="empty-list">
-                      Все контакты уже в этой группе или список пуст.
+                      {t("sheet.allContactsInGroupOrEmpty")}
                     </div>
                   ) : (
                     availableGroupInviteContacts.map((contact) => {
@@ -973,7 +971,7 @@ export function SidebarManagementSheets({
                             <strong>{contact.displayName}</strong>
                             <span>@{contact.username}</span>
                           </div>
-                          <span className="member-pill">{selected ? "Выбран" : "Выбрать"}</span>
+                          <span className="member-pill">{selected ? t("sheet.selected") : t("sheet.select")}</span>
                         </button>
                       );
                     })
@@ -984,18 +982,18 @@ export function SidebarManagementSheets({
                   className="secondary-button"
                   disabled={addGroupParticipantsPending || !groupInviteUsernames.length}
                 >
-                  {addGroupParticipantsPending ? "Добавляем..." : "Добавить в группу"}
+                  {addGroupParticipantsPending ? t("sheet.adding") : t("sheet.addToGroup")}
                 </button>
               </>
             ) : null}
           </div>
           {groupCapabilities.canModerateMembers ? (
             <div className="sheet-section">
-              <div className="section-title">Заблокированные участники</div>
+              <div className="section-title">{t("sheet.bannedMembers")}</div>
               {groupBansLoading ? (
-                <div className="empty-list">Загружаем список банов...</div>
+                <div className="empty-list">{t("sheet.loadingBans")}</div>
               ) : bannedGroupParticipants.length === 0 ? (
-                <div className="empty-list">Список банов пуст.</div>
+                <div className="empty-list">{t("sheet.bansEmpty")}</div>
               ) : (
                 <div className="sheet-list">
                   {bannedGroupParticipants.map((participant) => (
@@ -1017,9 +1015,9 @@ export function SidebarManagementSheets({
                           disabled={unbanGroupParticipantPending}
                           onClick={() => onUnbanParticipant(participant)}
                         >
-                          Разбанить
+                          {t("sheet.unban")}
                         </button>
-                        <span className="member-pill">В бане</span>
+                        <span className="member-pill">{t("sheet.banned")}</span>
                       </div>
                     </div>
                   ))}
@@ -1037,13 +1035,15 @@ export function SidebarManagementSheets({
       <div className="sheet-card">
         <div className="sheet-head">
           <div>
-            <div className="section-title">Добавить в конференцию</div>
+            <div className="section-title">{t("sheet.addToConference")}</div>
             <p className="sheet-copy">
-              Выберите людей из контактов для {activeConference?.title ?? "встречи"}.
+              {t("sheet.addToConferenceDesc", {
+                title: activeConference?.title ?? t("sheet.meetingFallback"),
+              })}
             </p>
           </div>
           <button type="button" className="ghost-button compact" onClick={onClose}>
-            Закрыть
+            {t("common.close")}
           </button>
         </div>
 
@@ -1057,7 +1057,7 @@ export function SidebarManagementSheets({
           <div className="group-picker-list">
             {availableConferenceInviteContacts.length === 0 ? (
               <div className="empty-list">
-                Все контакты уже приглашены в конференцию или список пуст.
+                {t("sheet.allContactsInvitedOrEmpty")}
               </div>
             ) : (
               availableConferenceInviteContacts.map((contact) => {
@@ -1083,7 +1083,7 @@ export function SidebarManagementSheets({
                       <strong>{contact.displayName}</strong>
                       <span>@{contact.username}</span>
                     </div>
-                    <span className="member-pill">{selected ? "Выбран" : "Выбрать"}</span>
+                    <span className="member-pill">{selected ? t("sheet.selected") : t("sheet.select")}</span>
                   </button>
                 );
               })
@@ -1094,7 +1094,7 @@ export function SidebarManagementSheets({
             className="secondary-button"
             disabled={addConferenceParticipantsPending || !conferenceInviteUsernames.length}
           >
-            {addConferenceParticipantsPending ? "Добавляем..." : "Добавить в конференцию"}
+            {addConferenceParticipantsPending ? t("sheet.adding") : t("sheet.addToConference")}
           </button>
         </form>
       </div>
@@ -1106,11 +1106,11 @@ export function SidebarManagementSheets({
       <div className="sheet-card">
         <div className="sheet-head">
           <div>
-            <div className="section-title">Контакты</div>
-            <p className="sheet-copy">Добавляйте контакты и открывайте с ними личные чаты.</p>
+            <div className="section-title">{t("menu.contacts")}</div>
+            <p className="sheet-copy">{t("sheet.contactsDesc")}</p>
           </div>
           <button type="button" className="ghost-button compact" onClick={onClose}>
-            Закрыть
+            {t("common.close")}
           </button>
         </div>
 
@@ -1124,7 +1124,7 @@ export function SidebarManagementSheets({
               value={contactSearch}
               onChange={(event) => onContactSearchChange(event.target.value)}
               onFocus={() => setIsContactSearchFocused(true)}
-              placeholder="Username или display name"
+              placeholder={t("sheet.usernameOrDisplayName")}
               autoComplete="off"
               autoCapitalize="none"
               autoCorrect="off"
@@ -1134,9 +1134,9 @@ export function SidebarManagementSheets({
             {showContactSearchResults && isContactSearchFocused ? (
               <div className="search-dropdown contact-search-dropdown">
                 {contactSearchFetching ? (
-                  <div className="search-result-empty">Ищем пользователей...</div>
+                  <div className="search-result-empty">{t("sidebar.searchLoading")}</div>
                 ) : contactSearchResults.length === 0 ? (
-                  <div className="search-result-empty">Пользователи не найдены.</div>
+                  <div className="search-result-empty">{t("sheet.usersNotFound")}</div>
                 ) : (
                   contactSearchResults.map((user) => (
                     <div key={user.id} className="search-result-row with-action">
@@ -1155,7 +1155,7 @@ export function SidebarManagementSheets({
                         className="ghost-button compact"
                         onClick={() => onAddContact(user)}
                       >
-                        Добавить
+                        {t("sheet.add")}
                       </button>
                     </div>
                   ))
@@ -1167,9 +1167,9 @@ export function SidebarManagementSheets({
 
         <div className="sheet-list">
           {contactsLoading ? (
-            <div className="empty-list">Загружаем контакты...</div>
+            <div className="empty-list">{t("sheet.loadingContacts")}</div>
           ) : contacts.length === 0 ? (
-            <div className="empty-list">Контактов пока нет.</div>
+            <div className="empty-list">{t("sheet.noContacts")}</div>
           ) : (
             contacts.map((contact) => (
               <div key={contact.username} className="sheet-row sheet-row-with-avatar">
@@ -1190,14 +1190,14 @@ export function SidebarManagementSheets({
                     disabled={createChatPending}
                     onClick={() => onCreateChat(contact.username)}
                   >
-                    Чат
+                    {t("sheet.chat")}
                   </button>
                   <button
                     type="button"
                     className="ghost-button compact"
                     onClick={() => onRemoveContact(contact.username)}
                   >
-                    Удалить
+                    {t("sheet.delete")}
                   </button>
                 </div>
               </div>
@@ -1213,38 +1213,24 @@ export function SidebarManagementSheets({
       <div className="sheet-card">
         <div className="sheet-head">
           <div>
-            <div className="section-title">
-              {"\u0410\u043A\u0442\u0438\u0432\u043D\u044B\u0435 \u0441\u0435\u0441\u0441\u0438\u0438"}
-            </div>
-            <p className="sheet-copy">
-              {
-                "\u0417\u0434\u0435\u0441\u044C \u043F\u043E\u043A\u0430\u0437\u0430\u043D\u044B auth-\u0441\u0435\u0441\u0441\u0438\u0438 \u0432\u0445\u043E\u0434\u0430, \u0430 \u043D\u0435 \u0443\u043D\u0438\u043A\u0430\u043B\u044C\u043D\u044B\u0435 \u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u0430. \u041E\u0434\u0438\u043D \u0438 \u0442\u043E\u0442 \u0436\u0435 \u0431\u0440\u0430\u0443\u0437\u0435\u0440 \u043C\u043E\u0436\u0435\u0442 \u043F\u043E\u044F\u0432\u043B\u044F\u0442\u044C\u0441\u044F \u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0440\u0430\u0437 \u043F\u043E\u0441\u043B\u0435 \u043F\u043E\u0432\u0442\u043E\u0440\u043D\u043E\u0433\u043E \u0432\u0445\u043E\u0434\u0430, \u0434\u0440\u0443\u0433\u043E\u0433\u043E \u043F\u0440\u043E\u0444\u0438\u043B\u044F \u0438\u043B\u0438 \u043F\u0440\u0438\u0432\u0430\u0442\u043D\u043E\u0433\u043E \u043E\u043A\u043D\u0430."
-              }
-            </p>
+            <div className="section-title">{t("sheet.activeSessions")}</div>
+            <p className="sheet-copy">{t("sheet.sessionsHeaderDesc")}</p>
           </div>
           <button type="button" className="ghost-button compact" onClick={onClose}>
-            {"\u0417\u0430\u043A\u0440\u044B\u0442\u044C"}
+            {t("common.close")}
           </button>
         </div>
 
         <section className="sheet-section session-sheet-section">
           <div className="session-section-head">
-            <strong>{"\u0421\u0435\u0441\u0441\u0438\u0438 \u0432\u0445\u043E\u0434\u0430"}</strong>
-            <span>
-              {
-                "\u041E\u0442\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435 \u0437\u0430\u0432\u0435\u0440\u0448\u0430\u0435\u0442 \u0442\u043E\u043B\u044C\u043A\u043E \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u0443\u044E auth-\u0441\u0435\u0441\u0441\u0438\u044E. \u0414\u0440\u0443\u0433\u0438\u0435 \u0430\u043A\u0442\u0438\u0432\u043D\u044B\u0435 \u0432\u0445\u043E\u0434\u044B \u043E\u0441\u0442\u0430\u043D\u0443\u0442\u0441\u044F \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u044B."
-              }
-            </span>
+            <strong>{t("sheet.loginSessions")}</strong>
+            <span>{t("sheet.sessionsDesc")}</span>
           </div>
           <div className="session-list menu-session-list">
             {sessionsLoading ? (
-              <div className="empty-list">
-                {"\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043C \u0441\u0435\u0441\u0441\u0438\u0438..."}
-              </div>
+              <div className="empty-list">{t("sheet.loadingSessions")}</div>
             ) : sessions.length === 0 ? (
-              <div className="empty-list">
-                {"\u0410\u043A\u0442\u0438\u0432\u043D\u0430 \u0442\u043E\u043B\u044C\u043A\u043E \u0442\u0435\u043A\u0443\u0449\u0430\u044F \u0441\u0435\u0441\u0441\u0438\u044F."}
-              </div>
+              <div className="empty-list">{t("sheet.onlyCurrentSession")}</div>
             ) : (
               sessions.map((item) => {
                 const current = item.id === currentSessionId;
@@ -1253,19 +1239,19 @@ export function SidebarManagementSheets({
                     <div className="session-copy">
                       <strong>{item.deviceName}</strong>
                       <span>
-                        {"\u0412\u0445\u043E\u0434 \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D:"}{" "}
+                        {t("sheet.loggedIn")}{" "}
                         {formatSessionTime(item.createdAt)}
                       </span>
                       <span>
-                        {"\u041F\u043E\u0441\u043B\u0435\u0434\u043D\u044F\u044F \u0430\u043A\u0442\u0438\u0432\u043D\u043E\u0441\u0442\u044C:"}{" "}
+                        {t("sheet.lastActivity")}{" "}
                         {formatSessionTime(item.lastUsedAt)}
                       </span>
                       <span>
-                        {"\u0418\u0441\u0442\u0435\u043A\u0430\u0435\u0442:"} {formatSessionTime(item.expiresAt)}
+                        {t("sheet.expires")} {formatSessionTime(item.expiresAt)}
                       </span>
                     </div>
                     {current ? (
-                      <span className="member-pill">{"\u0422\u0435\u043A\u0443\u0449\u0430\u044F"}</span>
+                      <span className="member-pill">{t("sheet.current")}</span>
                     ) : (
                       <button
                         type="button"
@@ -1273,7 +1259,7 @@ export function SidebarManagementSheets({
                         disabled={revokeSessionPending}
                         onClick={() => onRevokeSession(item.id)}
                       >
-                        {"\u041E\u0442\u043A\u043B\u044E\u0447\u0438\u0442\u044C"}
+                        {t("sheet.disconnect")}
                       </button>
                     )}
                   </div>

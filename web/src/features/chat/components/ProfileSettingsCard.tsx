@@ -1,5 +1,7 @@
 ﻿import { useEffect, useState } from "react";
 
+import { useI18n } from "../../../i18n/I18nProvider";
+import type { Locale, TranslationKey } from "../../../i18n";
 import type { PushNotificationPermission } from "../../../lib/pushNotifications";
 import type { UserProfile } from "../../../lib/types";
 import {
@@ -9,6 +11,11 @@ import {
   validateRequiredField,
 } from "../../auth/authValidation";
 import { AvatarCircle } from "./AvatarCircle";
+
+const LOCALE_OPTIONS: Array<{ value: Locale; labelKey: TranslationKey }> = [
+  { value: "ru", labelKey: "settings.language.ru" },
+  { value: "en", labelKey: "settings.language.en" },
+];
 
 type Props = {
   profile: UserProfile;
@@ -119,6 +126,7 @@ export function ProfileSettingsCard({
   onEnablePushNotifications,
   onDisablePushNotifications,
 }: Props) {
+  const { t, locale, setLocale } = useI18n();
   const [isPasswordFormOpen, setIsPasswordFormOpen] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [passwordFieldTouched, setPasswordFieldTouched] = useState<
@@ -131,9 +139,9 @@ export function ProfileSettingsCard({
 
   const normalizedProfileDisplayName = profileDisplayName.trim();
   const normalizedProfileProfession = profileProfession.trim();
-  const profileDisplayNameError =
+  const profileDisplayNameError: TranslationKey | null =
     normalizedProfileDisplayName.length > 0 && normalizedProfileDisplayName.length < 2
-      ? "\u0418\u043c\u044f \u0434\u043e\u043b\u0436\u043d\u043e \u0441\u043e\u0434\u0435\u0440\u0436\u0430\u0442\u044c \u043e\u0442 2 \u0434\u043e 40 \u0441\u0438\u043c\u0432\u043e\u043b\u043e\u0432."
+      ? "settings.name.error"
       : null;
   const serverMailEnabled = Boolean(profile.mailEnabled);
   const effectiveMailEnabled = pendingMailEnabled ?? serverMailEnabled;
@@ -162,7 +170,7 @@ export function ProfileSettingsCard({
     passwordChangeCurrent &&
     passwordChangeNext &&
     passwordChangeCurrent === passwordChangeNext
-      ? "\u041d\u043e\u0432\u044b\u0439 \u043f\u0430\u0440\u043e\u043b\u044c \u0434\u043e\u043b\u0436\u0435\u043d \u043e\u0442\u043b\u0438\u0447\u0430\u0442\u044c\u0441\u044f \u043e\u0442 \u0442\u0435\u043a\u0443\u0449\u0435\u0433\u043e"
+      ? "settings.password.sameAsCurrent"
       : null;
   const passwordChangeCurrentError = passwordFieldTouched.current
     ? rawPasswordChangeCurrentError
@@ -183,12 +191,14 @@ export function ProfileSettingsCard({
   const emailVerified = Boolean(profile.emailVerified);
   const emailVerificationEnabled = Boolean(profile.emailVerificationEnabled);
   const showUnverifiedEmailStatus = !emailVerified && !emailVerificationEnabled;
-  const pushNotificationsStatus = describePushNotificationsStatusV2({
-    enabled: pushNotificationsEnabled,
-    permission: pushNotificationsPermission,
-    serverEnabled: pushNotificationsServerEnabled,
-    supported: pushNotificationsSupported,
-  });
+  const pushNotificationsStatus = t(
+    describePushNotificationsStatusV2({
+      enabled: pushNotificationsEnabled,
+      permission: pushNotificationsPermission,
+      serverEnabled: pushNotificationsServerEnabled,
+      supported: pushNotificationsSupported,
+    }),
+  );
   const canEnablePushNotifications =
     pushNotificationsSupported &&
     pushNotificationsServerEnabled &&
@@ -231,12 +241,10 @@ export function ProfileSettingsCard({
     <div className="sheet-card">
       <div className="sheet-head">
         <div>
-          <div className="section-title">
-            {"\u041c\u043e\u0439 \u043f\u0440\u043e\u0444\u0438\u043b\u044c"}
-          </div>
+          <div className="section-title">{t("settings.title")}</div>
         </div>
         <button type="button" className="ghost-button compact" onClick={onClose}>
-          {"\u0417\u0430\u043a\u0440\u044b\u0442\u044c"}
+          {t("common.close")}
         </button>
       </div>
 
@@ -252,9 +260,7 @@ export function ProfileSettingsCard({
               online={profile.online}
             />
             <span className="profile-avatar-badge">
-              {avatarPending
-                ? "\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c..."
-                : "\u0418\u0437\u043c\u0435\u043d\u0438\u0442\u044c \u0444\u043e\u0442\u043e"}
+              {avatarPending ? t("settings.avatar.uploading") : t("settings.avatar.change")}
             </span>
             <input
               className="profile-avatar-input"
@@ -287,12 +293,12 @@ export function ProfileSettingsCard({
             setPendingMailEnabled(null);
           }}
         >
-          <span className="profile-label">{"\u0418\u043c\u044f"}</span>
+          <span className="profile-label">{t("settings.name.label")}</span>
           <div className="profile-inline-stack">
             <input
               value={profileDisplayName}
               onChange={(event) => onProfileDisplayNameChange(event.target.value)}
-              placeholder={"\u0412\u0430\u0448\u0435 \u0438\u043c\u044f"}
+              placeholder={t("settings.name.placeholder")}
               maxLength={40}
             />
             <span className="profile-field-meta">
@@ -300,18 +306,16 @@ export function ProfileSettingsCard({
             </span>
           </div>
           {profileDisplayNameError ? (
-            <div className="field-error-text">{profileDisplayNameError}</div>
+            <div className="field-error-text">{t(profileDisplayNameError)}</div>
           ) : null}
 
-          <span className="profile-label">{"\u041e \u0441\u0435\u0431\u0435"}</span>
+          <span className="profile-label">{t("settings.about.label")}</span>
           <div className="profile-inline-stack">
             <textarea
               className="profile-about-input"
               value={profileProfession}
               onChange={(event) => onProfileProfessionChange(event.target.value)}
-              placeholder={
-                "\u041b\u044e\u0431\u044b\u0435 \u043f\u043e\u0434\u0440\u043e\u0431\u043d\u043e\u0441\u0442\u0438, \u043d\u0430\u043f\u0440\u0438\u043c\u0435\u0440 \u0440\u043e\u0434 \u0437\u0430\u043d\u044f\u0442\u0438\u0439, \u0438\u043d\u0442\u0435\u0440\u0435\u0441\u044b \u0438\u043b\u0438 \u0433\u043e\u0440\u043e\u0434."
-              }
+              placeholder={t("settings.about.placeholder")}
               maxLength={160}
               rows={3}
             />
@@ -326,9 +330,7 @@ export function ProfileSettingsCard({
                 className="secondary-button"
                 disabled={updateProfilePending || normalizedProfileDisplayName.length < 2}
               >
-                {updateProfilePending
-                  ? "\u0421\u043e\u0445\u0440\u0430\u043d\u044f\u0435\u043c..."
-                  : "\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c"}
+                {updateProfilePending ? t("common.saving") : t("common.save")}
               </button>
             </div>
           ) : null}
@@ -337,17 +339,17 @@ export function ProfileSettingsCard({
         <div className="profile-line profile-action-panel">
           <div className="profile-action-row">
             <div className="profile-action-copy">
-              <span className="profile-label">{"\u041f\u043e\u0447\u0442\u0430"}</span>
-              <strong>{emailValue ?? "Email \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d"}</strong>
+              <span className="profile-label">{t("settings.email.label")}</span>
+              <strong>{emailValue ?? t("settings.email.unavailable")}</strong>
               <span>
                 {emailVerified
-                  ? "\u041f\u043e\u0447\u0442\u0430 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d\u0430."
+                  ? t("settings.email.verified")
                   : emailVerificationEnabled
-                    ? "\u041f\u043e\u0447\u0442\u0430 \u043d\u0435 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d\u0430. \u041c\u043e\u0436\u043d\u043e \u043e\u0442\u043f\u0440\u0430\u0432\u0438\u0442\u044c \u043f\u0438\u0441\u044c\u043c\u043e \u0441\u043e \u0441\u0441\u044b\u043b\u043a\u043e\u0439 \u0434\u043b\u044f \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d\u0438\u044f."
-                    : "\u0412\u0435\u0440\u0438\u0444\u0438\u043a\u0430\u0446\u0438\u044f \u043f\u043e\u0447\u0442\u044b \u043e\u0442\u043a\u043b\u044e\u0447\u0435\u043d\u0430 \u0432 \u044d\u0442\u043e\u0439 \u0441\u0440\u0435\u0434\u0435."}
+                    ? t("settings.email.unverifiedCanSend")
+                    : t("settings.email.verificationDisabled")}
               </span>
               {showUnverifiedEmailStatus ? (
-                <span>{"\u041f\u043e\u0447\u0442\u0430 \u043d\u0435 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d\u0430."}</span>
+                <span>{t("settings.email.unverified")}</span>
               ) : null}
             </div>
             {!emailVerified && emailVerificationEnabled && emailValue ? (
@@ -357,9 +359,7 @@ export function ProfileSettingsCard({
                 onClick={onResendEmailVerification}
                 disabled={emailVerificationPending}
               >
-                {emailVerificationPending
-                  ? "\u041e\u0442\u043f\u0440\u0430\u0432\u043b\u044f\u0435\u043c..."
-                  : "\u0412\u0435\u0440\u0438\u0444\u0438\u0446\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u043f\u043e\u0447\u0442\u0443"}
+                {emailVerificationPending ? t("common.sending") : t("settings.email.verifyButton")}
               </button>
             ) : null}
           </div>
@@ -372,12 +372,12 @@ export function ProfileSettingsCard({
               onRequestEmailChange();
             }}
           >
-            <span className="profile-label">{"\u0421\u043c\u0435\u043d\u0438\u0442\u044c \u043f\u043e\u0447\u0442\u0443"}</span>
+            <span className="profile-label">{t("settings.email.changeLabel")}</span>
             <input
               type="email"
               value={emailChangeInput}
               onChange={(event) => onEmailChangeInputChange(event.target.value)}
-              placeholder={"\u041d\u043e\u0432\u044b\u0439 \u0430\u0434\u0440\u0435\u0441 \u044d\u043b\u0435\u043a\u0442\u0440\u043e\u043d\u043d\u043e\u0439 \u043f\u043e\u0447\u0442\u044b"}
+              placeholder={t("settings.email.changePlaceholder")}
               autoComplete="email"
               disabled={emailChangePending}
             />
@@ -387,9 +387,7 @@ export function ProfileSettingsCard({
                 className="secondary-button"
                 disabled={emailChangePending || !emailChangeInput.trim()}
               >
-                {emailChangePending
-                  ? "\u041e\u0442\u043f\u0440\u0430\u0432\u043b\u044f\u0435\u043c..."
-                  : "\u041e\u0442\u043f\u0440\u0430\u0432\u0438\u0442\u044c \u0441\u0441\u044b\u043b\u043a\u0443"}
+                {emailChangePending ? t("common.sending") : t("settings.email.sendLink")}
               </button>
             </div>
             {emailChangeInfo ? <div className="form-note">{emailChangeInfo}</div> : null}
@@ -400,9 +398,9 @@ export function ProfileSettingsCard({
         <div className="profile-line profile-action-panel">
           <div className="profile-action-row">
             <div className="profile-action-copy">
-              <span className="profile-label">{"\u042e\u0437\u0435\u0440\u043d\u0435\u0439\u043c"}</span>
+              <span className="profile-label">{t("settings.username.label")}</span>
               <strong>@{profile.username}</strong>
-              <span>{"\u0418\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0435\u0442\u0441\u044f \u0434\u043b\u044f \u0432\u0445\u043e\u0434\u0430 \u0438 \u043f\u043e\u0438\u0441\u043a\u0430. \u041f\u043e\u0441\u043b\u0435 \u0441\u043c\u0435\u043d\u044b \u0432\u0441\u0435 \u0441\u0435\u0441\u0441\u0438\u0438 \u0431\u0443\u0434\u0443\u0442 \u0441\u0431\u0440\u043e\u0448\u0435\u043d\u044b."}</span>
+              <span>{t("settings.username.hint")}</span>
             </div>
           </div>
           <form
@@ -412,12 +410,12 @@ export function ProfileSettingsCard({
               onSubmitUsernameChange();
             }}
           >
-            <span className="profile-label">{"\u0421\u043c\u0435\u043d\u0438\u0442\u044c \u044e\u0437\u0435\u0440\u043d\u0435\u0439\u043c"}</span>
+            <span className="profile-label">{t("settings.username.changeLabel")}</span>
             <input
               type="text"
               value={usernameChangeInput}
               onChange={(event) => onUsernameChangeInputChange(event.target.value)}
-              placeholder={"\u041d\u043e\u0432\u044b\u0439 \u044e\u0437\u0435\u0440\u043d\u0435\u0439\u043c (3\u201324 \u0441\u0438\u043c\u0432\u043e\u043b\u0430)"}
+              placeholder={t("settings.username.changePlaceholder")}
               autoComplete="username"
               autoCapitalize="none"
               autoCorrect="off"
@@ -431,7 +429,7 @@ export function ProfileSettingsCard({
                 className="secondary-button"
                 disabled={usernameChangePending || !usernameChangeInput.trim()}
               >
-                {usernameChangePending ? "\u041c\u0435\u043d\u044f\u0435\u043c..." : "\u0421\u043c\u0435\u043d\u0438\u0442\u044c"}
+                {usernameChangePending ? t("settings.username.changing") : t("common.change")}
               </button>
             </div>
             {usernameChangeInfo ? <div className="form-note">{usernameChangeInfo}</div> : null}
@@ -442,23 +440,25 @@ export function ProfileSettingsCard({
         <div className="profile-line profile-action-panel">
           <div className="profile-action-row">
             <div className="profile-action-copy">
-              <span className="profile-label">{"\u0420\u0430\u0437\u0434\u0435\u043b \u00ab\u041f\u043e\u0447\u0442\u0430\u00bb"}</span>
+              <span className="profile-label">{t("settings.mailSection.label")}</span>
               {mailServerEnabled ? (
                 <>
                   <strong>
-                    {effectiveMailEnabled ? "\u041e\u0442\u043a\u0440\u044b\u0442" : "\u0421\u043a\u0440\u044b\u0442"}
+                    {effectiveMailEnabled
+                      ? t("settings.mailSection.open")
+                      : t("settings.mailSection.hidden")}
                     {pendingMailEnabled !== null ? " \u2022" : null}
                   </strong>
                   <span>
                     {effectiveMailEnabled
-                      ? "\u0420\u0430\u0437\u0434\u0435\u043b \u00ab\u041f\u043e\u0447\u0442\u0430\u00bb \u043e\u0442\u043a\u0440\u044b\u0442 \u0432 \u043b\u0435\u0432\u043e\u0439 \u043a\u043e\u043b\u043e\u043d\u043a\u0435. \u0412 \u043d\u0451\u043c \u043e\u0442\u043e\u0431\u0440\u0430\u0436\u0430\u044e\u0442\u0441\u044f \u0432\u0430\u0448\u0438 \u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d\u043d\u044b\u0435 \u043f\u043e\u0447\u0442\u043e\u0432\u044b\u0435 \u044f\u0449\u0438\u043a\u0438."
-                      : "\u0420\u0430\u0437\u0434\u0435\u043b \u00ab\u041f\u043e\u0447\u0442\u0430\u00bb \u0441\u043a\u0440\u044b\u0442 \u0432 \u043b\u0435\u0432\u043e\u0439 \u043a\u043e\u043b\u043e\u043d\u043a\u0435. \u0427\u0430\u0442\u044b \u0438 \u043a\u043e\u043d\u0444\u0435\u0440\u0435\u043d\u0446\u0438\u0438 \u043e\u0441\u0442\u0430\u043d\u0443\u0442\u0441\u044f \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b \u043a\u0430\u043a \u0440\u0430\u043d\u044c\u0448\u0435."}
+                      ? t("settings.mailSection.openDesc")
+                      : t("settings.mailSection.hiddenDesc")}
                   </span>
                 </>
               ) : (
                 <>
-                  <strong>{"\u041d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u043e"}</strong>
-                  <span>{"\u041f\u043e\u0447\u0442\u043e\u0432\u044b\u0439 \u0441\u0435\u0440\u0432\u0435\u0440 \u043e\u0442\u043a\u043b\u044e\u0447\u0451\u043d \u0434\u043b\u044f \u044d\u043a\u043e\u043d\u043e\u043c\u0438\u0438 \u0440\u0435\u0441\u0443\u0440\u0441\u043e\u0432."}</span>
+                  <strong>{t("settings.mailSection.unavailable")}</strong>
+                  <span>{t("settings.mailSection.serverOff")}</span>
                 </>
               )}
             </div>
@@ -469,7 +469,9 @@ export function ProfileSettingsCard({
                 onClick={() => setPendingMailEnabled(!effectiveMailEnabled)}
                 disabled={updateProfilePending}
               >
-                {effectiveMailEnabled ? "\u0423\u0431\u0440\u0430\u0442\u044c \u043f\u043e\u0447\u0442\u0443" : "\u0412\u043a\u043b\u044e\u0447\u0438\u0442\u044c \u043f\u043e\u0447\u0442\u0443"}
+                {effectiveMailEnabled
+                  ? t("settings.mailSection.hideButton")
+                  : t("settings.mailSection.showButton")}
               </button>
             ) : null}
           </div>
@@ -478,8 +480,8 @@ export function ProfileSettingsCard({
         <div className="profile-line profile-action-panel">
           <div className="profile-action-row">
             <div className="profile-action-copy">
-              <span className="profile-label">{"\u0423\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u044f"}</span>
-              <strong>Push {"\u043d\u0430 \u044d\u0442\u043e\u043c \u0443\u0441\u0442\u0440\u043e\u0439\u0441\u0442\u0432\u0435"}</strong>
+              <span className="profile-label">{t("settings.notifications.label")}</span>
+              <strong>Push {t("settings.notifications.onThisDevice")}</strong>
               <span>{pushNotificationsStatus}</span>
             </div>
             {canEnablePushNotifications ? (
@@ -489,9 +491,7 @@ export function ProfileSettingsCard({
                 onClick={onEnablePushNotifications}
                 disabled={pushNotificationsPending}
               >
-                {pushNotificationsPending
-                  ? "\u0412\u043a\u043b\u044e\u0447\u0430\u0435\u043c..."
-                  : "\u0412\u043a\u043b\u044e\u0447\u0438\u0442\u044c"}
+                {pushNotificationsPending ? t("settings.notifications.enabling") : t("common.enable")}
               </button>
             ) : canDisablePushNotifications ? (
               <button
@@ -500,9 +500,7 @@ export function ProfileSettingsCard({
                 onClick={onDisablePushNotifications}
                 disabled={pushNotificationsPending}
               >
-                {pushNotificationsPending
-                  ? "\u0412\u044b\u043a\u043b\u044e\u0447\u0430\u0435\u043c..."
-                  : "\u0412\u044b\u043a\u043b\u044e\u0447\u0438\u0442\u044c"}
+                {pushNotificationsPending ? t("settings.notifications.disabling") : t("common.disable")}
               </button>
             ) : null}
           </div>
@@ -513,8 +511,30 @@ export function ProfileSettingsCard({
         <div className="profile-line profile-action-panel">
           <div className="profile-action-row">
             <div className="profile-action-copy">
-              <span className="profile-label">{"\u0411\u0435\u0437\u043e\u043f\u0430\u0441\u043d\u043e\u0441\u0442\u044c"}</span>
-              <strong>{"\u041f\u0430\u0440\u043e\u043b\u044c"}</strong>
+              <span className="profile-label">{t("settings.language.label")}</span>
+              <span>{t("settings.language.hint")}</span>
+            </div>
+            <div className="profile-inline-row profile-language-options">
+              {LOCALE_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={option.value === locale ? "secondary-button" : "ghost-button compact"}
+                  aria-pressed={option.value === locale}
+                  onClick={() => setLocale(option.value)}
+                >
+                  {t(option.labelKey)}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="profile-line profile-action-panel">
+          <div className="profile-action-row">
+            <div className="profile-action-copy">
+              <span className="profile-label">{t("settings.security.label")}</span>
+              <strong>{t("settings.security.password")}</strong>
             </div>
             <button
               type="button"
@@ -529,9 +549,7 @@ export function ProfileSettingsCard({
                 setIsPasswordFormOpen(true);
               }}
             >
-              {isPasswordFormOpen
-                ? "\u0421\u043a\u0440\u044b\u0442\u044c"
-                : "\u0421\u043c\u0435\u043d\u0438\u0442\u044c \u043f\u0430\u0440\u043e\u043b\u044c"}
+              {isPasswordFormOpen ? t("common.hide") : t("settings.password.changeButton")}
             </button>
           </div>
 
@@ -549,7 +567,7 @@ export function ProfileSettingsCard({
                     value={passwordChangeCurrent}
                     onChange={(event) => onPasswordChangeCurrentChange(event.target.value)}
                     onBlur={() => touchPasswordField("current")}
-                    placeholder={"\u0422\u0435\u043a\u0443\u0449\u0438\u0439 \u043f\u0430\u0440\u043e\u043b\u044c"}
+                    placeholder={t("settings.password.current")}
                     type={showCurrentPassword ? "text" : "password"}
                     autoComplete="current-password"
                     aria-invalid={passwordChangeCurrentError ? "true" : undefined}
@@ -557,12 +575,12 @@ export function ProfileSettingsCard({
                   <PasswordVisibilityButton
                     shown={showCurrentPassword}
                     onClick={() => setShowCurrentPassword((current) => !current)}
-                    labelWhenShown="Hide current password"
-                    labelWhenHidden="Show current password"
+                    labelWhenShown={t("settings.password.hideCurrent")}
+                    labelWhenHidden={t("settings.password.showCurrent")}
                   />
                 </div>
                 {passwordChangeCurrentError ? (
-                  <div className="field-error-text">{passwordChangeCurrentError}</div>
+                  <div className="field-error-text">{t(passwordChangeCurrentError)}</div>
                 ) : null}
               </div>
 
@@ -572,7 +590,7 @@ export function ProfileSettingsCard({
                     value={passwordChangeNext}
                     onChange={(event) => onPasswordChangeNextChange(event.target.value)}
                     onBlur={() => touchPasswordField("next")}
-                    placeholder={"\u041d\u043e\u0432\u044b\u0439 \u043f\u0430\u0440\u043e\u043b\u044c"}
+                    placeholder={t("settings.password.next")}
                     type={showNextPassword ? "text" : "password"}
                     autoComplete="new-password"
                     aria-invalid={passwordChangeNextError ? "true" : undefined}
@@ -580,13 +598,13 @@ export function ProfileSettingsCard({
                   <PasswordVisibilityButton
                     shown={showNextPassword}
                     onClick={() => setShowNextPassword((current) => !current)}
-                    labelWhenShown="Hide new password"
-                    labelWhenHidden="Show new password"
+                    labelWhenShown={t("settings.password.hideNext")}
+                    labelWhenHidden={t("settings.password.showNext")}
                   />
                 </div>
-                <div className="field-help">{AUTH_PASSWORD_HELP}</div>
+                <div className="field-help">{t(AUTH_PASSWORD_HELP)}</div>
                 {passwordChangeNextError ? (
-                  <div className="field-error-text">{passwordChangeNextError}</div>
+                  <div className="field-error-text">{t(passwordChangeNextError)}</div>
                 ) : null}
               </div>
 
@@ -596,9 +614,7 @@ export function ProfileSettingsCard({
                     value={passwordChangeConfirm}
                     onChange={(event) => onPasswordChangeConfirmChange(event.target.value)}
                     onBlur={() => touchPasswordField("confirm")}
-                    placeholder={
-                      "\u041f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435 \u043d\u043e\u0432\u044b\u0439 \u043f\u0430\u0440\u043e\u043b\u044c"
-                    }
+                    placeholder={t("settings.password.confirm")}
                     type={showConfirmPassword ? "text" : "password"}
                     autoComplete="new-password"
                     aria-invalid={passwordChangeConfirmError ? "true" : undefined}
@@ -606,17 +622,17 @@ export function ProfileSettingsCard({
                   <PasswordVisibilityButton
                     shown={showConfirmPassword}
                     onClick={() => setShowConfirmPassword((current) => !current)}
-                    labelWhenShown="Hide confirm password"
-                    labelWhenHidden="Show confirm password"
+                    labelWhenShown={t("settings.password.hideConfirm")}
+                    labelWhenHidden={t("settings.password.showConfirm")}
                   />
                 </div>
                 {passwordChangeConfirmError ? (
-                  <div className="field-error-text">{passwordChangeConfirmError}</div>
+                  <div className="field-error-text">{t(passwordChangeConfirmError)}</div>
                 ) : null}
               </div>
               {changePasswordError ? <div className="form-error">{changePasswordError}</div> : null}
               {changePasswordSuccess ? (
-                <div className="form-success">Пароль успешно изменён.</div>
+                <div className="form-success">{t("settings.password.success")}</div>
               ) : null}
 
               <div className="profile-inline-row">
@@ -626,11 +642,11 @@ export function ProfileSettingsCard({
                   disabled={changePasswordPending || changePasswordSuccess || !passwordChangeReady}
                 >
                   {changePasswordPending
-                    ? "\u041c\u0435\u043d\u044f\u0435\u043c \u043f\u0430\u0440\u043e\u043b\u044c..."
-                    : "\u0421\u043c\u0435\u043d\u0438\u0442\u044c \u043f\u0430\u0440\u043e\u043b\u044c"}
+                    ? t("settings.password.changing")
+                    : t("settings.password.changeButton")}
                 </button>
                 <button type="button" className="ghost-button compact" onClick={closePasswordForm}>
-                  {"\u041e\u0442\u043c\u0435\u043d\u0430"}
+                  {t("common.cancel")}
                 </button>
               </div>
             </form>
@@ -640,10 +656,8 @@ export function ProfileSettingsCard({
         <div className="profile-line profile-action-panel profile-danger-panel">
           <div className="profile-action-row">
             <div className="profile-action-copy">
-              <span className="profile-label">{"\u0410\u043a\u043a\u0430\u0443\u043d\u0442"}</span>
-              <strong>
-                {"\u0423\u0434\u0430\u043b\u0435\u043d\u0438\u0435 \u0430\u043a\u043a\u0430\u0443\u043d\u0442\u0430"}
-              </strong>
+              <span className="profile-label">{t("settings.account.label")}</span>
+              <strong>{t("settings.account.deleteTitle")}</strong>
             </div>
             <button
               type="button"
@@ -658,18 +672,16 @@ export function ProfileSettingsCard({
                 setIsDeleteConfirmOpen(true);
               }}
             >
-              {isDeleteConfirmOpen
-                ? "\u0421\u043a\u0440\u044b\u0442\u044c"
-                : "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0430\u043a\u043a\u0430\u0443\u043d\u0442"}
+              {isDeleteConfirmOpen ? t("common.hide") : t("settings.account.deleteButton")}
             </button>
           </div>
 
           {isDeleteConfirmOpen ? (
             <div className="profile-delete-confirm">
               <p>
-                {"\u042d\u0442\u043e \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u043d\u0435\u043e\u0431\u0440\u0430\u0442\u0438\u043c\u043e. \u0412\u0432\u0435\u0434\u0438\u0442\u0435 "}
+                {t("settings.account.deleteConfirmPrefix")}
                 <strong>{profile.username}</strong>
-                {" \u0447\u0442\u043e\u0431\u044b \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u044c \u0443\u0434\u0430\u043b\u0435\u043d\u0438\u0435."}
+                {t("settings.account.deleteConfirmSuffix")}
               </p>
               <input
                 value={deleteAccountConfirmation}
@@ -687,11 +699,11 @@ export function ProfileSettingsCard({
                   onClick={onDeleteAccount}
                 >
                   {deleteAccountPending
-                    ? "\u0423\u0434\u0430\u043b\u044f\u0435\u043c \u0430\u043a\u043a\u0430\u0443\u043d\u0442..."
-                    : "\u041f\u043e\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u044c \u0443\u0434\u0430\u043b\u0435\u043d\u0438\u0435"}
+                    ? t("settings.account.deleting")
+                    : t("settings.account.confirmDelete")}
                 </button>
                 <button type="button" className="ghost-button compact" onClick={closeDeleteConfirm}>
-                  {"\u041e\u0442\u043c\u0435\u043d\u0430"}
+                  {t("common.cancel")}
                 </button>
               </div>
             </div>
@@ -707,12 +719,12 @@ function describePushNotificationsStatusV2(args: {
   permission: PushNotificationPermission;
   serverEnabled: boolean;
   supported: boolean;
-}) {
+}): TranslationKey {
   if (args.supported && args.serverEnabled && args.permission !== "denied") {
     if (args.enabled) {
-      return "\u0412\u043a\u043b\u044e\u0447\u0435\u043d\u044b. \u0415\u0441\u043b\u0438 \u043f\u0440\u0438\u043b\u043e\u0436\u0435\u043d\u0438\u0435 \u043e\u0442\u043a\u0440\u044b\u0442\u043e \u0438 \u0440\u0430\u0437\u0431\u043b\u043e\u043a\u0438\u0440\u043e\u0432\u0430\u043d\u043e, \u0443\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u0435 \u043f\u043e\u043a\u0430\u0436\u0435\u0442 \u043f\u0440\u0435\u0432\u044c\u044e; \u043a\u043e\u0433\u0434\u0430 \u043f\u0440\u0438\u043b\u043e\u0436\u0435\u043d\u0438\u0435 \u0437\u0430\u043a\u0440\u044b\u0442\u043e, push \u043e\u0441\u0442\u0430\u0435\u0442\u0441\u044f \u0431\u0435\u0437 \u0442\u0435\u043a\u0441\u0442\u0430.";
+      return "settings.push.statusEnabledRich";
     }
-    return "\u041c\u043e\u0436\u043d\u043e \u0432\u043a\u043b\u044e\u0447\u0438\u0442\u044c. \u0421\u0430\u043c push \u043d\u0435 \u0441\u043e\u0434\u0435\u0440\u0436\u0438\u0442 \u0442\u0435\u043a\u0441\u0442\u0430 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u044f: \u043f\u0440\u0435\u0432\u044c\u044e \u043f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0435\u0442 \u0442\u043e\u043b\u044c\u043a\u043e \u043e\u0442\u043a\u0440\u044b\u0442\u044b\u0439 \u043a\u043b\u0438\u0435\u043d\u0442.";
+    return "settings.push.statusCanEnableRich";
   }
 
   return describePushNotificationsStatus(args);
@@ -728,20 +740,20 @@ function describePushNotificationsStatus({
   permission: PushNotificationPermission;
   serverEnabled: boolean;
   supported: boolean;
-}) {
+}): TranslationKey {
   if (!supported) {
-    return "\u0411\u0440\u0430\u0443\u0437\u0435\u0440 \u043d\u0435 \u043f\u043e\u0434\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0435\u0442 Web Push.";
+    return "settings.push.unsupported";
   }
   if (!serverEnabled) {
-    return "Push \u043e\u0442\u043a\u043b\u044e\u0447\u0435\u043d \u043d\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435.";
+    return "settings.push.serverOff";
   }
   if (permission === "denied") {
-    return "\u0420\u0430\u0437\u0440\u0435\u0448\u0435\u043d\u0438\u0435 \u0437\u0430\u0431\u043b\u043e\u043a\u0438\u0440\u043e\u0432\u0430\u043d\u043e \u0432 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0430\u0445 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0430.";
+    return "settings.push.denied";
   }
   if (enabled) {
-    return "\u0412\u043a\u043b\u044e\u0447\u0435\u043d\u044b. \u0423\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u0435 \u043f\u043e\u043a\u0430\u0436\u0435\u0442 \u0442\u043e\u043b\u044c\u043a\u043e \u0444\u0430\u043a\u0442 \u043d\u043e\u0432\u043e\u0433\u043e \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u044f \u0431\u0435\u0437 \u0442\u0435\u043a\u0441\u0442\u0430.";
+    return "settings.push.enabledNoText";
   }
-  return "\u041c\u043e\u0436\u043d\u043e \u0432\u043a\u043b\u044e\u0447\u0438\u0442\u044c. \u0422\u0435\u043a\u0441\u0442 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u044f \u0432 push \u043d\u0435 \u043f\u0435\u0440\u0435\u0434\u0430\u0435\u0442\u0441\u044f.";
+  return "settings.push.canEnableNoText";
 }
 
 function PasswordVisibilityButton({

@@ -65,6 +65,7 @@ import type {
   MailMessageDetail,
   MessageReaction,
   ChatSummary,
+  MessageStatus,
   Participant,
   SourceMessageJumpTarget,
   UserProfile,
@@ -128,8 +129,7 @@ import {
   getMessageReaction,
   getMessageStatusClassName,
   getMessageStatusGlyph,
-  getMessageStatusLabel,
-  getReactionOption,
+  getMessageStatusLabelKey,
   isOwnMessage,
   MESSAGE_REACTION_OPTIONS,
   toMessageSnippet,
@@ -146,6 +146,7 @@ import { SidebarMenuOverlay } from "./components/SidebarMenuOverlay";
 import { SidebarUtilitySheets } from "./components/SidebarUtilitySheets";
 import { WorkspaceConversation } from "./components/WorkspaceConversation";
 import { WorkspaceSidebar } from "./components/WorkspaceSidebar";
+import { useI18n } from "../../i18n/I18nProvider";
 import { MENU_ACTIONS, type ConversationListTab, type MenuActionId, type SidebarSheet } from "./chatUi";
 import { useContextMenu } from "./hooks/useContextMenu";
 import { useChatPreviews } from "./hooks/useChatPreviews";
@@ -217,6 +218,30 @@ export function NorthMessengerWorkspace({
   session,
   onSessionChange,
 }: Props) {
+  const { t } = useI18n();
+  const getMessageStatusLabel = useMemo(
+    () => (status: MessageStatus | null) =>
+      t(getMessageStatusLabelKey(status), {
+        read: status?.readCount ?? 0,
+        delivered: status?.deliveredCount ?? 0,
+        total: status?.recipientCount ?? 0,
+      }),
+    [t],
+  );
+  const reactionOptions = useMemo(
+    () =>
+      MESSAGE_REACTION_OPTIONS.map((option) => ({
+        key: option.key,
+        emoji: option.emoji,
+        label: t(option.labelKey),
+      })),
+    [t],
+  );
+  const getReactionOption = useMemo(
+    () => (key: MessageReaction["key"]) =>
+      reactionOptions.find((option) => option.key === key) ?? null,
+    [reactionOptions],
+  );
   const queryClient = useQueryClient();
   const [initialNavigationState] = useState(() =>
     readWorkspaceNavigationState(session.user.id)
@@ -940,9 +965,7 @@ export function NorthMessengerWorkspace({
     try {
       const nextState = await enablePushNotifications(session.token);
       setPushNotificationState(nextState);
-      setPushNotificationInfo(
-        "\u0423\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u044f \u0432\u043a\u043b\u044e\u0447\u0435\u043d\u044b \u043d\u0430 \u044d\u0442\u043e\u043c \u0443\u0441\u0442\u0440\u043e\u0439\u0441\u0442\u0432\u0435."
-      );
+      setPushNotificationInfo(t("workspace.pushEnabled"));
     } catch (error) {
       setPushNotificationError(describeError(error));
       void refreshPushNotifications().catch(() => undefined);
@@ -957,9 +980,7 @@ export function NorthMessengerWorkspace({
     try {
       const nextState = await disablePushNotifications(session.token);
       setPushNotificationState(nextState);
-      setPushNotificationInfo(
-        "\u0423\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u044f \u0432\u044b\u043a\u043b\u044e\u0447\u0435\u043d\u044b \u043d\u0430 \u044d\u0442\u043e\u043c \u0443\u0441\u0442\u0440\u043e\u0439\u0441\u0442\u0432\u0435."
-      );
+      setPushNotificationInfo(t("workspace.pushDisabled"));
     } catch (error) {
       setPushNotificationError(describeError(error));
       void refreshPushNotifications().catch(() => undefined);
@@ -1058,9 +1079,8 @@ export function NorthMessengerWorkspace({
   const activeChatHistoryAccessNotice =
     activeChat && !activeChat.direct && !activeChat.members.some((member) => member.id === session.user.id)
       ? {
-          title: "Группа доступна только для чтения",
-          description:
-            "Вы больше не участвуете в этой группе. История сохранена, но новые сообщения, файлы и реакции недоступны.",
+          title: t("workspace.readOnlyGroupTitle"),
+          description: t("workspace.readOnlyGroupBody"),
         }
       : null;
   const readableIncomingMessageIdsKey = useMemo(
@@ -1217,11 +1237,11 @@ export function NorthMessengerWorkspace({
     contextMenuMessage && activePinnedMessageIdSet.has(contextMenuMessage.id)
   );
   const deleteForEveryoneLabel = activeChat?.direct
-    ? "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0434\u043B\u044F \u043E\u0431\u043E\u0438\u0445"
-    : "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0434\u043B\u044F \u0432\u0441\u0435\u0445";
+    ? t("msgmenu.deleteForBoth")
+    : t("msgmenu.deleteForAll");
   const deleteForEveryoneHint = activeChat?.direct
-    ? "\u0421\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435 \u0438\u0441\u0447\u0435\u0437\u043D\u0435\u0442 \u0443 \u0432\u0430\u0441 \u043E\u0431\u043E\u0438\u0445"
-    : "\u0421\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435 \u0438\u0441\u0447\u0435\u0437\u043D\u0435\u0442 \u0443 \u0432\u0441\u0435\u0445 \u0443\u0447\u0430\u0441\u0442\u043D\u0438\u043A\u043E\u0432";
+    ? t("msgmenu.deleteForBothHint")
+    : t("msgmenu.deleteForAllHint");
 
   useEffect(() => {
     let cancelled = false;
@@ -1805,8 +1825,8 @@ export function NorthMessengerWorkspace({
     });
   const emailVerificationInfo = resendOwnEmailVerificationMutation.isSuccess
     ? profile.email
-      ? `Письмо для подтверждения отправлено на ${profile.email}.`
-      : "Письмо для подтверждения отправлено."
+      ? t("workspace.verificationEmailSentTo", { email: profile.email })
+      : t("workspace.verificationEmailSent")
     : null;
   const emailVerificationError = resendOwnEmailVerificationMutation.error
     ? describeError(resendOwnEmailVerificationMutation.error)
@@ -1814,8 +1834,8 @@ export function NorthMessengerWorkspace({
   const resolvedEmailVerificationInfo =
     resendOwnEmailVerificationMutation.isSuccess && !resendOwnEmailVerificationMutation.error
       ? profile.email
-        ? `Письмо для подтверждения отправлено на ${profile.email}.`
-        : "Письмо для подтверждения отправлено."
+        ? t("workspace.verificationEmailSentTo", { email: profile.email })
+        : t("workspace.verificationEmailSent")
       : null;
   const resolvedActiveChatHistoryAccessNotice = activeChatHistoryAccessNotice
     ? {
@@ -1826,21 +1846,21 @@ export function NorthMessengerWorkspace({
   const changePasswordError = changePasswordMutation.error
     ? (changePasswordMutation.error instanceof ApiError &&
        changePasswordMutation.error.status === 401
-       ? "Неверный текущий пароль."
+       ? t("workspace.wrongCurrentPassword")
        : describeError(changePasswordMutation.error))
     : null;
   const changeUsernameError = changeUsernameMutation.error
     ? describeError(changeUsernameMutation.error)
     : null;
   const changeUsernameInfo = changeUsernameMutation.isSuccess
-    ? "Юзернейм успешно изменён."
+    ? t("workspace.usernameChanged")
     : null;
 
   const requestEmailChangeMutation = useMutation({
     mutationFn: (newEmail: string) => requestEmailChange(session.token, newEmail),
   });
   const emailChangeInfo = requestEmailChangeMutation.isSuccess
-    ? `Ссылка для подтверждения отправлена на ${emailChangeInput.trim()}. Перейдите по ней для смены почты.`
+    ? t("workspace.emailChangeLinkSent", { email: emailChangeInput.trim() })
     : null;
   const emailChangeError = requestEmailChangeMutation.error
     ? describeError(requestEmailChangeMutation.error)
@@ -1993,9 +2013,7 @@ export function NorthMessengerWorkspace({
       const invalidOrExpired =
         error instanceof ApiError && (error.status === 404 || error.status === 410);
       window.alert(
-        invalidOrExpired
-          ? "Ссылка-приглашение недействительна или истекла."
-          : "Не удалось присоединиться по ссылке. Попробуйте позже."
+        invalidOrExpired ? t("dialogs.inviteInvalid") : t("dialogs.inviteJoinFailed")
       );
       onPendingInviteHandled();
     },
@@ -2043,7 +2061,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Выйти из группы "${activeChat.title}"?`)) {
+    if (!window.confirm(t("dialogs.leaveGroup", { title: activeChat.title }))) {
       return;
     }
 
@@ -2055,7 +2073,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Удалить группу "${activeChat.title}" для всех участников?`)) {
+    if (!window.confirm(t("dialogs.deleteGroup", { title: activeChat.title }))) {
       return;
     }
 
@@ -2067,7 +2085,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Забанить ${participant.displayName} и убрать из группы?`)) {
+    if (!window.confirm(t("dialogs.banParticipant", { name: participant.displayName }))) {
       return;
     }
 
@@ -2079,7 +2097,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Забанить ${participant.displayName} и убрать из группы?`)) {
+    if (!window.confirm(t("dialogs.banParticipant", { name: participant.displayName }))) {
       return;
     }
 
@@ -2091,7 +2109,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Снять бан с ${participant.displayName}?`)) {
+    if (!window.confirm(t("dialogs.unbanParticipant", { name: participant.displayName }))) {
       return;
     }
 
@@ -2103,7 +2121,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Исключить ${participant.displayName} из группы?`)) {
+    if (!window.confirm(t("dialogs.removeParticipant", { name: participant.displayName }))) {
       return;
     }
 
@@ -2115,7 +2133,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Назначить ${participant.displayName} модератором группы?`)) {
+    if (!window.confirm(t("dialogs.assignModerator", { name: participant.displayName }))) {
       return;
     }
 
@@ -2127,7 +2145,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Снять роль модератора с ${participant.displayName}?`)) {
+    if (!window.confirm(t("dialogs.revokeModerator", { name: participant.displayName }))) {
       return;
     }
 
@@ -2140,9 +2158,7 @@ export function NorthMessengerWorkspace({
     }
 
     if (
-      !window.confirm(
-        `Передать права владельца группы ${participant.displayName}? После передачи вы останетесь модератором.`
-      )
+      !window.confirm(t("dialogs.transferOwnership", { name: participant.displayName }))
     ) {
       return;
     }
@@ -2160,7 +2176,7 @@ export function NorthMessengerWorkspace({
       return;
     }
 
-    if (!window.confirm(`Заблокировать ${activeDirectParticipant.displayName}?`)) {
+    if (!window.confirm(t("dialogs.blockUser", { name: activeDirectParticipant.displayName }))) {
       return;
     }
 
@@ -2175,7 +2191,7 @@ export function NorthMessengerWorkspace({
     if (createConferenceMutation.isPending) return;
     const now = new Date().toISOString();
     createConferenceMutation.mutate({
-      title: `Созвон с ${activeDirectParticipant.displayName}`,
+      title: t("workspace.callWith", { name: activeDirectParticipant.displayName }),
       scheduledAt: now,
       participantUsernames: [activeDirectParticipant.username],
     });
@@ -2257,9 +2273,9 @@ export function NorthMessengerWorkspace({
   }, [activeChatId, activeConferenceId, closeActiveChat, closeActiveConference]);
 
   useEffect(() => {
-    const base = "Мессенджер";
+    const base = t("workspace.appName");
     document.title = totalUnreadCount > 0 ? `(${totalUnreadCount}) ${base}` : base;
-  }, [totalUnreadCount]);
+  }, [totalUnreadCount, t]);
 
   useEffect(() => {
     if (!activeChatId) return;
@@ -2600,9 +2616,9 @@ export function NorthMessengerWorkspace({
         <span className="conference-sidebar-dock-indicator" aria-hidden="true" />
         <span className="conference-sidebar-dock-copy">
           <strong>{activeConference.title}</strong>
-          <span>{activeConferenceStatusLabel ?? "Конференция активна"}</span>
+          <span>{activeConferenceStatusLabel ?? t("workspace.conferenceActive")}</span>
         </span>
-        <span className="conference-sidebar-dock-action">Открыть</span>
+        <span className="conference-sidebar-dock-action">{t("workspace.open")}</span>
       </button>
     ) : null;
   const workspaceStyle: CSSProperties = {
@@ -3089,7 +3105,7 @@ export function NorthMessengerWorkspace({
         contextMenuRef,
         contextMenuStyle,
         contextMenuMessage,
-        reactionOptions: MESSAGE_REACTION_OPTIONS,
+        reactionOptions,
         getMessageReaction,
         onToggleReaction: toggleReactionFromContextMenu,
         canReactContextMenuMessage,
@@ -3125,12 +3141,9 @@ export function NorthMessengerWorkspace({
     >
       {availableBuildUpdate ? (
         <div style={buildUpdateBannerStyle} role="status" aria-live="polite">
-          <p style={buildUpdateMessageStyle}>
-            Доступна новая версия приложения. Обновите вкладку, чтобы применить последние
-            исправления доставки и шифрования.
-          </p>
+          <p style={buildUpdateMessageStyle}>{t("workspace.updateBanner")}</p>
           <button type="button" className="ghost-button compact" onClick={() => window.location.reload()}>
-            Обновить
+            {t("workspace.updateButton")}
           </button>
         </div>
       ) : null}
@@ -3165,7 +3178,7 @@ export function NorthMessengerWorkspace({
         className="north-layout-divider"
         role="separator"
         aria-orientation="vertical"
-        aria-label="Изменить ширину списка диалогов"
+        aria-label={t("workspace.resizeDialogsAria")}
         onPointerDown={startSidebarResize}
       />
 

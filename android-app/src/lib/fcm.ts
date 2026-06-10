@@ -78,18 +78,14 @@ export function initFcmForSession(
   accessToken: string,
   getLatestToken: () => string,
 ): () => void {
-  let currentToken: string | null = null;
-
   getFcmToken()
     .then(token => {
       if (!token) return;
-      currentToken = token;
       return registerTokenWithBackend(token, accessToken);
     })
     .catch(() => undefined);
 
   const unsubscribeRefresh = messaging().onTokenRefresh(newToken => {
-    currentToken = newToken;
     registerTokenWithBackend(newToken, getLatestToken()).catch(() => undefined);
   });
 

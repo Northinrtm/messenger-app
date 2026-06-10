@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, type RefObject } from "react";
 
 import type { VideoConference } from "../../../lib/types";
+import { useI18n } from "../../../i18n/I18nProvider";
+import { tActive } from "../../../i18n";
 import {
   ManagedConferenceStage,
   type ConferenceJoinSettings,
@@ -82,21 +84,19 @@ function ConferenceInviteLinkControls({
   onCopyShareUrl,
   onGenerateShareUrl,
 }: ConferenceInviteLinkControlsProps) {
+  const { t } = useI18n();
   return (
     <div className="conference-share-panel invite-link-panel">
       <div className="invite-link-copy">
-        <strong>Приглашение по ссылке</strong>
-        <span>
-          Короткая ссылка откроет эту конференцию в приложении и добавит пользователя в
-          участники.
-        </span>
+        <strong>{t("conf.inviteByLink")}</strong>
+        <span>{t("conf.inviteByLinkDesc")}</span>
       </div>
       <div className="invite-link-row">
         <input
           className="invite-link-input"
           readOnly
           value={shareUrl ?? ""}
-          placeholder="Ссылка ещё не создана"
+          placeholder={t("conf.linkNotCreated")}
           onFocus={(event) => event.currentTarget.select()}
         />
         <button
@@ -109,7 +109,7 @@ function ConferenceInviteLinkControls({
             }
           }}
         >
-          Копировать
+          {t("conf.copy")}
         </button>
       </div>
       <button
@@ -146,11 +146,11 @@ async function readConferenceMediaDevices(options: { requestAccess?: boolean } =
     return {
       audioInputDevices: normalizeConferenceDevices(
         devices.filter((device) => device.kind === "audioinput"),
-        "Микрофон"
+        tActive("conf.micTitle")
       ),
       videoInputDevices: normalizeConferenceDevices(
         devices.filter((device) => device.kind === "videoinput"),
-        "Камера"
+        tActive("conf.cameraTitle")
       ),
     };
   } finally {
@@ -204,36 +204,37 @@ function ConferencePreJoinPanel({
   onRefreshDevices,
   onJoin,
 }: ConferencePreJoinPanelProps) {
+  const { t } = useI18n();
   return (
     <div className="conference-prejoin">
       <div className="conference-prejoin-copy">
-        <span className="section-title">Перед входом</span>
+        <span className="section-title">{t("conf.prejoinTitle")}</span>
         <strong>{title}</strong>
-        <p>Выберите, с каким состоянием камеры и микрофона войти в конференцию.</p>
+        <p>{t("conf.prejoinDesc")}</p>
       </div>
 
       <div className="conference-device-grid">
         <ConferenceDeviceControl
-          title="Микрофон"
+          title={t("conf.micTitle")}
           enabled={joinSettings.audioEnabled}
-          enabledLabel="Микрофон включен"
-          disabledLabel="Микрофон выключен"
+          enabledLabel={t("conf.micOn")}
+          disabledLabel={t("conf.micOff")}
           devices={mediaAccessState.audioInputDevices}
           selectedDeviceId={joinSettings.audioInputDeviceId ?? ""}
-          selectLabel="Микрофон"
-          emptyLabel="Микрофоны не найдены"
+          selectLabel={t("conf.micTitle")}
+          emptyLabel={t("conf.micEmpty")}
           onEnabledChange={onAudioEnabledChange}
           onDeviceChange={onAudioInputChange}
         />
         <ConferenceDeviceControl
-          title="Камера"
+          title={t("conf.cameraTitle")}
           enabled={joinSettings.videoEnabled}
-          enabledLabel="Камера включена"
-          disabledLabel="Камера выключена"
+          enabledLabel={t("conf.cameraOn")}
+          disabledLabel={t("conf.cameraOff")}
           devices={mediaAccessState.videoInputDevices}
           selectedDeviceId={joinSettings.videoInputDeviceId ?? ""}
-          selectLabel="Камера"
-          emptyLabel="Камеры не найдены"
+          selectLabel={t("conf.cameraTitle")}
+          emptyLabel={t("conf.cameraEmpty")}
           onEnabledChange={onVideoEnabledChange}
           onDeviceChange={onVideoInputChange}
         />
@@ -248,10 +249,10 @@ function ConferencePreJoinPanel({
           disabled={mediaAccessState.isLoading}
           onClick={() => void onRefreshDevices()}
         >
-          {mediaAccessState.isLoading ? "Проверяем устройства..." : "Проверить устройства"}
+          {mediaAccessState.isLoading ? t("conf.checkingDevices") : t("conf.checkDevices")}
         </button>
         <button type="button" className="primary-button" onClick={onJoin}>
-          Войти в конференцию
+          {t("conf.joinConference")}
         </button>
       </div>
     </div>
@@ -283,6 +284,7 @@ function ConferenceDeviceControl({
   onEnabledChange,
   onDeviceChange,
 }: ConferenceDeviceControlProps) {
+  const { t } = useI18n();
   const hasDevices = devices.length > 0;
 
   return (
@@ -298,7 +300,7 @@ function ConferenceDeviceControl({
           onClick={() => onEnabledChange(!enabled)}
           aria-pressed={enabled}
         >
-          {enabled ? "Вкл" : "Выкл"}
+          {enabled ? t("conf.on") : t("conf.off")}
         </button>
       </div>
 
@@ -310,7 +312,7 @@ function ConferenceDeviceControl({
           disabled={!enabled || !hasDevices}
           onChange={(event) => onDeviceChange(event.target.value || null)}
         >
-          <option value="">{hasDevices ? "Системное устройство" : emptyLabel}</option>
+          <option value="">{hasDevices ? t("conf.systemDevice") : emptyLabel}</option>
           {devices.map((device) => (
             <option key={device.deviceId} value={device.deviceId}>
               {device.label}
@@ -359,11 +361,12 @@ export function ActiveConferenceConversation({
   formatConferenceSchedule,
   formatMemberCount,
 }: Props) {
+  const { t } = useI18n();
   const shareInviteLinkActionLabel = shareUrlPending
-    ? "\u0413\u0435\u043d\u0435\u0440\u0438\u0440\u0443\u0435\u043c \u0441\u0441\u044b\u043b\u043a\u0443..."
+    ? t("conf.generatingLink")
     : shareUrl
-      ? "\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u0441\u0441\u044b\u043b\u043a\u0443"
-      : "\u0421\u0433\u0435\u043d\u0435\u0440\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0441\u0441\u044b\u043b\u043a\u0443";
+      ? t("conf.refreshLink")
+      : t("conf.generateLink");
   const [hasJoinedConference, setHasJoinedConference] = useState(false);
   const [joinSettings, setJoinSettings] = useState<ConferenceJoinSettings>(
     DEFAULT_CONFERENCE_JOIN_SETTINGS
@@ -439,7 +442,7 @@ export function ActiveConferenceConversation({
           audioInputDevices: [],
           videoInputDevices: [],
           isLoading: false,
-          error: "Не удалось получить список подключенных устройств.",
+          error: tActive("conf.deviceListError"),
         });
       }
     };
@@ -470,7 +473,7 @@ export function ActiveConferenceConversation({
       <header className="conversation-header north-conversation-header conference-header">
         <div className="conversation-heading">
           <button type="button" className="ghost-button compact mobile-back" onClick={onBack}>
-            Назад
+            {t("conf.back")}
           </button>
 
           <div className="conversation-identity">
@@ -494,7 +497,7 @@ export function ActiveConferenceConversation({
                   aria-expanded={isInfoOpen}
                   aria-haspopup="dialog"
                 >
-                  Инфо
+                  {t("conf.info")}
                 </button>
               </div>
               <p className="conversation-subtitle">
@@ -505,38 +508,38 @@ export function ActiveConferenceConversation({
                   ref={infoPanelRef}
                   className="conference-summary"
                   role="dialog"
-                  aria-label="Информация о конференции"
+                  aria-label={t("conf.infoAria")}
                 >
                   <div className="conference-summary-grid">
                     <div className="conference-summary-item">
-                      <span>Организатор</span>
+                      <span>{t("conf.organizer")}</span>
                       <strong>{organizerLabel}</strong>
                     </div>
                     <div className="conference-summary-item">
-                      <span>Ваша роль</span>
+                      <span>{t("conf.yourRole")}</span>
                       <strong>{roleLabel}</strong>
                     </div>
                     <div className="conference-summary-item">
-                      <span>Время</span>
+                      <span>{t("conf.time")}</span>
                       <strong>{formatConferenceSchedule(conference.scheduledAt)}</strong>
                     </div>
                     <div className="conference-summary-item">
-                      <span>Участники</span>
+                      <span>{t("conf.participants")}</span>
                       <strong>{formatMemberCount(conference.participants.length)}</strong>
                     </div>
                   </div>
 
                   <div className="conference-summary-rows">
                     <div className="conference-summary-row">
-                      <span className="conference-summary-label">Доступ</span>
+                      <span className="conference-summary-label">{t("conf.access")}</span>
                       <span className="conference-summary-code">
-                        Комната доступна только приглашённым участникам внутри приложения.
+                        {t("conf.accessInvitedOnly")}
                       </span>
                     </div>
 
                     {canShareInviteLink ? (
                       <div className="conference-summary-row with-panel">
-                        <span className="conference-summary-label">Ссылка</span>
+                        <span className="conference-summary-label">{t("conf.link")}</span>
                         <ConferenceInviteLinkControls
                           shareUrl={shareUrl}
                           shareUrlPending={shareUrlPending}
@@ -548,19 +551,19 @@ export function ActiveConferenceConversation({
                     ) : null}
 
                     <div className="conference-summary-row participants">
-                      <span className="conference-summary-label">Участники</span>
+                      <span className="conference-summary-label">{t("conf.participants")}</span>
                       <div className="conference-participants">
                         {conference.participants.map((participant) => (
                           <span key={participant.id} className="member-pill">
                             {participant.displayName}
-                            {participant.id === conference.createdBy.id ? " · орг." : ""}
+                            {participant.id === conference.createdBy.id ? t("conf.orgSuffix") : ""}
                           </span>
                         ))}
                       </div>
                     </div>
                     {canEditSchedule || canManageParticipants || canCancelSchedule ? (
                       <div className="conference-summary-row">
-                        <span className="conference-summary-label">Управление</span>
+                        <span className="conference-summary-label">{t("conf.management")}</span>
                         <div className="conference-browser-actions">
                           {canEditSchedule ? (
                             <button
@@ -569,7 +572,7 @@ export function ActiveConferenceConversation({
                               disabled={conferenceActionPending}
                               onClick={onEditConference}
                             >
-                              Изменить
+                              {t("conf.edit")}
                             </button>
                           ) : null}
                           {canManageParticipants ? (
@@ -579,7 +582,7 @@ export function ActiveConferenceConversation({
                               disabled={conferenceActionPending}
                               onClick={onOpenMembers}
                             >
-                              Добавить участников
+                              {t("conf.addParticipants")}
                             </button>
                           ) : null}
                           {canCancelSchedule ? (
@@ -589,7 +592,7 @@ export function ActiveConferenceConversation({
                               disabled={conferenceActionPending}
                               onClick={onCancelConference}
                             >
-                              Отменить
+                              {t("conf.cancel")}
                             </button>
                           ) : null}
                         </div>
@@ -609,7 +612,7 @@ export function ActiveConferenceConversation({
               disabled={conferenceActionPending}
               onClick={onEditConference}
             >
-              Изменить
+              {t("conf.edit")}
             </button>
           ) : null}
           {canCancelSchedule ? (
@@ -619,11 +622,11 @@ export function ActiveConferenceConversation({
               disabled={conferenceActionPending}
               onClick={onCancelConference}
             >
-              Отменить
+              {t("conf.cancel")}
             </button>
           ) : null}
           {localRecordingActive ? (
-            <span className="conference-recording-badge">Идет локальная запись</span>
+            <span className="conference-recording-badge">{t("conf.localRecording")}</span>
           ) : null}
           {!canJoin && !canEditSchedule && !canCancelSchedule ? (
             <button
@@ -631,7 +634,7 @@ export function ActiveConferenceConversation({
               className="ghost-button compact"
               onClick={onConferenceExit}
             >
-              Закрыть
+              {t("conf.close")}
             </button>
           ) : null}
         </div>
@@ -639,38 +642,38 @@ export function ActiveConferenceConversation({
         <div className="conference-summary">
           <div className="conference-summary-grid">
             <div className="conference-summary-item">
-              <span>Организатор</span>
+              <span>{t("conf.organizer")}</span>
               <strong>{organizerLabel}</strong>
             </div>
             <div className="conference-summary-item">
-              <span>Ваша роль</span>
+              <span>{t("conf.yourRole")}</span>
               <strong>{roleLabel}</strong>
             </div>
             <div className="conference-summary-item">
-              <span>Время</span>
+              <span>{t("conf.time")}</span>
               <strong>{formatConferenceSchedule(conference.scheduledAt)}</strong>
             </div>
             <div className="conference-summary-item">
-              <span>Участники</span>
+              <span>{t("conf.participants")}</span>
               <strong>{formatMemberCount(conference.participants.length)}</strong>
             </div>
           </div>
 
           <div className="conference-summary-rows">
             <div className="conference-summary-row">
-              <span className="conference-summary-label">Доступ</span>
+              <span className="conference-summary-label">{t("conf.access")}</span>
               <span className="conference-summary-code">
-                Прямые ссылки и коды скрыты. Войти могут только приглашённые участники.
+                {t("conf.accessHidden")}
               </span>
             </div>
 
             <div className="conference-summary-row participants">
-              <span className="conference-summary-label">Участники</span>
+              <span className="conference-summary-label">{t("conf.participants")}</span>
               <div className="conference-participants">
                 {conference.participants.map((participant) => (
                   <span key={participant.id} className="member-pill">
                     {participant.displayName}
-                    {participant.id === conference.createdBy.id ? " · орг." : ""}
+                    {participant.id === conference.createdBy.id ? t("conf.orgSuffix") : ""}
                   </span>
                 ))}
               </div>
@@ -683,49 +686,49 @@ export function ActiveConferenceConversation({
         <div className="conference-meta-card">
           <div className="conference-meta-grid">
             <div className="conference-meta-line">
-              <strong>Организатор</strong>
+              <strong>{t("conf.organizer")}</strong>
               <span>{organizerLabel}</span>
             </div>
             <div className="conference-meta-line">
-              <strong>Ваша роль</strong>
+              <strong>{t("conf.yourRole")}</strong>
               <span>{roleLabel}</span>
             </div>
             <div className="conference-meta-line">
-              <strong>Время</strong>
+              <strong>{t("conf.time")}</strong>
               <span>{formatConferenceSchedule(conference.scheduledAt)}</span>
             </div>
             <div className="conference-meta-line">
-              <strong>Статус</strong>
+              <strong>{t("conf.status")}</strong>
               <span>{statusLabel}</span>
             </div>
             <div className="conference-meta-line">
-              <strong>Участники</strong>
+              <strong>{t("conf.participants")}</strong>
               <div className="conference-participants">
                 {conference.participants.map((participant) => (
                   <span key={participant.id} className="member-pill">
                     {participant.displayName}
-                    {participant.id === conference.createdBy.id ? " · орг." : ""}
+                    {participant.id === conference.createdBy.id ? t("conf.orgSuffix") : ""}
                   </span>
                 ))}
               </div>
             </div>
             <div className="conference-meta-line">
-              <strong>Код комнаты</strong>
+              <strong>{t("conf.roomCode")}</strong>
               <div className="invite-link-row">
                 <input
                   className="invite-link-input"
                   readOnly
-                  value="Вход доступен только внутри приложения"
+                  value={t("conf.roomCodeInApp")}
                   onFocus={(event) => event.currentTarget.select()}
                 />
                 <button type="button" className="ghost-button compact" disabled>
-                  Копировать
+                  {t("conf.copy")}
                 </button>
               </div>
             </div>
             {canShareInviteLink ? (
               <div className="conference-meta-line">
-                <strong>Ссылка</strong>
+                <strong>{t("conf.link")}</strong>
                 <div className="invite-link-row">
                   <input
                     className="invite-link-input"
@@ -743,7 +746,7 @@ export function ActiveConferenceConversation({
                       }
                     }}
                   >
-                    Копировать
+                    {t("conf.copy")}
                   </button>
                 </div>
                 <button
@@ -752,12 +755,7 @@ export function ActiveConferenceConversation({
                   disabled={shareUrlPending}
                   onClick={onGenerateShareUrl}
                 >
-                  {shareInviteLinkActionLabel /*
-                    ? "Генерируем ссылку..."
-                    : shareUrl
-                      ? "Получить ссылку снова"
-                      : "Сгенерировать ссылку"}
-                  */}
+                  {shareInviteLinkActionLabel}
                 </button>
               </div>
             ) : null}
@@ -815,7 +813,7 @@ export function ActiveConferenceConversation({
                     audioInputDevices: [],
                     videoInputDevices: [],
                     isLoading: false,
-                    error: "Не удалось проверить камеру и микрофон.",
+                    error: tActive("conf.mediaCheckError"),
                   });
                 }
               }}
