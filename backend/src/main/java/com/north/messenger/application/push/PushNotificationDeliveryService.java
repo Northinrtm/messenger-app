@@ -98,6 +98,37 @@ public class PushNotificationDeliveryService {
         });
     }
 
+    /**
+     * Sends a background incoming-call push (Android/FCM) to the callees so the
+     * person being called is alerted even when the app is closed or backgrounded.
+     * Web clients are covered by the realtime ring while the tab is open, so this
+     * intentionally targets device tokens only.
+     */
+    @Async("pushNotificationExecutor")
+    @Transactional
+    public void notifyIncomingCall(String conferenceId, List<UserAccount> callees, String callerName) {
+        if (!properties.enabled() || callees.isEmpty()) {
+            return;
+        }
+
+        fcmDeliveryService.ifPresent(fcm -> {
+            Set<UUID> calleeIds = callees.stream()
+                    .map(UserAccount::getId)
+                    .collect(Collectors.toSet());
+            devicePushTokenRepository.findAllByUserIdIn(calleeIds)
+                    .forEach(deviceToken -> {
+                        boolean valid = fcm.sendIncomingCallNotification(
+                                deviceToken.getToken(),
+                                conferenceId,
+                                callerName
+                        );
+                        if (!valid) {
+                            devicePushTokenRepository.deleteByToken(deviceToken.getToken());
+                        }
+                    });
+        });
+    }
+
     private void sendGenericMessageNotification(UserPushSubscription subscription, ChatMessage message) {
         if (subscription.getExpirationTime() != null
                 && subscription.getExpirationTime().isBefore(Instant.now())) {

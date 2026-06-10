@@ -21,6 +21,8 @@ import com.north.messenger.domain.repository.UserAccountRepository;
 import com.north.messenger.domain.repository.VideoConferenceAttendanceRepository;
 import com.north.messenger.domain.repository.VideoConferenceParticipantRepository;
 import com.north.messenger.domain.repository.VideoConferenceRepository;
+import com.north.messenger.application.message.RealtimeMessagingGateway;
+import com.north.messenger.application.push.PushNotificationDeliveryService;
 import com.north.messenger.security.JwtProperties;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -95,6 +97,8 @@ class VideoConferenceServiceTest {
                 conferenceRecordingStorage,
                 conferenceRecordingImportService,
                 clusterJobLockService,
+                mock(RealtimeMessagingGateway.class),
+                mock(PushNotificationDeliveryService.class),
                 new JwtProperties(
                         TEST_JWT_SECRET,
                         Duration.ofHours(12),

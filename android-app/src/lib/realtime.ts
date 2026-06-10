@@ -14,6 +14,7 @@ import type {
   MessageStatusEvent,
   SessionEvent,
   TypingEvent,
+  VideoConference,
 } from '@north/shared';
 import {WS_URL} from '../config';
 import {ApiError} from './api';
@@ -29,6 +30,7 @@ type SubscriptionOptions = {
   onMessageReaction?: (event: MessageReactionEvent) => void;
   onTyping?: (event: TypingEvent) => void;
   onSessionEvent: (event: SessionEvent) => void;
+  onIncomingCall?: (conference: VideoConference) => void;
   onAuthFailure?: () => void;
   onConnectionChange?: (connected: boolean) => void;
 };
@@ -42,6 +44,7 @@ type RealtimeConnection = {
   onMessageReaction?: (event: MessageReactionEvent) => void;
   onTyping?: (event: TypingEvent) => void;
   onSessionEvent: (event: SessionEvent) => void;
+  onIncomingCall?: (conference: VideoConference) => void;
   onAuthFailure?: () => void;
   onConnectionChange?: (connected: boolean) => void;
   userSubscriptions: StompSubscription[];
@@ -84,6 +87,7 @@ export function subscribeToChats({
   onMessageReaction,
   onTyping,
   onSessionEvent,
+  onIncomingCall,
   onAuthFailure,
   onConnectionChange,
 }: SubscriptionOptions) {
@@ -101,6 +105,7 @@ export function subscribeToChats({
     onMessageReaction,
     onTyping,
     onSessionEvent,
+    onIncomingCall,
     onAuthFailure,
     onConnectionChange,
     userSubscriptions: [],
@@ -193,6 +198,14 @@ export function subscribeToChats({
         connection.onSessionEvent(JSON.parse(frame.body) as SessionEvent);
       }),
     );
+
+    if (connection.onIncomingCall) {
+      connection.userSubscriptions.push(
+        client.subscribe('/user/queue/calls', (frame: IFrame) => {
+          connection.onIncomingCall?.(JSON.parse(frame.body) as VideoConference);
+        }),
+      );
+    }
 
     syncTypingSubscriptions(connection);
     flushPendingSendRequests(connection);

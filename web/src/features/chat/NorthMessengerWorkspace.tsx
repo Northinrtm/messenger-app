@@ -48,6 +48,7 @@ import {
   updateProfileAvatar,
 } from "../../lib/api";
 import { JITSI_BASE_URL } from "../../lib/config";
+import { startRingtone } from "../../lib/ringtone";
 import {
   disablePushNotifications,
   enablePushNotifications,
@@ -252,6 +253,7 @@ export function NorthMessengerWorkspace({
   const [activeConferenceId, setActiveConferenceId] = useState<string | null>(
     initialNavigationState.activeConferenceId
   );
+  const [incomingCall, setIncomingCall] = useState<VideoConference | null>(null);
   const [conferenceViewportMode, setConferenceViewportMode] = useState<ConferenceViewportMode>(
     initialNavigationState.conferenceViewportMode
   );
@@ -2197,6 +2199,15 @@ export function NorthMessengerWorkspace({
     });
   });
 
+  const handleStartCall = useEffectEvent((username: string, displayName: string) => {
+    if (createConferenceMutation.isPending) return;
+    createConferenceMutation.mutate({
+      title: t("workspace.callWith", { name: displayName }),
+      scheduledAt: new Date().toISOString(),
+      participantUsernames: [username],
+    });
+  });
+
   const handleStartOrJoinGroupConference = useEffectEvent(() => {
     if (!activeChat || activeChat.direct) {
       return;
@@ -2399,6 +2410,41 @@ export function NorthMessengerWorkspace({
     uploadAvatarFromFile,
   });
 
+  const handleIncomingCall = useEffectEvent((conference: VideoConference) => {
+    if (conference.createdBy.id === session.user.id || conference.endedAt) {
+      return;
+    }
+    // Cache the conference so accepting it can resolve + open the call stage.
+    queryClient.setQueryData<VideoConference[]>(["video-conferences", session.token], (current) =>
+      upsertVideoConferences(current, conference)
+    );
+    setIncomingCall(conference);
+  });
+
+  const handleAcceptIncomingCall = useEffectEvent(() => {
+    if (!incomingCall) {
+      return;
+    }
+    openConference(incomingCall.id);
+    setIncomingCall(null);
+  });
+
+  const handleDeclineIncomingCall = useEffectEvent(() => {
+    setIncomingCall(null);
+  });
+
+  useEffect(() => {
+    if (!incomingCall) {
+      return;
+    }
+    const timerId = window.setTimeout(() => setIncomingCall(null), 45_000);
+    const stopRingtone = startRingtone();
+    return () => {
+      window.clearTimeout(timerId);
+      stopRingtone();
+    };
+  }, [incomingCall]);
+
   useRealtimeChatSubscription({
     acknowledgeDelivered,
     acknowledgeRead,
@@ -2420,6 +2466,7 @@ export function NorthMessengerWorkspace({
     isRealtimeConnected,
     normalizeIncomingMessage: (message) => ensureOwnMessageStatus(message, session.user),
     onConnectionChange: setIsRealtimeConnected,
+    onIncomingCall: handleIncomingCall,
     onUnauthorized: () => onSessionChange(null),
     queryClient,
     refreshChatPreviewFromServer,
@@ -2835,6 +2882,7 @@ export function NorthMessengerWorkspace({
     onAddContact: handleAddContact,
     onRemoveContact: removeContact,
     onCreateChat: (username) => createChatMutation.mutate(username),
+    onStartCall: handleStartCall,
     onRevokeSession: (sessionId) => revokeSessionMutation.mutate(sessionId),
     formatProfileDate,
     formatSessionTime,
@@ -3139,6 +3187,35 @@ export function NorthMessengerWorkspace({
       data-mobile-pane={mobilePane}
       style={workspaceStyle}
     >
+      {incomingCall ? (
+        <div className="incoming-call-overlay" role="dialog" aria-live="assertive">
+          <div className="incoming-call-card">
+            <div className="incoming-call-glyph" aria-hidden="true">
+              📞
+            </div>
+            <div className="incoming-call-copy">
+              <span className="incoming-call-eyebrow">{t("call.incoming")}</span>
+              <strong className="incoming-call-name">{incomingCall.createdBy.displayName}</strong>
+            </div>
+            <div className="incoming-call-actions">
+              <button
+                type="button"
+                className="incoming-call-decline"
+                onClick={handleDeclineIncomingCall}
+              >
+                {t("call.decline")}
+              </button>
+              <button
+                type="button"
+                className="incoming-call-accept"
+                onClick={handleAcceptIncomingCall}
+              >
+                {t("call.accept")}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {availableBuildUpdate ? (
         <div style={buildUpdateBannerStyle} role="status" aria-live="polite">
           <p style={buildUpdateMessageStyle}>{t("workspace.updateBanner")}</p>

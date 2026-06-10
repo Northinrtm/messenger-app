@@ -17,6 +17,7 @@ import {SoundPlayer, type SoundPlayerHandle} from './src/lib/SoundPlayer';
 import {
   ActivityIndicator,
   AppState,
+  Modal,
   Pressable,
   StatusBar,
   StyleSheet,
@@ -90,6 +91,7 @@ import {replaceSubscribedChatIds, subscribeToChats} from './src/lib/realtime';
 import {
   cleanupFcmForSession,
   getInitialNotificationChatId,
+  getInitialNotificationConferenceId,
   initFcmForSession,
   setupFcmForegroundHandler,
   setupFcmNotificationOpenedHandler,
@@ -160,6 +162,7 @@ function App() {
   const [workspace, setWorkspace] = useState<WorkspaceBootstrap | null>(null);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [activeConferenceId, setActiveConferenceId] = useState<string | null>(null);
+  const [incomingCall, setIncomingCall] = useState<VideoConference | null>(null);
   const [authPending, setAuthPending] = useState(false);
   const [workspacePending, setWorkspacePending] = useState(false);
   const [realtimeConnected, setRealtimeConnected] = useState(false);
@@ -193,6 +196,7 @@ function App() {
    * workspace becomes available and the chat is opened.
    */
   const pendingNotificationChatIdRef = useRef<string | null>(null);
+  const pendingNotificationConferenceIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     sessionRef.current = session;
@@ -219,6 +223,18 @@ function App() {
     }
     soundPlayerRef.current?.playIcq();
   }, [latestRealtimeMessage]);
+
+  // Loop the ringtone while an incoming call is being shown.
+  useEffect(() => {
+    if (!incomingCall) {
+      return;
+    }
+    soundPlayerRef.current?.playRing();
+    const intervalId = setInterval(() => {
+      soundPlayerRef.current?.playRing();
+    }, 3_000);
+    return () => clearInterval(intervalId);
+  }, [incomingCall]);
 
   const resetToSignedOutState = useCallback(async (infoMessage: string) => {
     await clearStoredRefreshToken();
@@ -395,13 +411,18 @@ function App() {
     let cancelled = false;
 
     const restore = async () => {
-      const [refreshToken, savedPrefs, initialNotifChatId] = await Promise.all([
-        loadStoredRefreshToken(),
-        loadPreferences(),
-        getInitialNotificationChatId(),
-      ]);
+      const [refreshToken, savedPrefs, initialNotifChatId, initialNotifConferenceId] =
+        await Promise.all([
+          loadStoredRefreshToken(),
+          loadPreferences(),
+          getInitialNotificationChatId(),
+          getInitialNotificationConferenceId(),
+        ]);
       if (initialNotifChatId) {
         pendingNotificationChatIdRef.current = initialNotifChatId;
+      }
+      if (initialNotifConferenceId) {
+        pendingNotificationConferenceIdRef.current = initialNotifConferenceId;
       }
       if (!cancelled) {
         setPreferences(savedPrefs);
@@ -532,6 +553,20 @@ function App() {
             () => undefined,
           );
         }
+      },
+      onIncomingCall: conference => {
+        if (
+          conference.createdBy.id === realtimeSessionUserId ||
+          conference.endedAt
+        ) {
+          return;
+        }
+        setWorkspace(currentWorkspace =>
+          currentWorkspace
+            ? upsertWorkspaceConference(currentWorkspace, conference)
+            : currentWorkspace,
+        );
+        setIncomingCall(conference);
       },
       onAuthFailure: () => {
         handleRealtimeAuthFailure().catch(() => undefined);
@@ -727,6 +762,11 @@ function App() {
     setActiveChatId(chatId);
   }, []);
 
+  const handleOpenConference = useCallback((conferenceId: string) => {
+    setActiveChatId(null);
+    setActiveConferenceId(conferenceId);
+  }, []);
+
   // Open a pending notification chat as soon as the workspace is available.
   // This covers two cases:
   //   1. Killed state: getInitialNotificationChatId set the ref during restore.
@@ -735,33 +775,44 @@ function App() {
   useEffect(() => {
     if (!workspace) return;
     const pendingChatId = pendingNotificationChatIdRef.current;
-    if (!pendingChatId) return;
-    pendingNotificationChatIdRef.current = null;
-    handleOpenChat(pendingChatId);
-  }, [workspace, handleOpenChat]);
+    if (pendingChatId) {
+      pendingNotificationChatIdRef.current = null;
+      handleOpenChat(pendingChatId);
+      return;
+    }
+    const pendingConferenceId = pendingNotificationConferenceIdRef.current;
+    if (pendingConferenceId) {
+      pendingNotificationConferenceIdRef.current = null;
+      handleOpenConference(pendingConferenceId);
+    }
+  }, [workspace, handleOpenChat, handleOpenConference]);
 
   // Background tap handler: app was suspended (not killed), user tapped the
   // notification. Workspace is already loaded in the normal case; the pending
   // ref guards the rare edge case where the JS thread was recycled.
   useEffect(() => {
-    const unsubscribe = setupFcmNotificationOpenedHandler(chatId => {
-      if (workspace) {
-        handleOpenChat(chatId);
-      } else {
-        pendingNotificationChatIdRef.current = chatId;
-      }
-    });
+    const unsubscribe = setupFcmNotificationOpenedHandler(
+      chatId => {
+        if (workspace) {
+          handleOpenChat(chatId);
+        } else {
+          pendingNotificationChatIdRef.current = chatId;
+        }
+      },
+      conferenceId => {
+        if (workspace) {
+          handleOpenConference(conferenceId);
+        } else {
+          pendingNotificationConferenceIdRef.current = conferenceId;
+        }
+      },
+    );
     return unsubscribe;
     // workspace intentionally omitted — the handler closure reaches it via
     // the pending ref path; re-registering on every workspace change would
     // cause duplicate subscriptions with @react-native-firebase/messaging.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [handleOpenChat]);
-
-  const handleOpenConference = useCallback((conferenceId: string) => {
-    setActiveChatId(null);
-    setActiveConferenceId(conferenceId);
-  }, []);
+  }, [handleOpenChat, handleOpenConference]);
 
   const handleStartConference = useCallback(
     async (conferenceId: string) => {
@@ -1110,10 +1161,23 @@ function App() {
     ) ??
     null;
 
+  const handleAcceptIncomingCall = (conference: VideoConference) => {
+    setActiveChatId(null);
+    setActiveConferenceId(conference.id);
+    setIncomingCall(null);
+  };
+
   return (
     <SafeAreaProvider>
       <SoundPlayer ref={soundPlayerRef} />
       <StatusBar barStyle="light-content" />
+      {session && incomingCall ? (
+        <IncomingCallOverlay
+          conference={incomingCall}
+          onAccept={() => handleAcceptIncomingCall(incomingCall)}
+          onDismiss={() => setIncomingCall(null)}
+        />
+      ) : null}
       {!appReady ? (
         <View style={styles.loadingScreen}>
           <ActivityIndicator size="large" color={androidTheme.colors.blue} />
@@ -1217,6 +1281,120 @@ function App() {
     </SafeAreaProvider>
   );
 }
+
+type IncomingCallOverlayProps = {
+  conference: VideoConference;
+  onAccept: () => void;
+  onDismiss: () => void;
+};
+
+function IncomingCallOverlay({
+  conference,
+  onAccept,
+  onDismiss,
+}: IncomingCallOverlayProps) {
+  const {t} = useI18n();
+  const dismissRef = useRef(onDismiss);
+  dismissRef.current = onDismiss;
+
+  // Auto-dismiss the ring after 45s so a missed/cancelled call does not linger.
+  useEffect(() => {
+    const timer = setTimeout(() => dismissRef.current(), 45_000);
+    return () => clearTimeout(timer);
+  }, [conference.id]);
+
+  return (
+    <Modal transparent animationType="fade" onRequestClose={onDismiss}>
+      <View style={incomingCallStyles.backdrop}>
+        <View style={incomingCallStyles.card}>
+          <Text style={incomingCallStyles.glyph}>📞</Text>
+          <Text style={incomingCallStyles.eyebrow}>{t('call.incoming')}</Text>
+          <Text style={incomingCallStyles.name} numberOfLines={1}>
+            {conference.createdBy.displayName}
+          </Text>
+          <View style={incomingCallStyles.actions}>
+            <Pressable style={incomingCallStyles.decline} onPress={onDismiss}>
+              <Text style={incomingCallStyles.declineLabel}>{t('call.decline')}</Text>
+            </Pressable>
+            <Pressable style={incomingCallStyles.accept} onPress={onAccept}>
+              <Text style={incomingCallStyles.acceptLabel}>{t('call.accept')}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const incomingCallStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(2, 6, 12, 0.62)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 28,
+  },
+  card: {
+    width: '100%',
+    maxWidth: 360,
+    alignItems: 'center',
+    gap: 8,
+    padding: 26,
+    borderRadius: 28,
+    backgroundColor: androidTheme.colors.surface,
+    borderWidth: 1,
+    borderColor: androidTheme.colors.border,
+    ...androidTheme.shadow,
+  },
+  glyph: {
+    fontSize: 38,
+    marginBottom: 4,
+  },
+  eyebrow: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: androidTheme.colors.textSecondary,
+  },
+  name: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: androidTheme.colors.textPrimary,
+  },
+  actions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 16,
+    alignSelf: 'stretch',
+  },
+  decline: {
+    flex: 1,
+    minHeight: 52,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 92, 92, 0.16)',
+  },
+  declineLabel: {
+    color: '#ff8f8f',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  accept: {
+    flex: 1,
+    minHeight: 52,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#3ecf8e',
+  },
+  acceptLabel: {
+    color: '#06210f',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+});
 
 type WorkspaceRecoveryScreenProps = {
   loading: boolean;

@@ -73,9 +73,22 @@ public class FcmDeliveryService {
      * @return true if delivered, false if the token is permanently invalid and should be removed
      */
     public boolean sendNewMessageNotification(String fcmToken, String chatId, int unreadCount) {
+        return send(buildMessage(fcmToken, chatId, unreadCount), "chatId=" + chatId);
+    }
+
+    /**
+     * Sends an incoming-call push notification to a single FCM token. The data
+     * payload lets the app open the conference when the notification is tapped.
+     *
+     * @return true if delivered, false if the token is permanently invalid and should be removed
+     */
+    public boolean sendIncomingCallNotification(String fcmToken, String conferenceId, String callerName) {
+        return send(buildCallMessage(fcmToken, conferenceId, callerName), "conferenceId=" + conferenceId);
+    }
+
+    private boolean send(ObjectNode message, String logContext) {
         try {
             String accessToken = getAccessToken();
-            ObjectNode message = buildMessage(fcmToken, chatId, unreadCount);
             ObjectNode payload = objectMapper.createObjectNode().set("message", message);
 
             HttpRequest request = HttpRequest.newBuilder(
@@ -107,7 +120,7 @@ public class FcmDeliveryService {
                 if (retryResponse.statusCode() == 200) {
                     return true;
                 }
-                log.warn("FCM send failed after token refresh status={} chatId={}", retryResponse.statusCode(), chatId);
+                log.warn("FCM send failed after token refresh status={} {}", retryResponse.statusCode(), logContext);
                 return true; // don't delete the device token on auth issues
             }
 
@@ -135,18 +148,18 @@ public class FcmDeliveryService {
                 if (retryResponse.statusCode() == 200) {
                     return true;
                 }
-                log.warn("FCM send failed after retry status={} chatId={}", retryResponse.statusCode(), chatId);
+                log.warn("FCM send failed after retry status={} {}", retryResponse.statusCode(), logContext);
                 return true;
             }
 
-            log.warn("FCM send failed status={} chatId={}", response.statusCode(), chatId);
+            log.warn("FCM send failed status={} {}", response.statusCode(), logContext);
             return true;
 
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
             return true;
         } catch (Exception e) {
-            log.warn("FCM send exception chatId={}: {}", chatId, e.getMessage());
+            log.warn("FCM send exception {}: {}", logContext, e.getMessage());
             return true; // don't delete device token on transient errors
         }
     }
@@ -175,6 +188,36 @@ public class FcmDeliveryService {
 
         ObjectNode data = objectMapper.createObjectNode();
         data.put("chatId", chatId);
+        message.set("data", data);
+
+        return message;
+    }
+
+    private ObjectNode buildCallMessage(String fcmToken, String conferenceId, String callerName) {
+        ObjectNode message = objectMapper.createObjectNode();
+        message.put("token", fcmToken);
+
+        ObjectNode notification = objectMapper.createObjectNode();
+        notification.put("title", "Входящий звонок");
+        notification.put("body", callerName);
+        message.set("notification", notification);
+
+        ObjectNode androidNotification = objectMapper.createObjectNode();
+        // Reuse the existing message channel so the notification is guaranteed to
+        // render (a dedicated call channel would need native registration).
+        androidNotification.put("channel_id", "north_messages");
+        androidNotification.put("sound", "default");
+        androidNotification.put("priority", "HIGH");
+
+        ObjectNode android = objectMapper.createObjectNode();
+        android.put("priority", "high");
+        android.set("notification", androidNotification);
+        message.set("android", android);
+
+        ObjectNode data = objectMapper.createObjectNode();
+        data.put("type", "call");
+        data.put("conferenceId", conferenceId);
+        data.put("caller", callerName);
         message.set("data", data);
 
         return message;

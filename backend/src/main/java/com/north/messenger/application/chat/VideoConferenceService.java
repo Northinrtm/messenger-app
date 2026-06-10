@@ -6,6 +6,8 @@ import com.north.messenger.api.dto.ParticipantResponse;
 import com.north.messenger.api.dto.UpdateVideoConferenceRequest;
 import com.north.messenger.api.dto.VideoConferenceResponse;
 import com.north.messenger.application.auth.AuthService;
+import com.north.messenger.application.message.RealtimeMessagingGateway;
+import com.north.messenger.application.push.PushNotificationDeliveryService;
 import com.north.messenger.application.support.ClusterJobLockService;
 import com.north.messenger.domain.model.ChatParticipant;
 import com.north.messenger.domain.model.ChatRoom;
@@ -76,6 +78,8 @@ public class VideoConferenceService {
     private final ConferenceRecordingStorage conferenceRecordingStorage;
     private final ConferenceRecordingImportService conferenceRecordingImportService;
     private final ClusterJobLockService clusterJobLockService;
+    private final RealtimeMessagingGateway realtimeMessagingGateway;
+    private final PushNotificationDeliveryService pushNotificationDeliveryService;
     private final byte[] conferenceAccessSecret;
 
     public VideoConferenceService(
@@ -91,6 +95,8 @@ public class VideoConferenceService {
             ConferenceRecordingStorage conferenceRecordingStorage,
             ConferenceRecordingImportService conferenceRecordingImportService,
             ClusterJobLockService clusterJobLockService,
+            RealtimeMessagingGateway realtimeMessagingGateway,
+            PushNotificationDeliveryService pushNotificationDeliveryService,
             JwtProperties jwtProperties
     ) {
         this.authService = authService;
@@ -105,6 +111,8 @@ public class VideoConferenceService {
         this.conferenceRecordingStorage = conferenceRecordingStorage;
         this.conferenceRecordingImportService = conferenceRecordingImportService;
         this.clusterJobLockService = clusterJobLockService;
+        this.realtimeMessagingGateway = realtimeMessagingGateway;
+        this.pushNotificationDeliveryService = pushNotificationDeliveryService;
         this.conferenceAccessSecret = resolveConferenceAccessSecret(jwtProperties);
     }
 
@@ -201,6 +209,7 @@ public class VideoConferenceService {
 
         UUID targetChatId = request.chatId();
         List<UserAccount> conferenceParticipants;
+        List<UserAccount> directCallees = List.of();
         if (targetChatId != null) {
             ChatRoom room = chatService.requireChatMembership(targetChatId, currentUser);
             if (room.isDirect()) {
@@ -217,6 +226,7 @@ public class VideoConferenceService {
                     .map(authService::requireExistingUser)
                     .toList();
             conferenceParticipants = buildConferenceParticipants(currentUser, invitedUsers);
+            directCallees = invitedUsers;
         }
 
         UUID conferenceId = UUID.randomUUID();
@@ -235,7 +245,28 @@ public class VideoConferenceService {
         );
         videoConferenceRepository.save(conference);
         persistParticipants(conferenceId, conferenceParticipants, now);
-        return buildConferenceResponse(conference, currentUser.getId());
+        VideoConferenceResponse response = buildConferenceResponse(conference, currentUser.getId());
+
+        // Ring the invited people for an instant 1-on-1/direct call. The room is already
+        // activated (scheduledAt is now), so the response's visible room name/code is identical
+        // for every viewer and can be broadcast as-is. Fired after commit so the callee never
+        // receives a call for a conference that failed to persist. Online clients get the realtime
+        // ring; backgrounded/closed devices get an FCM push.
+        if (targetChatId == null && startImmediately && !directCallees.isEmpty()) {
+            List<UserAccount> callees = directCallees;
+            String callerName = currentUser.getDisplayName();
+            String conferenceIdString = conferenceId.toString();
+            registerAfterTransaction(
+                    () -> {
+                        callees.forEach(callee ->
+                                realtimeMessagingGateway.sendToUser(callee.getUsername(), "/queue/calls", response));
+                        pushNotificationDeliveryService.notifyIncomingCall(conferenceIdString, callees, callerName);
+                    },
+                    null
+            );
+        }
+
+        return response;
     }
 
     @Transactional

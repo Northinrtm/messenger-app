@@ -133,9 +133,16 @@ export function setupFcmForegroundHandler(
  */
 export function setupFcmNotificationOpenedHandler(
   onChatOpen: (chatId: string) => void,
+  onCallOpen?: (conferenceId: string) => void,
 ): () => void {
   return messaging().onNotificationOpenedApp(remoteMessage => {
-    const chatId = remoteMessage?.data?.chatId as string | undefined;
+    const data = remoteMessage?.data;
+    const conferenceId = data?.conferenceId as string | undefined;
+    if (data?.type === 'call' && conferenceId) {
+      onCallOpen?.(conferenceId);
+      return;
+    }
+    const chatId = data?.chatId as string | undefined;
     if (chatId) {
       onChatOpen(chatId);
     }
@@ -150,8 +157,29 @@ export function setupFcmNotificationOpenedHandler(
 export async function getInitialNotificationChatId(): Promise<string | null> {
   try {
     const remoteMessage = await messaging().getInitialNotification();
-    const chatId = remoteMessage?.data?.chatId as string | undefined;
+    const data = remoteMessage?.data;
+    if (data?.type === 'call') {
+      return null;
+    }
+    const chatId = data?.chatId as string | undefined;
     return chatId ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Returns the conferenceId from an incoming-call FCM notification that launched
+ * the app from a **killed** state, or null otherwise. Called once at startup.
+ */
+export async function getInitialNotificationConferenceId(): Promise<string | null> {
+  try {
+    const remoteMessage = await messaging().getInitialNotification();
+    const data = remoteMessage?.data;
+    if (data?.type === 'call') {
+      return (data.conferenceId as string | undefined) ?? null;
+    }
+    return null;
   } catch {
     return null;
   }

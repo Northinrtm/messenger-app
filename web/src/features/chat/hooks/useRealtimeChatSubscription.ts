@@ -13,6 +13,7 @@ import type {
   SessionEvent,
   TypingEvent,
   UserProfile,
+  VideoConference,
 } from "../../../lib/types";
 import {
   buildMessagesQueryKey,
@@ -48,6 +49,7 @@ type UseRealtimeChatSubscriptionOptions = {
   isRealtimeConnected: boolean;
   normalizeIncomingMessage: (message: ChatMessage) => ChatMessage;
   onConnectionChange: (connected: boolean) => void;
+  onIncomingCall: (conference: VideoConference) => void;
   onUnauthorized: () => void;
   queryClient: QueryClient;
   refreshChatPreviewFromServer: (chatId: string) => Promise<unknown> | void;
@@ -120,6 +122,7 @@ export function useRealtimeChatSubscription({
   isRealtimeConnected,
   normalizeIncomingMessage,
   onConnectionChange,
+  onIncomingCall,
   onUnauthorized,
   queryClient,
   refreshChatPreviewFromServer,
@@ -229,6 +232,10 @@ export function useRealtimeChatSubscription({
     if (event.type === "SESSION_REVOKED" && event.sessionId === currentSessionId) {
       onUnauthorized();
     }
+  });
+
+  const handleRealtimeIncomingCall = useEffectEvent((conference: VideoConference) => {
+    onIncomingCall(conference);
   });
 
   const handleRealtimeConnect = useEffectEvent(() => {
@@ -356,6 +363,7 @@ export function useRealtimeChatSubscription({
       onMessageReaction: handleRealtimeMessageReaction,
       onMessageStatus: handleRealtimeMessageStatus,
       onSessionEvent: handleRealtimeSession,
+      onIncomingCall: handleRealtimeIncomingCall,
       onTyping: handleRealtimeTyping,
     });
   }, [currentUser.id, onConnectionChange, sessionToken]);

@@ -24,10 +24,32 @@ function play() {
     setTimeout(function(){ ctx.close(); }, 700);
   } catch(e) {}
 }
+function ring() {
+  try {
+    var C = window.AudioContext || window.webkitAudioContext;
+    if (!C) return;
+    var ctx = new C();
+    function note(f, s, d, v) {
+      var o = ctx.createOscillator(), g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0, s);
+      g.gain.linearRampToValueAtTime(v, s + 0.02);
+      g.gain.setValueAtTime(v, s + d - 0.05);
+      g.gain.linearRampToValueAtTime(0, s + d);
+      o.start(s); o.stop(s + d);
+    }
+    var t = ctx.currentTime;
+    note(480, t, 0.4, 0.3);
+    note(620, t + 0.45, 0.4, 0.26);
+    setTimeout(function(){ ctx.close(); }, 1100);
+  } catch(e) {}
+}
 </script></head><body style="margin:0;padding:0;background:transparent"></body></html>`;
 
 export type SoundPlayerHandle = {
   playIcq: () => void;
+  playRing: () => void;
 };
 
 export const SoundPlayer = forwardRef<SoundPlayerHandle>(
@@ -37,6 +59,9 @@ export const SoundPlayer = forwardRef<SoundPlayerHandle>(
     useImperativeHandle(ref, () => ({
       playIcq() {
         webRef.current?.injectJavaScript('play(); true;');
+      },
+      playRing() {
+        webRef.current?.injectJavaScript('ring(); true;');
       },
     }));
 

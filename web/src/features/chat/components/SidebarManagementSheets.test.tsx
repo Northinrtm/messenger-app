@@ -158,6 +158,7 @@ function buildProps(
     onAddContact: noop,
     onRemoveContact: noop,
     onCreateChat: noop,
+    onStartCall: noop,
     onRevokeSession: noop,
     formatProfileDate: (value) => value,
     formatSessionTime: (value) => value,

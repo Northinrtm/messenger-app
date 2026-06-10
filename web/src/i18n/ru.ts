@@ -405,6 +405,10 @@ export const ru = {
   "sheet.usersNotFound": "Пользователи не найдены.",
   "sheet.noContacts": "Контактов пока нет.",
   "sheet.delete": "Удалить",
+  "sheet.call": "Позвонить",
+  "call.incoming": "Входящий звонок",
+  "call.accept": "Принять",
+  "call.decline": "Отклонить",
   "sheet.activeSessions": "Активные сессии",
   "sheet.loginSessions": "Сессии входа",
   "sheet.sessionsHeaderDesc":

@@ -84,7 +84,7 @@ textarea::placeholder {
 
 .auth-shell {
   display: grid;
-  place-items: center start;
+  place-items: center;
   align-content: center;
   min-height: 100vh;
   min-height: 100svh;
@@ -6156,5 +6156,112 @@ body.is-resizing-chat-layout {
 .north-workspace .north-conversation > .mail-message-view,
 .north-workspace .north-conversation > .mail-compose-view {
   grid-row: 1 / -1;
+}
+
+/* Incoming call ring */
+.incoming-call-overlay {
+  position: fixed;
+  top: 1.4rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 120;
+  width: min(92vw, 28rem);
+  pointer-events: none;
+}
+
+.incoming-call-card {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.85rem 1rem;
+  border-radius: 1.25rem;
+  background: linear-gradient(180deg, rgba(14, 22, 36, 0.97), rgba(12, 18, 31, 0.93));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(20px);
+  animation: incoming-call-in 0.28s ease;
+}
+
+@keyframes incoming-call-in {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.incoming-call-glyph {
+  flex-shrink: 0;
+  font-size: 1.45rem;
+  width: 2.75rem;
+  height: 2.75rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(78, 161, 255, 0.18);
+  animation: incoming-call-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes incoming-call-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(78, 161, 255, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 0.55rem rgba(78, 161, 255, 0);
+  }
+}
+
+.incoming-call-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.incoming-call-eyebrow {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(245, 239, 231, 0.6);
+}
+
+.incoming-call-name {
+  font-size: 1.05rem;
+  color: #f5efe7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.incoming-call-actions {
+  flex-shrink: 0;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.incoming-call-accept,
+.incoming-call-decline {
+  border: none;
+  cursor: pointer;
+  border-radius: 999px;
+  padding: 0.55rem 1.05rem;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.incoming-call-accept {
+  background: #3ecf8e;
+  color: #06210f;
+}
+
+.incoming-call-decline {
+  background: rgba(255, 92, 92, 0.16);
+  color: #ff8f8f;
 }
 

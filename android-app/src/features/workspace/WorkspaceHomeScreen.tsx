@@ -1142,6 +1142,17 @@ export function WorkspaceHomeScreen({
                     profile={profile}
                     actions={[
                       {
+                        label: '📞',
+                        onPress: () => {
+                          onStartNewConference(
+                            t('ws.callWith', {name: profile.displayName}),
+                            [profile.username],
+                          ).catch(() => undefined);
+                        },
+                        testID: `call-contact-${profile.username}`,
+                        tone: 'primary',
+                      },
+                      {
                         label: t('ws.action.write'),
                         pending: Boolean(
                           pendingUserActions[
@@ -1152,7 +1163,6 @@ export function WorkspaceHomeScreen({
                           handleStartChat(profile.username).catch(() => undefined);
                         },
                         testID: `message-contact-${profile.username}`,
-                        tone: 'primary',
                       },
                       {
                         label: t('ws.action.remove'),

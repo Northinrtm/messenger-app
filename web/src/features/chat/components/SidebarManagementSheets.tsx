@@ -140,6 +140,7 @@ type Props = {
   onAddContact: (user: UserProfile) => void;
   onRemoveContact: (username: string) => void;
   onCreateChat: (username: string) => void;
+  onStartCall: (username: string, displayName: string) => void;
   onRevokeSession: (sessionId: string) => void;
   formatProfileDate: (value: string) => string;
   formatSessionTime: (value: string) => string;
@@ -259,6 +260,7 @@ export function SidebarManagementSheets({
   onAddContact,
   onRemoveContact,
   onCreateChat,
+  onStartCall,
   onRevokeSession,
   formatProfileDate,
   formatSessionTime,
@@ -1184,6 +1186,15 @@ export function SidebarManagementSheets({
                   <span>@{contact.username}</span>
                 </div>
                 <div className="sheet-row-actions">
+                  <button
+                    type="button"
+                    className="ghost-button compact icon-only"
+                    aria-label={t("sheet.call")}
+                    title={t("sheet.call")}
+                    onClick={() => onStartCall(contact.username, contact.displayName)}
+                  >
+                    <span aria-hidden="true">📞</span>
+                  </button>
                   <button
                     type="button"
                     className="ghost-button compact"

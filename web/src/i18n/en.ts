@@ -386,6 +386,10 @@ export const en: Record<TranslationKey, TranslationValue> = {
   "sheet.usersNotFound": "No users found.",
   "sheet.noContacts": "No contacts yet.",
   "sheet.delete": "Delete",
+  "sheet.call": "Call",
+  "call.incoming": "Incoming call",
+  "call.accept": "Accept",
+  "call.decline": "Decline",
   "sheet.activeSessions": "Active sessions",
   "sheet.loginSessions": "Login sessions",
   "sheet.sessionsHeaderDesc":

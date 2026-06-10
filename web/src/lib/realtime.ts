@@ -20,6 +20,7 @@ import type {
   MessageStatusEvent,
   SessionEvent,
   TypingEvent,
+  VideoConference,
 } from "./types";
 
 type SubscriptionOptions = {
@@ -33,6 +34,7 @@ type SubscriptionOptions = {
   onMessageReaction?: (event: MessageReactionEvent) => void;
   onMessageStatus?: (event: MessageStatusEvent) => void;
   onSessionEvent: (event: SessionEvent) => void;
+  onIncomingCall?: (conference: VideoConference) => void;
   onTyping?: (event: TypingEvent) => void;
   onAuthFailure?: () => void;
   onConnect?: () => void;
@@ -51,6 +53,7 @@ type RealtimeConnection = {
   onMessageReaction?: (event: MessageReactionEvent) => void;
   onMessageStatus?: (event: MessageStatusEvent) => void;
   onSessionEvent: (event: SessionEvent) => void;
+  onIncomingCall?: (conference: VideoConference) => void;
   onTyping?: (event: TypingEvent) => void;
   onAuthFailure?: () => void;
   typingSubscriptions: Map<string, StompSubscription>;
@@ -99,6 +102,7 @@ export function subscribeToChats({
   onMessageReaction,
   onMessageStatus,
   onSessionEvent,
+  onIncomingCall,
   onTyping,
   onAuthFailure,
   onConnect,
@@ -121,6 +125,7 @@ export function subscribeToChats({
     onMessageReaction,
     onMessageStatus,
     onSessionEvent,
+    onIncomingCall,
     onTyping,
     onAuthFailure,
     typingSubscriptions: new Map(),
@@ -229,6 +234,14 @@ export function subscribeToChats({
         connection.onSessionEvent(JSON.parse(frame.body) as SessionEvent);
       })
     );
+
+    if (connection.onIncomingCall) {
+      connection.userSubscriptions.push(
+        client.subscribe("/user/queue/calls", (frame) => {
+          connection.onIncomingCall?.(JSON.parse(frame.body) as VideoConference);
+        })
+      );
+    }
 
     syncTypingSubscriptions(connection);
     connection.onConnect?.();
