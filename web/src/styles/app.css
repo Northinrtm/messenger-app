@@ -2,9 +2,9 @@
   color-scheme: dark;
   font-family: "Space Grotesk", "Segoe UI", sans-serif;
   background:
-    radial-gradient(circle at top left, rgba(244, 146, 86, 0.16), transparent 24%),
-    radial-gradient(circle at top right, rgba(88, 130, 222, 0.12), transparent 22%),
-    radial-gradient(circle at bottom center, rgba(240, 116, 84, 0.08), transparent 28%),
+    radial-gradient(circle at top left, rgba(124, 92, 255, 0.18), transparent 26%),
+    radial-gradient(circle at top right, rgba(56, 189, 248, 0.14), transparent 24%),
+    radial-gradient(circle at bottom center, rgba(80, 120, 255, 0.1), transparent 30%),
     linear-gradient(160deg, #07101a 0%, #0b1220 48%, #0d1523 100%);
   color: #f5efe7;
   line-height: 1.45;
@@ -43,7 +43,7 @@ textarea::placeholder {
 }
 
 ::selection {
-  background: rgba(244, 146, 86, 0.24);
+  background: rgba(91, 140, 255, 0.24);
   color: #ffffff;
 }
 
@@ -51,6 +51,11 @@ textarea::placeholder {
   position: relative;
   min-height: 100vh;
   overflow: hidden;
+  background:
+    radial-gradient(52rem 44rem at 14% 8%, rgba(124, 92, 255, 0.16), transparent 58%),
+    radial-gradient(46rem 40rem at 90% 26%, rgba(56, 189, 248, 0.12), transparent 58%),
+    radial-gradient(46rem 40rem at 84% 94%, rgba(78, 120, 255, 0.12), transparent 60%),
+    radial-gradient(36rem 32rem at 2% 90%, rgba(196, 84, 224, 0.1), transparent 58%);
 }
 
 .ambient {
@@ -67,13 +72,13 @@ textarea::placeholder {
 .ambient-left {
   top: -10rem;
   left: -10rem;
-  background: rgba(255, 129, 67, 0.34);
+  background: rgba(130, 96, 255, 0.32);
 }
 
 .ambient-right {
   right: -12rem;
   bottom: -12rem;
-  background: rgba(70, 119, 224, 0.24);
+  background: rgba(56, 189, 248, 0.22);
 }
 
 .auth-shell,
@@ -236,7 +241,7 @@ textarea::placeholder {
   letter-spacing: 0.28em;
   text-transform: uppercase;
   font-size: 0.72rem;
-  color: #e7ab73;
+  color: #86a2dd;
 }
 
 .auth-card .eyebrow {
@@ -387,10 +392,10 @@ textarea::placeholder {
 }
 
 .secondary-button {
-  background: linear-gradient(135deg, #f09556, #f36e42);
+  background: linear-gradient(135deg, #8b5cf6, #6366f1);
   color: #180f0c;
   font-weight: 600;
-  box-shadow: 0 10px 24px rgba(233, 118, 67, 0.24);
+  box-shadow: 0 10px 24px rgba(123, 92, 246, 0.28);
 }
 
 .primary-button {
@@ -520,8 +525,8 @@ textarea {
 input:focus,
 select:focus,
 textarea:focus {
-  border-color: rgba(244, 146, 86, 0.42);
-  box-shadow: 0 0 0 4px rgba(244, 146, 86, 0.1);
+  border-color: rgba(91, 140, 255, 0.42);
+  box-shadow: 0 0 0 4px rgba(91, 140, 255, 0.1);
   background: rgba(255, 255, 255, 0.05);
 }
 
@@ -617,7 +622,7 @@ input[type="time"] {
   position: absolute;
   inset: 0 0 auto 0;
   height: 12rem;
-  background: linear-gradient(180deg, rgba(244, 146, 86, 0.08), transparent);
+  background: linear-gradient(180deg, rgba(91, 140, 255, 0.08), transparent);
   pointer-events: none;
 }
 
@@ -937,7 +942,7 @@ input[type="time"] {
   display: grid;
   place-items: center;
   border-radius: 1rem;
-  background: linear-gradient(135deg, #ec9d63, #d96c49);
+  background: linear-gradient(135deg, #5b8cff, #8b5cf6);
   color: #180f0b;
   font-weight: 700;
 }
@@ -1660,7 +1665,7 @@ input[type="time"] {
   height: 100svh;
   margin: 0;
   padding: 0;
-  background: #0e1621;
+  background: #0c1122;
 }
 
 .north-workspace .north-sidebar,
@@ -1678,7 +1683,7 @@ input[type="time"] {
   height: 100%;
   padding: 0;
   overflow: hidden;
-  background: #17212b;
+  background: #161d30;
 }
 
 .north-workspace .north-sidebar::before {
@@ -1738,7 +1743,7 @@ input[type="time"] {
   gap: 0.9rem;
   align-items: center;
   padding: 1rem;
-  background: #17212b;
+  background: #161d30;
 }
 
 .north-search-shell {
@@ -1806,7 +1811,7 @@ input[type="time"] {
   display: flex;
   gap: 0.45rem;
   padding: 0 1rem 0.65rem;
-  background: #17212b;
+  background: #161d30;
   overflow-x: auto;
 }
 
@@ -1858,7 +1863,7 @@ input[type="time"] {
   height: 0.48rem;
   border-radius: 999px;
   background: #ff8d5d;
-  box-shadow: 0 0 0 2px #17212b;
+  box-shadow: 0 0 0 2px #161d30;
 }
 
 .conversation-list-tab.is-active {
@@ -1926,7 +1931,7 @@ input[type="time"] {
   display: grid;
   gap: 0.85rem;
   padding: 0 1rem 0.9rem;
-  background: #17212b;
+  background: #161d30;
 }
 
 .conference-browser-head {
@@ -2021,7 +2026,7 @@ input[type="time"] {
   min-height: 0;
   grid-row: 3;
   padding: 0 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
-  background: #17212b;
+  background: #161d30;
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -2876,7 +2881,7 @@ input[type="time"] {
   gap: 0;
   padding: 0.3rem 0;
   overflow: auto;
-  background: #17212b;
+  background: #161d30;
   align-content: start;
   grid-auto-rows: max-content;
 }
@@ -2889,7 +2894,7 @@ input[type="time"] {
 .north-sidebar-conference-dock {
   padding: 0.75rem 0.8rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid rgba(255, 255, 255, 0.06);
-  background: #17212b;
+  background: #161d30;
 }
 
 .north-workspace .north-chat-tile {
@@ -2997,7 +3002,7 @@ input[type="time"] {
   color: #8ec5ff;
   font-size: 0.55rem;
   font-weight: 700;
-  box-shadow: 0 0 0 2px #17212b;
+  box-shadow: 0 0 0 2px #161d30;
 }
 
 .avatar-activity-badge {
@@ -3014,7 +3019,7 @@ input[type="time"] {
   color: #9fd7ff;
   font-size: 0;
   line-height: 1;
-  box-shadow: 0 0 0 2px #17212b;
+  box-shadow: 0 0 0 2px #161d30;
   z-index: 1;
 }
 
@@ -3031,7 +3036,7 @@ input[type="time"] {
   height: 0.9rem;
   border-radius: 50%;
   background: #61d26f;
-  box-shadow: 0 0 0 2px #17212b;
+  box-shadow: 0 0 0 2px #161d30;
   z-index: 1;
 }
 
@@ -3141,7 +3146,7 @@ input[type="time"] {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   overflow: auto;
-  background: #17212b;
+  background: #161d30;
   box-shadow: 18px 0 42px rgba(0, 0, 0, 0.35);
   animation: north-menu-in 180ms ease;
 }
@@ -3266,13 +3271,18 @@ input[type="time"] {
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   padding: 0;
   overflow: hidden;
-  background: #0e1621;
+  background:
+    radial-gradient(58rem 50rem at 22% 2%, rgba(124, 92, 255, 0.2), transparent 55%),
+    radial-gradient(54rem 48rem at 98% 32%, rgba(56, 189, 248, 0.14), transparent 55%),
+    radial-gradient(52rem 46rem at 88% 100%, rgba(78, 120, 255, 0.15), transparent 58%),
+    radial-gradient(42rem 38rem at 0% 96%, rgba(196, 84, 224, 0.11), transparent 55%),
+    #0c1122;
 }
 
 .north-conversation-header {
   grid-row: 1;
   padding: 0.7rem 1.2rem;
-  background: #17212b;
+  background: #161d30;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
@@ -4278,7 +4288,7 @@ input[type="time"] {
   gap: 0.9rem;
   padding: 1.4rem 1.25rem 1.2rem;
   border-radius: 1.25rem;
-  background: #17212b;
+  background: #161d30;
   border: 1px solid rgba(226, 239, 251, 0.08);
   box-shadow: 0 24px 56px rgba(0, 0, 0, 0.34);
   text-align: center;
@@ -5539,12 +5549,12 @@ input[type="time"] {
 .conference-device-select {
   min-height: 3rem;
   padding: 0.8rem 0.95rem;
-  background: #17212b;
+  background: #161d30;
   color: #f4fbff;
 }
 
 .conference-device-select option {
-  background: #17212b;
+  background: #161d30;
   color: #f4fbff;
 }
 
@@ -5595,7 +5605,7 @@ input[type="time"] {
   grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
   padding: 0.9rem 1.25rem 1rem;
-  background: #17212b;
+  background: #161d30;
   border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
