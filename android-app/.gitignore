@@ -35,6 +35,9 @@ local.properties
 !debug.keystore
 .kotlin/
 
+# Firebase config (real values are local; commit only google-services.json.example)
+android/app/google-services.json
+
 # node.js
 #
 node_modules/
