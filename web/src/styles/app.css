@@ -86,10 +86,75 @@ textarea::placeholder {
   display: grid;
   place-items: center;
   align-content: center;
+  row-gap: 1.75rem;
   min-height: 100vh;
   min-height: 100svh;
   padding: 2rem;
   overflow-y: auto;
+  background:
+    radial-gradient(46rem 40rem at 13% 16%, rgba(124, 92, 255, 0.22), transparent 70%),
+    radial-gradient(42rem 38rem at 90% 40%, rgba(56, 189, 248, 0.18), transparent 70%),
+    radial-gradient(40rem 36rem at 82% 88%, rgba(78, 120, 255, 0.18), transparent 70%),
+    radial-gradient(34rem 30rem at 6% 84%, rgba(196, 84, 224, 0.14), transparent 70%),
+    radial-gradient(64rem 52rem at 50% 50%, rgba(40, 72, 150, 0.12), transparent 75%),
+    #070b16;
+}
+
+.auth-waves {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.auth-card {
+  position: relative;
+  z-index: 1;
+}
+
+.auth-pillars {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: stretch;
+  max-width: 56rem;
+}
+
+.auth-pillar {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.2rem 1.6rem;
+  border-left: 1px solid rgba(139, 208, 255, 0.16);
+}
+
+.auth-pillar:first-child {
+  border-left: none;
+}
+
+.auth-pillar svg {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  color: #5cd2ff;
+}
+
+.auth-pillar-label {
+  font-size: 0.72rem;
+  line-height: 1.25;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #c7d8ef;
+}
+
+@media (max-width: 640px) {
+  .auth-pillars {
+    display: none;
+  }
 }
 
 .unlock-overlay {
@@ -135,11 +200,10 @@ textarea::placeholder {
 }
 
 .auth-brand-mark {
-  width: 4.25rem;
-  height: 4.25rem;
+  width: 5rem;
+  height: 5rem;
   display: block;
-  margin-bottom: 0.85rem;
-  filter: drop-shadow(0 14px 24px rgba(31, 74, 160, 0.18));
+  margin: 0 auto 0.7rem;
 }
 
 .unlock-card.is-overlay {
@@ -175,10 +239,16 @@ textarea::placeholder {
   color: #e7ab73;
 }
 
+.auth-card .eyebrow {
+  color: #d8e2f5;
+  text-align: center;
+}
+
 .auth-tagline {
   margin-top: 0.3rem;
   font-size: 0.92rem;
   color: #9fb0c9;
+  text-align: center;
 }
 
 .auth-card h1,
@@ -311,9 +381,9 @@ textarea::placeholder {
 }
 
 .mode-button.is-active {
-  background: linear-gradient(135deg, rgba(244, 146, 86, 0.92), rgba(239, 104, 72, 0.9));
-  color: #170f0b;
-  box-shadow: 0 10px 24px rgba(239, 104, 72, 0.22);
+  background: linear-gradient(135deg, #5b8cff, #8b5cf6);
+  color: #ffffff;
+  box-shadow: 0 10px 24px rgba(91, 140, 255, 0.3);
 }
 
 .secondary-button {

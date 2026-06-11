@@ -109,6 +109,10 @@ export const en: Record<TranslationKey, TranslationValue> = {
 
   "auth.brand": "Akatosfera AI",
   "auth.tagline": "Chat and AI services",
+  "auth.pillar.people": "People",
+  "auth.pillar.ai": "AI technology",
+  "auth.pillar.services": "Services & products",
+  "auth.pillar.startups": "Startups & investment",
   "auth.tab.register": "Sign up",
   "auth.tab.login": "Sign in",
   "auth.field.username": "Username",

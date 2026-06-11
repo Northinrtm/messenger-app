@@ -114,6 +114,10 @@ export const ru = {
   // Auth screen — UI.
   "auth.brand": "Акатосфера ИИ",
   "auth.tagline": "Чат для общения и ИИ сервисы",
+  "auth.pillar.people": "Люди",
+  "auth.pillar.ai": "ИИ технологии",
+  "auth.pillar.services": "Сервисы и продукты",
+  "auth.pillar.startups": "Стартапы инвестиции",
   "auth.tab.register": "Регистрация",
   "auth.tab.login": "Войти",
   "auth.field.username": "Юзернейм",

@@ -429,8 +429,33 @@ export function AuthCard({
 
   return (
     <main className="auth-shell">
+      <svg
+        className="auth-waves"
+        viewBox="0 0 1440 900"
+        preserveAspectRatio="xMidYMid slice"
+        fill="none"
+        aria-hidden="true"
+      >
+        <defs>
+          <linearGradient id="auth-wave-l" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stopColor="#c64fe0" stopOpacity="0" />
+            <stop offset="0.5" stopColor="#b15cf0" stopOpacity="0.65" />
+            <stop offset="1" stopColor="#7c5cff" stopOpacity="0" />
+          </linearGradient>
+          <linearGradient id="auth-wave-r" x1="1" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#38bdf8" stopOpacity="0" />
+            <stop offset="0.5" stopColor="#5ad1ff" stopOpacity="0.65" />
+            <stop offset="1" stopColor="#5b8cff" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d="M-80 140 C 260 320 180 560 520 780" stroke="url(#auth-wave-l)" strokeWidth="2" />
+        <path d="M-60 230 C 240 420 160 650 470 900" stroke="url(#auth-wave-l)" strokeWidth="1.4" opacity="0.7" />
+        <path d="M1520 200 C 1160 360 1280 600 980 840" stroke="url(#auth-wave-r)" strokeWidth="2" />
+        <path d="M1540 320 C 1200 460 1320 700 1040 900" stroke="url(#auth-wave-r)" strokeWidth="1.4" opacity="0.7" />
+        <path d="M1500 120 C 1220 280 1340 520 1080 760" stroke="url(#auth-wave-r)" strokeWidth="1" opacity="0.5" />
+      </svg>
       <section className="auth-card">
-        <img className="auth-brand-mark" src="/logo-mark.png?v=20260610a" alt={t("auth.brand")} />
+        <img className="auth-brand-mark" src="/logo-glow.png?v=20260611a" alt={t("auth.brand")} />
         <div className="eyebrow">{t("auth.brand")}</div>
         <div className="auth-tagline">{t("auth.tagline")}</div>
         {!isAuthMode ? (
@@ -785,6 +810,40 @@ export function AuthCard({
           ) : null}
         </form>
       </section>
+      <div className="auth-pillars">
+        <div className="auth-pillar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="9" cy="8" r="3" />
+            <path d="M3.5 19c0-3 2.6-4.8 5.5-4.8s5.5 1.8 5.5 4.8" />
+            <path d="M16.6 6.2a2.6 2.6 0 0 1 0 5" />
+            <path d="M17 14.4c2.4.3 4 2 4 4.6" />
+          </svg>
+          <span className="auth-pillar-label">{t("auth.pillar.people")}</span>
+        </div>
+        <div className="auth-pillar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 5.2a2.6 2.6 0 0 0-4.5 1.5 2.4 2.4 0 0 0-1.9 2.6 2.4 2.4 0 0 0 .7 1.6 2.4 2.4 0 0 0 .5 3.1 2.4 2.4 0 0 0 2.6 1.8c.5.7 1.3 1.1 2.1 1.1" />
+            <path d="M12 5.2a2.6 2.6 0 0 1 4.5 1.5 2.4 2.4 0 0 1 1.9 2.6 2.4 2.4 0 0 1-.7 1.6 2.4 2.4 0 0 1-.5 3.1 2.4 2.4 0 0 1-2.6 1.8c-.5.7-1.3 1.1-2.1 1.1" />
+            <path d="M12 5.2V17" />
+          </svg>
+          <span className="auth-pillar-label">{t("auth.pillar.ai")}</span>
+        </div>
+        <div className="auth-pillar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 2.5l8.5 4.8v9.4L12 21.5 3.5 16.7V7.3z" />
+            <path d="M3.7 7.2 12 12l8.3-4.8M12 12v9.3" />
+          </svg>
+          <span className="auth-pillar-label">{t("auth.pillar.services")}</span>
+        </div>
+        <div className="auth-pillar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 2.5c3.2 2.2 4.8 5.6 4.8 9.4l-2.4 2.6H9.6L7.2 11.9C7.2 8.1 8.8 4.7 12 2.5z" />
+            <circle cx="12" cy="9.4" r="1.6" />
+            <path d="M9.4 15.6l-2 4.1M14.6 15.6l2 4.1M12 14.6v4" />
+          </svg>
+          <span className="auth-pillar-label">{t("auth.pillar.startups")}</span>
+        </div>
+      </div>
     </main>
   );
 }
