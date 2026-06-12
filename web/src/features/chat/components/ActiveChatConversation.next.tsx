@@ -1151,65 +1151,7 @@ const ConversationComposer = memo(function ConversationComposer({
             event.currentTarget.value = '';
           }}
         />
-        <div className="composer-action-stack">
-          <button
-            type="button"
-            className={
-              voiceRecordingState === "idle"
-                ? "ghost-button compact composer-voice-button"
-                : "ghost-button compact composer-voice-button is-recording"
-            }
-            onClick={() => void startVoiceRecording()}
-            disabled={
-              composerUnavailable ||
-              Boolean(editingMessage) ||
-              isSubmittingComposer ||
-              voiceRecordingState === "stopping"
-            }
-            title={
-              voiceRecordingState === "idle"
-                ? COMPOSER_COPY.startVoiceRecording
-                : COMPOSER_COPY.stopVoiceRecording
-            }
-            aria-label={
-              voiceRecordingState === "idle"
-                ? COMPOSER_COPY.startVoiceRecording
-                : COMPOSER_COPY.stopVoiceRecording
-            }
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path
-                d="M12 4.5a2.8 2.8 0 0 1 2.8 2.8v5.2a2.8 2.8 0 1 1-5.6 0V7.3A2.8 2.8 0 0 1 12 4.5Z"
-                fill="none"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="1.8"
-              />
-              <path
-                d="M6.8 11.8a5.2 5.2 0 0 0 10.4 0"
-                fill="none"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="1.8"
-              />
-              <path
-                d="M12 17v3.2"
-                fill="none"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeWidth="1.8"
-              />
-              <path
-                d="M9.3 20.2h5.4"
-                fill="none"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeWidth="1.8"
-              />
-            </svg>
-          </button>
+        <div className="composer-field">
           <button
             type="button"
             className="ghost-button compact composer-attachment-button"
@@ -1236,7 +1178,6 @@ const ConversationComposer = memo(function ConversationComposer({
               />
             </svg>
           </button>
-        </div>
         <div className="composer-textarea-shell">
           <textarea
             ref={composerTextareaRef}
@@ -1336,13 +1277,72 @@ const ConversationComposer = memo(function ConversationComposer({
             </div>
           ) : null}
         </div>
+          <button
+            type="button"
+            className={
+              voiceRecordingState === "idle"
+                ? "ghost-button compact composer-voice-button"
+                : "ghost-button compact composer-voice-button is-recording"
+            }
+            onClick={() => void startVoiceRecording()}
+            disabled={
+              composerUnavailable ||
+              Boolean(editingMessage) ||
+              isSubmittingComposer ||
+              voiceRecordingState === "stopping"
+            }
+            title={
+              voiceRecordingState === "idle"
+                ? COMPOSER_COPY.startVoiceRecording
+                : COMPOSER_COPY.stopVoiceRecording
+            }
+            aria-label={
+              voiceRecordingState === "idle"
+                ? COMPOSER_COPY.startVoiceRecording
+                : COMPOSER_COPY.stopVoiceRecording
+            }
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path
+                d="M12 4.5a2.8 2.8 0 0 1 2.8 2.8v5.2a2.8 2.8 0 1 1-5.6 0V7.3A2.8 2.8 0 0 1 12 4.5Z"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.8"
+              />
+              <path
+                d="M6.8 11.8a5.2 5.2 0 0 0 10.4 0"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.8"
+              />
+              <path
+                d="M12 17v3.2"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeWidth="1.8"
+              />
+              <path
+                d="M9.3 20.2h5.4"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeWidth="1.8"
+              />
+            </svg>
+          </button>
+        </div>
         <button
           type="submit"
           className="primary-button north-send-button"
           disabled={!canSubmitComposer}
           onMouseDown={(event) => event.preventDefault()}
         >
-          {editingMessage ? COMPOSER_COPY.submitEditGlyph : '>'}
+          {editingMessage ? COMPOSER_COPY.submitEditGlyph : '↑'}
         </button>
       </div>
     </form>
