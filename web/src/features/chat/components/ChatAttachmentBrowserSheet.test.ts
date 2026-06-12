@@ -18,7 +18,8 @@ describe("buildAttachmentMessageJumpCursor", () => {
 
 describe("clampPhotoViewerZoom", () => {
   it("keeps zoom inside the supported range", () => {
-    expect(clampPhotoViewerZoom(0.5)).toBe(1);
+    expect(clampPhotoViewerZoom(0.25)).toBe(0.5);
+    expect(clampPhotoViewerZoom(0.5)).toBe(0.5);
     expect(clampPhotoViewerZoom(1.75)).toBe(1.75);
     expect(clampPhotoViewerZoom(5)).toBe(4);
   });
