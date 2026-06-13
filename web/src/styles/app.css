@@ -1723,8 +1723,8 @@ input[type="time"] {
 }
 
 .north-workspace .ghost-button {
-  background: #243344;
-  border: 0;
+  background: rgba(86, 120, 190, 0.16);
+  border: 1px solid rgba(134, 162, 221, 0.18);
   color: #deebf6;
 }
 
@@ -1798,16 +1798,16 @@ input[type="time"] {
 
 .north-search {
   width: 100%;
-  border: 0;
+  border: 1px solid rgba(134, 162, 221, 0.16);
   border-radius: 999px;
   padding: 0.95rem 1.2rem;
-  background: #242f3d;
+  background: rgba(86, 120, 190, 0.14);
   color: #e6f2fb;
   box-shadow: none;
 }
 
 .north-search:focus {
-  background: #2a3747;
+  background: rgba(86, 120, 190, 0.22);
   box-shadow: inset 0 0 0 1px rgba(107, 170, 235, 0.24);
 }
 
@@ -1826,10 +1826,10 @@ input[type="time"] {
   justify-content: center;
   flex: 0 0 auto;
   padding: 0.55rem 0.8rem;
-  border: 0;
+  border: 1px solid rgba(134, 162, 221, 0.16);
   border-radius: 999px;
-  background: #1f2c39;
-  color: #8aa0b6;
+  background: rgba(86, 120, 190, 0.12);
+  color: rgba(245, 239, 231, 0.6);
   font-size: 0.82rem;
   font-weight: 600;
   white-space: nowrap;
@@ -1871,7 +1871,8 @@ input[type="time"] {
 }
 
 .conversation-list-tab.is-active {
-  background: #2b5278;
+  background: linear-gradient(135deg, #5b8cff, #8b5cf6);
+  border-color: transparent;
   color: #f4fbff;
 }
 
@@ -2842,7 +2843,7 @@ input[type="time"] {
 }
 
 .invite-link-input::placeholder {
-  color: #71879d;
+  color: rgba(245, 239, 231, 0.32);
 }
 
 .sheet-chip-list {
@@ -3324,8 +3325,9 @@ input[type="time"] {
   display: grid;
   place-items: center;
   align-self: center;
-  background: rgba(255, 255, 255, 0.05);
-  color: #a8bdd2;
+  background: rgba(86, 120, 190, 0.14);
+  border: 1px solid rgba(134, 162, 221, 0.16);
+  color: #deebf6;
   font-size: 1.55rem;
   line-height: 1;
   transition:
@@ -3334,7 +3336,7 @@ input[type="time"] {
 }
 
 .conversation-close-button:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(86, 120, 190, 0.24);
   transform: none;
 }
 
@@ -4423,7 +4425,7 @@ input[type="time"] {
 
 .north-composer-body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.6rem;
   align-items: end;
   width: min(100%, 78rem);
@@ -4432,13 +4434,13 @@ input[type="time"] {
 
 .composer-field {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 0.3rem;
   min-width: 0;
   padding: 0.32rem 0.5rem;
   border-radius: 1.5rem;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(86, 120, 190, 0.1);
+  border: 1px solid rgba(134, 162, 221, 0.16);
 }
 
 .composer-textarea-shell {
@@ -4463,44 +4465,44 @@ input[type="time"] {
   display: none;
 }
 
-.composer-attachment-button,
-.composer-voice-button {
-  min-width: 2.4rem;
-  min-height: 2.4rem;
+.north-workspace .composer-attachment-button,
+.north-workspace .composer-voice-button {
+  min-width: 3.15rem;
+  min-height: 3.15rem;
   padding: 0;
-  width: 2.4rem;
-  height: 2.4rem;
-  flex: 0 0 2.4rem;
+  width: 3.15rem;
+  height: 3.15rem;
+  flex: 0 0 3.15rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 999px;
   border: 0;
   background: transparent;
-  color: #8a96b4;
+  color: rgba(245, 239, 231, 0.6);
   box-shadow: none;
 }
 
 .composer-attachment-button:hover:not(:disabled),
 .composer-voice-button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
+  background: transparent;
   color: #f4fbff;
 }
 
 .composer-attachment-button svg {
-  width: 1.12rem;
-  height: 1.12rem;
+  width: 2rem;
+  height: 2rem;
 }
 
 .composer-voice-button.is-recording {
   border-color: rgba(255, 111, 111, 0.38);
-  background: rgba(97, 23, 29, 0.88);
-  color: #ffd7d7;
+  background: transparent;
+  color: #ff8f8f;
 }
 
 .composer-voice-button svg {
-  width: 1.08rem;
-  height: 1.08rem;
+  width: 2.4rem;
+  height: 2.4rem;
 }
 
 .composer-attachments {
@@ -5639,9 +5641,15 @@ input[type="time"] {
 .north-workspace .north-send-button {
   min-width: 3.15rem;
   min-height: 3.15rem;
+  width: 3.15rem;
+  height: 3.15rem;
+  flex: 0 0 3.15rem;
   padding: 0;
-  align-self: end;
-  border-radius: 1.1rem;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
   font-size: 1.2rem;
   background: linear-gradient(135deg, #5b8def, #a06bf0);
   box-shadow: 0 8px 24px rgba(123, 108, 240, 0.32);

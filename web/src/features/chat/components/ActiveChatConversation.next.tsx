@@ -1162,18 +1162,11 @@ const ConversationComposer = memo(function ConversationComposer({
           >
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <path
-                d="M7.4 12.7 14.9 5.2a3.4 3.4 0 0 1 4.8 4.8l-8.7 8.7a5 5 0 0 1-7.1-7.1l8.9-8.9"
+                d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"
                 fill="none"
                 stroke="currentColor"
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                strokeWidth="2"
-              />
-              <path
-                d="m8.9 14.1 7.6-7.6"
-                fill="none"
-                stroke="currentColor"
-                strokeLinecap="round"
                 strokeWidth="2"
               />
             </svg>
@@ -1335,19 +1328,19 @@ const ConversationComposer = memo(function ConversationComposer({
               />
             </svg>
           </button>
+          <button
+            type="submit"
+            className={`primary-button north-send-button${editingMessage ? '' : ' north-send-button--logo'}`}
+            disabled={!canSubmitComposer}
+            onMouseDown={(event) => event.preventDefault()}
+          >
+            {editingMessage ? (
+              COMPOSER_COPY.submitEditGlyph
+            ) : (
+              <img className="north-send-logo" src="/logo-glow.png?v=20260611a" alt="" aria-hidden="true" />
+            )}
+          </button>
         </div>
-        <button
-          type="submit"
-          className={`primary-button north-send-button${editingMessage ? '' : ' north-send-button--logo'}`}
-          disabled={!canSubmitComposer}
-          onMouseDown={(event) => event.preventDefault()}
-        >
-          {editingMessage ? (
-            COMPOSER_COPY.submitEditGlyph
-          ) : (
-            <img className="north-send-logo" src="/logo-glow.png?v=20260611a" alt="" aria-hidden="true" />
-          )}
-        </button>
       </div>
     </form>
   );
