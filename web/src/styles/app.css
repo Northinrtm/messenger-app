@@ -51,11 +51,31 @@ textarea::placeholder {
   position: relative;
   min-height: 100vh;
   overflow: hidden;
+  background: #070b16;
+}
+
+/* The sign-in scene as a single fixed layer behind every screen, so the
+   workspace shows the exact same background as the login screen. */
+.app-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
   background:
-    radial-gradient(52rem 44rem at 14% 8%, rgba(124, 92, 255, 0.16), transparent 58%),
-    radial-gradient(46rem 40rem at 90% 26%, rgba(56, 189, 248, 0.12), transparent 58%),
-    radial-gradient(46rem 40rem at 84% 94%, rgba(78, 120, 255, 0.12), transparent 60%),
-    radial-gradient(36rem 32rem at 2% 90%, rgba(196, 84, 224, 0.1), transparent 58%);
+    radial-gradient(46rem 40rem at 13% 16%, rgba(124, 92, 255, 0.22), transparent 70%),
+    radial-gradient(42rem 38rem at 90% 40%, rgba(56, 189, 248, 0.18), transparent 70%),
+    radial-gradient(40rem 36rem at 82% 88%, rgba(78, 120, 255, 0.18), transparent 70%),
+    radial-gradient(34rem 30rem at 6% 84%, rgba(196, 84, 224, 0.14), transparent 70%),
+    radial-gradient(64rem 52rem at 50% 50%, rgba(40, 72, 150, 0.12), transparent 75%),
+    #070b16;
+}
+
+.app-backdrop-waves {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
 
 .ambient {
@@ -96,22 +116,7 @@ textarea::placeholder {
   min-height: 100svh;
   padding: 2rem;
   overflow-y: auto;
-  background:
-    radial-gradient(46rem 40rem at 13% 16%, rgba(124, 92, 255, 0.22), transparent 70%),
-    radial-gradient(42rem 38rem at 90% 40%, rgba(56, 189, 248, 0.18), transparent 70%),
-    radial-gradient(40rem 36rem at 82% 88%, rgba(78, 120, 255, 0.18), transparent 70%),
-    radial-gradient(34rem 30rem at 6% 84%, rgba(196, 84, 224, 0.14), transparent 70%),
-    radial-gradient(64rem 52rem at 50% 50%, rgba(40, 72, 150, 0.12), transparent 75%),
-    #070b16;
-}
-
-.auth-waves {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 0;
-  pointer-events: none;
+  background: transparent;
 }
 
 .auth-card {
@@ -1665,7 +1670,7 @@ input[type="time"] {
   height: 100svh;
   margin: 0;
   padding: 0;
-  background: #0c1122;
+  background: transparent;
 }
 
 .north-workspace .north-sidebar,
@@ -1673,7 +1678,6 @@ input[type="time"] {
   border: 0;
   border-radius: 0;
   box-shadow: none;
-  backdrop-filter: none;
 }
 
 .north-workspace .north-sidebar {
@@ -1683,7 +1687,7 @@ input[type="time"] {
   height: 100%;
   padding: 0;
   overflow: hidden;
-  background: #161d30;
+  background: rgba(11, 16, 27, 0.3);
 }
 
 .north-workspace .north-sidebar::before {
@@ -1692,7 +1696,7 @@ input[type="time"] {
 
 .north-layout-divider {
   position: relative;
-  background: rgba(255, 255, 255, 0.04);
+  background: #0c1220;
   cursor: col-resize;
 }
 
@@ -1743,7 +1747,7 @@ input[type="time"] {
   gap: 0.9rem;
   align-items: center;
   padding: 1rem;
-  background: #161d30;
+  background: transparent;
 }
 
 .north-search-shell {
@@ -1811,7 +1815,7 @@ input[type="time"] {
   display: flex;
   gap: 0.45rem;
   padding: 0 1rem 0.65rem;
-  background: #161d30;
+  background: transparent;
   overflow-x: auto;
 }
 
@@ -2026,7 +2030,7 @@ input[type="time"] {
   min-height: 0;
   grid-row: 3;
   padding: 0 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
-  background: #161d30;
+  background: transparent;
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -2881,7 +2885,7 @@ input[type="time"] {
   gap: 0;
   padding: 0.3rem 0;
   overflow: auto;
-  background: #161d30;
+  background: transparent;
   align-content: start;
   grid-auto-rows: max-content;
 }
@@ -2894,7 +2898,7 @@ input[type="time"] {
 .north-sidebar-conference-dock {
   padding: 0.75rem 0.8rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid rgba(255, 255, 255, 0.06);
-  background: #161d30;
+  background: transparent;
 }
 
 .north-workspace .north-chat-tile {
@@ -3271,18 +3275,13 @@ input[type="time"] {
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   padding: 0;
   overflow: hidden;
-  background:
-    radial-gradient(58rem 50rem at 22% 2%, rgba(124, 92, 255, 0.2), transparent 55%),
-    radial-gradient(54rem 48rem at 98% 32%, rgba(56, 189, 248, 0.14), transparent 55%),
-    radial-gradient(52rem 46rem at 88% 100%, rgba(78, 120, 255, 0.15), transparent 58%),
-    radial-gradient(42rem 38rem at 0% 96%, rgba(196, 84, 224, 0.11), transparent 55%),
-    #0c1122;
+  background: transparent;
 }
 
 .north-conversation-header {
   grid-row: 1;
   padding: 0.7rem 1.2rem;
-  background: #161d30;
+  background: rgba(11, 16, 27, 0.3);
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
@@ -3391,7 +3390,7 @@ input[type="time"] {
   grid-row: 3;
   min-height: 0;
   padding: 0.85rem 1rem 1rem;
-  background: #0e1621;
+  background: transparent;
   border: 0;
   border-radius: 0;
   gap: 0.55rem;
@@ -5611,9 +5610,8 @@ input[type="time"] {
   grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
   padding: 0.9rem 1.25rem 1rem;
-  background: rgba(12, 16, 30, 0.42);
+  background: rgba(11, 16, 27, 0.32);
   border-top: 1px solid rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(12px);
 }
 
 .north-composer textarea {
@@ -5647,6 +5645,24 @@ input[type="time"] {
   font-size: 1.2rem;
   background: linear-gradient(135deg, #5b8def, #a06bf0);
   box-shadow: 0 8px 24px rgba(123, 108, 240, 0.32);
+}
+
+.north-workspace .north-send-button--logo {
+  background: transparent;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.north-workspace .north-send-button--logo:not(:disabled):hover {
+  background: rgba(123, 108, 240, 0.14);
+}
+
+.north-workspace .north-send-button .north-send-logo {
+  display: block;
+  width: 2.4rem;
+  height: 2.4rem;
+  object-fit: contain;
+  pointer-events: none;
 }
 
 .conversation-empty {

@@ -1,5 +1,6 @@
 import { Component, Suspense, lazy, useEffect, useEffectEvent, useRef, useState } from "react";
 import type { ErrorInfo, ReactNode } from "react";
+import { AppBackdrop } from "./AppBackdrop";
 import { AuthCard } from "../features/auth/AuthCard";
 import { tActive } from "../i18n";
 import { ApiError, refreshSession } from "../lib/api";
@@ -297,8 +298,7 @@ export function App() {
 
   return (
     <div className="app-shell notranslate" translate="no">
-      <div className="ambient ambient-left" />
-      <div className="ambient ambient-right" />
+      <AppBackdrop />
       {showBlockingRestore ? (
         <main className="auth-shell">
           {showSessionRestoreCard ? (

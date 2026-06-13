@@ -1338,11 +1338,15 @@ const ConversationComposer = memo(function ConversationComposer({
         </div>
         <button
           type="submit"
-          className="primary-button north-send-button"
+          className={`primary-button north-send-button${editingMessage ? '' : ' north-send-button--logo'}`}
           disabled={!canSubmitComposer}
           onMouseDown={(event) => event.preventDefault()}
         >
-          {editingMessage ? COMPOSER_COPY.submitEditGlyph : '↑'}
+          {editingMessage ? (
+            COMPOSER_COPY.submitEditGlyph
+          ) : (
+            <img className="north-send-logo" src="/logo-glow.png?v=20260611a" alt="" aria-hidden="true" />
+          )}
         </button>
       </div>
     </form>

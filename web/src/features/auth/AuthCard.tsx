@@ -429,31 +429,6 @@ export function AuthCard({
 
   return (
     <main className="auth-shell">
-      <svg
-        className="auth-waves"
-        viewBox="0 0 1440 900"
-        preserveAspectRatio="xMidYMid slice"
-        fill="none"
-        aria-hidden="true"
-      >
-        <defs>
-          <linearGradient id="auth-wave-l" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stopColor="#c64fe0" stopOpacity="0" />
-            <stop offset="0.5" stopColor="#b15cf0" stopOpacity="0.65" />
-            <stop offset="1" stopColor="#7c5cff" stopOpacity="0" />
-          </linearGradient>
-          <linearGradient id="auth-wave-r" x1="1" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="#38bdf8" stopOpacity="0" />
-            <stop offset="0.5" stopColor="#5ad1ff" stopOpacity="0.65" />
-            <stop offset="1" stopColor="#5b8cff" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        <path d="M-80 140 C 260 320 180 560 520 780" stroke="url(#auth-wave-l)" strokeWidth="2" />
-        <path d="M-60 230 C 240 420 160 650 470 900" stroke="url(#auth-wave-l)" strokeWidth="1.4" opacity="0.7" />
-        <path d="M1520 200 C 1160 360 1280 600 980 840" stroke="url(#auth-wave-r)" strokeWidth="2" />
-        <path d="M1540 320 C 1200 460 1320 700 1040 900" stroke="url(#auth-wave-r)" strokeWidth="1.4" opacity="0.7" />
-        <path d="M1500 120 C 1220 280 1340 520 1080 760" stroke="url(#auth-wave-r)" strokeWidth="1" opacity="0.5" />
-      </svg>
       <section className="auth-card">
         <img className="auth-brand-mark" src="/logo-glow.png?v=20260611a" alt={t("auth.brand")} />
         <div className="eyebrow">{t("auth.brand")}</div>
