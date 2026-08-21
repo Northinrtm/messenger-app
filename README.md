@@ -1,3 +1,5 @@
+#After June 15, project development moved to another private repository.
+
 # Messenger App
 
 Production-ready self-hosted messenger with:
